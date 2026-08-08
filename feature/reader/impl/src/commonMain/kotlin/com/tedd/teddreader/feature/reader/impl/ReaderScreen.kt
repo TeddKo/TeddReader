@@ -32,7 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -78,6 +80,8 @@ import com.tedd.teddreader.core.ui.reader.ReaderTopControls
 import com.tedd.teddreader.core.ui.system.ReaderSystemBarsEffect
 import com.tedd.teddreader.feature.reader.impl.component.ReaderActionMenu
 import com.tedd.teddreader.feature.reader.impl.component.ReaderBottomActionBar
+import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMoveRequest
+import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPager
 import com.tedd.teddreader.feature.reader.impl.pdf.PdfPageSurface
 import kotlinx.coroutines.delay
@@ -363,6 +367,14 @@ private fun ReaderContent(
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val paneCount = readerPaneCount(maxWidth.value)
+            var pageMoveRequest by remember { mutableStateOf<ReaderPageMoveRequest?>(null) }
+            var pageMoveRequestId by remember { mutableIntStateOf(0) }
+            val requestPageMove: (ReaderPageMovement) -> Unit = { movement ->
+                if (pageMoveRequest == null) {
+                    pageMoveRequestId += 1
+                    pageMoveRequest = ReaderPageMoveRequest(pageMoveRequestId, movement)
+                }
+            }
             val movePrevious: () -> Unit = {
                 val target = (uiState.pageIndex.current - paneCount).coerceAtLeast(0)
                 if (target != uiState.pageIndex.current) onGoToPage(target)
@@ -403,6 +415,10 @@ private fun ReaderContent(
                 pageStep = paneCount,
                 pageTurnMode = uiState.pageTurnMode,
                 pageAnimation = uiState.pageAnimation,
+                pageMoveRequest = pageMoveRequest,
+                onPageMoveRequestConsumed = { requestId ->
+                    if (pageMoveRequest?.id == requestId) pageMoveRequest = null
+                },
                 onPreviousPage = manualMovePrevious,
                 onNextPage = manualMoveNext,
                 onToggleControls = toggleControls,
@@ -488,11 +504,11 @@ private fun ReaderContent(
                     },
                     onPreviousPage = {
                         onAutoScrollEnabledChange(false)
-                        movePrevious()
+                        requestPageMove(ReaderPageMovement.Previous)
                     },
                     onNextPage = {
                         onAutoScrollEnabledChange(false)
-                        moveNext()
+                        requestPageMove(ReaderPageMovement.Next)
                     },
                     sliderValue = bottomSliderValue,
                     onSliderValueChange = onBottomSliderValueChange,
