@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.ui.component
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -129,6 +130,7 @@ fun TeddListItem(
     supportingText: String? = null,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.medium,
         vertical = DefaultTeddReaderSpacing.small,
@@ -142,7 +144,13 @@ fun TeddListItem(
     val rowModifier = modifier
         .fillMaxWidth()
         .run {
-            if (onClick != null) {
+            if (onLongClick != null) {
+                combinedClickable(
+                    enabled = enabled,
+                    onClick = onClick ?: {},
+                    onLongClick = onLongClick,
+                )
+            } else if (onClick != null) {
                 clickable(enabled = enabled, onClick = onClick)
             } else {
                 this

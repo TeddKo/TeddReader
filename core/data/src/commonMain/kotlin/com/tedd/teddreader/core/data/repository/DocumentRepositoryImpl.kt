@@ -72,6 +72,7 @@ class DocumentRepositoryImpl(
         importedAtEpochMillis: Long,
     ): ReaderDocument {
         val id = DocumentId(source.location.sourceUri)
+        val isBookmarked = getDocument(id)?.isBookmarked ?: false
         val format = formatDetector.detect(source.location, source.bytes)
         val document = when (format) {
             DocumentFormat.TXT -> txtDocumentParser.parse(
@@ -108,6 +109,7 @@ class DocumentRepositoryImpl(
                 pageCount = document.pageCount,
                 characterCount = document.characterCount,
                 wordCount = document.wordCount,
+                isBookmarked = isBookmarked,
             ),
             document = document,
         )

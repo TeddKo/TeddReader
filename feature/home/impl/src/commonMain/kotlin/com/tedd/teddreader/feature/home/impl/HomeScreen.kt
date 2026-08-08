@@ -12,10 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +57,8 @@ fun HomeRouteScreen(
         ),
         onOpenFileClick = onOpenFileClick,
         onDocumentClick = onDocumentClick,
+        onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
+        onDeleteDocument = viewModel::deleteDocument,
         onSortChange = viewModel::updateSort,
         onFormatFilterChange = viewModel::updateFormatFilter,
         scrollState = scrollState,
@@ -66,6 +72,8 @@ fun HomeScreen(
     onOpenFileClick: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
     scrollState: ScrollState,
+    onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit = { _, _ -> },
+    onDeleteDocument: (DocumentId) -> Unit = {},
     onSortChange: (HomeSort) -> Unit = {},
     onFormatFilterChange: (HomeFormatFilter) -> Unit = {},
     modifier: Modifier = Modifier,
@@ -77,6 +85,8 @@ fun HomeScreen(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    var actionDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingDeleteDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
 
     if (uiState.isLoading) {
         TeddFullScreenLoadingIndicator(
@@ -160,11 +170,55 @@ fun HomeScreen(
                     DocumentListItem(
                         document = document,
                         onClick = { onDocumentClick(document.id) },
+                        actionsExpanded = actionDocumentId == document.id.value,
+                        onShowActions = { actionDocumentId = document.id.value },
+                        onDismissActions = { actionDocumentId = null },
+                        onBookmarkClick = {
+                            actionDocumentId = null
+                            onDocumentBookmarkChange(document.id, !document.isBookmarked)
+                        },
+                        onDeleteClick = {
+                            actionDocumentId = null
+                            pendingDeleteDocumentId = document.id.value
+                        },
                         contentPadding = listItemPadding,
                     )
                 }
             }
         }
+    }
+
+    val pendingDeleteDocument = pendingDeleteDocumentId?.let { documentId ->
+        uiState.recentDocuments.firstOrNull { it.id.value == documentId }
+    }
+    if (pendingDeleteDocument != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteDocumentId = null },
+            title = { Text("Remove from library?") },
+            text = {
+                Text(
+                    "\"${pendingDeleteDocument.location.displayName}\" and its reading data will be removed " +
+                        "from TeddReader. The original file will stay on your device.",
+                )
+            },
+            confirmButton = {
+                TeddButton(
+                    text = "Delete",
+                    onClick = {
+                        pendingDeleteDocumentId = null
+                        onDeleteDocument(pendingDeleteDocument.id)
+                    },
+                    emphasis = TeddButtonEmphasis.Destructive,
+                )
+            },
+            dismissButton = {
+                TeddButton(
+                    text = "Cancel",
+                    onClick = { pendingDeleteDocumentId = null },
+                    emphasis = TeddButtonEmphasis.Secondary,
+                )
+            },
+        )
     }
 }
 

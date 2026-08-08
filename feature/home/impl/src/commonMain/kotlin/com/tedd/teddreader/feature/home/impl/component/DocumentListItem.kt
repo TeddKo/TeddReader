@@ -1,8 +1,10 @@
 package com.tedd.teddreader.feature.home.impl.component
 
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -14,12 +16,21 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddChip
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
+import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 
 @Composable
 fun DocumentListItem(
     document: DocumentMetadata,
     onClick: () -> Unit,
+    actionsExpanded: Boolean,
+    onShowActions: () -> Unit,
+    onDismissActions: () -> Unit,
+    onBookmarkClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.screenPadding,
@@ -31,21 +42,52 @@ fun DocumentListItem(
         modifier = modifier.fillMaxWidth(),
         supportingText = buildDocumentMeta(document),
         onClick = onClick,
+        onLongClick = onShowActions,
         contentPadding = contentPadding,
         leadingContent = {
             TeddChip(text = document.format.name)
         },
+        trailingContent = {
+            Box {
+                TeddIconButton(
+                    onClick = onShowActions,
+                    contentDescription = "Document actions",
+                ) {
+                    Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
+                }
+                TeddDropdownMenu(
+                    expanded = actionsExpanded,
+                    onDismissRequest = onDismissActions,
+                ) {
+                    TeddDropdownMenuItem(
+                        text = if (document.isBookmarked) "Remove bookmark" else "Add bookmark",
+                        onClick = onBookmarkClick,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (document.isBookmarked) {
+                                    TeddIcons.BookmarkFilled
+                                } else {
+                                    TeddIcons.BookmarkOutline
+                                },
+                                contentDescription = null,
+                            )
+                        },
+                    )
+                    TeddDropdownMenuItem(
+                        text = "Delete from library",
+                        onClick = onDeleteClick,
+                    )
+                }
+            }
+        },
     )
 }
 
-private fun buildDocumentMeta(document: DocumentMetadata): String = buildString {
-    append(document.location.sizeBytes.toReadableSize())
-    document.pageCount?.let { pageCount ->
-        append(" • ")
-        append(pageCount)
-        append(" pages")
-    }
-}
+private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
+    if (document.isBookmarked) add("Bookmarked")
+    add(document.location.sizeBytes.toReadableSize())
+    document.pageCount?.let { add("$it pages") }
+}.joinToString(" • ")
 
 private fun Long.toReadableSize(): String = when {
     this >= 1_000_000L -> "${this / 1_000_000L} MB"
@@ -70,6 +112,11 @@ private fun DocumentListItemPreview() {
                 pageCount = 120,
             ),
             onClick = {},
+            actionsExpanded = false,
+            onShowActions = {},
+            onDismissActions = {},
+            onBookmarkClick = {},
+            onDeleteClick = {},
             modifier = Modifier.padding(teddReaderSpacing().screenPadding),
         )
     }

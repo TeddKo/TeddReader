@@ -46,6 +46,7 @@ data class DocumentMetadata(
     val pageCount: Int? = null,
     val characterCount: Long? = null,
     val wordCount: Long? = null,
+    val isBookmarked: Boolean = false,
 ) {
     init {
         require(addedAtEpochMillis >= 0L) { "addedAtEpochMillis must be positive." }

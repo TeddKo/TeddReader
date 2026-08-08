@@ -57,7 +57,35 @@ class DocumentRepositoryImplTest {
         assertEquals(1, searchIndexDao.entries.size)
     }
 
+    @Test
+    fun reimportPreservesDocumentBookmark() = runTest {
+        val documentDao = FakeDocumentDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+        val source = DocumentImportSource(
+            location = DocumentLocation(
+                sourceUri = "file:///book.txt",
+                displayName = "book.txt",
+                mimeType = "text/plain",
+            ),
+            bytes = "Hello reader".encodeToByteArray(),
+        )
+        repository.importDocument(source, importedAtEpochMillis = 1_000)
+        repository.upsertDocument(
+            repository.getDocument(DocumentId(source.location.sourceUri))!!.copy(isBookmarked = true),
+        )
 
+        repository.importDocument(source, importedAtEpochMillis = 2_000)
+
+        assertEquals(true, documentDao.saved?.isBookmarked)
+    }
 
     @Test
     fun importsCp949TxtDocumentWithoutBreakingKorean() = runTest {
