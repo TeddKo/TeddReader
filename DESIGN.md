@@ -70,10 +70,10 @@
 - Placeholder/unknown destination: use a standard top bar, concise explanation, and one recovery action.
 
 ## Component contracts
-- TeddSurface/TeddScaffold/TeddTopBar: draw edge-to-edge backgrounds, consume insets exactly once, and keep app-bar backgrounds behind the status bar.
+- Destination root modifiers/TeddScaffold/TeddTopBar: draw edge-to-edge backgrounds, consume insets exactly once, and keep app-bar backgrounds behind the status bar without a visual-only wrapper.
 - TeddButton: support primary, secondary, text, and destructive emphasis; preserve a minimum 48 dp touch target; never use the same primary emphasis twice in one state.
 - TeddIconButton: production calls require a non-empty content description and a minimum 48 dp touch target. Text glyphs are replaced by shared vector resources.
-- TeddChip: selected state is visual and semantic; labels never encode selection with punctuation.
+- TeddChip: selected state is visual and semantic; labels never encode selection with punctuation; ripple stays clipped to the visible pill while Material handles the minimum touch target.
 - TeddListItem: modifier order is container size -> clickable/ripple -> internal content padding. Title/supporting text ellipsize predictably and the entire row is one coherent semantic target.
 - TeddInfoRow: use a label/value row only when both remain readable; stack at compact width or for long values.
 - TeddTextField/TeddSearchField: expose keyboard type/action, error/supporting text, focus behavior, and IME-safe scrolling.

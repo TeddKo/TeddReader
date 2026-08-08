@@ -2,6 +2,8 @@ package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -14,9 +16,12 @@ internal fun TeddPreviewSurface(
     content: @Composable () -> Unit,
 ) {
     TeddReaderTheme {
-        TeddSurface(modifier = modifier.padding(contentPadding)) {
+        Surface(
+            modifier = modifier.padding(contentPadding),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ) {
             content()
         }
     }
 }
-

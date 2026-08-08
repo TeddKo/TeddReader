@@ -5,12 +5,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -32,18 +33,26 @@ fun ReaderChromeSurface(
         color = colors.controls,
         contentColor = colors.controlsContent,
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(contentPadding),
-            ) {
-                content()
-            }
-            HorizontalDivider(
-                modifier = Modifier.align(if (dividerAtTop) Alignment.TopCenter else Alignment.BottomCenter),
-                color = colors.controlsContent.copy(alpha = 0.12f),
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    val strokeWidth = 1.dp.toPx()
+                    val y = if (dividerAtTop) {
+                        strokeWidth / 2f
+                    } else {
+                        size.height - strokeWidth / 2f
+                    }
+                    drawLine(
+                        color = colors.controlsContent.copy(alpha = 0.12f),
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = strokeWidth,
+                    )
+                }
+                .padding(contentPadding),
+        ) {
+            content()
         }
     }
 }

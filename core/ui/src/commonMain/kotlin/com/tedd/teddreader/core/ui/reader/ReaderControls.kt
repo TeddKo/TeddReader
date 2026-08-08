@@ -123,15 +123,13 @@ fun ReaderBottomControls(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
+                        horizontalArrangement = Arrangement.spacedBy(
+                            spacing.xxSmall,
+                            Alignment.End,
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            actions()
-                        }
+                        actions()
                     }
                 }
             } else {

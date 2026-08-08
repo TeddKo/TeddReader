@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -16,7 +17,6 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddChip
-import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
@@ -57,7 +57,7 @@ fun DocumentListItem(
                 ) {
                     Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
                 }
-                TeddDropdownMenu(
+                DropdownMenu(
                     expanded = actionsExpanded,
                     onDismissRequest = onDismissActions,
                 ) {

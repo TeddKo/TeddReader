@@ -2,11 +2,10 @@ package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,7 +15,8 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -24,9 +24,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -41,14 +46,17 @@ fun TeddCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    Surface(
-        modifier = modifier,
-        shape = teddReaderShapes().medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    val shape = teddReaderShapes().medium
+
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape),
     ) {
-        content()
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            content()
+        }
     }
 }
 
@@ -74,39 +82,17 @@ fun TeddChip(
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val shape = RoundedCornerShape(percent = 50)
 
     if (onClick != null) {
-        Box(
-            modifier = modifier
-                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                .selectable(
-                    selected = selected,
-                    enabled = enabled,
-                    role = Role.Button,
-                    onClick = onClick,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50),
-                color = backgroundColor,
-                contentColor = contentColor,
-                tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {
-                Text(
-                    text = text,
-                    modifier = Modifier.padding(contentPadding),
-                    style = teddReaderTypography().labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    } else {
         Surface(
-            modifier = if (selected) modifier.semantics { this.selected = true } else modifier,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50),
+            selected = selected,
+            onClick = onClick,
+            modifier = modifier.semantics {
+                role = Role.Button
+            },
+            enabled = enabled,
+            shape = shape,
             color = backgroundColor,
             contentColor = contentColor,
             tonalElevation = 0.dp,
@@ -120,6 +106,19 @@ fun TeddChip(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    } else {
+        Text(
+            text = text,
+            modifier = (if (selected) modifier.semantics { this.selected = true } else modifier)
+                .clip(shape)
+                .background(backgroundColor)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+                .padding(contentPadding),
+            color = contentColor,
+            style = teddReaderTypography().labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -141,8 +140,10 @@ fun TeddListItem(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val rowModifier = modifier
         .fillMaxWidth()
+        .heightIn(min = 56.dp)
         .run {
             if (onLongClick != null) {
                 combinedClickable(
@@ -157,43 +158,45 @@ fun TeddListItem(
             }
         }
 
-    Column(
-        modifier = rowModifier,
+    Row(
+        modifier = if (showDivider) {
+            rowModifier
+                .drawBehind {
+                    val strokeWidth = 1.dp.toPx()
+                    val y = size.height - strokeWidth / 2f
+                    drawLine(
+                        color = dividerColor,
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = strokeWidth,
+                    )
+                }
+                .padding(contentPadding)
+        } else {
+            rowModifier.padding(contentPadding)
+        },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 56.dp)
-                .padding(contentPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.small),
-        ) {
-            leadingContent?.invoke(this)
-            Column(modifier = Modifier.weight(1f)) {
+        leadingContent?.invoke(this)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = typography.settingTitle,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (supportingText != null) {
                 Text(
-                    text = title,
-                    style = typography.settingTitle,
+                    text = supportingText,
+                    style = typography.settingDescription,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (supportingText != null) {
-                    Text(
-                        text = supportingText,
-                        style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
-            trailingContent?.invoke(this)
         }
-        if (showDivider) {
-            HorizontalDivider(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.outlineVariant,
-            )
-        }
+        trailingContent?.invoke(this)
     }
 }
 
@@ -230,16 +233,16 @@ fun TeddErrorBanner(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = teddReaderShapes().small,
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
-    ) {
+    val shape = teddReaderShapes().small
+
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onErrorContainer) {
         Column(
-            modifier = Modifier.padding(contentPadding),
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.errorContainer)
+                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)), shape)
+                .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             Text(text = message, style = typography.settingTitle)
@@ -338,18 +341,12 @@ fun TeddTopBar(
     ),
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface),
-        color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 0.dp,
-    ) {
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .heightIn(min = 56.dp)
+                .background(MaterialTheme.colorScheme.surface)
                 .padding(contentPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(teddReaderSpacing().small),
