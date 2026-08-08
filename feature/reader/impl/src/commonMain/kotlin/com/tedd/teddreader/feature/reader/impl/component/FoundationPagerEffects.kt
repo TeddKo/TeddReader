@@ -61,27 +61,14 @@ internal fun FoundationEffectPager(
     pageStep: Int,
     pageTurnMode: PageTurnMode,
     pageAnimation: PageAnimation,
+    pageMoveRequest: ReaderPageMoveRequest?,
+    onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
-    if (pageAnimation == PageAnimation.FLUID_PAGER) {
-        FoundationPagerFluidReferenceImpl(
-            pageKey = pageKey,
-            pageCount = pageCount,
-            pageStep = pageStep,
-            pageTurnMode = pageTurnMode,
-            onPreviousPage = onPreviousPage,
-            onNextPage = onNextPage,
-            onToggleControls = onToggleControls,
-            modifier = modifier,
-            content = content,
-        )
-        return
-    }
-
     val pagerState = rememberPagerState(
         initialPage = FoundationCenterPage,
         pageCount = { FoundationPagerPageCount },
@@ -97,6 +84,18 @@ internal fun FoundationEffectPager(
     val coroutineScope = rememberCoroutineScope()
     val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
     val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    LaunchedEffect(pageMoveRequest?.id) {
+        val request = pageMoveRequest ?: return@LaunchedEffect
+        try {
+            val targetPagerPage = when (request.movement) {
+                ReaderPageMovement.Previous -> FoundationPreviousPage.takeIf { previousPage != null }
+                ReaderPageMovement.Next -> FoundationNextPage.takeIf { nextPage != null }
+            }
+            if (targetPagerPage != null) pagerState.animateScrollToPage(targetPagerPage)
+        } finally {
+            onPageMoveRequestConsumed(request.id)
+        }
+    }
 
     LaunchedEffect(pageKey, pageCount, pageStep) {
         fluidEdge.reset()
@@ -259,6 +258,8 @@ internal fun FoundationCurlPager(
     pageCount: Int,
     pageStep: Int,
     pageTurnMode: PageTurnMode,
+    pageMoveRequest: ReaderPageMoveRequest?,
+    onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
@@ -270,6 +271,8 @@ internal fun FoundationCurlPager(
         pageCount = pageCount,
         pageStep = pageStep,
         pageTurnMode = pageTurnMode,
+        pageMoveRequest = pageMoveRequest,
+        onPageMoveRequestConsumed = onPageMoveRequestConsumed,
         onPreviousPage = onPreviousPage,
         onNextPage = onNextPage,
         onToggleControls = onToggleControls,

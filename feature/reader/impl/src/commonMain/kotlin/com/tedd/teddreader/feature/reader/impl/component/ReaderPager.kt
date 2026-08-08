@@ -67,12 +67,14 @@ import kotlin.math.min
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
-fun ReaderPager(
+internal fun ReaderPager(
     pageKey: Int,
     pageCount: Int,
     pageStep: Int = 1,
     pageTurnMode: PageTurnMode,
     pageAnimation: PageAnimation,
+    pageMoveRequest: ReaderPageMoveRequest?,
+    onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
@@ -86,6 +88,8 @@ fun ReaderPager(
                 pageCount = pageCount,
                 pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
+                pageMoveRequest = pageMoveRequest,
+                onPageMoveRequestConsumed = onPageMoveRequestConsumed,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
@@ -106,6 +110,8 @@ fun ReaderPager(
                 pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
                 pageAnimation = pageAnimation,
+                pageMoveRequest = pageMoveRequest,
+                onPageMoveRequestConsumed = onPageMoveRequestConsumed,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
@@ -121,6 +127,8 @@ fun ReaderPager(
                 pageCount = pageCount,
                 pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
+                pageMoveRequest = pageMoveRequest,
+                onPageMoveRequestConsumed = onPageMoveRequestConsumed,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
@@ -131,6 +139,20 @@ fun ReaderPager(
         }
 
         else -> Unit
+    }
+
+    LaunchedEffect(pageMoveRequest?.id) {
+        val request = pageMoveRequest ?: return@LaunchedEffect
+        try {
+            if (readerPagerRequestedPage(pageKey, pageCount, pageStep, request.movement) != null) {
+                when (request.movement) {
+                    ReaderPageMovement.Previous -> onPreviousPage()
+                    ReaderPageMovement.Next -> onNextPage()
+                }
+            }
+        } finally {
+            onPageMoveRequestConsumed(request.id)
+        }
     }
 
     Box(
@@ -177,6 +199,8 @@ private fun ReaderScrollPager(
     pageCount: Int,
     pageStep: Int,
     pageTurnMode: PageTurnMode,
+    pageMoveRequest: ReaderPageMoveRequest?,
+    onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
@@ -191,6 +215,18 @@ private fun ReaderScrollPager(
     }
     val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
     val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    LaunchedEffect(pageMoveRequest?.id) {
+        val request = pageMoveRequest ?: return@LaunchedEffect
+        try {
+            val targetIndex = when (request.movement) {
+                ReaderPageMovement.Previous -> 0.takeIf { previousPage != null }
+                ReaderPageMovement.Next -> 2.takeIf { nextPage != null }
+            }
+            if (targetIndex != null) listState.animateScrollToItem(targetIndex)
+        } finally {
+            onPageMoveRequestConsumed(request.id)
+        }
+    }
     LaunchedEffect(listState, pageKey, pageCount, pageStep) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
             .filter { (_, isScrollInProgress) -> !isScrollInProgress }
@@ -1027,6 +1063,23 @@ internal fun readerPagerAdjacentPage(
         currentPage + step
     }
     return target.takeIf { it != currentPage }
+}
+
+internal fun readerPagerRequestedPage(
+    currentPage: Int,
+    pageCount: Int,
+    pageStep: Int,
+    movement: ReaderPageMovement,
+): Int? = readerPagerAdjacentPage(currentPage, pageCount, pageStep, movement.pageOffset)
+
+internal data class ReaderPageMoveRequest(
+    val id: Int,
+    val movement: ReaderPageMovement,
+)
+
+internal enum class ReaderPageMovement(val pageOffset: Int) {
+    Previous(-1),
+    Next(1),
 }
 
 private val ScrollPageOffsets = listOf(-1, 0, 1)

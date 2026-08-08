@@ -65,6 +65,8 @@ internal fun FoundationPagerCurlReferenceImpl(
     pageCount: Int,
     pageStep: Int,
     pageTurnMode: PageTurnMode,
+    pageMoveRequest: ReaderPageMoveRequest?,
+    onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
@@ -121,7 +123,10 @@ internal fun FoundationPagerCurlReferenceImpl(
             }
         }
 
-        fun animateTap(direction: FoundationReferenceCurlDirection) {
+        fun animateTap(
+            direction: FoundationReferenceCurlDirection,
+            onFinished: () -> Unit = {},
+        ) {
             animationJob?.cancel()
             animationJob = scope.launch {
                 val edge = if (direction == FoundationReferenceCurlDirection.Forward) forwardEdge else backwardEdge
@@ -131,16 +136,19 @@ internal fun FoundationPagerCurlReferenceImpl(
                 } else {
                     FoundationReferenceCurlEdge.end(canonicalSize)
                 }
+                var completed = false
                 try {
                     reset()
                     edge.animateTo(
                         targetValue = end,
                         animationSpec = foundationReferenceTapSpec(direction, canonicalSize),
                     )
+                    completed = true
                 } finally {
-                    complete(direction)
+                    if (completed) complete(direction)
                     edge.snapTo(start)
                     pagerState.scrollToPage(FoundationReferenceCenterPage)
+                    onFinished()
                 }
             }
         }
@@ -153,6 +161,18 @@ internal fun FoundationPagerCurlReferenceImpl(
         val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
         val canGoBackward = previousPage != null
         val canGoForward = nextPage != null
+        LaunchedEffect(pageMoveRequest?.id) {
+            val request = pageMoveRequest ?: return@LaunchedEffect
+            val direction = when (request.movement) {
+                ReaderPageMovement.Previous -> FoundationReferenceCurlDirection.Backward.takeIf { canGoBackward }
+                ReaderPageMovement.Next -> FoundationReferenceCurlDirection.Forward.takeIf { canGoForward }
+            }
+            if (direction == null) {
+                onPageMoveRequestConsumed(request.id)
+            } else {
+                animateTap(direction) { onPageMoveRequestConsumed(request.id) }
+            }
+        }
         val dragModifier = Modifier.pointerInput(
             forwardEdge,
             backwardEdge,
