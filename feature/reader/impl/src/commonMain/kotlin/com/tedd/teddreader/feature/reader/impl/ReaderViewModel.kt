@@ -27,10 +27,12 @@ import com.tedd.teddreader.core.domain.usecase.SaveReadingProgressUseCase
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
+import kotlin.time.Clock
 
 @KoinViewModel
 class ReaderViewModel(
@@ -47,11 +49,14 @@ class ReaderViewModel(
     private var currentPageWindows: List<PageWindow> = emptyList()
     private var viewportSize: ViewportSize = DefaultViewportSize
     private var viewportReloadJob: Job? = null
+    private var savedPlaces: List<Bookmark> = emptyList()
+    private var savedPlacesJob: Job? = null
 
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
         if (currentDocumentId == documentId) return
         currentDocumentId = documentId
+        observeSavedPlaces(documentId)
 
         viewModelScope.launch {
             runCatching {
@@ -130,6 +135,8 @@ class ReaderViewModel(
                     autoScrollConfig = settings.autoScrollConfig,
                     outlineItems = outlineItems,
                     isPdfMode = isPdfMode,
+                    isFavorite = metadata?.isBookmarked == true,
+                    isCurrentPageSaved = isPageSaved(pageIndex, isPdfMode),
                     isControlsVisible = true,
                     isLoading = false,
                 )
@@ -168,24 +175,47 @@ class ReaderViewModel(
         _uiState.update { state -> state.copy(activeSheet = null) }
     }
 
-    fun toggleBookmark() {
+    fun toggleFavorite() {
+        val documentId = currentDocumentId ?: return
+        val wasFavorite = _uiState.value.isFavorite
+        _uiState.update { it.copy(isFavorite = !wasFavorite) }
+        viewModelScope.launch {
+            runCatching {
+                val document = requireNotNull(documentRepository.getDocument(documentId))
+                documentRepository.upsertDocument(document.copy(isBookmarked = !wasFavorite))
+            }.onFailure {
+                if (currentDocumentId == documentId) {
+                    _uiState.update { it.copy(isFavorite = wasFavorite) }
+                }
+            }
+        }
+    }
+
+    fun toggleSavedPlace() {
         val documentId = currentDocumentId ?: return
         val pageIndex = _uiState.value.pageIndex
-        val bookmarkId = "${documentId.value}:${pageIndex.current}"
+        val location = currentLocation(pageIndex)
+        val existing = savedPlaces.firstOrNull { it.location == location }
+        val savedPlace = Bookmark(
+            id = "${documentId.value}:${location.asStorageString()}",
+            documentId = documentId,
+            location = location,
+            label = "Page ${pageIndex.current + 1}",
+            createdAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+        )
+
+        savedPlaces = if (existing == null) savedPlaces + savedPlace else savedPlaces - existing
+        _uiState.update { it.copy(isCurrentPageSaved = existing == null) }
         viewModelScope.launch {
-            val existing = bookmarkRepository.getBookmark(bookmarkId)
-            if (existing == null) {
-                bookmarkRepository.saveBookmark(
-                    Bookmark(
-                        id = bookmarkId,
-                        documentId = documentId,
-                        location = currentLocation(pageIndex),
-                        label = "Page ${pageIndex.current + 1}",
-                        createdAtEpochMillis = 0L,
-                    ),
-                )
-            } else {
-                bookmarkRepository.deleteBookmark(bookmarkId)
+            runCatching {
+                if (existing == null) {
+                    bookmarkRepository.saveBookmark(savedPlace)
+                } else {
+                    bookmarkRepository.deleteBookmark(existing.id)
+                }
+            }.onFailure {
+                savedPlaces = if (existing == null) savedPlaces - savedPlace else savedPlaces + existing
+                updateSavedPlaceState()
             }
         }
     }
@@ -408,6 +438,7 @@ class ReaderViewModel(
                     documentUri = it.documentUri,
                     isPdfMode = it.isPdfMode,
                 ),
+                isCurrentPageSaved = isPageSaved(nextIndex, it.isPdfMode),
             )
         }
         saveProgress(nextIndex)
@@ -459,6 +490,7 @@ class ReaderViewModel(
                     isPdfMode = false,
                     pageWindows = pageWindows,
                 ),
+                isCurrentPageSaved = isPageSaved(pageIndex, false),
             )
         }
     }
@@ -477,8 +509,31 @@ class ReaderViewModel(
         }
     }
 
-    private fun currentLocation(pageIndex: PageIndex): ReaderLocation {
-        if (_uiState.value.isPdfMode) {
+    private fun observeSavedPlaces(documentId: DocumentId) {
+        savedPlacesJob?.cancel()
+        savedPlaces = emptyList()
+        savedPlacesJob = viewModelScope.launch {
+            bookmarkRepository.observeBookmarks(documentId).collect { bookmarks ->
+                savedPlaces = bookmarks
+                updateSavedPlaceState()
+            }
+        }
+    }
+
+    private fun updateSavedPlaceState() {
+        _uiState.update { state ->
+            state.copy(isCurrentPageSaved = isPageSaved(state.pageIndex, state.isPdfMode))
+        }
+    }
+
+    private fun isPageSaved(pageIndex: PageIndex, isPdfMode: Boolean): Boolean =
+        savedPlaces.any { it.location == currentLocation(pageIndex, isPdfMode) }
+
+    private fun currentLocation(
+        pageIndex: PageIndex,
+        isPdfMode: Boolean = _uiState.value.isPdfMode,
+    ): ReaderLocation {
+        if (isPdfMode) {
             return ReaderLocation.PdfPage(pageIndex.current)
         }
 

@@ -32,6 +32,7 @@ fun DocumentListItem(
     onBookmarkClick: () -> Unit,
     onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showDivider: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.screenPadding,
         vertical = DefaultTeddReaderSpacing.small,
@@ -43,6 +44,7 @@ fun DocumentListItem(
         supportingText = buildDocumentMeta(document),
         onClick = onClick,
         onLongClick = onShowActions,
+        showDivider = showDivider,
         contentPadding = contentPadding,
         leadingContent = {
             TeddChip(text = document.format.name)
@@ -60,7 +62,7 @@ fun DocumentListItem(
                     onDismissRequest = onDismissActions,
                 ) {
                     TeddDropdownMenuItem(
-                        text = if (document.isBookmarked) "Remove bookmark" else "Add bookmark",
+                        text = if (document.isBookmarked) "Remove from favorites" else "Add to favorites",
                         onClick = onBookmarkClick,
                         leadingIcon = {
                             Icon(
@@ -84,7 +86,6 @@ fun DocumentListItem(
 }
 
 private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
-    if (document.isBookmarked) add("Bookmarked")
     add(document.location.sizeBytes.toReadableSize())
     document.pageCount?.let { add("$it pages") }
 }.joinToString(" • ")

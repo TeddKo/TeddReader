@@ -29,10 +29,12 @@ class HomeViewModel(
         },
         controls,
     ) { documents, controls ->
+        val visibleDocuments = documents
+            .filterBy(controls.formatFilter)
+            .sortBy(controls.sort)
         HomeUiState(
-            recentDocuments = documents
-                .filterBy(controls.formatFilter)
-                .sortBy(controls.sort),
+            favoriteDocuments = visibleDocuments.filter { it.isBookmarked },
+            recentDocuments = visibleDocuments.filterNot { it.isBookmarked },
             hasDocuments = documents.isNotEmpty(),
             sort = controls.sort,
             formatFilter = controls.formatFilter,

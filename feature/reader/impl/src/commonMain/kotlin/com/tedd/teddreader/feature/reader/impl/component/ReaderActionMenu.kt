@@ -22,6 +22,7 @@ import com.tedd.teddreader.feature.reader.impl.ReaderMenuAction
 @Composable
 fun ReaderActionMenu(
     expanded: Boolean,
+    isCurrentPageSaved: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onActionSelected: (ReaderMenuAction) -> Unit,
     modifier: Modifier = Modifier,
@@ -42,10 +43,11 @@ fun ReaderActionMenu(
                 actions = listOf(
                     ReaderMenuAction.TableOfContents,
                     ReaderMenuAction.GoToPage,
-                    ReaderMenuAction.Bookmark,
+                    ReaderMenuAction.SavedPlaces,
                     ReaderMenuAction.Search,
                     ReaderMenuAction.DocumentInfo,
                 ),
+                isCurrentPageSaved = isCurrentPageSaved,
                 onActionSelected = onActionSelected,
                 onDismiss = { onExpandedChange(false) },
             )
@@ -66,9 +68,11 @@ fun ReaderActionMenu(
             ReaderMenuSection(
                 title = "Reading tools",
                 actions = listOf(
+                    ReaderMenuAction.ToggleSavedPlace,
                     ReaderMenuAction.PageTurnOptions,
                     ReaderMenuAction.AutoScrollOptions,
                 ),
+                isCurrentPageSaved = isCurrentPageSaved,
                 onActionSelected = onActionSelected,
                 onDismiss = { onExpandedChange(false) },
             )
@@ -80,6 +84,7 @@ fun ReaderActionMenu(
 private fun ReaderMenuSection(
     title: String,
     actions: List<ReaderMenuAction>,
+    isCurrentPageSaved: Boolean = false,
     onActionSelected: (ReaderMenuAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -99,7 +104,7 @@ private fun ReaderMenuSection(
         )
         actions.forEach { action ->
             TeddDropdownMenuItem(
-                text = action.label,
+                text = action.label(isCurrentPageSaved),
                 onClick = {
                     onDismiss()
                     onActionSelected(action)
@@ -109,21 +114,21 @@ private fun ReaderMenuSection(
     }
 }
 
-private val ReaderMenuAction.label: String
-    get() = when (this) {
-        ReaderMenuAction.Search -> "Search in document"
-        ReaderMenuAction.Bookmark -> "Bookmarks"
-        ReaderMenuAction.TableOfContents -> "Table of contents"
-        ReaderMenuAction.GoToPage -> "Jump to page"
-        ReaderMenuAction.ViewOptions -> "Display"
-        ReaderMenuAction.FontOptions -> "Typography"
-        ReaderMenuAction.ThemeOptions -> "Theme"
-        ReaderMenuAction.PageTurnOptions -> "Page movement"
-        ReaderMenuAction.AutoScrollOptions -> "Auto-scroll"
-        ReaderMenuAction.BrightnessOptions -> "Brightness"
-        ReaderMenuAction.ControlOptions -> "Bottom bar"
-        ReaderMenuAction.DocumentInfo -> "Document details"
-    }
+private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (this) {
+    ReaderMenuAction.Search -> "Search in document"
+    ReaderMenuAction.ToggleSavedPlace -> if (isCurrentPageSaved) "Remove saved place" else "Save current page"
+    ReaderMenuAction.SavedPlaces -> "Saved places"
+    ReaderMenuAction.TableOfContents -> "Table of contents"
+    ReaderMenuAction.GoToPage -> "Jump to page"
+    ReaderMenuAction.ViewOptions -> "Display"
+    ReaderMenuAction.FontOptions -> "Typography"
+    ReaderMenuAction.ThemeOptions -> "Theme"
+    ReaderMenuAction.PageTurnOptions -> "Page movement"
+    ReaderMenuAction.AutoScrollOptions -> "Auto-scroll"
+    ReaderMenuAction.BrightnessOptions -> "Brightness"
+    ReaderMenuAction.ControlOptions -> "Bottom bar"
+    ReaderMenuAction.DocumentInfo -> "Document details"
+}
 
 @Preview
 @Composable
@@ -131,6 +136,7 @@ private fun ReaderActionMenuPreview() {
     TeddReaderTheme {
         ReaderActionMenu(
             expanded = false,
+            isCurrentPageSaved = false,
             onExpandedChange = {},
             onActionSelected = {},
         )

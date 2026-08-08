@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -42,7 +43,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun bookmarkChangeUpdatesRecentDocument() = runTest {
+    fun bookmarkChangeMovesDocumentToFavorites() = runTest {
         val repository = FakeDocumentRepository()
         val viewModel = HomeViewModel(repository)
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
@@ -51,7 +52,8 @@ class HomeViewModelTest {
         viewModel.setDocumentBookmarked(repository.documentId, true)
         advanceUntilIdle()
 
-        assertTrue(viewModel.uiState.value.recentDocuments.single().isBookmarked)
+        assertTrue(viewModel.uiState.value.favoriteDocuments.single().isBookmarked)
+        assertEquals(emptyList(), viewModel.uiState.value.recentDocuments)
     }
 
     @Test

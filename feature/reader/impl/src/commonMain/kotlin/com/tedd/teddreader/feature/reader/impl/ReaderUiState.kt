@@ -41,5 +41,7 @@ data class ReaderUiState(
     val fullscreen: Boolean = false,
     val showProgress: Boolean = true,
     val isPdfMode: Boolean = false,
+    val isFavorite: Boolean = false,
+    val isCurrentPageSaved: Boolean = false,
     val isSavingSettings: Boolean = false,
 )
