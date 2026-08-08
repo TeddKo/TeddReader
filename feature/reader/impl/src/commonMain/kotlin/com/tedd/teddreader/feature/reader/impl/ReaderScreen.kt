@@ -457,14 +457,6 @@ private fun ReaderContent(
                 }
             }
 
-            if (uiState.brightnessOverlayAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
-                )
-            }
-
             if (uiState.isControlsVisible) {
                 ReaderTopControls(
                     title = uiState.documentTitle,
@@ -518,6 +510,14 @@ private fun ReaderContent(
                         totalPages = uiState.pageIndex.total,
                         paneCount = paneCount,
                     ) != null,
+                )
+            }
+
+            if (uiState.brightnessOverlayAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
                 )
             }
         }
