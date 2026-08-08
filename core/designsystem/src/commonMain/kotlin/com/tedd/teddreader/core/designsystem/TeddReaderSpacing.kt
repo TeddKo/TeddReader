@@ -7,7 +7,7 @@ import androidx.compose.ui.unit.dp
 @Immutable
 data class TeddReaderSpacing(
     val none: Dp = 0.dp,
-    val xxSmall: Dp = 2.dp,
+    val xxSmall: Dp = 4.dp,
     val xSmall: Dp = 4.dp,
     val small: Dp = 8.dp,
     val medium: Dp = 16.dp,

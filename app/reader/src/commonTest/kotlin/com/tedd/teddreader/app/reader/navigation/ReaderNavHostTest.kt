@@ -1,0 +1,27 @@
+package com.tedd.teddreader.app.reader.navigation
+
+import com.tedd.teddreader.feature.bookmarks.api.BookmarksRoute
+import com.tedd.teddreader.feature.document_info.api.DocumentInfoRoute
+import com.tedd.teddreader.feature.home.api.HomeRoute
+import com.tedd.teddreader.feature.reader.api.ReaderRoute
+import com.tedd.teddreader.feature.search.api.SearchRoute
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class ReaderNavHostTest {
+    @Test
+    fun navigationKeysRoundTripThroughStorageTokens() {
+        val documentId = "content://books.example/library:volume/7?chapter=part:2"
+        val keys = listOf(
+            HomeRoute,
+            ReaderRoute(documentId),
+            SearchRoute(documentId),
+            BookmarksRoute(documentId),
+            DocumentInfoRoute(documentId),
+        )
+
+        keys.forEach { key ->
+            assertEquals(key, storageTokenToNavKey(navKeyToStorageToken(key)))
+        }
+    }
+}

@@ -23,7 +23,7 @@ class TextPageLayoutEngine {
         val layout = pageLayout(style, viewportSize)
         val ranges = splitPageRanges(
             text = fullText,
-            charsPerLine = layout.charsPerLine,
+            widthUnitsPerLine = layout.widthUnitsPerLine,
             linesPerPage = layout.linesPerPage,
         )
 
@@ -41,14 +41,14 @@ class TextPageLayoutEngine {
         val charWidth = style.fontSizeSp.coerceAtLeast(1f)
         val lineHeight = (style.fontSizeSp * style.lineHeightMultiplier).coerceAtLeast(1f)
         return PageLayout(
-            charsPerLine = (viewportSize.widthPx / charWidth).toInt().coerceAtLeast(1),
+            widthUnitsPerLine = (viewportSize.widthPx * 2f / charWidth).toInt().coerceAtLeast(2),
             linesPerPage = (viewportSize.heightPx / lineHeight).toInt().coerceAtLeast(1),
         )
     }
 
     private fun splitPageRanges(
         text: String,
-        charsPerLine: Int,
+        widthUnitsPerLine: Int,
         linesPerPage: Int,
     ): List<TextRange> {
         val ranges = mutableListOf<TextRange>()
@@ -56,35 +56,28 @@ class TextPageLayoutEngine {
         while (start < text.length) {
             var index = start
             var usedLines = 0
+            var usedWidthUnits = 0
             var end = start
 
             while (index < text.length && usedLines < linesPerPage) {
-                val newline = text.indexOf('\n', startIndex = index).takeIf { it >= 0 } ?: text.length
-                val lineEnd = newline
-                val lineChars = lineEnd - index
-
-                if (lineChars == 0) {
+                val char = text[index]
+                if (char == '\n') {
                     usedLines += 1
-                    index = (newline + 1).coerceAtMost(text.length)
+                    usedWidthUnits = 0
+                    index += 1
                     end = index
                     continue
                 }
 
-                val remainingLines = linesPerPage - usedLines
-                val maxChars = charsPerLine * remainingLines
-                if (lineChars > maxChars) {
-                    end = index + maxChars
-                    index = end
-                    break
+                val widthUnits = char.widthUnits()
+                if (usedWidthUnits + widthUnits > widthUnitsPerLine) {
+                    usedLines += 1
+                    usedWidthUnits = 0
+                    if (usedLines >= linesPerPage) break
                 }
-
-                usedLines += visualLineCount(lineChars, charsPerLine)
-                index = lineEnd
+                usedWidthUnits += widthUnits
+                index += 1
                 end = index
-                if (newline < text.length) {
-                    index = newline + 1
-                    end = index
-                }
             }
 
             if (end <= start) end = (start + 1).coerceAtMost(text.length)
@@ -94,8 +87,23 @@ class TextPageLayoutEngine {
         return ranges
     }
 
-    private fun visualLineCount(charCount: Int, charsPerLine: Int): Int =
-        ((charCount + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
+    // ponytail: 2:1 width units; use measured text layout only for font-accurate pagination.
+    private fun Char.widthUnits(): Int = if (isWideGlyph()) 2 else 1
+
+    private fun Char.isWideGlyph(): Boolean = this in '\u1100'..'\u11FF' ||
+        this in '\u2E80'..'\u303F' ||
+        this in '\u3040'..'\u30FF' ||
+        this in '\u3100'..'\u312F' ||
+        this in '\u3130'..'\u318F' ||
+        this in '\u31A0'..'\u31EF' ||
+        this in '\u31F0'..'\u4DBF' ||
+        this in '\u4E00'..'\u9FFF' ||
+        this in '\uA960'..'\uA97F' ||
+        this in '\uAC00'..'\uD7FF' ||
+        this in '\uF900'..'\uFAFF' ||
+        this in '\uFE30'..'\uFE4F' ||
+        this in '\uFF01'..'\uFF60' ||
+        this in '\uFFE0'..'\uFFE6'
 
     private fun locationFor(document: ReaderDocument, offset: Long): ReaderLocation =
         when (document.format) {
@@ -111,6 +119,6 @@ class TextPageLayoutEngine {
 }
 
 private data class PageLayout(
-    val charsPerLine: Int,
+    val widthUnitsPerLine: Int,
     val linesPerPage: Int,
 )

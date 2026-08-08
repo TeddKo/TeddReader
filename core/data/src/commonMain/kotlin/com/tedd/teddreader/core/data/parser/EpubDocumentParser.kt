@@ -24,17 +24,18 @@ class EpubDocumentParser {
         title: String,
         bytes: ByteArray,
     ): ReaderDocument {
+        val fileSystem = systemFileSystem()
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "${id.value.replace('/', '_')}.epub"
-        val sink = FileSystem.SYSTEM.sink(path).buffer()
+        val sink = fileSystem.sink(path).buffer()
         try {
             sink.write(bytes)
         } finally {
             sink.close()
         }
         return try {
-            parse(id = id, title = title, path = path)
+            parse(id = id, title = title, path = path, fileSystem = fileSystem)
         } finally {
-            FileSystem.SYSTEM.delete(path)
+            fileSystem.delete(path)
         }
     }
 
@@ -42,7 +43,7 @@ class EpubDocumentParser {
         id: DocumentId,
         title: String,
         path: Path,
-        fileSystem: FileSystem = FileSystem.SYSTEM,
+        fileSystem: FileSystem = systemFileSystem(),
     ): ReaderDocument {
         val zip = fileSystem.openZip(path)
         val opfPath = zip.readUtf8OrNull("META-INF/container.xml".toPath())
@@ -143,8 +144,8 @@ private fun parseAttributes(tag: String): Map<String, String> =
         .associate { match -> match.groupValues[1] to match.groupValues[2] }
 
 private fun String.toReadableText(): String = this
-    .replace(Regex("""<script\b[^>]*>.*?</script>""", RegexOption.DOT_MATCHES_ALL), " ")
-    .replace(Regex("""<style\b[^>]*>.*?</style>""", RegexOption.DOT_MATCHES_ALL), " ")
+    .replace(Regex("""(?s)<script\b[^>]*>.*?</script>"""), " ")
+    .replace(Regex("""(?s)<style\b[^>]*>.*?</style>"""), " ")
     .replace(Regex("""<[^>]+>"""), " ")
     .replace("&nbsp;", " ")
     .replace("&amp;", "&")

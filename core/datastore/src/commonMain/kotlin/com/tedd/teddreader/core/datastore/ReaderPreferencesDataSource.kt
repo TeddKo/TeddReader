@@ -34,10 +34,11 @@ class ReaderPreferencesDataSource(
 }
 
 fun createReaderPreferencesDataStore(
+    fileSystem: FileSystem,
     producePath: () -> Path,
 ): DataStore<ReaderPreferences> = DataStoreFactory.create(
     storage = OkioStorage(
-        fileSystem = FileSystem.SYSTEM,
+        fileSystem = fileSystem,
         serializer = ReaderPreferencesSerializer,
         producePath = producePath,
     ),

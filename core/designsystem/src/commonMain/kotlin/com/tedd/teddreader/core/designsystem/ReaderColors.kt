@@ -27,11 +27,11 @@ data class ReaderColors(
 val LightReaderColors = ReaderColors(
     text = ReaderColor(ReaderLightTextArgb).toColor(),
     background = ReaderColor(ReaderLightBackgroundArgb).toColor(),
-    controls = PaperCream.copy(alpha = 0.97f),
+    controls = PaperWarm.copy(alpha = 0.97f),
     controlsContent = Color(0xFF1F1F1F),
-    selection = InkIndigo.copy(alpha = 0.40f),
-    highlight = BookmarkAmber.copy(alpha = 0.40f),
-    bookmark = SepiaCopper,
+    selection = SageMuted.copy(alpha = 0.40f),
+    highlight = ClayPrimary.copy(alpha = 0.40f),
+    bookmark = ClayPrimary,
     divider = Color(0xFFE1D8CA),
     dimOverlay = Color(0x66000000),
 )
@@ -43,7 +43,7 @@ val DarkReaderColors = ReaderColors(
     controlsContent = Color(0xFFECE6D6),
     selection = Color(0x66C8C0FF),
     highlight = Color(0x668A6A00),
-    bookmark = BookmarkAmber,
+    bookmark = ClayPrimary,
     divider = Color(0xFF36332D),
     dimOverlay = Color(0x99000000),
 )
@@ -53,21 +53,21 @@ val SepiaReaderColors = ReaderColors(
     background = ReaderColor(ReaderSepiaBackgroundArgb).toColor(),
     controls = Color(0xF2E8D9BC),
     controlsContent = Color(0xFF3B2F24),
-    selection = InkIndigo.copy(alpha = 0.40f),
+    selection = SageMuted.copy(alpha = 0.40f),
     highlight = Color(0x66D79A2B),
-    bookmark = SepiaCopper,
+    bookmark = ClayPrimary,
     divider = Color(0xFFD8C7A3),
     dimOverlay = Color(0x66000000),
 )
 
 val NightReaderColors = ReaderColors(
     text = Color(0xFFF2EDE2),
-    background = NightInk,
+    background = CharcoalNight,
     controls = Color(0xF2231F24),
     controlsContent = Color(0xFFF2EDE2),
-    selection = InkIndigo.copy(alpha = 0.48f),
-    highlight = BookmarkAmber.copy(alpha = 0.38f),
-    bookmark = BookmarkAmber,
+    selection = SageMuted.copy(alpha = 0.48f),
+    highlight = ClayPrimary.copy(alpha = 0.38f),
+    bookmark = ClayPrimary,
     divider = Color(0xFF4C463C),
     dimOverlay = Color(0xB3000000),
 )

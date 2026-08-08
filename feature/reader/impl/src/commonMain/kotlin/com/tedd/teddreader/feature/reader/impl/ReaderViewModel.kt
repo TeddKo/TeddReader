@@ -24,6 +24,7 @@ import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.usecase.RestoreReadingProgressUseCase
 import com.tedd.teddreader.core.domain.usecase.SaveReadingProgressUseCase
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -45,6 +46,7 @@ class ReaderViewModel(
     private var currentDocumentId: DocumentId? = null
     private var currentPageWindows: List<PageWindow> = emptyList()
     private var viewportSize: ViewportSize = DefaultViewportSize
+    private var viewportReloadJob: Job? = null
 
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
@@ -115,6 +117,13 @@ class ReaderViewModel(
                         isPdfMode = isPdfMode,
                         pageWindows = pageWindows,
                     ),
+                    pageSlots = pageSlots(
+                        currentPage = currentPage,
+                        pageIndex = pageIndex,
+                        documentUri = documentUri,
+                        isPdfMode = isPdfMode,
+                        pageWindows = pageWindows,
+                    ),
                     style = settings.style,
                     pageTurnMode = settings.pageTurnMode,
                     pageAnimation = settings.pageAnimation,
@@ -141,7 +150,8 @@ class ReaderViewModel(
         val nextViewportSize = ViewportSize(widthPx = widthPx, heightPx = heightPx)
         if (nextViewportSize == viewportSize) return
         viewportSize = nextViewportSize
-        viewModelScope.launch {
+        viewportReloadJob?.cancel()
+        viewportReloadJob = viewModelScope.launch {
             reloadPages(style = _uiState.value.style)
         }
     }
@@ -347,6 +357,22 @@ class ReaderViewModel(
         )
     }
 
+    private fun pageSlots(
+        currentPage: Int,
+        pageIndex: PageIndex,
+        documentUri: String?,
+        isPdfMode: Boolean,
+        pageWindows: List<PageWindow> = currentPageWindows,
+    ): List<ReaderPageUi> = (currentPage - 2..currentPage + 3).mapNotNull { page ->
+        pageUi(
+            page = page,
+            pageIndex = pageIndex,
+            documentUri = documentUri,
+            isPdfMode = isPdfMode,
+            pageWindows = pageWindows,
+        )
+    }
+
     fun moveToPage(page: Int) {
         val state = _uiState.value
         val total = state.pageIndex.total
@@ -372,6 +398,12 @@ class ReaderViewModel(
                 currentPage = currentPageUi,
                 nextPage = pageUi(
                     page = nextPage + 1,
+                    pageIndex = nextIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                pageSlots = pageSlots(
+                    currentPage = nextPage,
                     pageIndex = nextIndex,
                     documentUri = it.documentUri,
                     isPdfMode = it.isPdfMode,
@@ -415,6 +447,13 @@ class ReaderViewModel(
                 currentPage = currentPageUi,
                 nextPage = pageUi(
                     page = currentPage + 1,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = false,
+                    pageWindows = pageWindows,
+                ),
+                pageSlots = pageSlots(
+                    currentPage = currentPage,
                     pageIndex = pageIndex,
                     documentUri = it.documentUri,
                     isPdfMode = false,

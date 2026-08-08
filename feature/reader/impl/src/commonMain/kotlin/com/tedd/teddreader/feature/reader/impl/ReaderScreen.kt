@@ -1,11 +1,20 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.tedd.teddreader.feature.reader.impl
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -13,35 +22,48 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderStyle
-import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
+import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
-import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddIconButton
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddModalBottomSheet
 import com.tedd.teddreader.core.ui.component.TeddOptionGroup
@@ -75,6 +97,31 @@ fun ReaderRouteScreen(
     viewModel: ReaderViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var goToPageText by rememberSaveable(documentId, uiState.pageIndex.current) {
+        mutableStateOf((uiState.pageIndex.current + 1).toString())
+    }
+    val committedBrightnessPercent = ((1f - uiState.brightnessOverlayAlpha).coerceIn(0.2f, 1f) * 100f).roundToInt()
+    var brightnessDraft by rememberSaveable(documentId, committedBrightnessPercent) {
+        mutableStateOf(committedBrightnessPercent.toFloat())
+    }
+    val committedFontSize = uiState.style.fontSizeSp.roundToInt()
+    var fontSizeDraft by rememberSaveable(documentId, committedFontSize) {
+        mutableStateOf(committedFontSize.toFloat())
+    }
+    val committedLineHeightPercent = (uiState.style.lineHeightMultiplier * 100f).roundToInt()
+    var lineHeightPercentDraft by rememberSaveable(documentId, committedLineHeightPercent) {
+        mutableStateOf(committedLineHeightPercent.toFloat())
+    }
+    val committedAutoScrollSpeed = uiState.autoScrollConfig.speed.roundToInt().coerceIn(1, 10)
+    var autoScrollSpeedDraft by rememberSaveable(documentId, committedAutoScrollSpeed) {
+        mutableStateOf(committedAutoScrollSpeed.toFloat())
+    }
+    var bottomSliderValue by rememberSaveable(documentId, uiState.pageIndex.current, uiState.pageIndex.total) {
+        mutableStateOf(uiState.pageIndex.current.toFloat())
+    }
+    var isActionMenuExpanded by rememberSaveable(documentId) { mutableStateOf(false) }
+    val activeSheetScrollState = key(uiState.activeSheet) { rememberScrollState() }
+    val modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(documentId) {
         viewModel.openDocument(documentId)
@@ -129,6 +176,24 @@ fun ReaderRouteScreen(
         onMoveToLocation = viewModel::moveToLocation,
         onBrightnessOverlayAlphaChange = viewModel::updateBrightnessOverlayAlpha,
         onViewportSizeChanged = viewModel::updateViewportSize,
+        goToPageText = goToPageText,
+        onGoToPageTextChange = { value -> goToPageText = value.filter(Char::isDigit).take(6) },
+        brightnessDraft = brightnessDraft,
+        onBrightnessDraftChange = { brightnessDraft = it.roundToInt().toFloat() },
+        fontSizeDraft = fontSizeDraft,
+        onFontSizeDraftChange = { fontSizeDraft = it.roundToInt().toFloat() },
+        lineHeightPercentDraft = lineHeightPercentDraft,
+        onLineHeightPercentDraftChange = {
+            lineHeightPercentDraft = (it / LineHeightStepPercent).roundToInt() * LineHeightStepPercent
+        },
+        autoScrollSpeedDraft = autoScrollSpeedDraft,
+        onAutoScrollSpeedDraftChange = { autoScrollSpeedDraft = it.roundToInt().toFloat() },
+        bottomSliderValue = bottomSliderValue,
+        onBottomSliderValueChange = { bottomSliderValue = it },
+        isActionMenuExpanded = isActionMenuExpanded,
+        onActionMenuExpandedChange = { isActionMenuExpanded = it },
+        activeSheetScrollState = activeSheetScrollState,
+        modalSheetState = modalSheetState,
         modifier = modifier,
     )
 }
@@ -158,9 +223,25 @@ fun ReaderScreen(
     onAutoScrollSpeedChange: (Float) -> Unit,
     onAutoScrollToggle: () -> Unit,
     onGoToPage: (Int) -> Unit,
-    onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
+    onMoveToLocation: (ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
+    goToPageText: String,
+    onGoToPageTextChange: (String) -> Unit,
+    brightnessDraft: Float,
+    onBrightnessDraftChange: (Float) -> Unit,
+    fontSizeDraft: Float,
+    onFontSizeDraftChange: (Float) -> Unit,
+    lineHeightPercentDraft: Float,
+    onLineHeightPercentDraftChange: (Float) -> Unit,
+    autoScrollSpeedDraft: Float,
+    onAutoScrollSpeedDraftChange: (Float) -> Unit,
+    bottomSliderValue: Float,
+    onBottomSliderValueChange: (Float) -> Unit,
+    isActionMenuExpanded: Boolean,
+    onActionMenuExpandedChange: (Boolean) -> Unit,
+    activeSheetScrollState: ScrollState,
+    modalSheetState: SheetState,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -201,6 +282,22 @@ fun ReaderScreen(
             onMoveToLocation = onMoveToLocation,
             onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
             onViewportSizeChanged = onViewportSizeChanged,
+            goToPageText = goToPageText,
+            onGoToPageTextChange = onGoToPageTextChange,
+            brightnessDraft = brightnessDraft,
+            onBrightnessDraftChange = onBrightnessDraftChange,
+            fontSizeDraft = fontSizeDraft,
+            onFontSizeDraftChange = onFontSizeDraftChange,
+            lineHeightPercentDraft = lineHeightPercentDraft,
+            onLineHeightPercentDraftChange = onLineHeightPercentDraftChange,
+            autoScrollSpeedDraft = autoScrollSpeedDraft,
+            onAutoScrollSpeedDraftChange = onAutoScrollSpeedDraftChange,
+            bottomSliderValue = bottomSliderValue,
+            onBottomSliderValueChange = onBottomSliderValueChange,
+            isActionMenuExpanded = isActionMenuExpanded,
+            onActionMenuExpandedChange = onActionMenuExpandedChange,
+            activeSheetScrollState = activeSheetScrollState,
+            modalSheetState = modalSheetState,
             modifier = modifier,
         )
     }
@@ -235,107 +332,147 @@ private fun ReaderContent(
     onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
+    goToPageText: String,
+    onGoToPageTextChange: (String) -> Unit,
+    brightnessDraft: Float,
+    onBrightnessDraftChange: (Float) -> Unit,
+    fontSizeDraft: Float,
+    onFontSizeDraftChange: (Float) -> Unit,
+    lineHeightPercentDraft: Float,
+    onLineHeightPercentDraftChange: (Float) -> Unit,
+    autoScrollSpeedDraft: Float,
+    onAutoScrollSpeedDraftChange: (Float) -> Unit,
+    bottomSliderValue: Float,
+    onBottomSliderValueChange: (Float) -> Unit,
+    isActionMenuExpanded: Boolean,
+    onActionMenuExpandedChange: (Boolean) -> Unit,
+    activeSheetScrollState: ScrollState,
+    modalSheetState: SheetState,
     modifier: Modifier = Modifier,
 ) {
-    ReaderAutoScrollEffect(
-        uiState = uiState,
-        onNextPage = onNextPage,
-        onStop = { onAutoScrollEnabledChange(false) },
-    )
-
     ReaderSystemBarsEffect(
         visible = uiState.isControlsVisible || uiState.activeSheet != null,
         backgroundColor = uiState.style.readerColors().background,
         keepScreenOn = uiState.keepScreenOn,
     )
 
-    val density = LocalDensity.current
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(uiState.style.readerColors().background),
     ) {
-        ReaderPager(
-            pageKey = uiState.pageIndex.current,
-            pageTurnMode = uiState.pageTurnMode,
-            pageAnimation = uiState.pageAnimation,
-            onPreviousPage = {
-                if (uiState.autoScrollConfig.enabled) {
-                    onAutoScrollEnabledChange(false)
-                }
-                onPreviousPage()
-            },
-            onNextPage = {
-                if (uiState.autoScrollConfig.enabled) {
-                    onAutoScrollEnabledChange(false)
-                }
-                onNextPage()
-            },
-            onToggleControls = {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val paneCount = readerPaneCount(maxWidth.value)
+            val movePrevious: () -> Unit = {
+                val target = (uiState.pageIndex.current - paneCount).coerceAtLeast(0)
+                if (target != uiState.pageIndex.current) onGoToPage(target)
+            }
+            val moveNext: () -> Unit = {
+                readerNextPage(
+                    currentPage = uiState.pageIndex.current,
+                    totalPages = uiState.pageIndex.total,
+                    paneCount = paneCount,
+                )?.let(onGoToPage)
+            }
+            val manualMovePrevious: () -> Unit = {
+                if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
+                movePrevious()
+            }
+            val manualMoveNext: () -> Unit = {
+                if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
+                moveNext()
+            }
+
+            ReaderAutoScrollEffect(
+                uiState = uiState,
+                paneCount = paneCount,
+                onNextPage = moveNext,
+                onStop = { onAutoScrollEnabledChange(false) },
+            )
+
+            val toggleControls = {
                 if (uiState.autoScrollConfig.enabled) {
                     onAutoScrollEnabledChange(false)
                 }
                 onToggleControls()
-            },
-        ) { page ->
-            if (uiState.isPdfMode) {
-                PdfPageSurface(
-                    pageIndex = uiState.pageIndexFor(page),
-                    modifier = Modifier.fillMaxSize(),
-                    documentUri = uiState.pageSlot(page)?.documentUri ?: uiState.documentUri,
-                    zoom = uiState.pdfZoom,
-                    rotationDegrees = uiState.pdfRotationDegrees,
-                )
-            } else {
+            }
+
+            ReaderPager(
+                pageKey = uiState.pageIndex.current,
+                pageCount = uiState.pageIndex.total,
+                pageStep = paneCount,
+                pageTurnMode = uiState.pageTurnMode,
+                pageAnimation = uiState.pageAnimation,
+                onPreviousPage = manualMovePrevious,
+                onNextPage = manualMoveNext,
+                onToggleControls = toggleControls,
+                modifier = Modifier.readerControlsDragObserver(
+                    controlsVisible = uiState.isControlsVisible,
+                    onToggleControls = toggleControls,
+                ),
+            ) { page ->
+                if (paneCount == 1) {
+                    ReaderPagePane(
+                        uiState = uiState,
+                        page = page,
+                        onViewportSizeChanged = onViewportSizeChanged,
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(uiState.style.readerColors().background),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
+                    ) {
+                        ReaderPagePane(
+                            uiState = uiState,
+                            page = page,
+                            onViewportSizeChanged = onViewportSizeChanged,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                        ReaderPagePane(
+                            uiState = uiState,
+                            page = page + 1,
+                            onViewportSizeChanged = onViewportSizeChanged,
+                            reportViewportSize = false,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+
+            if (uiState.brightnessOverlayAlpha > 0f) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .windowInsetsPadding(readerSystemBarsInsets().only(WindowInsetsSides.Vertical))
-                        .padding(
-                            horizontal = DefaultTeddReaderSpacing.readerMargin,
-                            vertical = DefaultTeddReaderSpacing.large,
-                        )
-                        .onSizeChanged { size ->
-                            onViewportSizeChanged(
-                                density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
-                                density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
-                            )
-                        },
-                ) {
-                    ReaderPageSurface(
-                        text = uiState.pageTextFor(page),
-                        style = uiState.style,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(0.dp),
-                    )
-                }
+                        .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
+                )
             }
-        }
 
-        if (uiState.brightnessOverlayAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
-            )
-        }
-
-        if (uiState.isControlsVisible) {
-            ReaderTopControls(
-                title = uiState.documentTitle,
-                style = uiState.style,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding(),
-                navigationIcon = {
-                    TeddIconButton(onClick = onBack, contentDescription = "Back") { Text("←", maxLines = 1) }
-                },
-                actions = {
-                    TeddIconButton(onClick = onBookmarkToggle, contentDescription = "Toggle bookmark") { Text("☆", maxLines = 1) }
-                    ReaderActionMenu(onActionSelected = onActionSelected)
-                },
-            )
+            if (uiState.isControlsVisible) {
+                ReaderTopControls(
+                    title = uiState.documentTitle,
+                    style = uiState.style,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding(),
+                    titleLabel = "Reading",
+                    navigationIcon = {
+                        TeddIconButton(onClick = onBack, contentDescription = "Back") {
+                            Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        }
+                    },
+                    actions = {
+                        TeddIconButton(onClick = onBookmarkToggle, contentDescription = "Toggle bookmark") {
+                            Icon(imageVector = TeddIcons.BookmarkOutline, contentDescription = null)
+                        }
+                        ReaderActionMenu(
+                            expanded = isActionMenuExpanded,
+                            onExpandedChange = onActionMenuExpandedChange,
+                            onActionSelected = onActionSelected,
+                        )
+                    },
+                )
                 ReaderBottomActionBar(
                     pageIndex = uiState.pageIndex,
                     style = uiState.style,
@@ -345,15 +482,28 @@ private fun ReaderContent(
                     isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                     showProgress = uiState.showProgress,
                     onAutoScrollToggle = onAutoScrollToggle,
+                    onPageSelected = { page ->
+                        onAutoScrollEnabledChange(false)
+                        onGoToPage(page)
+                    },
                     onPreviousPage = {
-                    onAutoScrollEnabledChange(false)
-                    onPreviousPage()
-                },
-                onNextPage = {
-                    onAutoScrollEnabledChange(false)
-                    onNextPage()
-                },
-            )
+                        onAutoScrollEnabledChange(false)
+                        movePrevious()
+                    },
+                    onNextPage = {
+                        onAutoScrollEnabledChange(false)
+                        moveNext()
+                    },
+                    sliderValue = bottomSliderValue,
+                    onSliderValueChange = onBottomSliderValueChange,
+                    canGoPrevious = uiState.pageIndex.current > 0,
+                    canGoNext = readerNextPage(
+                        currentPage = uiState.pageIndex.current,
+                        totalPages = uiState.pageIndex.total,
+                        paneCount = paneCount,
+                    ) != null,
+                )
+            }
         }
 
         uiState.activeSheet?.let { sheet ->
@@ -376,6 +526,74 @@ private fun ReaderContent(
                 onGoToPage = onGoToPage,
                 onMoveToLocation = onMoveToLocation,
                 onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
+                goToPageText = goToPageText,
+                onGoToPageTextChange = onGoToPageTextChange,
+                brightnessDraft = brightnessDraft,
+                onBrightnessDraftChange = onBrightnessDraftChange,
+                fontSizeDraft = fontSizeDraft,
+                onFontSizeDraftChange = onFontSizeDraftChange,
+                lineHeightPercentDraft = lineHeightPercentDraft,
+                onLineHeightPercentDraftChange = onLineHeightPercentDraftChange,
+                autoScrollSpeedDraft = autoScrollSpeedDraft,
+                onAutoScrollSpeedDraftChange = onAutoScrollSpeedDraftChange,
+                scrollState = activeSheetScrollState,
+                sheetState = modalSheetState,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderPagePane(
+    uiState: ReaderUiState,
+    page: Int,
+    onViewportSizeChanged: (Int, Int) -> Unit,
+    reportViewportSize: Boolean = true,
+    windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
+    contentPadding: PaddingValues = PaddingValues(
+        horizontal = DefaultTeddReaderSpacing.readerMargin,
+        vertical = DefaultTeddReaderSpacing.large,
+    ),
+    modifier: Modifier = Modifier,
+) {
+    val density = LocalDensity.current
+    if (page !in 0 until uiState.pageIndex.total) {
+        Box(modifier = modifier.fillMaxSize().background(uiState.style.readerColors().background))
+        return
+    }
+
+    if (uiState.isPdfMode) {
+        PdfPageSurface(
+            pageIndex = uiState.pageIndexFor(page),
+            modifier = modifier.fillMaxSize(),
+            documentUri = uiState.pageSlot(page)?.documentUri ?: uiState.documentUri,
+            zoom = uiState.pdfZoom,
+            rotationDegrees = uiState.pdfRotationDegrees,
+        )
+    } else {
+        val viewportModifier = if (reportViewportSize) {
+            Modifier.onSizeChanged { size ->
+                onViewportSizeChanged(
+                    density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
+                    density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
+                )
+            }
+        } else {
+            Modifier
+        }
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(uiState.style.readerColors().background)
+                .windowInsetsPadding(windowInsets)
+                .padding(contentPadding)
+                .then(viewportModifier),
+        ) {
+            ReaderPageSurface(
+                text = uiState.pageTextFor(page),
+                style = uiState.style,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(0.dp),
             )
         }
     }
@@ -384,6 +602,7 @@ private fun ReaderContent(
 @Composable
 private fun ReaderAutoScrollEffect(
     uiState: ReaderUiState,
+    paneCount: Int,
     onNextPage: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -394,9 +613,10 @@ private fun ReaderAutoScrollEffect(
         config.speed,
         uiState.pageIndex.current,
         uiState.pageIndex.total,
+        paneCount,
     ) {
         if (!config.enabled) return@LaunchedEffect
-        if (uiState.pageIndex.total <= 0 || uiState.pageIndex.current >= uiState.pageIndex.total - 1) {
+        if (readerNextPage(uiState.pageIndex.current, uiState.pageIndex.total, paneCount) == null) {
             onStop()
             return@LaunchedEffect
         }
@@ -426,66 +646,97 @@ private fun ReaderActiveSheet(
     onAutoScrollModeChange: (AutoScrollMode) -> Unit,
     onAutoScrollSpeedChange: (Float) -> Unit,
     onGoToPage: (Int) -> Unit,
-    onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
+    onMoveToLocation: (ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
+    goToPageText: String,
+    onGoToPageTextChange: (String) -> Unit,
+    brightnessDraft: Float,
+    onBrightnessDraftChange: (Float) -> Unit,
+    fontSizeDraft: Float,
+    onFontSizeDraftChange: (Float) -> Unit,
+    lineHeightPercentDraft: Float,
+    onLineHeightPercentDraftChange: (Float) -> Unit,
+    autoScrollSpeedDraft: Float,
+    onAutoScrollSpeedDraftChange: (Float) -> Unit,
+    scrollState: ScrollState,
+    sheetState: SheetState,
+    modifier: Modifier = Modifier,
 ) {
     TeddModalBottomSheet(
         title = sheet.title,
         onDismissRequest = onDismiss,
+        modifier = modifier,
+        sheetState = sheetState,
     ) {
-        if (uiState.isSavingSettings) {
-            TeddLoadingIndicator(message = "Saving reader settings")
-        }
-        when (sheet) {
-            ReaderOptionSheet.TableOfContents -> TableOfContentsSheet(
-                uiState = uiState,
-                onLocationClick = { location ->
-                    onMoveToLocation(location)
-                    onDismiss()
-                },
-            )
-            ReaderOptionSheet.GoToPage -> GoToPageSheet(
-                uiState = uiState,
-                onGoToPage = { page ->
-                    onGoToPage(page)
-                    onDismiss()
-                },
-            )
-            ReaderOptionSheet.View -> ViewOptionsSheet(
-                uiState = uiState,
-                onKeepScreenOnChange = onKeepScreenOnChange,
-                onFullscreenChange = onFullscreenChange,
-                onShowProgressChange = onShowProgressChange,
-            )
-            ReaderOptionSheet.Font -> FontOptionsSheet(
-                uiState = uiState,
-                onFontSizeChange = onFontSizeChange,
-                onLineHeightChange = onLineHeightChange,
-                onFontFamilyChange = onFontFamilyChange,
-            )
-            ReaderOptionSheet.Theme -> ThemeOptionsSheet(
-                uiState = uiState,
-                onThemeModeChange = onThemeModeChange,
-            )
-            ReaderOptionSheet.PageTurn -> PageTurnOptionsSheet(
-                uiState = uiState,
-                onPageTurnModeChange = onPageTurnModeChange,
-                onPageAnimationChange = onPageAnimationChange,
-            )
-            ReaderOptionSheet.AutoScroll -> AutoScrollOptionsSheet(
-                uiState = uiState,
-                onEnabledChange = onAutoScrollEnabledChange,
-                onModeChange = onAutoScrollModeChange,
-                onSpeedChange = onAutoScrollSpeedChange,
-            )
-            ReaderOptionSheet.Brightness -> BrightnessOptionsSheet(
-                uiState = uiState,
-                onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
-            )
-            ReaderOptionSheet.Controls -> ControlOptionsSheet(
-                uiState = uiState,
-                onShowProgressChange = onShowProgressChange,
-            )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState),
+        ) {
+            if (uiState.isSavingSettings) {
+                TeddLoadingIndicator(message = "Saving reader settings")
+            }
+            when (sheet) {
+                ReaderOptionSheet.TableOfContents -> TableOfContentsSheet(
+                    uiState = uiState,
+                    onLocationClick = { location ->
+                        onMoveToLocation(location)
+                        onDismiss()
+                    },
+                )
+                ReaderOptionSheet.GoToPage -> GoToPageSheet(
+                    uiState = uiState,
+                    pageText = goToPageText,
+                    onPageTextChange = onGoToPageTextChange,
+                    onGoToPage = { page ->
+                        onGoToPage(page)
+                        onDismiss()
+                    },
+                )
+                ReaderOptionSheet.View -> ViewOptionsSheet(
+                    uiState = uiState,
+                    onKeepScreenOnChange = onKeepScreenOnChange,
+                    onFullscreenChange = onFullscreenChange,
+                    onShowProgressChange = onShowProgressChange,
+                )
+                ReaderOptionSheet.Font -> FontOptionsSheet(
+                    uiState = uiState,
+                    fontSizeDraft = fontSizeDraft,
+                    onFontSizeDraftChange = onFontSizeDraftChange,
+                    lineHeightPercentDraft = lineHeightPercentDraft,
+                    onLineHeightPercentDraftChange = onLineHeightPercentDraftChange,
+                    onFontSizeChange = onFontSizeChange,
+                    onLineHeightChange = onLineHeightChange,
+                    onFontFamilyChange = onFontFamilyChange,
+                )
+                ReaderOptionSheet.Theme -> ThemeOptionsSheet(
+                    uiState = uiState,
+                    onThemeModeChange = onThemeModeChange,
+                )
+                ReaderOptionSheet.PageTurn -> PageTurnOptionsSheet(
+                    uiState = uiState,
+                    onPageTurnModeChange = onPageTurnModeChange,
+                    onPageAnimationChange = onPageAnimationChange,
+                )
+                ReaderOptionSheet.AutoScroll -> AutoScrollOptionsSheet(
+                    uiState = uiState,
+                    speedDraft = autoScrollSpeedDraft,
+                    onSpeedDraftChange = onAutoScrollSpeedDraftChange,
+                    onEnabledChange = onAutoScrollEnabledChange,
+                    onModeChange = onAutoScrollModeChange,
+                    onSpeedChange = onAutoScrollSpeedChange,
+                )
+                ReaderOptionSheet.Brightness -> BrightnessOptionsSheet(
+                    uiState = uiState,
+                    brightnessDraft = brightnessDraft,
+                    onBrightnessDraftChange = onBrightnessDraftChange,
+                    onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
+                )
+                ReaderOptionSheet.Controls -> ControlOptionsSheet(
+                    uiState = uiState,
+                    onShowProgressChange = onShowProgressChange,
+                )
+            }
         }
     }
 }
@@ -495,8 +746,9 @@ private fun ReaderActiveSheet(
 private fun TableOfContentsSheet(
     uiState: ReaderUiState,
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Contents") {
+    TeddOptionGroup(title = "Contents", modifier = modifier) {
         if (uiState.outlineItems.isEmpty()) {
             Text(
                 text = "No table of contents.",
@@ -517,19 +769,22 @@ private fun TableOfContentsSheet(
 @Composable
 private fun GoToPageSheet(
     uiState: ReaderUiState,
+    pageText: String,
+    onPageTextChange: (String) -> Unit,
     onGoToPage: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var pageText by remember(uiState.pageIndex.current) { mutableStateOf((uiState.pageIndex.current + 1).toString()) }
     val totalPages = uiState.pageIndex.total.coerceAtLeast(1)
     val targetPage = pageText.toIntOrNull()?.coerceIn(1, totalPages)
 
     TeddOptionGroup(
         title = "Go to page",
+        modifier = modifier,
         description = "Enter 1-$totalPages.",
     ) {
         TeddTextField(
             value = pageText,
-            onValueChange = { value -> pageText = value.filter(Char::isDigit).take(6) },
+            onValueChange = onPageTextChange,
             modifier = Modifier.fillMaxWidth(),
             label = "Page",
             maxLines = 1,
@@ -545,23 +800,25 @@ private fun GoToPageSheet(
 @Composable
 private fun BrightnessOptionsSheet(
     uiState: ReaderUiState,
+    brightnessDraft: Float,
+    onBrightnessDraftChange: (Float) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val committedPercent = (uiState.brightnessOverlayAlpha * 100f).roundToInt()
-    var percentDraft by remember(committedPercent) { mutableStateOf(committedPercent.toFloat()) }
-
     TeddOptionGroup(
         title = "Brightness",
+        modifier = modifier,
         description = "Dims reader without changing system brightness.",
     ) {
         TeddSliderRow(
-            title = "Dim overlay",
-            value = percentDraft,
-            onValueChange = { value -> percentDraft = value.roundToInt().toFloat() },
-            onValueChangeFinished = { onBrightnessOverlayAlphaChange(percentDraft / 100f) },
-            valueRange = 0f..80f,
-            steps = PercentSliderSteps,
-            valueLabel = "${percentDraft.roundToInt()}%",
+            title = "Brightness",
+            value = brightnessDraft,
+            onValueChange = onBrightnessDraftChange,
+            onValueChangeFinished = {
+                onBrightnessOverlayAlphaChange((1f - brightnessDraft / 100f).coerceIn(0f, 0.8f))
+            },
+            valueRange = 20f..100f,
+            valueLabel = "${brightnessDraft.roundToInt()}%",
             enabled = !uiState.isSavingSettings,
         )
     }
@@ -573,44 +830,37 @@ private fun ViewOptionsSheet(
     onKeepScreenOnChange: (Boolean) -> Unit,
     onFullscreenChange: (Boolean) -> Unit,
     onShowProgressChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Display") {
+    TeddOptionGroup(title = "Display", modifier = modifier) {
         TeddSwitchRow("Keep screen on", uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow("Fullscreen reader", uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow("Show progress", uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
-        TeddSwitchRow(
-            title = "Background image",
-            checked = false,
-            onCheckedChange = {},
-            enabled = false,
-            description = "Image picker comes later.",
-        )
     }
 }
 
 @Composable
 private fun FontOptionsSheet(
     uiState: ReaderUiState,
+    fontSizeDraft: Float,
+    onFontSizeDraftChange: (Float) -> Unit,
+    lineHeightPercentDraft: Float,
+    onLineHeightPercentDraftChange: (Float) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val committedFontSize = uiState.style.fontSizeSp.roundToInt()
-    var fontSizeDraft by remember(committedFontSize) { mutableStateOf(committedFontSize.toFloat()) }
-    val committedLineHeightPercent = (uiState.style.lineHeightMultiplier * 100f).roundToInt()
-    var lineHeightPercentDraft by remember(committedLineHeightPercent) {
-        mutableStateOf(committedLineHeightPercent.toFloat())
-    }
     val previewStyle = uiState.style.copy(
         fontSizeSp = fontSizeDraft,
         lineHeightMultiplier = lineHeightPercentDraft / 100f,
     )
 
-    TeddOptionGroup(title = "Typography") {
+    TeddOptionGroup(title = "Typography", modifier = modifier) {
         TeddSliderRow(
             title = "Font size",
             value = fontSizeDraft,
-            onValueChange = { value -> fontSizeDraft = value.roundToInt().toFloat() },
+            onValueChange = onFontSizeDraftChange,
             onValueChangeFinished = { onFontSizeChange(fontSizeDraft) },
             valueRange = 8f..80f,
             steps = FontSizeSliderSteps,
@@ -620,9 +870,7 @@ private fun FontOptionsSheet(
         TeddSliderRow(
             title = "Line height",
             value = lineHeightPercentDraft,
-            onValueChange = { value ->
-                lineHeightPercentDraft = (value / LineHeightStepPercent).roundToInt() * LineHeightStepPercent
-            },
+            onValueChange = onLineHeightPercentDraftChange,
             onValueChangeFinished = { onLineHeightChange(lineHeightPercentDraft / 100f) },
             valueRange = 100f..300f,
             steps = LineHeightSliderSteps,
@@ -660,29 +908,25 @@ private fun FontOptionsSheet(
 private fun ThemeOptionsSheet(
     uiState: ReaderUiState,
     onThemeModeChange: (ReaderThemeMode) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    ReaderOptionPreview(
-        style = uiState.style,
-        title = "Theme preview",
-        description = "가나다 ABC 123 · 배경/글자색 확인",
-        previewText = "가나다 ABC 123\n눈 피로를 줄이는 색상 대비를 확인합니다.",
-    )
-    TeddOptionGroup(title = "Theme preset") {
-        listOf(ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
-            TeddRadioRow(
-                title = mode.name.lowercase(),
-                selected = uiState.style.themeMode == mode,
-                onClick = { onThemeModeChange(mode) },
-                enabled = !uiState.isSavingSettings,
-            )
-        }
-        TeddRadioRow(
-            title = "Custom colors",
-            selected = uiState.style.themeMode == ReaderThemeMode.CUSTOM,
-            onClick = { onThemeModeChange(ReaderThemeMode.CUSTOM) },
-                enabled = !uiState.isSavingSettings,
-            description = "Color picker comes later.",
+    Column(modifier = modifier) {
+        ReaderOptionPreview(
+            style = uiState.style,
+            title = "Theme preview",
+            description = "가나다 ABC 123 · 배경/글자색 확인",
+            previewText = "가나다 ABC 123\n눈 피로를 줄이는 색상 대비를 확인합니다.",
         )
+        TeddOptionGroup(title = "Theme") {
+            listOf(ReaderThemeMode.SYSTEM, ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
+                TeddRadioRow(
+                    title = mode.themeLabel,
+                    selected = uiState.style.themeMode == mode,
+                    onClick = { onThemeModeChange(mode) },
+                    enabled = !uiState.isSavingSettings,
+                )
+            }
+        }
     }
 }
 
@@ -691,25 +935,28 @@ private fun PageTurnOptionsSheet(
     uiState: ReaderUiState,
     onPageTurnModeChange: (PageTurnMode) -> Unit,
     onPageAnimationChange: (PageAnimation) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Page mode") {
-        PageTurnMode.entries.forEach { mode ->
-            TeddRadioRow(
-                title = mode.name.lowercase(),
-                selected = uiState.pageTurnMode == mode,
-                onClick = { onPageTurnModeChange(mode) },
-                enabled = !uiState.isSavingSettings,
-            )
+    Column(modifier = modifier) {
+        TeddOptionGroup(title = "Page mode") {
+            PageTurnMode.entries.forEach { mode ->
+                TeddRadioRow(
+                    title = mode.pageTurnLabel,
+                    selected = uiState.pageTurnMode == mode,
+                    onClick = { onPageTurnModeChange(mode) },
+                    enabled = !uiState.isSavingSettings,
+                )
+            }
         }
-    }
-    TeddOptionGroup(title = "Animation") {
-        PageAnimation.entries.forEach { animation ->
-            TeddRadioRow(
-                title = animation.name.lowercase(),
-                selected = uiState.pageAnimation == animation,
-                onClick = { onPageAnimationChange(animation) },
-                enabled = !uiState.isSavingSettings,
-            )
+        TeddOptionGroup(title = "Animation") {
+            PageAnimation.entries.forEach { animation ->
+                TeddRadioRow(
+                    title = animation.pageAnimationLabel,
+                    selected = uiState.pageAnimation == animation,
+                    onClick = { onPageAnimationChange(animation) },
+                    enabled = !uiState.isSavingSettings,
+                )
+            }
         }
     }
 }
@@ -717,18 +964,18 @@ private fun PageTurnOptionsSheet(
 @Composable
 private fun AutoScrollOptionsSheet(
     uiState: ReaderUiState,
+    speedDraft: Float,
+    onSpeedDraftChange: (Float) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onModeChange: (AutoScrollMode) -> Unit,
     onSpeedChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val committedSpeed = uiState.autoScrollConfig.speed.roundToInt().coerceIn(1, 10)
-    var speedDraft by remember(committedSpeed) { mutableStateOf(committedSpeed.toFloat()) }
-
-    TeddOptionGroup(title = "Auto-scroll") {
+    TeddOptionGroup(title = "Auto-scroll", modifier = modifier) {
         TeddSwitchRow("Enabled", uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
         AutoScrollMode.entries.forEach { mode ->
             TeddRadioRow(
-                title = mode.name.lowercase(),
+                title = mode.autoScrollLabel,
                 selected = uiState.autoScrollConfig.mode == mode,
                 onClick = { onModeChange(mode) },
                 enabled = !uiState.isSavingSettings,
@@ -737,17 +984,12 @@ private fun AutoScrollOptionsSheet(
         TeddSliderRow(
             title = "Speed",
             value = speedDraft,
-            onValueChange = { value -> speedDraft = value.roundToInt().toFloat() },
+            onValueChange = onSpeedDraftChange,
             onValueChangeFinished = { onSpeedChange(speedDraft) },
             valueRange = 1f..10f,
             steps = SpeedSliderSteps,
             valueLabel = formatSpeedLabel(speedDraft),
             enabled = !uiState.isSavingSettings,
-        )
-        TeddButton(
-            text = if (uiState.autoScrollConfig.enabled) "Stop" else "Start",
-            enabled = !uiState.isSavingSettings,
-            onClick = { onEnabledChange(!uiState.autoScrollConfig.enabled) },
         )
     }
 }
@@ -756,9 +998,14 @@ private fun AutoScrollOptionsSheet(
 private fun ControlOptionsSheet(
     uiState: ReaderUiState,
     onShowProgressChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Controls") {
-        TeddSwitchRow("Show progress controls", uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+    TeddOptionGroup(
+        title = "Bottom bar",
+        modifier = modifier,
+        description = "Choose what stays visible while you read.",
+    ) {
+        TeddSwitchRow("Show page progress", uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
     }
 }
 
@@ -766,16 +1013,26 @@ private const val FontSizeSliderSteps = 71
 private const val LineHeightStepPercent = 5f
 private const val LineHeightSliderSteps = 39
 private const val SpeedSliderSteps = 8
-private const val PercentSliderSteps = 79
 
 private fun formatSpeedLabel(speed: Float): String = "${speed.roundToInt()}x"
 
-private fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? = when {
-    previousPage?.page == page -> previousPage
-    currentPage.page == page -> currentPage
-    nextPage?.page == page -> nextPage
-    else -> null
-}
+internal fun readerPaneCount(widthDp: Float): Int =
+    if (widthDp >= TwoPaneMinWidthDp) 2 else 1
+
+internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
+    (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
+
+private const val ReaderPaneMinWidthDp = 280f
+private const val ReaderPaneGutterDp = 16f
+private const val TwoPaneMinWidthDp = ReaderPaneMinWidthDp * 2f + ReaderPaneGutterDp
+
+internal fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? =
+    pageSlots.firstOrNull { it.page == page } ?: when {
+        previousPage?.page == page -> previousPage
+        currentPage.page == page -> currentPage
+        nextPage?.page == page -> nextPage
+        else -> null
+    }
 
 private fun ReaderUiState.pageIndexFor(page: Int): PageIndex {
     if (pageIndex.total <= 0) return pageIndex
@@ -795,17 +1052,54 @@ private fun ReaderUiState.pageTextFor(page: Int): String {
     }
 }
 
+private val ReaderThemeMode.themeLabel: String
+    get() = when (this) {
+        ReaderThemeMode.SYSTEM -> "Follow system"
+        ReaderThemeMode.LIGHT -> "Light"
+        ReaderThemeMode.DARK -> "Dark"
+        ReaderThemeMode.SEPIA -> "Sepia"
+        ReaderThemeMode.CUSTOM -> "Custom"
+    }
+
+private val PageTurnMode.pageTurnLabel: String
+    get() = when (this) {
+        PageTurnMode.HORIZONTAL -> "Horizontal pages"
+        PageTurnMode.VERTICAL -> "Vertical pages"
+        PageTurnMode.CONTINUOUS -> "Continuous scroll"
+    }
+
+private val PageAnimation.pageAnimationLabel: String
+    get() = when (this) {
+        PageAnimation.NONE -> "No animation"
+        PageAnimation.SLIDE -> "Slide"
+        PageAnimation.FADE -> "Fade"
+        PageAnimation.SCROLL -> "Scroll"
+        PageAnimation.BOOK_CURL -> "Book curl"
+        PageAnimation.SHEET_FLIP -> "Sheet flip"
+        PageAnimation.FLUID_PAGER -> "Fluid pager"
+        PageAnimation.CURL_PAGER -> "Curl pager"
+        PageAnimation.CIRCLE_REVEAL -> "Circle reveal"
+        PageAnimation.MOVIE_CAROUSEL -> "Movie carousel"
+        PageAnimation.PAGE_FLIP -> "Page flip"
+    }
+
+private val AutoScrollMode.autoScrollLabel: String
+    get() = when (this) {
+        AutoScrollMode.PIXEL -> "Smooth scroll"
+        AutoScrollMode.PAGE -> "Page by page"
+    }
+
 private val ReaderOptionSheet.title: String
     get() = when (this) {
         ReaderOptionSheet.TableOfContents -> "Table of contents"
         ReaderOptionSheet.GoToPage -> "Go to page"
-        ReaderOptionSheet.View -> "View options"
-        ReaderOptionSheet.Font -> "Font options"
-        ReaderOptionSheet.Theme -> "Theme options"
-        ReaderOptionSheet.PageTurn -> "Page turn options"
-        ReaderOptionSheet.AutoScroll -> "Auto-scroll options"
+        ReaderOptionSheet.View -> "Display"
+        ReaderOptionSheet.Font -> "Typography"
+        ReaderOptionSheet.Theme -> "Theme"
+        ReaderOptionSheet.PageTurn -> "Page movement"
+        ReaderOptionSheet.AutoScroll -> "Auto-scroll"
         ReaderOptionSheet.Brightness -> "Brightness"
-        ReaderOptionSheet.Controls -> "Control options"
+        ReaderOptionSheet.Controls -> "Bottom bar"
     }
 
 @Composable
@@ -836,6 +1130,35 @@ private fun previewReaderUiState(
     activeSheet = activeSheet,
     isLoading = false,
 )
+
+private fun Modifier.readerControlsDragObserver(
+    controlsVisible: Boolean,
+    onToggleControls: () -> Unit,
+): Modifier = composed {
+    val latestControlsVisible by rememberUpdatedState(controlsVisible)
+    val latestOnToggleControls by rememberUpdatedState(onToggleControls)
+
+    pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            val controlsVisibleAtStart = latestControlsVisible
+            var dragDistance = Offset.Zero
+            var toggled = false
+
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
+
+                dragDistance += change.positionChange()
+                if (!toggled && controlsVisibleAtStart && dragDistance.getDistance() > viewConfiguration.touchSlop) {
+                    latestOnToggleControls()
+                    toggled = true
+                }
+            }
+        }
+    }
+}
 
 @Preview(widthDp = 360, heightDp = 720)
 @Composable
@@ -871,6 +1194,22 @@ private fun ReaderScreenCompactPreview() {
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
             onViewportSizeChanged = { _, _ -> },
+            goToPageText = "1",
+            onGoToPageTextChange = {},
+            brightnessDraft = 100f,
+            onBrightnessDraftChange = {},
+            fontSizeDraft = 18f,
+            onFontSizeDraftChange = {},
+            lineHeightPercentDraft = 150f,
+            onLineHeightPercentDraftChange = {},
+            autoScrollSpeedDraft = 1f,
+            onAutoScrollSpeedDraftChange = {},
+            bottomSliderValue = 0f,
+            onBottomSliderValueChange = {},
+            isActionMenuExpanded = false,
+            onActionMenuExpandedChange = {},
+            activeSheetScrollState = rememberScrollState(),
+            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         )
     }
 }
@@ -906,6 +1245,22 @@ private fun ReaderScreenHiddenChromePreview() {
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
             onViewportSizeChanged = { _, _ -> },
+            goToPageText = "1",
+            onGoToPageTextChange = {},
+            brightnessDraft = 100f,
+            onBrightnessDraftChange = {},
+            fontSizeDraft = 18f,
+            onFontSizeDraftChange = {},
+            lineHeightPercentDraft = 150f,
+            onLineHeightPercentDraftChange = {},
+            autoScrollSpeedDraft = 1f,
+            onAutoScrollSpeedDraftChange = {},
+            bottomSliderValue = 0f,
+            onBottomSliderValueChange = {},
+            isActionMenuExpanded = false,
+            onActionMenuExpandedChange = {},
+            activeSheetScrollState = rememberScrollState(),
+            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         )
     }
 }
@@ -941,6 +1296,22 @@ private fun ReaderScreenDarkPreview() {
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
             onViewportSizeChanged = { _, _ -> },
+            goToPageText = "1",
+            onGoToPageTextChange = {},
+            brightnessDraft = 100f,
+            onBrightnessDraftChange = {},
+            fontSizeDraft = 18f,
+            onFontSizeDraftChange = {},
+            lineHeightPercentDraft = 150f,
+            onLineHeightPercentDraftChange = {},
+            autoScrollSpeedDraft = 1f,
+            onAutoScrollSpeedDraftChange = {},
+            bottomSliderValue = 0f,
+            onBottomSliderValueChange = {},
+            isActionMenuExpanded = false,
+            onActionMenuExpandedChange = {},
+            activeSheetScrollState = rememberScrollState(),
+            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         )
     }
 }
@@ -982,6 +1353,22 @@ private fun ReaderScreenPreview() {
         onMoveToLocation = {},
         onBrightnessOverlayAlphaChange = {},
             onViewportSizeChanged = { _, _ -> },
+            goToPageText = "1",
+            onGoToPageTextChange = {},
+            brightnessDraft = 100f,
+            onBrightnessDraftChange = {},
+            fontSizeDraft = 18f,
+            onFontSizeDraftChange = {},
+            lineHeightPercentDraft = 150f,
+            onLineHeightPercentDraftChange = {},
+            autoScrollSpeedDraft = 1f,
+            onAutoScrollSpeedDraftChange = {},
+            bottomSliderValue = 0f,
+            onBottomSliderValueChange = {},
+            isActionMenuExpanded = false,
+            onActionMenuExpandedChange = {},
+            activeSheetScrollState = rememberScrollState(),
+            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         )
     }
 }

@@ -1,12 +1,13 @@
 package com.tedd.teddreader.core.ui.component
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
+import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
@@ -26,6 +28,10 @@ fun TeddSwitchRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
+    contentPadding: PaddingValues = PaddingValues(
+        horizontal = DefaultTeddReaderSpacing.medium,
+        vertical = DefaultTeddReaderSpacing.small,
+    ),
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
@@ -33,8 +39,13 @@ fun TeddSwitchRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = enabled, role = Role.Switch) { onCheckedChange(!checked) }
-                .padding(horizontal = spacing.medium, vertical = spacing.small),
+                .toggleable(
+                    value = checked,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange,
+                )
+                .padding(contentPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -50,7 +61,7 @@ fun TeddSwitchRow(
             Spacer(modifier = Modifier.width(spacing.medium))
             Switch(
                 checked = checked,
-                onCheckedChange = onCheckedChange,
+                onCheckedChange = null,
                 enabled = enabled,
             )
         }
