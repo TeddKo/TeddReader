@@ -1,5 +1,8 @@
 package com.tedd.teddreader.app.reader.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,6 +28,7 @@ import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
 import com.tedd.teddreader.core.common.model.parseReaderLocation
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
 import com.tedd.teddreader.core.ui.component.TeddSurface
@@ -80,6 +84,7 @@ fun ReaderNavHost(
     var pendingReaderLocation by rememberSaveable { mutableStateOf<String?>(null) }
     var homeImportMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var consumedExternalImportUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val navigationAnimationDurationMs = teddReaderMotion().mediumDurationMs
 
     LaunchedEffect(externalImportRequest) {
         val request = externalImportRequest ?: return@LaunchedEffect
@@ -102,6 +107,18 @@ fun ReaderNavHost(
             if (backStack.size > 1) {
                 backStack.removeLastOrNull()
             }
+        },
+        transitionSpec = {
+            slideIntoContainer(SlideDirection.Start, tween(navigationAnimationDurationMs)) togetherWith
+                slideOutOfContainer(SlideDirection.Start, tween(navigationAnimationDurationMs))
+        },
+        popTransitionSpec = {
+            slideIntoContainer(SlideDirection.End, tween(navigationAnimationDurationMs)) togetherWith
+                slideOutOfContainer(SlideDirection.End, tween(navigationAnimationDurationMs))
+        },
+        predictivePopTransitionSpec = { _ ->
+            slideIntoContainer(SlideDirection.End, tween(navigationAnimationDurationMs)) togetherWith
+                slideOutOfContainer(SlideDirection.End, tween(navigationAnimationDurationMs))
         },
         entryProvider = { key ->
             when (key) {
