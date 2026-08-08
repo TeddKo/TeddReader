@@ -36,7 +36,6 @@ import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddScaffold
-import com.tedd.teddreader.core.ui.component.TeddSurface
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.koin.compose.viewmodel.koinViewModel
@@ -83,107 +82,103 @@ fun SearchScreen(
     val isFieldEnabled = uiState.unsupportedMessage == null && !uiState.isLoading
     val canSearch = isFieldEnabled && uiState.query.isNotBlank()
 
-    TeddSurface(
+    TeddScaffold(
         modifier = modifier
             .fillMaxSize()
             .systemBarsPadding(),
-    ) {
-        TeddScaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                TeddTopBar(
-                    title = "Search",
-                    navigationIcon = {
-                        TeddIconButton(
-                            onClick = onBack,
-                            contentDescription = "Back",
-                        ) {
-                            Icon(
-                                imageVector = TeddIcons.Back,
-                                contentDescription = null,
-                            )
-                        }
-                    },
+        topBar = {
+            TeddTopBar(
+                title = "Search",
+                navigationIcon = {
+                    TeddIconButton(
+                        onClick = onBack,
+                        contentDescription = "Back",
+                    ) {
+                        Icon(
+                            imageVector = TeddIcons.Back,
+                            contentDescription = null,
+                        )
+                    }
+                },
+            )
+        },
+    ) { scaffoldPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(scaffoldPadding)
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(spacing.large),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                Text(
+                    text = "Find a passage in the current document.",
+                    style = typography.settingDescription,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            },
-        ) { scaffoldPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(scaffoldPadding)
-                    .padding(contentPadding),
-                verticalArrangement = Arrangement.spacedBy(spacing.large),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                    Text(
-                        text = "Find a passage in the current document.",
-                        style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = uiState.query,
-                        onValueChange = onQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search text") },
-                        singleLine = true,
-                        enabled = isFieldEnabled,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            imeAction = ImeAction.Search,
-                        ),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                            onSearch = { if (canSearch) onSearchClick() },
-                        ),
-                    )
-                    TeddButton(
-                        text = "Search",
-                        onClick = onSearchClick,
-                        enabled = canSearch,
+                OutlinedTextField(
+                    value = uiState.query,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Search text") },
+                    singleLine = true,
+                    enabled = isFieldEnabled,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        imeAction = ImeAction.Search,
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onSearch = { if (canSearch) onSearchClick() },
+                    ),
+                )
+                TeddButton(
+                    text = "Search",
+                    onClick = onSearchClick,
+                    enabled = canSearch,
+                )
+            }
+
+            when {
+                uiState.unsupportedMessage != null -> {
+                    TeddErrorBanner(message = uiState.unsupportedMessage)
+                }
+
+                uiState.errorMessage != null -> {
+                    TeddErrorBanner(message = uiState.errorMessage)
+                }
+
+                uiState.isLoading -> {
+                    TeddLoadingIndicator(message = "Searching")
+                }
+
+                uiState.query.isBlank() -> {
+                    TeddEmptyState(
+                        title = "Search this document",
+                        description = "Type a word or phrase to jump to matching passages.",
                     )
                 }
 
-                when {
-                    uiState.unsupportedMessage != null -> {
-                        TeddErrorBanner(message = uiState.unsupportedMessage)
-                    }
+                uiState.results.isEmpty() -> {
+                    TeddEmptyState(
+                        title = "No results",
+                        description = "Try a different word or a shorter phrase.",
+                    )
+                }
 
-                    uiState.errorMessage != null -> {
-                        TeddErrorBanner(message = uiState.errorMessage)
-                    }
+                else -> {
+                    Text(
+                        text = "${uiState.results.size} matches",
+                        style = typography.settingTitle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
 
-                    uiState.isLoading -> {
-                        TeddLoadingIndicator(message = "Searching")
-                    }
-
-                    uiState.query.isBlank() -> {
-                        TeddEmptyState(
-                            title = "Search this document",
-                            description = "Type a word or phrase to jump to matching passages.",
-                        )
-                    }
-
-                    uiState.results.isEmpty() -> {
-                        TeddEmptyState(
-                            title = "No results",
-                            description = "Try a different word or a shorter phrase.",
-                        )
-                    }
-
-                    else -> {
-                        Text(
-                            text = "${uiState.results.size} matches",
-                            style = typography.settingTitle,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                            uiState.results.forEach { result ->
-                                TeddListItem(
-                                    title = result.sectionTitle?.takeIf { it.isNotBlank() } ?: result.snippet,
-                                    supportingText = buildSearchSupportingText(result),
-                                    onClick = { onResultClick(result.location) },
-                                )
-                            }
+                    Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                        uiState.results.forEach { result ->
+                            TeddListItem(
+                                title = result.sectionTitle?.takeIf { it.isNotBlank() } ?: result.snippet,
+                                supportingText = buildSearchSupportingText(result),
+                                onClick = { onResultClick(result.location) },
+                            )
                         }
                     }
                 }

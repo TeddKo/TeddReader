@@ -1,6 +1,7 @@
 package com.tedd.teddreader.feature.document_info.impl
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,6 @@ import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddOptionGroup
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
-import com.tedd.teddreader.core.ui.component.TeddSurface
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.koin.compose.viewmodel.koinViewModel
@@ -78,102 +78,98 @@ fun DocumentInfoScreen(
     val typography = teddReaderTypography()
 
     if (uiState.isLoading) {
-        TeddSurface(modifier = modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                TeddLoadingIndicator(message = "Loading document info")
-            }
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            TeddLoadingIndicator(message = "Loading document info")
         }
         return
     }
 
     val metadata = uiState.metadata
 
-    TeddSurface(
+    TeddScaffold(
         modifier = modifier
             .fillMaxSize()
             .systemBarsPadding(),
-    ) {
-        TeddScaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                TeddTopBar(
-                    title = "Document info",
-                    navigationIcon = {
-                        TeddIconButton(
-                            onClick = onBack,
-                            contentDescription = "Back",
-                        ) {
-                            Icon(
-                                imageVector = TeddIcons.Back,
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                )
-            },
-        ) { scaffoldPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(scaffoldPadding)
-                    .padding(contentPadding),
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
-            ) {
-                Text(
-                    text = metadata?.location?.displayName ?: uiState.documentId,
-                    style = typography.settingDescription,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                uiState.errorMessage?.let { message ->
-                    TeddErrorBanner(message = message)
-                }
-
-                metadata?.let {
-                    TeddOptionGroup(
-                        title = "Overview",
-                        description = "File details and your current place.",
+        topBar = {
+            TeddTopBar(
+                title = "Document info",
+                navigationIcon = {
+                    TeddIconButton(
+                        onClick = onBack,
+                        contentDescription = "Back",
                     ) {
-                        MetadataRow(label = "Name", value = it.location.displayName)
-                        MetadataRow(label = "Location", value = it.location.sourceUri)
-                        MetadataRow(label = "Format", value = it.format.displayName())
-                        MetadataRow(label = "Size", value = formatSize(it.location.sizeBytes))
-                        MetadataRow(label = "Pages", value = formatPageCount(it.pageCount))
-                        MetadataRow(label = "Current page", value = formatPagePosition(uiState.pageIndex))
-                    }
-                }
-
-                TeddOptionGroup(
-                    title = "Reading stats",
-                    description = "A quick summary of this document and your reading pace.",
-                ) {
-                    StatRow(label = "Reading time", value = formatDuration(uiState.stats?.activeMillis))
-                    StatRow(label = "Reading pace", value = formatReadingPace(uiState.stats))
-                    StatRow(label = "Characters", value = formatCount(metadata?.characterCount))
-                    StatRow(label = "Words", value = formatCount(metadata?.wordCount))
-                }
-
-                TeddOptionGroup(
-                    title = "Recent sessions",
-                    description = "Latest reading sessions for this document.",
-                ) {
-                    if (uiState.sessions.isEmpty()) {
-                        Text(
-                            text = "No reading sessions yet.",
-                            style = typography.settingDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Icon(
+                            imageVector = TeddIcons.Back,
+                            contentDescription = null,
                         )
-                    } else {
-                        uiState.sessions.take(10).forEachIndexed { index, session ->
-                            TeddListItem(
-                                title = "Session ${index + 1}",
-                                supportingText = formatDuration(session.activeMillis),
-                            )
-                        }
+                    }
+                },
+            )
+        },
+    ) { scaffoldPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(scaffoldPadding)
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(spacing.medium),
+        ) {
+            Text(
+                text = metadata?.location?.displayName ?: uiState.documentId,
+                style = typography.settingDescription,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            uiState.errorMessage?.let { message ->
+                TeddErrorBanner(message = message)
+            }
+
+            metadata?.let {
+                TeddOptionGroup(
+                    title = "Overview",
+                    description = "File details and your current place.",
+                ) {
+                    MetadataRow(label = "Name", value = it.location.displayName)
+                    MetadataRow(label = "Location", value = it.location.sourceUri)
+                    MetadataRow(label = "Format", value = it.format.displayName())
+                    MetadataRow(label = "Size", value = formatSize(it.location.sizeBytes))
+                    MetadataRow(label = "Pages", value = formatPageCount(it.pageCount))
+                    MetadataRow(label = "Current page", value = formatPagePosition(uiState.pageIndex))
+                }
+            }
+
+            TeddOptionGroup(
+                title = "Reading stats",
+                description = "A quick summary of this document and your reading pace.",
+            ) {
+                MetadataRow(label = "Reading time", value = formatDuration(uiState.stats?.activeMillis))
+                MetadataRow(label = "Reading pace", value = formatReadingPace(uiState.stats))
+                MetadataRow(label = "Characters", value = formatCount(metadata?.characterCount))
+                MetadataRow(label = "Words", value = formatCount(metadata?.wordCount))
+            }
+
+            TeddOptionGroup(
+                title = "Recent sessions",
+                description = "Latest reading sessions for this document.",
+            ) {
+                if (uiState.sessions.isEmpty()) {
+                    Text(
+                        text = "No reading sessions yet.",
+                        style = typography.settingDescription,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    uiState.sessions.take(10).forEachIndexed { index, session ->
+                        TeddListItem(
+                            title = "Session ${index + 1}",
+                            supportingText = formatDuration(session.activeMillis),
+                        )
                     }
                 }
             }
@@ -206,15 +202,6 @@ private fun MetadataRow(
             style = typography.settingTitle,
         )
     }
-}
-
-@Composable
-private fun StatRow(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-) {
-    MetadataRow(label = label, value = value, modifier = modifier)
 }
 
 internal fun formatSize(sizeBytes: Long?): String {

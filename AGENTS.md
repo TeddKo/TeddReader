@@ -31,6 +31,14 @@ Use Kotlin style conventions already present in the repo: 4-space indentation, t
 
 Name Compose entry points and screens in PascalCase, such as `App`. Name tests as `*Test` classes with focused `@Test` methods.
 
+### Compose hierarchy rules
+
+- Use the layout that actually arranges the content as the component root. Do not add a `Box`, `Row`, `Column`, or `Surface` only to carry a `Modifier` that the real root can own.
+- Keep a wrapper only when it provides required multi-child layout, alignment or overlay scope, clipping, insets, semantics, or interaction behavior that cannot be preserved on the child modifier.
+- Prefer modifier drawing such as `background`, `border`, and `drawBehind` over an extra visual-only composable node.
+- Use Material clickable, selectable, and toggleable component overloads before building an outer interaction wrapper. Ripple and pressed indications must be clipped to the visible component shape; minimum touch-target handling must not enlarge the visible indication.
+- Reject pass-through one-child wrappers during review unless the wrapper is an intentional design-system boundary with behavior beyond forwarding parameters.
+
 ## Testing Guidelines
 
 Tests use `kotlin.test`. Put cross-platform tests in `shared/src/commonTest/kotlin/`, Android host tests in `shared/src/androidHostTest/kotlin/`, and iOS tests in `shared/src/iosTest/kotlin/`. Add the smallest test that proves new logic works; UI-only changes should at least build successfully.

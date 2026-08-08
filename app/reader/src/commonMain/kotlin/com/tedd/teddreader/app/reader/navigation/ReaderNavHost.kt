@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +32,6 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
-import com.tedd.teddreader.core.ui.component.TeddSurface
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.feature.bookmarks.api.BookmarksRoute
 import com.tedd.teddreader.feature.bookmarks.impl.BookmarksRouteScreen
@@ -204,33 +204,30 @@ private fun PlaceholderDestination(
 ) {
     val spacing = teddReaderSpacing()
 
-    TeddSurface(
+    Column(
         modifier = modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
             .systemBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(spacing.large),
     ) {
+        TeddTopBar(title = title)
         Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(spacing.large),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(spacing.medium),
         ) {
-            TeddTopBar(title = title)
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding),
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
-            ) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TeddButton(
-                    text = "Back",
-                    onClick = onBack,
-                    emphasis = TeddButtonEmphasis.Secondary,
-                )
-            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TeddButton(
+                text = "Back",
+                onClick = onBack,
+                emphasis = TeddButtonEmphasis.Secondary,
+            )
         }
     }
 }

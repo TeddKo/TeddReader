@@ -1,6 +1,7 @@
 package com.tedd.teddreader.feature.bookmarks.impl
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,7 +47,6 @@ import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddModalBottomSheet
 import com.tedd.teddreader.core.ui.component.TeddScaffold
-import com.tedd.teddreader.core.ui.component.TeddSurface
 import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
@@ -129,77 +129,73 @@ fun BookmarksScreen(
     val typography = teddReaderTypography()
 
     if (uiState.isLoading) {
-        TeddSurface(modifier = modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                TeddLoadingIndicator(message = "Loading saved places")
-            }
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            TeddLoadingIndicator(message = "Loading saved places")
         }
         return
     }
 
-    TeddSurface(
+    TeddScaffold(
         modifier = modifier
             .fillMaxSize()
             .systemBarsPadding(),
-    ) {
-        TeddScaffold(
-            modifier = Modifier.fillMaxSize(),
-            topBar = {
-                TeddTopBar(
-                    title = "Saved places",
-                    navigationIcon = {
-                        TeddIconButton(
-                            onClick = onBack,
-                            contentDescription = "Back",
-                        ) {
-                            Icon(
-                                imageVector = TeddIcons.Back,
-                                contentDescription = null,
-                            )
-                        }
-                    },
-                )
-            },
-        ) { scaffoldPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(scaffoldPadding)
-                    .padding(contentPadding),
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
-            ) {
-                Text(
-                    text = if (uiState.bookmarks.isEmpty()) {
-                        "Keep meaningful reading positions from this document."
-                    } else {
-                        "${uiState.bookmarks.size} saved " +
-                            if (uiState.bookmarks.size == 1) "place" else "places"
-                    },
-                    style = typography.settingDescription,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                uiState.errorMessage?.let { message ->
-                    TeddErrorBanner(message = message)
-                }
-
-                if (uiState.bookmarks.isEmpty()) {
-                    TeddEmptyState(
-                        title = "No saved places yet",
-                        description = "Use Save current page from the reader menu to keep a reading position.",
-                    )
-                } else {
-                    uiState.bookmarks.forEach { bookmark ->
-                        BookmarkRow(
-                            bookmark = bookmark,
-                            onBookmarkClick = { onBookmarkClick(bookmark.location) },
-                            onEditClick = { onEditClick(bookmark) },
+        topBar = {
+            TeddTopBar(
+                title = "Saved places",
+                navigationIcon = {
+                    TeddIconButton(
+                        onClick = onBack,
+                        contentDescription = "Back",
+                    ) {
+                        Icon(
+                            imageVector = TeddIcons.Back,
+                            contentDescription = null,
                         )
                     }
+                },
+            )
+        },
+    ) { scaffoldPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(scaffoldPadding)
+                .padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(spacing.medium),
+        ) {
+            Text(
+                text = if (uiState.bookmarks.isEmpty()) {
+                    "Keep meaningful reading positions from this document."
+                } else {
+                    "${uiState.bookmarks.size} saved " +
+                        if (uiState.bookmarks.size == 1) "place" else "places"
+                },
+                style = typography.settingDescription,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            uiState.errorMessage?.let { message ->
+                TeddErrorBanner(message = message)
+            }
+
+            if (uiState.bookmarks.isEmpty()) {
+                TeddEmptyState(
+                    title = "No saved places yet",
+                    description = "Use Save current page from the reader menu to keep a reading position.",
+                )
+            } else {
+                uiState.bookmarks.forEach { bookmark ->
+                    BookmarkRow(
+                        bookmark = bookmark,
+                        onBookmarkClick = { onBookmarkClick(bookmark.location) },
+                        onEditClick = { onEditClick(bookmark) },
+                    )
                 }
             }
         }
@@ -285,32 +281,30 @@ private fun BookmarkRow(
     val spacing = teddReaderSpacing()
 
     TeddCard(modifier = modifier.fillMaxWidth()) {
-        Column {
-            TeddListItem(
-                title = bookmark.label ?: bookmark.location.displayLabel(),
-                supportingText = buildBookmarkSupportingText(bookmark),
+        TeddListItem(
+            title = bookmark.label ?: bookmark.location.displayLabel(),
+            supportingText = buildBookmarkSupportingText(bookmark),
+            onClick = onBookmarkClick,
+            showDivider = false,
+        )
+        Row(
+            modifier = Modifier.padding(
+                start = DefaultTeddReaderSpacing.medium,
+                end = DefaultTeddReaderSpacing.medium,
+                bottom = DefaultTeddReaderSpacing.medium,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(spacing.small),
+        ) {
+            TeddButton(
+                text = "Open",
                 onClick = onBookmarkClick,
-                showDivider = false,
+                emphasis = TeddButtonEmphasis.Text,
             )
-            Row(
-                modifier = Modifier.padding(
-                    start = DefaultTeddReaderSpacing.medium,
-                    end = DefaultTeddReaderSpacing.medium,
-                    bottom = DefaultTeddReaderSpacing.medium,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(spacing.small),
-            ) {
-                TeddButton(
-                    text = "Open",
-                    onClick = onBookmarkClick,
-                    emphasis = TeddButtonEmphasis.Text,
-                )
-                TeddButton(
-                    text = "Edit note",
-                    onClick = onEditClick,
-                    emphasis = TeddButtonEmphasis.Secondary,
-                )
-            }
+            TeddButton(
+                text = "Edit note",
+                onClick = onEditClick,
+                emphasis = TeddButtonEmphasis.Secondary,
+            )
         }
     }
 }

@@ -321,7 +321,6 @@ Contract:
 | Composable | Location | Required change/contract |
 | --- | --- | --- |
 | TeddReaderTheme and token accessors | core/designsystem/.../TeddReaderTheme.kt:20-154 | Preserve one token source. Default darkTheme should follow app/system state at app boundary. Add semantic color roles only when a real component needs them. |
-| TeddSurface | core/ui/.../TeddSurface.kt:15 | Default to Material surface/background contract; never add implicit padding; support full-window and grouped-surface use through caller modifier. |
 | TeddScaffold | TeddWrappers.kt:218 | Own contentWindowInsets and pass consumed PaddingValues. Do not apply global padding outside it. |
 | TeddTopBar | TeddWrappers.kt:233 | Replace text Back buttons; handle status-bar inset, title ellipsis, subtitle variant, actions, and proper navigation icon semantics. |
 | TeddCard | TeddWrappers.kt:27 | Use only for meaningful grouping; no card inside card; caller owns content padding. |
@@ -334,8 +333,8 @@ Contract:
 | --- | --- | --- |
 | TeddButton | core/ui/.../TeddButton.kt:15 | Primary/secondary/text/destructive emphasis; loading/disabled states; 48 dp minimum; compact layouts may fill width. |
 | TeddIconButton | core/ui/.../TeddIconButton.kt:11 | Require description in production, 48 dp target, vector icon slot, selected/toggled state where relevant. |
-| TeddChip | TeddWrappers.kt:42 | Use explicit selected/interactive variants and selected semantics; no punctuation-based state. |
-| TeddDropdownMenu | core/ui/.../TeddDropdownMenu.kt:17 | Constrain width/height, safe edge offset, predictable dismissal and focus restoration. |
+| TeddChip | TeddWrappers.kt:42 | Use Material selectable surface behavior and selected semantics; preserve the minimum touch target while clipping ripple to the visible pill; no punctuation-based state. |
+| Material DropdownMenu | Direct call site | Use directly rather than through a pass-through wrapper; constrain width/height, safe edge offset, predictable dismissal and focus restoration. |
 | TeddDropdownMenuItem | TeddDropdownMenu.kt:34 | 48 dp minimum, concise text, optional icon/checkmark, disabled explanation outside the row. |
 | TeddSwitchRow | core/ui/.../TeddSwitchRow.kt:23 | Whole row is one switch semantic; title/value wrap; visual switch is not a second focus target. |
 | TeddCheckboxRow | core/ui/.../TeddCheckboxRow.kt:23 | Same single-target rule; use only for independent multi-select choices. |
