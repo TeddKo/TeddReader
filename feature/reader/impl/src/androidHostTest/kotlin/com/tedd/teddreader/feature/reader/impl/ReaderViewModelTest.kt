@@ -35,6 +35,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderViewModelTest {
@@ -92,12 +94,63 @@ class ReaderViewModelTest {
         assertEquals(PageIndex(current = 1, total = 2), viewModel.uiState.value.pageIndex)
     }
 
+    @Test
+    fun favoriteToggleUpdatesReaderAndDocument() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId)
+        val viewModel = createViewModel(documentRepository)
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        viewModel.toggleFavorite()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isFavorite)
+        assertTrue(documentRepository.isFavorite)
+    }
+
+    @Test
+    fun savedPlaceToggleUpdatesCurrentPageState() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val bookmarkRepository = FakeBookmarkRepository()
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(documentId),
+            bookmarkRepository = bookmarkRepository,
+        )
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        viewModel.toggleSavedPlace()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isCurrentPageSaved)
+        assertEquals(ReaderLocation.TextOffset(0), bookmarkRepository.bookmarks.value.single().location)
+
+        viewModel.toggleSavedPlace()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isCurrentPageSaved)
+    }
+
+    private fun createViewModel(
+        documentRepository: FakeDocumentRepository,
+        bookmarkRepository: FakeBookmarkRepository = FakeBookmarkRepository(),
+    ): ReaderViewModel {
+        val readerRepository = FakeReaderRepository()
+        return ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = bookmarkRepository,
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+    }
 }
 
 private class FakeDocumentRepository(
     private val documentId: DocumentId,
 ) : DocumentRepository {
-    private val metadata = DocumentMetadata(
+    private var metadata = DocumentMetadata(
         id = documentId,
         location = DocumentLocation(
             sourceUri = documentId.value,
@@ -111,6 +164,7 @@ private class FakeDocumentRepository(
         characterCount = 31,
         wordCount = 6,
     )
+    val isFavorite: Boolean get() = metadata.isBookmarked
 
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = flowOf(listOf(metadata))
 
@@ -154,7 +208,9 @@ private class FakeDocumentRepository(
         importedAtEpochMillis: Long,
     ): ReaderDocument = error("not used")
 
-    override suspend fun upsertDocument(document: DocumentMetadata) = Unit
+    override suspend fun upsertDocument(document: DocumentMetadata) {
+        metadata = document
+    }
     override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit
     override suspend fun deleteDocument(documentId: DocumentId) = Unit
 }
@@ -181,8 +237,14 @@ private class FakeReaderSettingsRepository : ReaderSettingsRepository {
 }
 
 private class FakeBookmarkRepository : BookmarkRepository {
-    override fun observeBookmarks(documentId: DocumentId): Flow<List<Bookmark>> = flowOf(emptyList())
-    override suspend fun getBookmark(bookmarkId: String): Bookmark? = null
-    override suspend fun saveBookmark(bookmark: Bookmark) = Unit
-    override suspend fun deleteBookmark(bookmarkId: String) = Unit
+    val bookmarks = MutableStateFlow<List<Bookmark>>(emptyList())
+
+    override fun observeBookmarks(documentId: DocumentId): Flow<List<Bookmark>> = bookmarks
+    override suspend fun getBookmark(bookmarkId: String): Bookmark? = bookmarks.value.firstOrNull { it.id == bookmarkId }
+    override suspend fun saveBookmark(bookmark: Bookmark) {
+        bookmarks.value = bookmarks.value.filterNot { it.id == bookmark.id } + bookmark
+    }
+    override suspend fun deleteBookmark(bookmarkId: String) {
+        bookmarks.value = bookmarks.value.filterNot { it.id == bookmarkId }
+    }
 }

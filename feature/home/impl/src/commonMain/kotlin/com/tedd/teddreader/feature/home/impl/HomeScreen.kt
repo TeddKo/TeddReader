@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,10 +36,12 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
+import com.tedd.teddreader.core.ui.component.TeddCard
 import com.tedd.teddreader.core.ui.component.TeddChip
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.feature.home.impl.component.DocumentListItem
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -84,7 +89,6 @@ fun HomeScreen(
     ),
 ) {
     val spacing = teddReaderSpacing()
-    val typography = teddReaderTypography()
     var actionDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingDeleteDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -146,50 +150,84 @@ fun HomeScreen(
                         onFormatFilterChange = onFormatFilterChange,
                     )
 
-                    if (uiState.recentDocuments.isEmpty()) {
+                    if (uiState.favoriteDocuments.isEmpty() && uiState.recentDocuments.isEmpty()) {
                         HomeFilteredEmptyState(
                             onShowAllClick = { onFormatFilterChange(HomeFormatFilter.All) },
-                        )
-                    } else {
-                        Text(
-                            text = "Recent reading",
-                            style = typography.documentMeta,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
         }
 
-        if (uiState.hasDocuments && uiState.recentDocuments.isNotEmpty()) {
+        if (uiState.favoriteDocuments.isNotEmpty()) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(spacing.none),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+                verticalArrangement = Arrangement.spacedBy(spacing.small),
             ) {
-                uiState.recentDocuments.forEach { document ->
-                    DocumentListItem(
-                        document = document,
-                        onClick = { onDocumentClick(document.id) },
-                        actionsExpanded = actionDocumentId == document.id.value,
-                        onShowActions = { actionDocumentId = document.id.value },
+                HomeSectionHeader(
+                    title = "Favorites",
+                    description = "${uiState.favoriteDocuments.size} hand-picked " +
+                        if (uiState.favoriteDocuments.size == 1) "document" else "documents",
+                    showFavoriteIcon = true,
+                )
+                TeddCard(modifier = Modifier.fillMaxWidth()) {
+                    HomeDocumentList(
+                        documents = uiState.favoriteDocuments,
+                        actionDocumentId = actionDocumentId,
+                        contentPadding = PaddingValues(
+                            horizontal = DefaultTeddReaderSpacing.medium,
+                            vertical = DefaultTeddReaderSpacing.small,
+                        ),
+                        onDocumentClick = onDocumentClick,
+                        onShowActions = { actionDocumentId = it },
                         onDismissActions = { actionDocumentId = null },
-                        onBookmarkClick = {
+                        onBookmarkClick = { document ->
                             actionDocumentId = null
-                            onDocumentBookmarkChange(document.id, !document.isBookmarked)
+                            onDocumentBookmarkChange(document.id, false)
                         },
-                        onDeleteClick = {
+                        onDeleteClick = { document ->
                             actionDocumentId = null
                             pendingDeleteDocumentId = document.id.value
                         },
-                        contentPadding = listItemPadding,
                     )
                 }
+            }
+        }
+
+        if (uiState.recentDocuments.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(spacing.small),
+            ) {
+                HomeSectionHeader(
+                    title = "Recent reading",
+                    description = "Continue where you left off",
+                    modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+                )
+                HomeDocumentList(
+                    documents = uiState.recentDocuments,
+                    actionDocumentId = actionDocumentId,
+                    contentPadding = listItemPadding,
+                    onDocumentClick = onDocumentClick,
+                    onShowActions = { actionDocumentId = it },
+                    onDismissActions = { actionDocumentId = null },
+                    onBookmarkClick = { document ->
+                        actionDocumentId = null
+                        onDocumentBookmarkChange(document.id, true)
+                    },
+                    onDeleteClick = { document ->
+                        actionDocumentId = null
+                        pendingDeleteDocumentId = document.id.value
+                    },
+                )
             }
         }
     }
 
     val pendingDeleteDocument = pendingDeleteDocumentId?.let { documentId ->
-        uiState.recentDocuments.firstOrNull { it.id.value == documentId }
+        (uiState.favoriteDocuments + uiState.recentDocuments).firstOrNull { it.id.value == documentId }
     }
     if (pendingDeleteDocument != null) {
         AlertDialog(
@@ -219,6 +257,68 @@ fun HomeScreen(
                 )
             },
         )
+    }
+}
+
+@Composable
+private fun HomeSectionHeader(
+    title: String,
+    description: String,
+    modifier: Modifier = Modifier,
+    showFavoriteIcon: Boolean = false,
+) {
+    val spacing = teddReaderSpacing()
+    val typography = teddReaderTypography()
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(spacing.small),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showFavoriteIcon) {
+            Icon(
+                imageVector = TeddIcons.BookmarkFilled,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
+            Text(text = title, style = typography.titleMedium)
+            Text(
+                text = description,
+                style = typography.documentMeta,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeDocumentList(
+    documents: List<DocumentMetadata>,
+    actionDocumentId: String?,
+    contentPadding: PaddingValues,
+    onDocumentClick: (DocumentId) -> Unit,
+    onShowActions: (String) -> Unit,
+    onDismissActions: () -> Unit,
+    onBookmarkClick: (DocumentMetadata) -> Unit,
+    onDeleteClick: (DocumentMetadata) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        documents.forEachIndexed { index, document ->
+            DocumentListItem(
+                document = document,
+                onClick = { onDocumentClick(document.id) },
+                actionsExpanded = actionDocumentId == document.id.value,
+                onShowActions = { onShowActions(document.id.value) },
+                onDismissActions = onDismissActions,
+                onBookmarkClick = { onBookmarkClick(document) },
+                onDeleteClick = { onDeleteClick(document) },
+                contentPadding = contentPadding,
+                showDivider = index < documents.lastIndex,
+            )
+        }
     }
 }
 
@@ -397,7 +497,7 @@ private fun HomeScreenRecentPreview() {
             uiState = HomeUiState(
                 isLoading = false,
                 hasDocuments = true,
-                recentDocuments = listOf(
+                favoriteDocuments = listOf(
                     DocumentMetadata(
                         id = DocumentId("preview-1"),
                         location = DocumentLocation(
@@ -408,7 +508,10 @@ private fun HomeScreenRecentPreview() {
                         format = DocumentFormat.EPUB,
                         addedAtEpochMillis = 0L,
                         pageCount = 320,
+                        isBookmarked = true,
                     ),
+                ),
+                recentDocuments = listOf(
                     DocumentMetadata(
                         id = DocumentId("preview-2"),
                         location = DocumentLocation(

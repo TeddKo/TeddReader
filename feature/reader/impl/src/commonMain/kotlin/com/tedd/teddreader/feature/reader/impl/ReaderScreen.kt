@@ -144,11 +144,12 @@ fun ReaderRouteScreen(
         onToggleControls = viewModel::toggleControls,
         onPreviousPage = viewModel::movePrevious,
         onNextPage = viewModel::moveNext,
-        onBookmarkToggle = viewModel::toggleBookmark,
+        onFavoriteToggle = viewModel::toggleFavorite,
         onActionSelected = { action ->
             when (action) {
                 ReaderMenuAction.Search -> onSearchClick()
-                ReaderMenuAction.Bookmark -> onBookmarksClick()
+                ReaderMenuAction.ToggleSavedPlace -> viewModel.toggleSavedPlace()
+                ReaderMenuAction.SavedPlaces -> onBookmarksClick()
                 ReaderMenuAction.TableOfContents -> viewModel.showSheet(ReaderOptionSheet.TableOfContents)
                 ReaderMenuAction.GoToPage -> viewModel.showSheet(ReaderOptionSheet.GoToPage)
                 ReaderMenuAction.DocumentInfo -> onDocumentInfoClick()
@@ -209,7 +210,7 @@ fun ReaderScreen(
     onToggleControls: () -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
-    onBookmarkToggle: () -> Unit,
+    onFavoriteToggle: () -> Unit,
     onActionSelected: (ReaderMenuAction) -> Unit,
     onOptionSheetSelected: (ReaderOptionSheet) -> Unit,
     onDismissSheet: () -> Unit,
@@ -265,7 +266,7 @@ fun ReaderScreen(
             onToggleControls = onToggleControls,
             onPreviousPage = onPreviousPage,
             onNextPage = onNextPage,
-            onBookmarkToggle = onBookmarkToggle,
+            onFavoriteToggle = onFavoriteToggle,
             onActionSelected = onActionSelected,
             onOptionSheetSelected = onOptionSheetSelected,
             onDismissSheet = onDismissSheet,
@@ -315,7 +316,7 @@ private fun ReaderContent(
     onToggleControls: () -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
-    onBookmarkToggle: () -> Unit,
+    onFavoriteToggle: () -> Unit,
     onActionSelected: (ReaderMenuAction) -> Unit,
     onOptionSheetSelected: (ReaderOptionSheet) -> Unit,
     onDismissSheet: () -> Unit,
@@ -471,11 +472,31 @@ private fun ReaderContent(
                         }
                     },
                     actions = {
-                        TeddIconButton(onClick = onBookmarkToggle, contentDescription = "Toggle bookmark") {
-                            Icon(imageVector = TeddIcons.BookmarkOutline, contentDescription = null)
+                        TeddIconButton(
+                            onClick = onFavoriteToggle,
+                            contentDescription = if (uiState.isFavorite) {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isFavorite) {
+                                    TeddIcons.BookmarkFilled
+                                } else {
+                                    TeddIcons.BookmarkOutline
+                                },
+                                contentDescription = null,
+                                tint = if (uiState.isFavorite) {
+                                    uiState.style.readerColors().bookmark
+                                } else {
+                                    uiState.style.readerColors().controlsContent
+                                },
+                            )
                         }
                         ReaderActionMenu(
                             expanded = isActionMenuExpanded,
+                            isCurrentPageSaved = uiState.isCurrentPageSaved,
                             onExpandedChange = onActionMenuExpandedChange,
                             onActionSelected = onActionSelected,
                         )
@@ -1189,7 +1210,7 @@ private fun ReaderScreenCompactPreview() {
             onToggleControls = {},
             onPreviousPage = {},
             onNextPage = {},
-            onBookmarkToggle = {},
+            onFavoriteToggle = {},
             onActionSelected = {},
             onOptionSheetSelected = {},
             onDismissSheet = {},
@@ -1240,7 +1261,7 @@ private fun ReaderScreenHiddenChromePreview() {
             onToggleControls = {},
             onPreviousPage = {},
             onNextPage = {},
-            onBookmarkToggle = {},
+            onFavoriteToggle = {},
             onActionSelected = {},
             onOptionSheetSelected = {},
             onDismissSheet = {},
@@ -1291,7 +1312,7 @@ private fun ReaderScreenDarkPreview() {
             onToggleControls = {},
             onPreviousPage = {},
             onNextPage = {},
-            onBookmarkToggle = {},
+            onFavoriteToggle = {},
             onActionSelected = {},
             onOptionSheetSelected = {},
             onDismissSheet = {},
@@ -1348,7 +1369,7 @@ private fun ReaderScreenPreview() {
             onToggleControls = {},
             onPreviousPage = {},
             onNextPage = {},
-            onBookmarkToggle = {},
+            onFavoriteToggle = {},
             onActionSelected = {},
             onOptionSheetSelected = {},
             onDismissSheet = {},

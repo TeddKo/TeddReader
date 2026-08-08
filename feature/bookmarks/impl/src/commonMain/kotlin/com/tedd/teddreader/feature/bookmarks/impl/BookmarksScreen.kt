@@ -38,6 +38,7 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
+import com.tedd.teddreader.core.ui.component.TeddCard
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
@@ -133,7 +134,7 @@ fun BookmarksScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                TeddLoadingIndicator(message = "Loading bookmarks")
+                TeddLoadingIndicator(message = "Loading saved places")
             }
         }
         return
@@ -148,7 +149,7 @@ fun BookmarksScreen(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 TeddTopBar(
-                    title = "Bookmarks",
+                    title = "Saved places",
                     navigationIcon = {
                         TeddIconButton(
                             onClick = onBack,
@@ -173,9 +174,10 @@ fun BookmarksScreen(
             ) {
                 Text(
                     text = if (uiState.bookmarks.isEmpty()) {
-                        "Saved places from this document appear here."
+                        "Keep meaningful reading positions from this document."
                     } else {
-                        "${uiState.bookmarks.size} saved spots"
+                        "${uiState.bookmarks.size} saved " +
+                            if (uiState.bookmarks.size == 1) "place" else "places"
                     },
                     style = typography.settingDescription,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -187,8 +189,8 @@ fun BookmarksScreen(
 
                 if (uiState.bookmarks.isEmpty()) {
                     TeddEmptyState(
-                        title = "No bookmarks yet",
-                        description = "Save a spot from the reader and it will show up here.",
+                        title = "No saved places yet",
+                        description = "Use Save current page from the reader menu to keep a reading position.",
                     )
                 } else {
                     uiState.bookmarks.forEach { bookmark ->
@@ -204,7 +206,7 @@ fun BookmarksScreen(
 
         uiState.editingBookmark?.let { bookmark ->
             TeddModalBottomSheet(
-                title = "Edit bookmark note",
+                title = "Edit saved place",
                 onDismissRequest = onDismissEdit,
                 sheetState = editSheetState,
             ) {
@@ -214,7 +216,7 @@ fun BookmarksScreen(
                         style = typography.titleMedium,
                     )
                     Text(
-                        text = bookmark.location.asStorageString(),
+                        text = bookmark.location.displayLabel(),
                         style = typography.settingDescription,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -248,10 +250,10 @@ fun BookmarksScreen(
         if (pendingDeleteBookmark != null) {
             AlertDialog(
                 onDismissRequest = onDismissDeleteConfirmation,
-                title = { Text("Delete bookmark?") },
+                title = { Text("Delete saved place?") },
                 text = {
                     Text(
-                        "This removes ${pendingDeleteBookmark.label ?: pendingDeleteBookmark.location.asStorageString()} from bookmarks."
+                        "This removes ${pendingDeleteBookmark.label ?: pendingDeleteBookmark.location.displayLabel()}."
                     )
                 },
                 confirmButton = {
@@ -281,34 +283,46 @@ private fun BookmarkRow(
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
-    val typography = teddReaderTypography()
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(spacing.small),
-    ) {
-        TeddListItem(
-            title = bookmark.label ?: bookmark.location.asStorageString(),
-            supportingText = buildBookmarkSupportingText(bookmark),
-            onClick = onBookmarkClick,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(spacing.small)) {
-            TeddButton(
-                text = "Edit note",
-                onClick = onEditClick,
-                emphasis = TeddButtonEmphasis.Secondary,
+    TeddCard(modifier = modifier.fillMaxWidth()) {
+        Column {
+            TeddListItem(
+                title = bookmark.label ?: bookmark.location.displayLabel(),
+                supportingText = buildBookmarkSupportingText(bookmark),
+                onClick = onBookmarkClick,
+                showDivider = false,
             )
+            Row(
+                modifier = Modifier.padding(
+                    start = DefaultTeddReaderSpacing.medium,
+                    end = DefaultTeddReaderSpacing.medium,
+                    bottom = DefaultTeddReaderSpacing.medium,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(spacing.small),
+            ) {
+                TeddButton(
+                    text = "Open",
+                    onClick = onBookmarkClick,
+                    emphasis = TeddButtonEmphasis.Text,
+                )
+                TeddButton(
+                    text = "Edit note",
+                    onClick = onEditClick,
+                    emphasis = TeddButtonEmphasis.Secondary,
+                )
+            }
         }
-        Text(
-            text = bookmark.location.asStorageString(),
-            style = typography.settingDescription,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
 private fun buildBookmarkSupportingText(bookmark: Bookmark): String =
-    bookmark.note?.takeIf { it.isNotBlank() } ?: "Open this saved location in the reader."
+    bookmark.note?.takeIf { it.isNotBlank() } ?: bookmark.location.displayLabel()
+
+private fun ReaderLocation.displayLabel(): String = when (this) {
+    is ReaderLocation.PdfPage -> "PDF page ${pageIndex + 1}"
+    is ReaderLocation.TextOffset -> "Text position ${offset + 1}"
+    is ReaderLocation.EpubOffset -> "EPUB section ${spineIndex + 1} · position ${offset + 1}"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview(widthDp = 280)

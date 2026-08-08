@@ -2,7 +2,8 @@ package com.tedd.teddreader.feature.reader.impl
 
 enum class ReaderMenuAction {
     Search,
-    Bookmark,
+    ToggleSavedPlace,
+    SavedPlaces,
     TableOfContents,
     GoToPage,
     ViewOptions,
