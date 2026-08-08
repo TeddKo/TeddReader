@@ -8,4 +8,6 @@ import platform.Foundation.NSHomeDirectory
 fun createTeddReaderDatabaseBuilder(): RoomDatabase.Builder<TeddReaderDatabase> =
     Room.databaseBuilder<TeddReaderDatabase>(
         name = "${NSHomeDirectory()}/Documents/$TeddReaderDatabaseName",
-    ).setDriver(BundledSQLiteDriver())
+    )
+        .addMigrations(TeddReaderMigration1To2)
+        .setDriver(BundledSQLiteDriver())

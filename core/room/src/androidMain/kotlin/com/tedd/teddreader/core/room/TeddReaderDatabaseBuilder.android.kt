@@ -11,4 +11,6 @@ fun createTeddReaderDatabaseBuilder(
     Room.databaseBuilder<TeddReaderDatabase>(
         context = context.applicationContext,
         name = TeddReaderDatabaseName,
-    ).setDriver(BundledSQLiteDriver())
+    )
+        .addMigrations(TeddReaderMigration1To2)
+        .setDriver(BundledSQLiteDriver())

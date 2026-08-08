@@ -20,6 +20,7 @@ fun DocumentEntity.toDocumentMetadata(): DocumentMetadata = DocumentMetadata(
     pageCount = pageCount,
     characterCount = characterCount,
     wordCount = wordCount,
+    isBookmarked = isBookmarked,
 )
 
 fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
@@ -34,4 +35,5 @@ fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
     pageCount = pageCount,
     characterCount = characterCount,
     wordCount = wordCount,
+    isBookmarked = isBookmarked,
 )

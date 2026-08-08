@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.room.entity
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.PrimaryKey
 
@@ -16,4 +17,6 @@ data class DocumentEntity(
     val pageCount: Int? = null,
     val characterCount: Long? = null,
     val wordCount: Long? = null,
+    @ColumnInfo(defaultValue = "0")
+    val isBookmarked: Boolean = false,
 )

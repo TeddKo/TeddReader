@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.home.impl
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.model.DocumentFormat
+import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,11 +13,12 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
 
 @KoinViewModel
 class HomeViewModel(
-    documentRepository: DocumentRepository,
+    private val documentRepository: DocumentRepository,
 ) : ViewModel() {
     private val controls = MutableStateFlow(HomeControls())
 
@@ -49,6 +51,23 @@ class HomeViewModel(
 
     fun updateFormatFilter(filter: HomeFormatFilter) {
         controls.update { it.copy(formatFilter = filter) }
+    }
+
+    fun setDocumentBookmarked(documentId: DocumentId, isBookmarked: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                val document = documentRepository.getDocument(documentId) ?: return@runCatching
+                documentRepository.upsertDocument(document.copy(isBookmarked = isBookmarked))
+            }
+                .onFailure { controls.update { it.copy(errorMessage = "Failed to update document.") } }
+        }
+    }
+
+    fun deleteDocument(documentId: DocumentId) {
+        viewModelScope.launch {
+            runCatching { documentRepository.deleteDocument(documentId) }
+                .onFailure { controls.update { it.copy(errorMessage = "Failed to delete document.") } }
+        }
     }
 }
 
