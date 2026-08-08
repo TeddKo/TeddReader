@@ -31,6 +31,7 @@ fun ReaderProgressBar(
 
     if (compact) {
         Row(
+            modifier = modifier,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
         ) {
@@ -43,12 +44,12 @@ fun ReaderProgressBar(
 
             LinearProgressIndicator(
                 progress = { pageIndex.progress },
-                modifier = modifier.weight(1f),
+                modifier = Modifier.weight(1f),
             )
 
             if (showPercentLabel) {
                 Text(
-                    text = "${(pageIndex.progress * 100).toInt()}%",
+                    text = pageIndex.percentLabel(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = typography.readerCaption,
@@ -58,19 +59,22 @@ fun ReaderProgressBar(
         return
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+    ) {
         if (showPageLabel) {
             ReaderPageLabel(pageIndex = pageIndex)
         }
 
         LinearProgressIndicator(
             progress = { pageIndex.progress },
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
         )
 
         if (showPercentLabel) {
             Text(
-                text = "${(pageIndex.progress * 100).toInt()}%",
+                text = pageIndex.percentLabel(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = typography.readerCaption,
@@ -88,13 +92,18 @@ fun ReaderPageLabel(
     val current = if (pageIndex.total == 0) 0 else pageIndex.current.toOneBasedPageNumber()
 
     Text(
-        text = "$current / ${pageIndex.total}",
+        text = pageIndex.pageLabel(current),
         modifier = modifier,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         style = typography.readerCaption,
     )
 }
+
+
+private fun PageIndex.pageLabel(current: Int = if (total == 0) 0 else this.current.toOneBasedPageNumber()): String = "$current / $total"
+
+private fun PageIndex.percentLabel(): String = "${(progress * 100).toInt()}%"
 
 @Preview(widthDp = 360)
 @Composable

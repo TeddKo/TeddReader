@@ -9,8 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.tedd.teddreader.core.designsystem.teddReaderElevation
-import com.tedd.teddreader.core.designsystem.teddReaderShapes
 
 @Composable
 fun TeddSurface(
@@ -19,10 +17,8 @@ fun TeddSurface(
 ) {
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = teddReaderShapes().medium,
-        tonalElevation = teddReaderElevation().xSmall,
         content = content,
     )
 }

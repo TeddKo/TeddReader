@@ -1,36 +1,44 @@
 package com.tedd.teddreader.feature.search.impl
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
-import com.tedd.teddreader.core.ui.component.TeddCard
+import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
-import com.tedd.teddreader.core.ui.component.TeddSearchField
+import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddSurface
+import com.tedd.teddreader.core.ui.component.TeddTopBar
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -42,6 +50,7 @@ fun SearchRouteScreen(
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scrollState = rememberScrollState()
 
     LaunchedEffect(documentId) {
         viewModel.setDocument(documentId)
@@ -53,6 +62,7 @@ fun SearchRouteScreen(
         onSearchClick = viewModel::search,
         onBack = onBack,
         onResultClick = onResultClick,
+        scrollState = scrollState,
         modifier = modifier,
     )
 }
@@ -64,106 +74,116 @@ fun SearchScreen(
     onSearchClick: () -> Unit,
     onBack: () -> Unit,
     onResultClick: (ReaderLocation) -> Unit,
+    scrollState: ScrollState,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val isFieldEnabled = uiState.unsupportedMessage == null && !uiState.isLoading
+    val canSearch = isFieldEnabled && uiState.query.isNotBlank()
 
     TeddSurface(
         modifier = modifier
             .fillMaxSize()
-            .safeContentPadding(),
+            .systemBarsPadding(),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(spacing.screenPadding),
-            verticalArrangement = Arrangement.spacedBy(spacing.large),
-        ) {
-            TeddCard(
-                modifier = Modifier.fillMaxWidth(),
+        TeddScaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TeddTopBar(
+                    title = "Search",
+                    navigationIcon = {
+                        TeddIconButton(
+                            onClick = onBack,
+                            contentDescription = "Back",
+                        ) {
+                            Icon(
+                                imageVector = TeddIcons.Back,
+                                contentDescription = null,
+                            )
+                        }
+                    },
+                )
+            },
+        ) { scaffoldPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(scaffoldPadding)
+                    .padding(contentPadding),
+                verticalArrangement = Arrangement.spacedBy(spacing.large),
             ) {
-                Column(
-                    modifier = Modifier.padding(spacing.cardPadding),
-                    verticalArrangement = Arrangement.spacedBy(spacing.medium),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(spacing.xSmall)) {
-                        Text(
-                            text = "Find in document",
-                            style = typography.documentTitle,
-                        )
-                        Text(
-                            text = "Search the current document without leaving the reader flow.",
-                            style = typography.settingDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    TeddButton(
-                        text = "Back",
-                        onClick = onBack,
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                    Text(
+                        text = "Find a passage in the current document.",
+                        style = typography.settingDescription,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                }
-            }
-
-            TeddCard(
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier.padding(spacing.cardPadding),
-                    verticalArrangement = Arrangement.spacedBy(spacing.medium),
-                ) {
-                    TeddSearchField(
+                    OutlinedTextField(
                         value = uiState.query,
                         onValueChange = onQueryChange,
-                        placeholder = "Search text",
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Search text") },
+                        singleLine = true,
+                        enabled = isFieldEnabled,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = ImeAction.Search,
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onSearch = { if (canSearch) onSearchClick() },
+                        ),
                     )
                     TeddButton(
                         text = "Search",
                         onClick = onSearchClick,
-                    )
-                }
-            }
-
-            uiState.unsupportedMessage?.let {
-                TeddErrorBanner(message = it)
-            }
-            uiState.errorMessage?.let {
-                TeddErrorBanner(message = it)
-            }
-
-            when {
-                uiState.isLoading -> {
-                    TeddLoadingIndicator(message = "Searching")
-                }
-
-                uiState.query.isBlank() -> {
-                    TeddEmptyState(
-                        title = "Search your document",
-                        description = "Type a word or phrase to find passages.",
+                        enabled = canSearch,
                     )
                 }
 
-                uiState.results.isEmpty() -> {
-                    TeddEmptyState(
-                        title = "No results",
-                        description = "Try a different search term.",
-                    )
-                }
+                when {
+                    uiState.unsupportedMessage != null -> {
+                        TeddErrorBanner(message = uiState.unsupportedMessage)
+                    }
 
-                else -> {
-                    Text(
-                        text = "${uiState.results.size} results",
-                        style = typography.settingTitle,
-                    )
+                    uiState.errorMessage != null -> {
+                        TeddErrorBanner(message = uiState.errorMessage)
+                    }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                        uiState.results.forEach { result ->
-                            TeddListItem(
-                                title = result.snippet,
-                                supportingText = result.location.asStorageString(),
-                                onClick = { onResultClick(result.location) },
-                            )
+                    uiState.isLoading -> {
+                        TeddLoadingIndicator(message = "Searching")
+                    }
+
+                    uiState.query.isBlank() -> {
+                        TeddEmptyState(
+                            title = "Search this document",
+                            description = "Type a word or phrase to jump to matching passages.",
+                        )
+                    }
+
+                    uiState.results.isEmpty() -> {
+                        TeddEmptyState(
+                            title = "No results",
+                            description = "Try a different word or a shorter phrase.",
+                        )
+                    }
+
+                    else -> {
+                        Text(
+                            text = "${uiState.results.size} matches",
+                            style = typography.settingTitle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                            uiState.results.forEach { result ->
+                                TeddListItem(
+                                    title = result.sectionTitle?.takeIf { it.isNotBlank() } ?: result.snippet,
+                                    supportingText = buildSearchSupportingText(result),
+                                    onClick = { onResultClick(result.location) },
+                                )
+                            }
                         }
                     }
                 }
@@ -172,7 +192,13 @@ fun SearchScreen(
     }
 }
 
-@Preview
+private fun buildSearchSupportingText(result: SearchResult): String = buildList {
+    if (result.sectionTitle?.isNotBlank() == true) add(result.snippet)
+    add(result.location.asStorageString())
+}.joinToString("\n")
+
+@Preview(widthDp = 280)
+@Preview(widthDp = 360)
 @Composable
 private fun SearchScreenPreview() {
     TeddReaderTheme {
@@ -185,7 +211,8 @@ private fun SearchScreenPreview() {
                         documentId = DocumentId("preview"),
                         query = "reader",
                         location = ReaderLocation.TextOffset(10L),
-                        snippet = "Reader search result preview",
+                        snippet = "Reader search result preview with a longer snippet that still wraps cleanly.",
+                        sectionTitle = "Opening section",
                         range = TextRange(10L, 16L),
                     ),
                 ),
@@ -194,6 +221,7 @@ private fun SearchScreenPreview() {
             onSearchClick = {},
             onBack = {},
             onResultClick = {},
+            scrollState = rememberScrollState(),
         )
     }
 }

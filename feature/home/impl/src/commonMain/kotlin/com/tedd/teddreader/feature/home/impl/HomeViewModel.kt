@@ -31,6 +31,7 @@ class HomeViewModel(
             recentDocuments = documents
                 .filterBy(controls.formatFilter)
                 .sortBy(controls.sort),
+            hasDocuments = documents.isNotEmpty(),
             sort = controls.sort,
             formatFilter = controls.formatFilter,
             isLoading = false,

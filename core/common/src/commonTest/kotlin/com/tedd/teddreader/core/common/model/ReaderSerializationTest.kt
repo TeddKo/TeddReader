@@ -35,9 +35,12 @@ class ReaderSerializationTest {
         assertEquals(entry, json.decodeFromString(json.encodeToString(entry)))
     }
     @Test
-    fun pageAnimationIncludesGoogleAndApplePresets() {
-        assertEquals(PageAnimation.GOOGLE_PAGE, json.decodeFromString<PageAnimation>("\"GOOGLE_PAGE\""))
-        assertEquals(PageAnimation.APPLE_PAGE, json.decodeFromString<PageAnimation>("\"APPLE_PAGE\""))
+    fun pageAnimationIncludesFoundationPagerPresets() {
+        assertEquals(PageAnimation.FLUID_PAGER, json.decodeFromString<PageAnimation>("\"FLUID_PAGER\""))
+        assertEquals(PageAnimation.CURL_PAGER, json.decodeFromString<PageAnimation>("\"CURL_PAGER\""))
+        assertEquals(PageAnimation.CIRCLE_REVEAL, json.decodeFromString<PageAnimation>("\"CIRCLE_REVEAL\""))
+        assertEquals(PageAnimation.MOVIE_CAROUSEL, json.decodeFromString<PageAnimation>("\"MOVIE_CAROUSEL\""))
+        assertEquals(PageAnimation.PAGE_FLIP, json.decodeFromString<PageAnimation>("\"PAGE_FLIP\""))
     }
 
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +26,8 @@ fun PdfPageSurface(
     zoom: Float = 1f,
     rotationDegrees: Float = 0f,
     message: String = "PDF page renderer is not connected yet.",
+    contentPadding: PaddingValues = PaddingValues(12.dp),
+    placeholderContentPadding: PaddingValues = PaddingValues(24.dp),
 ) {
     PlatformPdfPageSurface(
         documentUri = documentUri,
@@ -35,6 +38,8 @@ fun PdfPageSurface(
             rotationZ = rotationDegrees,
         ),
         message = message,
+        contentPadding = contentPadding,
+        placeholderContentPadding = placeholderContentPadding,
     )
 }
 
@@ -44,6 +49,8 @@ internal expect fun PlatformPdfPageSurface(
     pageIndex: PageIndex,
     modifier: Modifier,
     message: String,
+    contentPadding: PaddingValues,
+    placeholderContentPadding: PaddingValues,
 )
 
 @Composable
@@ -51,12 +58,13 @@ internal fun PdfPlaceholderSurface(
     pageIndex: PageIndex,
     modifier: Modifier = Modifier,
     message: String,
+    contentPadding: PaddingValues = PaddingValues(24.dp),
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .padding(24.dp),
+            .padding(contentPadding),
         contentAlignment = Alignment.Center,
     ) {
         Column(

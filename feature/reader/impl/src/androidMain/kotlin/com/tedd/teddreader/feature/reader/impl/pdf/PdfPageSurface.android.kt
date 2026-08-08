@@ -9,6 +9,7 @@ import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,7 +26,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.PageIndex
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +37,8 @@ internal actual fun PlatformPdfPageSurface(
     pageIndex: PageIndex,
     modifier: Modifier,
     message: String,
+    contentPadding: PaddingValues,
+    placeholderContentPadding: PaddingValues,
 ) {
     val context = LocalContext.current
     var state by remember(documentUri, pageIndex.current) {
@@ -64,7 +66,7 @@ internal actual fun PlatformPdfPageSurface(
             modifier = modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .padding(12.dp),
+                .padding(contentPadding),
             contentAlignment = Alignment.Center,
         ) {
             Image(
@@ -78,6 +80,7 @@ internal actual fun PlatformPdfPageSurface(
             pageIndex = pageIndex,
             modifier = modifier,
             message = currentState.message.ifBlank { message },
+            contentPadding = placeholderContentPadding,
         )
     }
 }

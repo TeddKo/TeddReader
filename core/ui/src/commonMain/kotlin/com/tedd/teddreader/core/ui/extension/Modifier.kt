@@ -7,17 +7,36 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.coroutineScope
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 private val SingleClickInterval = 300.milliseconds
+
+internal val consumeUnconsumedVerticalScrollConnection = object : NestedScrollConnection {
+    override fun onPostScroll(
+        consumed: Offset,
+        available: Offset,
+        source: NestedScrollSource,
+    ): Offset = Offset(x = 0f, y = available.y)
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        Velocity(x = 0f, y = available.y)
+}
+
+fun Modifier.consumeUnconsumedVerticalScroll(): Modifier =
+    nestedScroll(consumeUnconsumedVerticalScrollConnection)
 
 fun Modifier.disableSplitMotionEvents(): Modifier = pointerInput(Unit) {
     handlePointerEvents()

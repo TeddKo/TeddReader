@@ -1,5 +1,7 @@
 package com.tedd.teddreader.feature.reader.impl.pdf
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitView
@@ -14,19 +16,22 @@ internal actual fun PlatformPdfPageSurface(
     pageIndex: PageIndex,
     modifier: Modifier,
     message: String,
+    contentPadding: PaddingValues,
+    placeholderContentPadding: PaddingValues,
 ) {
     if (documentUri.isNullOrBlank()) {
         PdfPlaceholderSurface(
             pageIndex = pageIndex,
             modifier = modifier,
             message = message,
+            contentPadding = placeholderContentPadding,
         )
         return
     }
 
     val path = documentUri.removePrefix("file://")
     UIKitView(
-        modifier = modifier,
+        modifier = modifier.padding(contentPadding),
         factory = {
             PDFView().apply {
                 autoScales = true

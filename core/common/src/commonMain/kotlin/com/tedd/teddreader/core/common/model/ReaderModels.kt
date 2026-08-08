@@ -162,8 +162,11 @@ enum class PageAnimation {
     SCROLL,
     BOOK_CURL,
     SHEET_FLIP,
-    GOOGLE_PAGE,
-    APPLE_PAGE,
+    FLUID_PAGER,
+    CURL_PAGER,
+    CIRCLE_REVEAL,
+    MOVIE_CAROUSEL,
+    PAGE_FLIP,
 }
 
 @Serializable

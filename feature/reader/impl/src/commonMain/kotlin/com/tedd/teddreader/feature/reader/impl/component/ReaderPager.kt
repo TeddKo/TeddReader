@@ -8,7 +8,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.calculateTargetValue
-import androidx.compose.animation.splineBasedDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,8 +17,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.splineBasedDecay
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -42,24 +41,20 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -74,6 +69,8 @@ import kotlin.math.min
 @Composable
 fun ReaderPager(
     pageKey: Int,
+    pageCount: Int,
+    pageStep: Int = 1,
     pageTurnMode: PageTurnMode,
     pageAnimation: PageAnimation,
     onPreviousPage: () -> Unit,
@@ -86,6 +83,8 @@ fun ReaderPager(
         PageAnimation.SCROLL -> {
             ReaderScrollPager(
                 pageKey = pageKey,
+                pageCount = pageCount,
+                pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
@@ -96,10 +95,17 @@ fun ReaderPager(
             return
         }
 
-        PageAnimation.GOOGLE_PAGE -> {
-            GoogleCurlPager(
+        PageAnimation.FLUID_PAGER,
+        PageAnimation.CIRCLE_REVEAL,
+        PageAnimation.MOVIE_CAROUSEL,
+        PageAnimation.PAGE_FLIP,
+            -> {
+            FoundationEffectPager(
                 pageKey = pageKey,
+                pageCount = pageCount,
+                pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
+                pageAnimation = pageAnimation,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
@@ -109,9 +115,11 @@ fun ReaderPager(
             return
         }
 
-        PageAnimation.APPLE_PAGE -> {
-            AppleReferenceCurlPager(
+        PageAnimation.CURL_PAGER -> {
+            FoundationCurlPager(
                 pageKey = pageKey,
+                pageCount = pageCount,
+                pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
@@ -148,9 +156,12 @@ fun ReaderPager(
                     PageAnimation.BOOK_CURL -> softSlideTransition(pageTurnMode, forward)
                     PageAnimation.SHEET_FLIP -> sheetFlipTransition(pageTurnMode, forward)
                     PageAnimation.SCROLL,
-                    PageAnimation.GOOGLE_PAGE,
-                    PageAnimation.APPLE_PAGE,
-                    -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                    PageAnimation.FLUID_PAGER,
+                    PageAnimation.CURL_PAGER,
+                    PageAnimation.CIRCLE_REVEAL,
+                    PageAnimation.MOVIE_CAROUSEL,
+                    PageAnimation.PAGE_FLIP,
+                        -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                 }
             },
             label = "ReaderPagerPage",
@@ -163,6 +174,8 @@ fun ReaderPager(
 @Composable
 private fun ReaderScrollPager(
     pageKey: Int,
+    pageCount: Int,
+    pageStep: Int,
     pageTurnMode: PageTurnMode,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
@@ -171,26 +184,49 @@ private fun ReaderScrollPager(
     content: @Composable (page: Int) -> Unit,
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = CenterPageIndex)
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(pageKey) {
+    LaunchedEffect(pageKey, pageCount, pageStep) {
         listState.scrollToItem(CenterPageIndex)
     }
-    LaunchedEffect(listState, pageKey) {
+    val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
+    val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    LaunchedEffect(listState, pageKey, pageCount, pageStep) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
             .filter { (_, isScrollInProgress) -> !isScrollInProgress }
             .map { (index, _) -> index }
             .distinctUntilChanged()
             .collect { index ->
                 when (index) {
-                    0 -> onPreviousPage()
-                    2 -> onNextPage()
+                    0 -> if (previousPage != null) onPreviousPage()
+                    2 -> if (nextPage != null) onNextPage()
                 }
             }
     }
 
-    val tapModifier = Modifier.pointerInput(onPreviousPage, onNextPage, onToggleControls) {
+    val tapModifier = Modifier.pointerInput(pageTurnMode, onToggleControls, previousPage, nextPage) {
         detectTapGestures { position ->
-            handleTap(position, onPreviousPage, onNextPage, onToggleControls)
+            val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
+            val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
+            when {
+                primary < extent * PreviousTapZoneRatio -> {
+                    if (previousPage != null) {
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(0)
+                        }
+                    }
+                }
+
+                primary > extent * NextTapZoneRatio -> {
+                    if (nextPage != null) {
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(2)
+                        }
+                    }
+                }
+
+                else -> onToggleControls()
+            }
         }
     }
 
@@ -201,7 +237,8 @@ private fun ReaderScrollPager(
         ) {
             items(ScrollPageOffsets) { pageOffset ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    content(pageKey + pageOffset)
+                    val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
+                    if (documentPage != null) content(documentPage)
                 }
             }
         }
@@ -212,7 +249,8 @@ private fun ReaderScrollPager(
         ) {
             items(ScrollPageOffsets) { pageOffset ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    content(pageKey + pageOffset)
+                    val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
+                    if (documentPage != null) content(documentPage)
                 }
             }
         }
@@ -252,7 +290,8 @@ private fun GoogleCurlPager(
             ) {
                 val primary = lerp(startPrimary, targetPrimary, value)
                 val cross = lerp(startCross, 0f, value)
-                dragState = state.withDelta(primary = primary, cross = cross, vertical = verticalMode)
+                dragState =
+                    state.withDelta(primary = primary, cross = cross, vertical = verticalMode)
             }
             dragState = null
             after()
@@ -269,7 +308,12 @@ private fun GoogleCurlPager(
                     axisSize = axisSize.toFloat().coerceAtLeast(1f),
                     onDrag = { start, current -> dragState = GoogleDragState(start, current) },
                     onCancel = { settleCurl(0f) },
-                    onPreviousPage = { settleCurl(axisSize.toFloat().coerceAtLeast(1f), onPreviousPage) },
+                    onPreviousPage = {
+                        settleCurl(
+                            axisSize.toFloat().coerceAtLeast(1f),
+                            onPreviousPage
+                        )
+                    },
                     onNextPage = { settleCurl(-axisSize.toFloat().coerceAtLeast(1f), onNextPage) },
                     onToggleControls = onToggleControls,
                 )
@@ -291,13 +335,14 @@ private fun GoogleCurlLayer(
     pageTurnMode: PageTurnMode,
     currentPage: Int,
     targetPage: Int,
+    modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
     val axis = curlAxisFrom(pageTurnMode)
     val geometryModifier = Modifier.googleEdgePathCurl(axis, dragState)
     val targetModifier = Modifier.googleEdgePathTarget(axis, dragState)
 
-    Box(Modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize()) {
         if (dragState != null && targetPage != currentPage) {
             Box(Modifier.fillMaxSize().then(targetModifier)) {
                 content(targetPage)
@@ -466,7 +511,13 @@ private fun AppleReferenceCurlPager(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { viewportSize = it }
-            .pointerInput(pageTurnMode, viewportSize, onPreviousPage, onNextPage, onToggleControls) {
+            .pointerInput(
+                pageTurnMode,
+                viewportSize,
+                onPreviousPage,
+                onNextPage,
+                onToggleControls
+            ) {
                 detectReferenceCurlGestures(
                     axis = axis,
                     onDrag = { state -> curlState = state },
@@ -483,7 +534,8 @@ private fun AppleReferenceCurlPager(
         Box(
             Modifier.referenceDrawCurl(
                 axis = axis,
-                edge = if (curlState?.direction == CurlDirection.Forward) curlState?.edge ?: rightEdge else rightEdge,
+                edge = if (curlState?.direction == CurlDirection.Forward) curlState?.edge
+                    ?: rightEdge else rightEdge,
             ),
         ) {
             content(pageKey)
@@ -676,7 +728,12 @@ private fun buildReferenceCurlPolygon(
     }
 }
 
-private fun createReferencePageEdge(size: IntSize, axis: CurlAxis, start: Offset, current: Offset): Edge {
+private fun createReferencePageEdge(
+    size: IntSize,
+    axis: CurlAxis,
+    start: Offset,
+    current: Offset
+): Edge {
     val canonicalSize = axis.canonicalSize(size)
     val startOffset = axis.toCanonical(start)
     val currentOffset = axis.toCanonical(current)
@@ -725,10 +782,20 @@ private suspend fun PointerInputScope.detectReferenceCurlGestures(
         }
 
         velocityTracker.addPosition(drag.uptimeMillis, drag.position)
-        onDrag(ReferenceCurlState(direction, createReferencePageEdge(size, axis, down.position, drag.position)))
+        onDrag(
+            ReferenceCurlState(
+                direction,
+                createReferencePageEdge(size, axis, down.position, drag.position)
+            )
+        )
         val completed = drag(drag.id) { change ->
             velocityTracker.addPosition(change.uptimeMillis, change.position)
-            onDrag(ReferenceCurlState(direction, createReferencePageEdge(size, axis, down.position, change.position)))
+            onDrag(
+                ReferenceCurlState(
+                    direction,
+                    createReferencePageEdge(size, axis, down.position, change.position)
+                )
+            )
             change.consume()
         }
         val velocity = velocityTracker.calculateVelocity()
@@ -786,7 +853,10 @@ private suspend fun PointerInputScope.detectGoogleCurlGesture(
         val drag = current - down.position
         val primary = if (isVerticalMode(pageTurnMode)) drag.y else drag.x
         val cross = if (isVerticalMode(pageTurnMode)) drag.x else drag.y
-        if (abs(primary) > min(SwipeThresholdPx, axisSize * CurlCommitRatio) && abs(primary) > abs(cross) * 0.35f) {
+        if (abs(primary) > min(SwipeThresholdPx, axisSize * CurlCommitRatio) && abs(primary) > abs(
+                cross
+            ) * 0.35f
+        ) {
             if (primary < 0f) onNextPage() else onPreviousPage()
         } else {
             onCancel()
@@ -858,7 +928,7 @@ private fun lineLineIntersection(
     line2b: Offset,
 ): Offset? {
     val denominator = (line1a.x - line1b.x) * (line2a.y - line2b.y) -
-        (line1a.y - line1b.y) * (line2a.x - line2b.x)
+            (line1a.y - line1b.y) * (line2a.x - line2b.x)
     if (denominator == 0f) return null
     val x1 = (line1a.x * line1b.y - line1a.y * line1b.x) * (line2a.x - line2b.x)
     val x2 = (line1a.x - line1b.x) * (line2a.x * line2b.y - line2a.y * line2b.x)
@@ -879,36 +949,49 @@ private fun List<Offset>.toPath(): Path = Path().apply {
 
 private fun Offset.rotate90(): Offset = Offset(-y, x)
 
-private fun lerp(start: Float, end: Float, fraction: Float): Float = start + ((end - start) * fraction)
+private fun lerp(start: Float, end: Float, fraction: Float): Float =
+    start + ((end - start) * fraction)
 
 @OptIn(ExperimentalAnimationApi::class)
 private fun slideTransition(pageTurnMode: PageTurnMode, forward: Boolean, durationMillis: Int) =
     if (isVerticalMode(pageTurnMode)) {
         slideInVertically(tween(durationMillis)) { fullHeight -> if (forward) fullHeight else -fullHeight } togetherWith
-            slideOutVertically(tween(durationMillis)) { fullHeight -> if (forward) -fullHeight else fullHeight }
+                slideOutVertically(tween(durationMillis)) { fullHeight -> if (forward) -fullHeight else fullHeight }
     } else {
         slideInHorizontally(tween(durationMillis)) { fullWidth -> if (forward) fullWidth else -fullWidth } togetherWith
-            slideOutHorizontally(tween(durationMillis)) { fullWidth -> if (forward) -fullWidth else fullWidth }
+                slideOutHorizontally(tween(durationMillis)) { fullWidth -> if (forward) -fullWidth else fullWidth }
     }
 
 @OptIn(ExperimentalAnimationApi::class)
 private fun softSlideTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
     if (isVerticalMode(pageTurnMode)) {
         fadeIn(tween(160)) + slideInVertically(tween(220)) { fullHeight -> if (forward) fullHeight / 2 else -fullHeight / 2 } togetherWith
-            fadeOut(tween(160)) + slideOutVertically(tween(220)) { fullHeight -> if (forward) -fullHeight / 4 else fullHeight / 4 }
+                fadeOut(tween(160)) + slideOutVertically(tween(220)) { fullHeight -> if (forward) -fullHeight / 4 else fullHeight / 4 }
     } else {
         fadeIn(tween(160)) + slideInHorizontally(tween(220)) { fullWidth -> if (forward) fullWidth / 2 else -fullWidth / 2 } togetherWith
-            fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
+                fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
     }
 
 @OptIn(ExperimentalAnimationApi::class)
 private fun sheetFlipTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
     if (isVerticalMode(pageTurnMode)) {
-        scaleIn(tween(200), initialScale = 0.96f) + slideInVertically(tween(200)) { fullHeight -> if (forward) fullHeight / 3 else -fullHeight / 3 } togetherWith
-            scaleOut(tween(200), targetScale = 0.98f) + slideOutVertically(tween(200)) { fullHeight -> if (forward) -fullHeight / 5 else fullHeight / 5 }
+        scaleIn(
+            tween(200),
+            initialScale = 0.96f
+        ) + slideInVertically(tween(200)) { fullHeight -> if (forward) fullHeight / 3 else -fullHeight / 3 } togetherWith
+                scaleOut(
+                    tween(200),
+                    targetScale = 0.98f
+                ) + slideOutVertically(tween(200)) { fullHeight -> if (forward) -fullHeight / 5 else fullHeight / 5 }
     } else {
-        scaleIn(tween(200), initialScale = 0.96f) + slideInHorizontally(tween(200)) { fullWidth -> if (forward) fullWidth / 3 else -fullWidth / 3 } togetherWith
-            scaleOut(tween(200), targetScale = 0.98f) + slideOutHorizontally(tween(200)) { fullWidth -> if (forward) -fullWidth / 5 else fullWidth / 5 }
+        scaleIn(
+            tween(200),
+            initialScale = 0.96f
+        ) + slideInHorizontally(tween(200)) { fullWidth -> if (forward) fullWidth / 3 else -fullWidth / 3 } togetherWith
+                scaleOut(
+                    tween(200),
+                    targetScale = 0.98f
+                ) + slideOutHorizontally(tween(200)) { fullWidth -> if (forward) -fullWidth / 5 else fullWidth / 5 }
     }
 
 internal data class CurlPreset(
@@ -926,6 +1009,25 @@ internal data class CurlPreset(
     val depthAlpha: Float = 0f,
     val appleStyle: Float = 0f,
 )
+
+internal fun readerPagerAdjacentPage(
+    currentPage: Int,
+    pageCount: Int,
+    pageStep: Int,
+    pageOffset: Int,
+): Int? {
+    if (pageCount <= 0 || currentPage !in 0 until pageCount) return null
+    if (pageOffset == 0) return currentPage
+
+    val step = pageStep.coerceAtLeast(1)
+    val target = if (pageOffset < 0) {
+        currentPage - min(step, currentPage)
+    } else {
+        if (step > pageCount - 1 - currentPage) return null
+        currentPage + step
+    }
+    return target.takeIf { it != currentPage }
+}
 
 private val ScrollPageOffsets = listOf(-1, 0, 1)
 private const val CenterPageIndex = 1

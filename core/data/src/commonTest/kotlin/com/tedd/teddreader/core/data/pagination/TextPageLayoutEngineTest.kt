@@ -82,6 +82,35 @@ class TextPageLayoutEngineTest {
     }
 
     @Test
+    fun narrowGlyphsFitTwiceAsManyCharactersAsWideGlyphs() {
+        val english = "a".repeat(100)
+        val korean = "가".repeat(100)
+        val style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f)
+        val viewportSize = ViewportSize(widthPx = 100, heightPx = 100)
+
+        fun paginate(text: String) = engine.paginate(
+            document = ReaderDocument(
+                id = DocumentId(text.first().toString()),
+                format = DocumentFormat.TXT,
+                title = "Book",
+                sections = listOf(
+                    ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
+                ),
+            ),
+            style = style,
+            viewportSize = viewportSize,
+        )
+
+        val englishPages = paginate(english)
+        val koreanPages = paginate(korean)
+
+        assertEquals(50, englishPages.first().text.length)
+        assertEquals(25, koreanPages.first().text.length)
+        assertEquals(english, englishPages.joinToString(separator = "") { page -> page.text })
+        assertEquals(korean, koreanPages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
     fun explicitLineBreaksDoNotOverflowPageLineCapacity() {
         val text = (1..20).joinToString(separator = "\n") { "x" }
         val document = ReaderDocument(

@@ -26,6 +26,7 @@ kotlin {
             implementation(project(":core:datastore"))
             implementation(project(":core:room"))
             implementation(project(":core:designsystem"))
+            implementation(project(":core:ui"))
             implementation(project(":feature:home:api"))
             implementation(project(":feature:home:impl"))
             implementation(project(":feature:reader:api"))

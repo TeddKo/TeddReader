@@ -1,6 +1,9 @@
 package com.tedd.teddreader.app.reader
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -16,6 +19,8 @@ import org.koin.dsl.koinConfiguration
 @Composable
 fun TeddReaderApp(
     initialExternalImportRequest: ExternalDocumentImportRequest? = null,
+    modifier: Modifier = Modifier,
+    darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
     val appModule = remember { readerAppModule() }
     val platformModule = rememberPlatformReaderModule()
@@ -24,12 +29,19 @@ fun TeddReaderApp(
         configuration = koinConfiguration { modules(appModule, platformModule) },
     ) {
         val documentImporter = rememberDocumentImporter()
-        TeddReaderTheme {
-            ReaderNavHost(
-                modifier = Modifier.fillMaxSize(),
-                documentImporter = documentImporter,
-                externalImportRequest = initialExternalImportRequest,
-            )
+        TeddReaderTheme(
+            darkTheme = darkTheme,
+        ) {
+            Surface(
+                modifier = modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background,
+            ) {
+                ReaderNavHost(
+                    modifier = Modifier.fillMaxSize(),
+                    documentImporter = documentImporter,
+                    externalImportRequest = initialExternalImportRequest,
+                )
+            }
         }
     }
 }
