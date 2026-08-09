@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -83,6 +85,7 @@ import com.tedd.teddreader.feature.reader.impl.component.ReaderBottomActionBar
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMoveRequest
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPager
+import com.tedd.teddreader.feature.reader.impl.component.foundationMovieCarouselDimAlpha
 import com.tedd.teddreader.feature.reader.impl.pdf.PdfPageSurface
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
@@ -360,13 +363,24 @@ private fun ReaderContent(
         backgroundColor = uiState.style.readerColors().background,
         keepScreenOn = uiState.keepScreenOn,
     )
+    val movieTransitionProgress = remember { mutableFloatStateOf(0f) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(uiState.style.readerColors().background),
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    if (uiState.pageAnimation == PageAnimation.MOVIE_CAROUSEL) {
+                        val dimAlpha = foundationMovieCarouselDimAlpha(movieTransitionProgress.floatValue)
+                        if (dimAlpha > 0f) drawRect(Color.Black.copy(alpha = dimAlpha))
+                    }
+                },
+        ) {
             val paneCount = readerPaneCount(maxWidth.value)
             var pageMoveRequest by remember { mutableStateOf<ReaderPageMoveRequest?>(null) }
             var pageMoveRequestId by remember { mutableIntStateOf(0) }
@@ -423,6 +437,7 @@ private fun ReaderContent(
                 onPreviousPage = manualMovePrevious,
                 onNextPage = manualMoveNext,
                 onToggleControls = toggleControls,
+                onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
                 modifier = Modifier.readerControlsDragObserver(
                     controlsVisible = uiState.isControlsVisible,
                     onToggleControls = toggleControls,

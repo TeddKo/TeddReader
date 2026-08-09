@@ -1,10 +1,13 @@
 package com.tedd.teddreader.feature.reader.impl.component
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -66,6 +69,7 @@ internal fun FoundationEffectPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
@@ -82,6 +86,13 @@ internal fun FoundationEffectPager(
     val fluidVersion = fluidEdge.version
     var gestureState by remember { mutableStateOf(FoundationPagerGestureState()) }
     val coroutineScope = rememberCoroutineScope()
+    val settleAnimationSpec = remember {
+        tween<Float>(FoundationPagerSettleMillis, easing = FastOutSlowInEasing)
+    }
+    val flingBehavior = PagerDefaults.flingBehavior(
+        state = pagerState,
+        snapAnimationSpec = settleAnimationSpec,
+    )
     val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
     val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
     LaunchedEffect(pageMoveRequest?.id) {
@@ -91,7 +102,12 @@ internal fun FoundationEffectPager(
                 ReaderPageMovement.Previous -> FoundationPreviousPage.takeIf { previousPage != null }
                 ReaderPageMovement.Next -> FoundationNextPage.takeIf { nextPage != null }
             }
-            if (targetPagerPage != null) pagerState.animateScrollToPage(targetPagerPage)
+            if (targetPagerPage != null) {
+                pagerState.animateScrollToPage(
+                    page = targetPagerPage,
+                    animationSpec = settleAnimationSpec,
+                )
+            }
         } finally {
             onPageMoveRequestConsumed(request.id)
         }
@@ -104,12 +120,19 @@ internal fun FoundationEffectPager(
         }
     }
     LaunchedEffect(pageAnimation) {
+        var previousFrameMillis = 0L
         while (pageAnimation == PageAnimation.FLUID_PAGER) {
-            withFrameMillis { fluidEdge.tick() }
+            withFrameMillis { frameMillis ->
+                if (previousFrameMillis != 0L) {
+                    fluidEdge.tick((frameMillis - previousFrameMillis).coerceAtLeast(0L) / FoundationFrameMillis)
+                }
+                previousFrameMillis = frameMillis
+            }
         }
     }
     val latestOnPreviousPage by rememberUpdatedState(onPreviousPage)
     val latestOnNextPage by rememberUpdatedState(onNextPage)
+    val latestOnMovieTransitionProgressChanged by rememberUpdatedState(onMovieTransitionProgressChanged)
     LaunchedEffect(pagerState, pageKey, pageCount, pageStep) {
         snapshotFlow { pagerState.currentPage to pagerState.isScrollInProgress }
             .filter { (_, isScrollInProgress) -> !isScrollInProgress }
@@ -127,6 +150,25 @@ internal fun FoundationEffectPager(
                     }
                 }
             }
+    }
+    LaunchedEffect(pageAnimation, pagerState) {
+        if (pageAnimation != PageAnimation.MOVIE_CAROUSEL) {
+            latestOnMovieTransitionProgressChanged(0f)
+            return@LaunchedEffect
+        }
+
+        try {
+            snapshotFlow {
+                max(
+                    pagerState.foundationAdjacentProgress(FoundationPreviousPage),
+                    pagerState.foundationAdjacentProgress(FoundationNextPage),
+                )
+            }
+                .distinctUntilChanged()
+                .collect { latestOnMovieTransitionProgressChanged(it) }
+        } finally {
+            latestOnMovieTransitionProgressChanged(0f)
+        }
     }
 
     val gestureModifier = Modifier.pointerInput(axis) {
@@ -166,14 +208,20 @@ internal fun FoundationEffectPager(
                 primary < extent * FoundationPreviousTapZoneRatio -> {
                     if (previousPage != null) {
                         coroutineScope.launch {
-                            pagerState.animateScrollToPage(FoundationPreviousPage)
+                            pagerState.animateScrollToPage(
+                                page = FoundationPreviousPage,
+                                animationSpec = settleAnimationSpec,
+                            )
                         }
                     }
                 }
                 primary > extent * FoundationNextTapZoneRatio -> {
                     if (nextPage != null) {
                         coroutineScope.launch {
-                            pagerState.animateScrollToPage(FoundationNextPage)
+                            pagerState.animateScrollToPage(
+                                page = FoundationNextPage,
+                                animationSpec = settleAnimationSpec,
+                            )
                         }
                     }
                 }
@@ -208,6 +256,7 @@ internal fun FoundationEffectPager(
             state = pagerState,
             modifier = pagerModifier,
             beyondViewportPageCount = 1,
+            flingBehavior = flingBehavior,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
             FoundationPageFlipAwareBox(
@@ -231,6 +280,7 @@ internal fun FoundationEffectPager(
             state = pagerState,
             modifier = pagerModifier,
             beyondViewportPageCount = 1,
+            flingBehavior = flingBehavior,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
             FoundationPageFlipAwareBox(
@@ -626,13 +676,11 @@ private fun Modifier.foundationMovieCarouselShadow(
         return@drawWithCache onDrawWithContent { drawContent() }
     }
 
-    val depthAlpha = FoundationMovieShadowAlpha * progress
-    val edgeAlpha = FoundationMovieEdgeShadowAlpha * sin(progress * PI.toFloat())
+    val edgeAlpha = (FoundationMovieEdgeShadowAlpha * sin(progress * PI.toFloat())).coerceAtLeast(0f)
     val shadowWidth = FoundationMovieShadowWidth
 
     onDrawWithContent {
         drawContent()
-        drawRect(Color.Black.copy(alpha = depthAlpha))
         if (axis == FoundationPagerAxis.Horizontal) {
             val left = if (shadowSide == FoundationFluidSide.Start) {
                 0f
@@ -674,6 +722,9 @@ internal fun foundationMovieCarouselShadowSide(page: FoundationPagerPage): Found
     FoundationPagerPage.Next -> FoundationFluidSide.Start
     FoundationPagerPage.Current -> null
 }
+
+internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
+    (FoundationMovieShadowAlpha * sin(progress.coerceIn(0f, 1f) * PI.toFloat())).coerceAtLeast(0f)
 
 private fun Modifier.foundationPageFlipPageShadow(
     axis: FoundationPagerAxis,
@@ -1468,7 +1519,7 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
         }
         if (this.touchActive && !touchActive) {
             points.forEach { point ->
-                point.velocityX *= FoundationFluidReleaseVelocityFactor
+                point.velocityX = 0f
             }
         }
         this.progress = progress.coerceIn(0f, 1f)
@@ -1478,8 +1529,17 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
 
     fun tick(frameUnits: Float = 1f) {
         val t = frameUnits.coerceIn(0.1f, 1.5f)
-        val damping = if (touchActive) FoundationFluidDamping else FoundationFluidReleaseDamping
-        val dampingT = damping.pow(t)
+        if (!touchActive) {
+            val releaseFraction = 1f - FoundationFluidReleaseDamping.pow(t)
+            points.forEach { point ->
+                point.velocityX = 0f
+                point.x += (progress - point.x) * releaseFraction
+            }
+            version++
+            return
+        }
+
+        val dampingT = FoundationFluidDamping.pow(t)
         val farEdgeTension = if (progress > FoundationFluidCompleteThreshold) {
             FoundationFluidFarEdgeTension
         } else {
@@ -1490,13 +1550,9 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
             point.velocityX -= point.x * FoundationFluidEdgeTension * t
             point.velocityX += (1f - point.x) * farEdgeTension * t
 
-            val influence = if (touchActive) {
-                (1f - abs(point.y - touchCrossAxis) / FoundationFluidTouchRadius).coerceIn(0f, 1f)
-            } else {
-                1f
-            }
-            val touchTension = if (touchActive) FoundationFluidTouchTension else FoundationFluidReleaseTension
-            point.velocityX += (progress - point.x) * touchTension * influence * t
+            val influence = (1f - abs(point.y - touchCrossAxis) / FoundationFluidTouchRadius)
+                .coerceIn(0f, 1f)
+            point.velocityX += (progress - point.x) * FoundationFluidTouchTension * influence * t
 
             if (index > 0) {
                 point.velocityX += (points[index - 1].x - point.x) * FoundationFluidPointTension * t
@@ -1837,17 +1893,17 @@ private const val FoundationNextPage = 2
 private const val FoundationPagerPageCount = 3
 private const val FoundationPreviousTapZoneRatio = 0.25f
 private const val FoundationNextTapZoneRatio = 0.75f
+private const val FoundationPagerSettleMillis = 220
 private const val FoundationGestureDirectionThresholdPx = 1f
 private const val FoundationFluidPointCount = 25
 private const val FoundationFluidTouchRadius = 0.24f
+private const val FoundationFrameMillis = 1000f / 60f
 private const val FoundationFluidEdgeTension = 0.01f
 private const val FoundationFluidFarEdgeTension = 0.01f
 private const val FoundationFluidTouchTension = 0.10f
-private const val FoundationFluidReleaseTension = 0.06f
 private const val FoundationFluidPointTension = 0.25f
 private const val FoundationFluidDamping = 0.90f
 private const val FoundationFluidReleaseDamping = 0.82f
-private const val FoundationFluidReleaseVelocityFactor = 0.50f
 private const val FoundationFluidCompleteThreshold = 0.82f
 private const val FoundationCameraDistance = 64f
 private const val FoundationMovieRotationDegrees = 12f
