@@ -161,7 +161,7 @@ enum class PageAnimation {
     FADE,
     SCROLL,
     BOOK_CURL,
-    SHEET_FLIP,
+    SHEET_FLIP, // Legacy stored value; deserialize as SLIDE for JSON compatibility.
     FLUID_PAGER,
     CURL_PAGER,
     CIRCLE_REVEAL,

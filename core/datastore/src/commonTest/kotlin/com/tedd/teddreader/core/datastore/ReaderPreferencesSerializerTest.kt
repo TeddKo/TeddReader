@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.datastore
 
+import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.sepiaReaderStyle
@@ -27,6 +28,16 @@ class ReaderPreferencesSerializerTest {
         assertEquals(
             ReaderPreferences(),
             ReaderPreferencesSerializer.readFrom(Buffer()),
+        )
+    }
+
+    @Test
+    fun sheetFlipJsonMigratesToSlide() = runTest {
+        val json = """{"pageAnimation":"SHEET_FLIP"}"""
+
+        assertEquals(
+            PageAnimation.SLIDE,
+            ReaderPreferencesSerializer.readFrom(Buffer().writeUtf8(json)).pageAnimation,
         )
     }
 }

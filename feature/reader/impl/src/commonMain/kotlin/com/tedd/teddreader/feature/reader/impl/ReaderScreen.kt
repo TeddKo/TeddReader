@@ -1001,7 +1001,7 @@ private fun PageTurnOptionsSheet(
             }
         }
         TeddOptionGroup(title = "Animation") {
-            PageAnimation.entries.forEach { animation ->
+            PageAnimation.entries.filterNot { it == PageAnimation.SHEET_FLIP }.forEach { animation ->
                 TeddRadioRow(
                     title = animation.pageAnimationLabel,
                     selected = uiState.pageAnimation == animation,
@@ -1127,7 +1127,7 @@ private val PageAnimation.pageAnimationLabel: String
         PageAnimation.FADE -> "Fade"
         PageAnimation.SCROLL -> "Scroll"
         PageAnimation.BOOK_CURL -> "Book curl"
-        PageAnimation.SHEET_FLIP -> "Sheet flip"
+        PageAnimation.SHEET_FLIP -> "Slide"
         PageAnimation.FLUID_PAGER -> "Fluid pager"
         PageAnimation.CURL_PAGER -> "Curl pager"
         PageAnimation.CIRCLE_REVEAL -> "Circle reveal"

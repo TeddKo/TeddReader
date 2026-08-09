@@ -131,7 +131,7 @@ private fun PageAnimation.displayName(): String = when (this) {
     PageAnimation.FADE -> "Fade"
     PageAnimation.SCROLL -> "Scroll"
     PageAnimation.BOOK_CURL -> "Book curl"
-    PageAnimation.SHEET_FLIP -> "Sheet flip"
+    PageAnimation.SHEET_FLIP -> "Slide"
     PageAnimation.FLUID_PAGER -> "Fluid pager"
     PageAnimation.CURL_PAGER -> "Curl pager"
     PageAnimation.CIRCLE_REVEAL -> "Circle reveal"
