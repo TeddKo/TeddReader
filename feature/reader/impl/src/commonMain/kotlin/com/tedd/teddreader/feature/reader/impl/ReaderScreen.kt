@@ -436,6 +436,7 @@ private fun ReaderContent(
                 uiState = uiState,
                 paneCount = paneCount,
                 effectiveMode = effectiveAutoScrollMode,
+                pageAnimation = uiState.pageAnimation,
                 onRequestPageMove = requestPageMove,
                 onStop = { onAutoScrollEnabledChange(false) },
             )
@@ -689,6 +690,7 @@ private fun ReaderAutoScrollEffect(
     uiState: ReaderUiState,
     paneCount: Int,
     effectiveMode: AutoScrollMode,
+    pageAnimation: PageAnimation,
     onRequestPageMove: (ReaderPageMovement) -> Unit,
     onStop: () -> Unit,
 ) {
@@ -696,19 +698,21 @@ private fun ReaderAutoScrollEffect(
     LaunchedEffect(
         config.enabled,
         effectiveMode,
+        pageAnimation,
         config.speed,
         uiState.pageIndex.current,
         uiState.pageIndex.total,
         paneCount,
     ) {
-        if (!config.enabled || effectiveMode != AutoScrollMode.PAGE) return@LaunchedEffect
+        if (!config.enabled) return@LaunchedEffect
+        val movement = readerAutoScrollPageMovement(effectiveMode, pageAnimation) ?: return@LaunchedEffect
         if (readerNextPage(uiState.pageIndex.current, uiState.pageIndex.total, paneCount) == null) {
             onStop()
             return@LaunchedEffect
         }
 
         delay(autoScrollPageDelayMillis(config.speed))
-        readerAutoScrollPageMovement(effectiveMode)?.let(onRequestPageMove)
+        onRequestPageMove(movement)
     }
 }
 
@@ -1153,11 +1157,29 @@ internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): 
 internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isPdfMode: Boolean): AutoScrollMode =
     if (isPdfMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
 
-internal fun readerAutoScrollPageMovement(mode: AutoScrollMode): ReaderPageMovement? = when (mode) {
+internal fun readerAutoScrollPageMovement(
+    mode: AutoScrollMode,
+    pageAnimation: PageAnimation,
+): ReaderPageMovement? = when (mode) {
     AutoScrollMode.PAGE -> ReaderPageMovement.Next
     AutoScrollMode.PIXEL,
     AutoScrollMode.LINE,
-        -> null
+        -> when (pageAnimation) {
+            PageAnimation.SCROLL,
+            PageAnimation.SLIDE,
+            PageAnimation.SHEET_FLIP,
+            PageAnimation.FLUID_PAGER,
+            PageAnimation.CIRCLE_REVEAL,
+            PageAnimation.MOVIE_CAROUSEL,
+            PageAnimation.PAGE_FLIP,
+                -> null
+
+            PageAnimation.NONE,
+            PageAnimation.FADE,
+            PageAnimation.BOOK_CURL,
+            PageAnimation.CURL_PAGER,
+                -> ReaderPageMovement.Next
+        }
 }
 
 internal fun autoScrollPageDelayMillis(speed: Float): Long =
