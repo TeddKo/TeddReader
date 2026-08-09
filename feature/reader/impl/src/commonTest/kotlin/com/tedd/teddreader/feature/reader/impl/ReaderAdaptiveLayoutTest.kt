@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.reader.impl
 
+import com.tedd.teddreader.core.common.model.PageIndex
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -43,18 +44,32 @@ class ReaderAdaptiveLayoutTest {
     }
 
     @Test
-    fun visiblePageIndexUsesEndOfVisibleSpread() {
-        assertEquals(3, readerVisiblePageIndex(currentPage = 2, totalPages = 4, paneCount = 2))
-        assertEquals(3, readerVisiblePageIndex(currentPage = 2, totalPages = 5, paneCount = 2))
-        assertEquals(4, readerVisiblePageIndex(currentPage = 4, totalPages = 5, paneCount = 2))
-        assertEquals(2, readerVisiblePageIndex(currentPage = 2, totalPages = 5, paneCount = 1))
+    fun spreadPageIndexUsesLogicalSpreadForTwoPane() {
+        assertEquals(
+            PageIndex(current = 0, total = 2),
+            readerSpreadPageIndex(currentPage = 0, totalPages = 4, paneCount = 2),
+        )
+        assertEquals(
+            PageIndex(current = 0, total = 3),
+            readerSpreadPageIndex(currentPage = 1, totalPages = 5, paneCount = 2),
+        )
+        assertEquals(PageIndex(current = 1, total = 2), readerSpreadPageIndex(currentPage = 2, totalPages = 4, paneCount = 2))
+        assertEquals(PageIndex(current = 2, total = 3), readerSpreadPageIndex(currentPage = 4, totalPages = 5, paneCount = 2))
     }
 
     @Test
-    fun selectedPageUsesSpreadAnchorForGoToPage() {
-        assertEquals(2, readerSpreadAnchorPage(selectedPage = 3, totalPages = 4, paneCount = 2))
-        assertEquals(2, readerSpreadAnchorPage(selectedPage = 3, totalPages = 5, paneCount = 2))
-        assertEquals(4, readerSpreadAnchorPage(selectedPage = 4, totalPages = 5, paneCount = 2))
-        assertEquals(3, readerSpreadAnchorPage(selectedPage = 3, totalPages = 5, paneCount = 1))
+    fun spreadPageIndexKeepsSinglePaneAndClampsInvalidInput() {
+        assertEquals(PageIndex(current = 2, total = 5), readerSpreadPageIndex(currentPage = 2, totalPages = 5, paneCount = 1))
+        assertEquals(PageIndex(current = 0, total = 0), readerSpreadPageIndex(currentPage = 3, totalPages = 0, paneCount = 2))
+        assertEquals(PageIndex(current = 1, total = 2), readerSpreadPageIndex(currentPage = 99, totalPages = 4, paneCount = 2))
+    }
+
+    @Test
+    fun selectedSpreadUsesSpreadAnchorForGoToPage() {
+        assertEquals(2, readerSpreadAnchorPage(selectedSpread = 1, totalPages = 4, paneCount = 2))
+        assertEquals(2, readerSpreadAnchorPage(selectedSpread = 1, totalPages = 5, paneCount = 2))
+        assertEquals(4, readerSpreadAnchorPage(selectedSpread = 2, totalPages = 5, paneCount = 2))
+        assertEquals(4, readerSpreadAnchorPage(selectedSpread = 99, totalPages = 5, paneCount = 2))
+        assertEquals(3, readerSpreadAnchorPage(selectedSpread = 3, totalPages = 5, paneCount = 1))
     }
 }
