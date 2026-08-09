@@ -426,29 +426,14 @@ private fun ReaderContent(
             val autoScrollLineHeightPx = with(density) {
                 (uiState.style.fontSizeSp * uiState.style.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
             }
-            val manualMovePrevious: () -> Unit = {
-                if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
-                movePrevious()
-            }
-            val manualMoveNext: () -> Unit = {
-                if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
-                moveNext()
-            }
 
             ReaderAutoScrollEffect(
                 uiState = uiState,
                 paneCount = paneCount,
                 effectiveMode = effectiveAutoScrollMode,
-                onNextPage = moveNext,
+                onRequestPageMove = requestPageMove,
                 onStop = { onAutoScrollEnabledChange(false) },
             )
-
-            val toggleControls = {
-                if (uiState.autoScrollConfig.enabled) {
-                    onAutoScrollEnabledChange(false)
-                }
-                onToggleControls()
-            }
 
             ReaderPager(
                 pageKey = uiState.pageIndex.current,
@@ -460,9 +445,9 @@ private fun ReaderContent(
                 onPageMoveRequestConsumed = { requestId ->
                     if (pageMoveRequest?.id == requestId) pageMoveRequest = null
                 },
-                onPreviousPage = manualMovePrevious,
-                onNextPage = manualMoveNext,
-                onToggleControls = toggleControls,
+                onPreviousPage = movePrevious,
+                onNextPage = moveNext,
+                onToggleControls = onToggleControls,
                 isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                 effectiveAutoScrollMode = effectiveAutoScrollMode,
                 autoScrollSpeed = uiState.autoScrollConfig.speed,
@@ -473,10 +458,10 @@ private fun ReaderContent(
                 onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
                 modifier = Modifier.readerControlsDragObserver(
                     controlsVisible = uiState.isControlsVisible,
-                    onToggleControls = toggleControls,
-                    onManualDrag = {
+                    onPointerDown = {
                         if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
                     },
+                    onToggleControls = onToggleControls,
                 ),
             ) { page ->
                 if (paneCount == 1) {
@@ -701,7 +686,7 @@ private fun ReaderAutoScrollEffect(
     uiState: ReaderUiState,
     paneCount: Int,
     effectiveMode: AutoScrollMode,
-    onNextPage: () -> Unit,
+    onRequestPageMove: (ReaderPageMovement) -> Unit,
     onStop: () -> Unit,
 ) {
     val config = uiState.autoScrollConfig
@@ -720,7 +705,7 @@ private fun ReaderAutoScrollEffect(
         }
 
         delay(autoScrollPageDelayMillis(config.speed))
-        onNextPage()
+        readerAutoScrollPageMovement(effectiveMode)?.let(onRequestPageMove)
     }
 }
 
@@ -1142,6 +1127,13 @@ internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): 
 internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isPdfMode: Boolean): AutoScrollMode =
     if (isPdfMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
 
+internal fun readerAutoScrollPageMovement(mode: AutoScrollMode): ReaderPageMovement? = when (mode) {
+    AutoScrollMode.PAGE -> ReaderPageMovement.Next
+    AutoScrollMode.PIXEL,
+    AutoScrollMode.LINE,
+        -> null
+}
+
 internal fun autoScrollPageDelayMillis(speed: Float): Long =
     (1_000f / AutoScrollConfig.clampSpeed(speed)).toLong()
 
@@ -1284,19 +1276,20 @@ private fun previewReaderUiState(
 
 private fun Modifier.readerControlsDragObserver(
     controlsVisible: Boolean,
+    onPointerDown: () -> Unit,
     onToggleControls: () -> Unit,
-    onManualDrag: () -> Unit,
 ): Modifier = composed {
     val latestControlsVisible by rememberUpdatedState(controlsVisible)
+    val latestOnPointerDown by rememberUpdatedState(onPointerDown)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
-    val latestOnManualDrag by rememberUpdatedState(onManualDrag)
 
     pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            latestOnPointerDown()
             val controlsVisibleAtStart = latestControlsVisible
             var dragDistance = Offset.Zero
-            var manualDragHandled = false
+            var gestureHandled = false
 
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -1304,13 +1297,11 @@ private fun Modifier.readerControlsDragObserver(
                 if (!change.pressed) break
 
                 dragDistance += change.positionChange()
-                if (!manualDragHandled && dragDistance.getDistance() > viewConfiguration.touchSlop) {
+                if (!gestureHandled && dragDistance.getDistance() > viewConfiguration.touchSlop) {
                     if (controlsVisibleAtStart) {
                         latestOnToggleControls()
-                    } else {
-                        latestOnManualDrag()
                     }
-                    manualDragHandled = true
+                    gestureHandled = true
                 }
             }
         }
