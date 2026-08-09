@@ -16,6 +16,10 @@ val moduleNamespace = "com.tedd.teddreader" + project.path
     .joinToString(separator = "") { ".${it.replace('-', '.')}" }
 
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
