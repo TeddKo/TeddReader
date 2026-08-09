@@ -5,8 +5,6 @@ import com.tedd.teddreader.core.common.model.DocumentMetadata
 
 @Immutable
 data class HomeUiState(
-    val title: String = "TeddReader",
-    val description: String = "Open local TXT, PDF, and EPUB documents.",
     val favoriteDocuments: List<DocumentMetadata> = emptyList(),
     val recentDocuments: List<DocumentMetadata> = emptyList(),
     val hasDocuments: Boolean = false,

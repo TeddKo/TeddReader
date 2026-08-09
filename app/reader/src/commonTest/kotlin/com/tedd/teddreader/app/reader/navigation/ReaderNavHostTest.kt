@@ -5,6 +5,7 @@ import com.tedd.teddreader.feature.document_info.api.DocumentInfoRoute
 import com.tedd.teddreader.feature.home.api.HomeRoute
 import com.tedd.teddreader.feature.reader.api.ReaderRoute
 import com.tedd.teddreader.feature.search.api.SearchRoute
+import com.tedd.teddreader.feature.settings.api.SettingsRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -18,6 +19,7 @@ class ReaderNavHostTest {
             SearchRoute(documentId),
             BookmarksRoute(documentId),
             DocumentInfoRoute(documentId),
+            SettingsRoute,
         )
 
         keys.forEach { key ->

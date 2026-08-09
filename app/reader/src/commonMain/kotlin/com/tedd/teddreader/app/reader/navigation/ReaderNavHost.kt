@@ -42,13 +42,16 @@ import com.tedd.teddreader.feature.home.impl.HomeRouteScreen
 import com.tedd.teddreader.feature.reader.api.ReaderRoute
 import com.tedd.teddreader.feature.reader.impl.ReaderRouteScreen
 import com.tedd.teddreader.feature.search.api.SearchRoute
+import com.tedd.teddreader.feature.settings.api.SettingsRoute
 import com.tedd.teddreader.feature.search.impl.SearchRouteScreen
+import com.tedd.teddreader.feature.settings.impl.ReaderSettingsRouteScreen
 
 private const val HOME_ROUTE_TOKEN = "home"
 private const val READER_ROUTE_PREFIX = "reader:"
 private const val SEARCH_ROUTE_PREFIX = "search:"
 private const val BOOKMARKS_ROUTE_PREFIX = "bookmarks:"
 private const val DOCUMENT_INFO_ROUTE_PREFIX = "document-info:"
+private const val SETTINGS_ROUTE_TOKEN = "settings"
 
 private val navBackStackSaver = listSaver<SnapshotStateList<Any>, String>(
     save = { backStack -> backStack.map(::navKeyToStorageToken) },
@@ -61,6 +64,7 @@ internal fun navKeyToStorageToken(key: Any): String = when (key) {
     is SearchRoute -> SEARCH_ROUTE_PREFIX + key.documentId
     is BookmarksRoute -> BOOKMARKS_ROUTE_PREFIX + key.documentId
     is DocumentInfoRoute -> DOCUMENT_INFO_ROUTE_PREFIX + key.documentId
+    SettingsRoute -> SETTINGS_ROUTE_TOKEN
     else -> error("Unsupported navigation key: $key")
 }
 
@@ -71,6 +75,7 @@ internal fun storageTokenToNavKey(token: String): Any = when {
     token.startsWith(BOOKMARKS_ROUTE_PREFIX) -> BookmarksRoute(token.removePrefix(BOOKMARKS_ROUTE_PREFIX))
     token.startsWith(DOCUMENT_INFO_ROUTE_PREFIX) ->
         DocumentInfoRoute(token.removePrefix(DOCUMENT_INFO_ROUTE_PREFIX))
+    token == SETTINGS_ROUTE_TOKEN -> SettingsRoute
     else -> error("Unsupported navigation token: $token")
 }
 
@@ -125,6 +130,7 @@ fun ReaderNavHost(
                 HomeRoute -> NavEntry(key) {
                     HomeRouteScreen(
                         importMessage = homeImportMessage,
+                        onSettingsClick = { backStack.add(SettingsRoute) },
                         onOpenFileClick = {
                             documentImporter.open(
                                 onImported = { documentId ->
@@ -182,10 +188,14 @@ fun ReaderNavHost(
                     )
                 }
 
+                SettingsRoute -> NavEntry(key) {
+                    ReaderSettingsRouteScreen(onBack = { backStack.removeLastOrNull() })
+                }
+
                 else -> NavEntry(key) {
                     PlaceholderDestination(
-                        title = "Unknown",
-                        description = "Unsupported destination.",
+                        title = com.tedd.teddreader.core.ui.teddString("Unknown", "알 수 없음"),
+                        description = com.tedd.teddreader.core.ui.teddString("Unsupported destination.", "지원되지 않는 화면입니다."),
                         onBack = { backStack.removeLastOrNull() },
                     )
                 }
@@ -224,7 +234,7 @@ private fun PlaceholderDestination(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TeddButton(
-                text = "Back",
+                text = com.tedd.teddreader.core.ui.teddString("Back", "뒤로"),
                 onClick = onBack,
                 emphasis = TeddButtonEmphasis.Secondary,
             )

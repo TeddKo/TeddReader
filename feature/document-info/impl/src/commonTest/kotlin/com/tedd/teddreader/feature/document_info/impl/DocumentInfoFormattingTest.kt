@@ -40,4 +40,18 @@ class DocumentInfoFormattingTest {
         assertEquals("4 of 10", formatPagePosition(PageIndex(current = 3, total = 10)))
         assertEquals("150 words/min", formatReadingPace(stats))
     }
+    @Test
+    fun `formats localized values when optional parameters are provided`() {
+        val stats = ReadingStats(
+            documentId = DocumentId("doc"),
+            activeMillis = 120_000L,
+            charactersRead = 1_000L,
+            wordsRead = 300L,
+        )
+
+        assertEquals("정보 없음", formatCount(null, unavailable = "정보 없음"))
+        assertEquals("4 / 10", formatPagePosition(PageIndex(current = 3, total = 10), separator = " / "))
+        assertEquals("150 단어/분", formatReadingPace(stats, suffix = " 단어/분"))
+    }
+
 }

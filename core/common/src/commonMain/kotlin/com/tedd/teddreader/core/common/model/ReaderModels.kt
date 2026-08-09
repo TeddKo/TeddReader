@@ -100,6 +100,13 @@ private const val MIN_ARGB = 0x00000000L
 private const val MAX_ARGB = 0xFFFFFFFFL
 
 @Serializable
+enum class AppLanguage {
+    SYSTEM,
+    ENGLISH,
+    KOREAN,
+}
+
+@Serializable
 enum class ReaderThemeMode {
     SYSTEM,
     LIGHT,

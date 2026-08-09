@@ -20,6 +20,7 @@ import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddSlider
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.reader.ReaderBottomControls
+import com.tedd.teddreader.core.ui.teddString
 import kotlin.math.roundToInt
 
 @Composable
@@ -46,7 +47,7 @@ fun ReaderBottomActionBar(
     val displayedSliderValue = sliderValue.coerceIn(sliderRange.start, sliderRange.endInclusive)
     val selectedPage = displayedSliderValue.roundToInt().coerceIn(0, lastPage)
     val pageLabel = if (pageIndex.total == 0) {
-        "0 / 0"
+        teddString("0 / 0", "0 / 0")
     } else {
         "${selectedPage + 1} / ${pageIndex.total}"
     }
@@ -87,20 +88,20 @@ fun ReaderBottomActionBar(
             TeddIconButton(
                 onClick = onPreviousPage,
                 enabled = canGoPrevious,
-                contentDescription = "Previous page",
+                contentDescription = teddString("Previous page", "이전 페이지"),
             ) {
                 Icon(imageVector = TeddIcons.Previous, contentDescription = null)
             }
             TeddIconButton(
                 onClick = onNextPage,
                 enabled = canGoNext,
-                contentDescription = "Next page",
+                contentDescription = teddString("Next page", "다음 페이지"),
             ) {
                 Icon(imageVector = TeddIcons.Next, contentDescription = null)
             }
             TeddIconButton(
                 onClick = onAutoScrollToggle,
-                contentDescription = if (isAutoScrollEnabled) "Pause auto-scroll" else "Start auto-scroll",
+                contentDescription = if (isAutoScrollEnabled) teddString("Pause auto-scroll", "자동 스크롤 일시정지") else teddString("Start auto-scroll", "자동 스크롤 시작"),
             ) {
                 Icon(
                     imageVector = if (isAutoScrollEnabled) TeddIcons.Pause else TeddIcons.Play,

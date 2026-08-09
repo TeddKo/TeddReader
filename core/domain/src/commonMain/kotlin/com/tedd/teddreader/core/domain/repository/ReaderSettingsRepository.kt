@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.domain.repository
 
+import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
@@ -11,6 +12,7 @@ data class ReaderSettings(
     val pageTurnMode: PageTurnMode = PageTurnMode.HORIZONTAL,
     val pageAnimation: PageAnimation = PageAnimation.SLIDE,
     val autoScrollConfig: AutoScrollConfig = AutoScrollConfig(),
+    val appLanguage: AppLanguage = AppLanguage.SYSTEM,
 )
 
 interface ReaderSettingsRepository {
@@ -19,4 +21,5 @@ interface ReaderSettingsRepository {
     suspend fun updatePageTurnMode(pageTurnMode: PageTurnMode)
     suspend fun updatePageAnimation(pageAnimation: PageAnimation)
     suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig)
+    suspend fun updateAppLanguage(appLanguage: AppLanguage)
 }

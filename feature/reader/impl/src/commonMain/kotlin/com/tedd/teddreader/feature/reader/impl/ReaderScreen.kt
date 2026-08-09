@@ -79,6 +79,7 @@ import com.tedd.teddreader.core.ui.extension.pxToSp
 import com.tedd.teddreader.core.ui.reader.ReaderOptionPreview
 import com.tedd.teddreader.core.ui.reader.ReaderPageSurface
 import com.tedd.teddreader.core.ui.reader.ReaderTopControls
+import com.tedd.teddreader.core.ui.teddString
 import com.tedd.teddreader.core.ui.system.ReaderSystemBarsEffect
 import com.tedd.teddreader.feature.reader.impl.component.ReaderActionMenu
 import com.tedd.teddreader.feature.reader.impl.component.ReaderBottomActionBar
@@ -255,7 +256,7 @@ fun ReaderScreen(
     when {
         uiState.isLoading -> TeddFullScreenLoadingIndicator(
             modifier = modifier,
-            message = "Opening document",
+            message = teddString("Opening document", "문서를 여는 중"),
         )
 
         uiState.errorMessage != null -> ReaderError(
@@ -503,9 +504,9 @@ private fun ReaderContent(
                     style = uiState.style,
                     modifier = Modifier.align(Alignment.TopCenter),
                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                    titleLabel = "Reading",
+                    titleLabel = teddString("Reading", "읽는 중"),
                     navigationIcon = {
-                        TeddIconButton(onClick = onBack, contentDescription = "Back") {
+                        TeddIconButton(onClick = onBack, contentDescription = teddString("Back", "뒤로")) {
                             Icon(imageVector = TeddIcons.Back, contentDescription = null)
                         }
                     },
@@ -513,9 +514,9 @@ private fun ReaderContent(
                         TeddIconButton(
                             onClick = onFavoriteToggle,
                             contentDescription = if (uiState.isFavorite) {
-                                "Remove from favorites"
+                                teddString("Remove from favorites", "즐겨찾기에서 제거")
                             } else {
-                                "Add to favorites"
+                                teddString("Add to favorites", "즐겨찾기에 추가")
                             },
                         ) {
                             Icon(
@@ -745,7 +746,7 @@ private fun ReaderActiveSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddModalBottomSheet(
-        title = sheet.title,
+        title = sheet.title(),
         onDismissRequest = onDismiss,
         modifier = modifier,
         sheetState = sheetState,
@@ -756,7 +757,7 @@ private fun ReaderActiveSheet(
                 .verticalScroll(scrollState),
         ) {
             if (uiState.isSavingSettings) {
-                TeddLoadingIndicator(message = "Saving reader settings")
+                TeddLoadingIndicator(message = teddString("Saving reader settings", "리더 설정을 저장하는 중"))
             }
             when (sheet) {
                 ReaderOptionSheet.TableOfContents -> TableOfContentsSheet(
@@ -830,22 +831,45 @@ private fun TableOfContentsSheet(
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Contents", modifier = modifier) {
+    TeddOptionGroup(title = teddString("Contents", "목차"), modifier = modifier) {
         if (uiState.outlineItems.isEmpty()) {
             Text(
-                text = "No table of contents.",
+                text = teddString("No table of contents.", "목차가 없습니다."),
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             )
         } else {
             uiState.outlineItems.forEach { item ->
                 TeddButton(
-                    text = item.title,
+                    text = item.displayTitle(),
                     modifier = Modifier.fillMaxWidth(),
                     onClick = { onLocationClick(item.location) },
                 )
             }
         }
     }
+}
+
+private val legacyPageOutlineTitlePattern = Regex("^Page \\d+$")
+private val legacySectionOutlineTitlePattern = Regex("^Section \\d+$")
+
+@Composable
+private fun ReaderOutlineItem.displayTitle(): String = when {
+    legacyPageOutlineTitlePattern.matches(title) -> location.displayLabel()
+    legacySectionOutlineTitlePattern.matches(title) -> {
+        val sectionNumber = legacySectionOutlineTitlePattern.find(title)
+            ?.value
+            ?.substringAfter("Section ")
+            .orEmpty()
+        teddString("Section $sectionNumber", "섹션 $sectionNumber")
+    }
+    else -> title
+}
+
+@Composable
+private fun com.tedd.teddreader.core.common.model.ReaderLocation.displayLabel(): String = when (this) {
+    is ReaderLocation.PdfPage -> teddString("Page ${pageIndex + 1}", "페이지 ${pageIndex + 1}")
+    is ReaderLocation.TextOffset -> teddString("Text position ${offset + 1}", "텍스트 위치 ${offset + 1}")
+    is ReaderLocation.EpubOffset -> teddString("EPUB section ${spineIndex + 1}", "EPUB 섹션 ${spineIndex + 1}")
 }
 
 @Composable
@@ -860,19 +884,19 @@ private fun GoToPageSheet(
     val targetPage = pageText.toIntOrNull()?.coerceIn(1, totalPages)
 
     TeddOptionGroup(
-        title = "Go to page",
+        title = teddString("Go to page", "페이지로 이동"),
         modifier = modifier,
-        description = "Enter 1-$totalPages.",
+        description = teddString("Enter 1-$totalPages.", "1-$totalPages 사이 번호를 입력하세요."),
     ) {
         TeddTextField(
             value = pageText,
             onValueChange = onPageTextChange,
             modifier = Modifier.fillMaxWidth(),
-            label = "Page",
+            label = teddString("Page", "페이지"),
             maxLines = 1,
         )
         TeddButton(
-            text = "Go",
+            text = teddString("Go", "이동"),
             enabled = targetPage != null,
             onClick = { targetPage?.let { onGoToPage(it - 1) } },
         )
@@ -888,12 +912,12 @@ private fun BrightnessOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(
-        title = "Brightness",
+        title = teddString("Brightness", "밝기"),
         modifier = modifier,
-        description = "Dims reader without changing system brightness.",
+        description = teddString("Dims reader without changing system brightness.", "시스템 밝기를 바꾸지 않고 리더 화면만 어둡게 합니다."),
     ) {
         TeddSliderRow(
-            title = "Brightness",
+            title = teddString("Brightness", "밝기"),
             value = brightnessDraft,
             onValueChange = onBrightnessDraftChange,
             onValueChangeFinished = {
@@ -914,10 +938,10 @@ private fun ViewOptionsSheet(
     onShowProgressChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Display", modifier = modifier) {
-        TeddSwitchRow("Keep screen on", uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
-        TeddSwitchRow("Fullscreen reader", uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
-        TeddSwitchRow("Show progress", uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+    TeddOptionGroup(title = teddString("Display", "표시"), modifier = modifier) {
+        TeddSwitchRow(teddString("Keep screen on", "화면 켜짐 유지"), uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(teddString("Fullscreen reader", "전체 화면 리더"), uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(teddString("Show progress", "진행률 표시"), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
     }
 }
 
@@ -938,9 +962,9 @@ private fun FontOptionsSheet(
         lineHeightMultiplier = lineHeightPercentDraft / 100f,
     )
 
-    TeddOptionGroup(title = "Typography", modifier = modifier) {
+    TeddOptionGroup(title = teddString("Typography", "글자"), modifier = modifier) {
         TeddSliderRow(
-            title = "Font size",
+            title = teddString("Font size", "글자 크기"),
             value = fontSizeDraft,
             onValueChange = onFontSizeDraftChange,
             onValueChangeFinished = { onFontSizeChange(fontSizeDraft) },
@@ -950,7 +974,7 @@ private fun FontOptionsSheet(
             enabled = !uiState.isSavingSettings,
         )
         TeddSliderRow(
-            title = "Line height",
+            title = teddString("Line height", "줄 높이"),
             value = lineHeightPercentDraft,
             onValueChange = onLineHeightPercentDraftChange,
             onValueChangeFinished = { onLineHeightChange(lineHeightPercentDraft / 100f) },
@@ -960,26 +984,26 @@ private fun FontOptionsSheet(
             enabled = !uiState.isSavingSettings,
         )
         TeddRadioRow(
-            title = "Sans",
+            title = teddString("Sans", "고딕"),
             selected = uiState.style.fontFamilyName == null || uiState.style.fontFamilyName == "sans",
             onClick = { onFontFamilyChange(null) },
             enabled = !uiState.isSavingSettings,
         )
         TeddRadioRow(
-            title = "Serif",
+            title = teddString("Serif", "세리프"),
             selected = uiState.style.fontFamilyName == "serif",
             onClick = { onFontFamilyChange("serif") },
             enabled = !uiState.isSavingSettings,
         )
         TeddRadioRow(
-            title = "Mono",
+            title = teddString("Mono", "고정폭"),
             selected = uiState.style.fontFamilyName == "mono",
             onClick = { onFontFamilyChange("mono") },
             enabled = !uiState.isSavingSettings,
         )
         ReaderOptionPreview(
             style = previewStyle,
-            title = "Typography preview",
+            title = teddString("Typography preview", "글자 미리보기"),
             description = "가나다 ABC 123 · 문장 간격과 줄 높이 확인",
             previewText = "가나다 ABC 123\n문장 간격과 줄 높이 확인용 텍스트입니다.",
         )
@@ -995,14 +1019,14 @@ private fun ThemeOptionsSheet(
     Column(modifier = modifier) {
         ReaderOptionPreview(
             style = uiState.style,
-            title = "Theme preview",
+            title = teddString("Theme preview", "테마 미리보기"),
             description = "가나다 ABC 123 · 배경/글자색 확인",
             previewText = "가나다 ABC 123\n눈 피로를 줄이는 색상 대비를 확인합니다.",
         )
-        TeddOptionGroup(title = "Theme") {
+        TeddOptionGroup(title = teddString("Theme", "테마")) {
             listOf(ReaderThemeMode.SYSTEM, ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
                 TeddRadioRow(
-                    title = mode.themeLabel,
+                    title = mode.themeLabel(),
                     selected = uiState.style.themeMode == mode,
                     onClick = { onThemeModeChange(mode) },
                     enabled = !uiState.isSavingSettings,
@@ -1020,20 +1044,20 @@ private fun PageTurnOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        TeddOptionGroup(title = "Page mode") {
+        TeddOptionGroup(title = teddString("Page mode", "페이지 모드")) {
             readerPageTurnModeOptions.forEach { mode ->
                 TeddRadioRow(
-                    title = mode.pageTurnLabel,
+                    title = mode.pageTurnLabel(),
                     selected = uiState.pageTurnMode == mode,
                     onClick = { onPageTurnModeChange(mode) },
                     enabled = !uiState.isSavingSettings,
                 )
             }
         }
-        TeddOptionGroup(title = "Animation") {
+        TeddOptionGroup(title = teddString("Animation", "애니메이션")) {
             readerPageAnimationOptions.forEach { animation ->
                 TeddRadioRow(
-                    title = animation.pageAnimationLabel,
+                    title = animation.pageAnimationLabel(),
                     selected = uiState.pageAnimation == animation,
                     onClick = { onPageAnimationChange(animation) },
                     enabled = !uiState.isSavingSettings,
@@ -1053,19 +1077,19 @@ private fun AutoScrollOptionsSheet(
     onSpeedChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = "Auto-scroll", modifier = modifier) {
-        TeddSwitchRow("Enabled", uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
+    TeddOptionGroup(title = teddString("Auto-scroll", "자동 스크롤"), modifier = modifier) {
+        TeddSwitchRow(teddString("Enabled", "사용"), uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
         AutoScrollMode.entries.forEach { mode ->
             val isModeEnabled = !uiState.isSavingSettings && !(uiState.isPdfMode && mode == AutoScrollMode.LINE)
             TeddRadioRow(
-                title = mode.autoScrollLabel,
+                title = mode.autoScrollLabel(),
                 selected = uiState.autoScrollConfig.mode == mode,
                 onClick = { onModeChange(mode) },
                 enabled = isModeEnabled,
             )
         }
         TeddSliderRow(
-            title = "Speed",
+            title = teddString("Speed", "속도"),
             value = speedDraft,
             onValueChange = onSpeedDraftChange,
             onValueChangeFinished = { onSpeedChange(speedDraft) },
@@ -1084,11 +1108,11 @@ private fun ControlOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(
-        title = "Bottom bar",
+        title = teddString("Bottom bar", "하단 바"),
         modifier = modifier,
-        description = "Choose what stays visible while you read.",
+        description = teddString("Choose what stays visible while you read.", "읽는 동안 계속 표시할 항목을 선택하세요."),
     ) {
-        TeddSwitchRow("Show page progress", uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(teddString("Show page progress", "페이지 진행률 표시"), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
     }
 }
 
@@ -1185,66 +1209,70 @@ private fun ReaderUiState.pageIndexFor(page: Int): PageIndex {
     )
 }
 
+@Composable
 private fun ReaderUiState.pageTextFor(page: Int): String {
     val slotText = pageSlot(page)?.text.orEmpty()
     if (slotText.isNotBlank()) return slotText
     return if (page == pageIndex.current) {
-        pageText.ifBlank { "No page text." }
+        pageText.ifBlank { teddString("No page text.", "페이지 텍스트가 없습니다.") }
     } else {
         ""
     }
 }
 
-private val ReaderThemeMode.themeLabel: String
-    get() = when (this) {
-        ReaderThemeMode.SYSTEM -> "Follow system"
-        ReaderThemeMode.LIGHT -> "Light"
-        ReaderThemeMode.DARK -> "Dark"
-        ReaderThemeMode.SEPIA -> "Sepia"
-        ReaderThemeMode.CUSTOM -> "Custom"
-    }
+@Composable
+private fun ReaderThemeMode.themeLabel(): String = when (this) {
+    ReaderThemeMode.SYSTEM -> teddString("Follow system", "시스템 설정 따름")
+    ReaderThemeMode.LIGHT -> teddString("Light", "라이트")
+    ReaderThemeMode.DARK -> teddString("Dark", "다크")
+    ReaderThemeMode.SEPIA -> teddString("Sepia", "세피아")
+    ReaderThemeMode.CUSTOM -> teddString("Custom", "사용자 지정")
+}
 
-private val PageTurnMode.pageTurnLabel: String
-    get() = when (this) {
-        PageTurnMode.HORIZONTAL -> "Horizontal pages"
-        PageTurnMode.VERTICAL -> "Vertical pages"
-        PageTurnMode.CONTINUOUS -> "Vertical pages"
-    }
+@Composable
+private fun PageTurnMode.pageTurnLabel(): String = when (this) {
+    PageTurnMode.HORIZONTAL -> teddString("Horizontal pages", "가로 페이지")
+    PageTurnMode.VERTICAL,
+    PageTurnMode.CONTINUOUS,
+        -> teddString("Vertical pages", "세로 페이지")
+}
 
-private val PageAnimation.pageAnimationLabel: String
-    get() = when (this) {
-        PageAnimation.NONE -> "No animation"
-        PageAnimation.SLIDE -> "Slide"
-        PageAnimation.FADE -> "Fade"
-        PageAnimation.SCROLL -> "Scroll"
-        PageAnimation.BOOK_CURL -> "Curl pager"
-        PageAnimation.SHEET_FLIP -> "Slide"
-        PageAnimation.FLUID_PAGER -> "Fluid pager"
-        PageAnimation.CURL_PAGER -> "Curl pager"
-        PageAnimation.CIRCLE_REVEAL -> "Circle reveal"
-        PageAnimation.MOVIE_CAROUSEL -> "Movie carousel"
-        PageAnimation.PAGE_FLIP -> "Page flip"
-    }
+@Composable
+private fun PageAnimation.pageAnimationLabel(): String = when (this) {
+    PageAnimation.NONE -> teddString("No animation", "애니메이션 없음")
+    PageAnimation.SLIDE,
+    PageAnimation.SHEET_FLIP,
+        -> teddString("Slide", "슬라이드")
+    PageAnimation.FADE -> teddString("Fade", "페이드")
+    PageAnimation.SCROLL -> teddString("Scroll", "스크롤")
+    PageAnimation.BOOK_CURL,
+    PageAnimation.CURL_PAGER,
+        -> teddString("Curl pager", "컬 페이지")
+    PageAnimation.FLUID_PAGER -> teddString("Fluid pager", "플루이드 페이지")
+    PageAnimation.CIRCLE_REVEAL -> teddString("Circle reveal", "원형 전환")
+    PageAnimation.MOVIE_CAROUSEL -> teddString("Movie carousel", "무비 캐러셀")
+    PageAnimation.PAGE_FLIP -> teddString("Page flip", "페이지 플립")
+}
 
-private val AutoScrollMode.autoScrollLabel: String
-    get() = when (this) {
-        AutoScrollMode.PIXEL -> "Smooth scroll"
-        AutoScrollMode.LINE -> "Line by line (Text only)"
-        AutoScrollMode.PAGE -> "Page by page"
-    }
+@Composable
+private fun AutoScrollMode.autoScrollLabel(): String = when (this) {
+    AutoScrollMode.PIXEL -> teddString("Smooth scroll", "부드러운 스크롤")
+    AutoScrollMode.LINE -> teddString("Line by line (Text only)", "한 줄씩 (텍스트 전용)")
+    AutoScrollMode.PAGE -> teddString("Page by page", "페이지별")
+}
 
-private val ReaderOptionSheet.title: String
-    get() = when (this) {
-        ReaderOptionSheet.TableOfContents -> "Table of contents"
-        ReaderOptionSheet.GoToPage -> "Go to page"
-        ReaderOptionSheet.View -> "Display"
-        ReaderOptionSheet.Font -> "Typography"
-        ReaderOptionSheet.Theme -> "Theme"
-        ReaderOptionSheet.PageTurn -> "Page movement"
-        ReaderOptionSheet.AutoScroll -> "Auto-scroll"
-        ReaderOptionSheet.Brightness -> "Brightness"
-        ReaderOptionSheet.Controls -> "Bottom bar"
-    }
+@Composable
+private fun ReaderOptionSheet.title(): String = when (this) {
+    ReaderOptionSheet.TableOfContents -> teddString("Table of contents", "목차")
+    ReaderOptionSheet.GoToPage -> teddString("Go to page", "페이지로 이동")
+    ReaderOptionSheet.View -> teddString("Display", "표시")
+    ReaderOptionSheet.Font -> teddString("Typography", "글자")
+    ReaderOptionSheet.Theme -> teddString("Theme", "테마")
+    ReaderOptionSheet.PageTurn -> teddString("Page movement", "페이지 이동")
+    ReaderOptionSheet.AutoScroll -> teddString("Auto-scroll", "자동 스크롤")
+    ReaderOptionSheet.Brightness -> teddString("Brightness", "밝기")
+    ReaderOptionSheet.Controls -> teddString("Bottom bar", "하단 바")
+}
 
 @Composable
 private fun ReaderError(

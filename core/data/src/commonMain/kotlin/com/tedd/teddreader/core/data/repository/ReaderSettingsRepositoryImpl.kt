@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.data.repository
 
+import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.domain.repository.ReaderSettings
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
@@ -33,6 +34,10 @@ class ReaderSettingsRepositoryImpl(
     override suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
         dataSource.updateAutoScrollConfig(autoScrollConfig)
     }
+
+    override suspend fun updateAppLanguage(appLanguage: AppLanguage) {
+        dataSource.updateAppLanguage(appLanguage)
+    }
 }
 
 private fun ReaderPreferences.toReaderSettings(): ReaderSettings = ReaderSettings(
@@ -40,4 +45,5 @@ private fun ReaderPreferences.toReaderSettings(): ReaderSettings = ReaderSetting
     pageTurnMode = pageTurnMode,
     pageAnimation = pageAnimation,
     autoScrollConfig = autoScrollConfig,
+    appLanguage = appLanguage,
 )

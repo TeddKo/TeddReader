@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.datastore
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.okio.OkioStorage
+import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
@@ -30,6 +31,10 @@ class ReaderPreferencesDataSource(
 
     suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
         dataStore.updateData { it.copy(autoScrollConfig = autoScrollConfig) }
+    }
+
+    suspend fun updateAppLanguage(appLanguage: AppLanguage) {
+        dataStore.updateData { it.copy(appLanguage = appLanguage) }
     }
 }
 

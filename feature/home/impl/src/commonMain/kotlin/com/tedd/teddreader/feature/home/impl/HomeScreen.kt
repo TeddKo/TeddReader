@@ -42,6 +42,7 @@ import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.teddString
 import com.tedd.teddreader.feature.home.impl.component.DocumentListItem
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -50,6 +51,7 @@ fun HomeRouteScreen(
     modifier: Modifier = Modifier,
     importMessage: String? = null,
     onOpenFileClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     onDocumentClick: (DocumentId) -> Unit = {},
     viewModel: HomeViewModel = koinViewModel(),
 ) {
@@ -61,6 +63,7 @@ fun HomeRouteScreen(
             unsupportedFormatMessage = importMessage ?: uiState.unsupportedFormatMessage,
         ),
         onOpenFileClick = onOpenFileClick,
+        onSettingsClick = onSettingsClick,
         onDocumentClick = onDocumentClick,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
         onDeleteDocument = viewModel::deleteDocument,
@@ -75,6 +78,7 @@ fun HomeRouteScreen(
 fun HomeScreen(
     uiState: HomeUiState,
     onOpenFileClick: () -> Unit,
+    onSettingsClick: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
     scrollState: ScrollState,
     onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit = { _, _ -> },
@@ -95,7 +99,7 @@ fun HomeScreen(
     if (uiState.isLoading) {
         TeddFullScreenLoadingIndicator(
             modifier = modifier,
-            message = "Loading recent documents",
+            message = teddString("Loading recent documents", "최근 문서를 불러오는 중"),
         )
         return
     }
@@ -114,10 +118,9 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(spacing.large),
         ) {
             HomeMasthead(
-                title = uiState.title,
-                description = uiState.description,
                 showOpenFileAction = uiState.hasDocuments,
                 onOpenFileClick = onOpenFileClick,
+                onSettingsClick = onSettingsClick,
             )
 
             uiState.errorMessage?.let { message ->
@@ -130,12 +133,12 @@ fun HomeScreen(
             when {
                 !uiState.hasDocuments -> {
                     TeddEmptyState(
-                        title = "No documents yet",
-                        description = "Open a TXT, PDF, or EPUB file from device.",
+                        title = teddString("No documents yet", "아직 문서가 없습니다"),
+                        description = teddString("Open a TXT, PDF, or EPUB file from device.", "기기에서 TXT, PDF, EPUB 파일을 열어보세요."),
                         modifier = Modifier.fillMaxWidth(),
                         action = {
                             TeddButton(
-                                text = "Open file",
+                                text = teddString("Open file", "파일 열기"),
                                 onClick = onOpenFileClick,
                             )
                         },
@@ -167,9 +170,15 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(spacing.small),
             ) {
                 HomeSectionHeader(
-                    title = "Favorites",
-                    description = "${uiState.favoriteDocuments.size} hand-picked " +
-                        if (uiState.favoriteDocuments.size == 1) "document" else "documents",
+                    title = teddString("Favorites", "즐겨찾기"),
+                    description = if (uiState.favoriteDocuments.size == 1) {
+                        teddString("1 hand-picked document", "엄선한 문서 1개")
+                    } else {
+                        teddString(
+                            "${uiState.favoriteDocuments.size} hand-picked documents",
+                            "엄선한 문서 ${uiState.favoriteDocuments.size}개",
+                        )
+                    },
                     showFavoriteIcon = true,
                 )
                 TeddCard(modifier = Modifier.fillMaxWidth()) {
@@ -202,8 +211,8 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(spacing.small),
             ) {
                 HomeSectionHeader(
-                    title = "Recent reading",
-                    description = "Continue where you left off",
+                    title = teddString("Recent reading", "최근 읽은 문서"),
+                    description = teddString("Continue where you left off", "중단한 지점부터 이어 읽기"),
                     modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
                 )
                 HomeDocumentList(
@@ -232,16 +241,18 @@ fun HomeScreen(
     if (pendingDeleteDocument != null) {
         AlertDialog(
             onDismissRequest = { pendingDeleteDocumentId = null },
-            title = { Text("Remove from library?") },
+            title = { Text(teddString("Remove from library?", "라이브러리에서 삭제할까요?")) },
             text = {
                 Text(
-                    "\"${pendingDeleteDocument.location.displayName}\" and its reading data will be removed " +
-                        "from TeddReader. The original file will stay on your device.",
+                    teddString(
+                        "\"${pendingDeleteDocument.location.displayName}\" and its reading data will be removed from TeddReader. The original file will stay on your device.",
+                        "\"${pendingDeleteDocument.location.displayName}\"와 해당 읽기 데이터가 TeddReader에서 삭제됩니다. 원본 파일은 기기에 그대로 남습니다.",
+                    ),
                 )
             },
             confirmButton = {
                 TeddButton(
-                    text = "Delete",
+                    text = teddString("Delete", "삭제"),
                     onClick = {
                         pendingDeleteDocumentId = null
                         onDeleteDocument(pendingDeleteDocument.id)
@@ -251,7 +262,7 @@ fun HomeScreen(
             },
             dismissButton = {
                 TeddButton(
-                    text = "Cancel",
+                    text = teddString("Cancel", "취소"),
                     onClick = { pendingDeleteDocumentId = null },
                     emphasis = TeddButtonEmphasis.Secondary,
                 )
@@ -324,10 +335,9 @@ private fun HomeDocumentList(
 
 @Composable
 private fun HomeMasthead(
-    title: String,
-    description: String,
     showOpenFileAction: Boolean,
     onOpenFileClick: () -> Unit,
+    onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
@@ -338,23 +348,30 @@ private fun HomeMasthead(
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
         Text(
-            text = "Library",
+            text = teddString("Library", "라이브러리"),
             style = typography.documentMeta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = title,
+            text = "TeddReader",
             style = typography.headlineSmall,
         )
         Text(
-            text = description,
+            text = teddString("Open local TXT, PDF, and EPUB documents.", "로컬 TXT, PDF, EPUB 문서를 열어보세요."),
             style = typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (showOpenFileAction) {
+        Row(horizontalArrangement = Arrangement.spacedBy(spacing.small)) {
+            if (showOpenFileAction) {
+                TeddButton(
+                    text = teddString("Open file", "파일 열기"),
+                    onClick = onOpenFileClick,
+                )
+            }
             TeddButton(
-                text = "Open file",
-                onClick = onOpenFileClick,
+                text = teddString("Settings", "설정"),
+                onClick = onSettingsClick,
+                emphasis = TeddButtonEmphasis.Secondary,
             )
         }
     }
@@ -373,16 +390,16 @@ private fun HomeFilteredEmptyState(
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
         Text(
-            text = "No matching documents",
+            text = teddString("No matching documents", "조건에 맞는 문서가 없습니다"),
             style = typography.titleMedium,
         )
         Text(
-            text = "Try another format filter or show all documents.",
+            text = teddString("Try another format filter or show all documents.", "다른 형식 필터를 선택하거나 전체 문서를 표시해 보세요."),
             style = typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TeddButton(
-            text = "Show all",
+            text = teddString("Show all", "전체 보기"),
             onClick = onShowAllClick,
             emphasis = TeddButtonEmphasis.Secondary,
         )
@@ -406,7 +423,7 @@ private fun HomeSortFilterControls(
         verticalArrangement = Arrangement.spacedBy(spacing.medium),
     ) {
         HomeChipGroup(
-            label = "Sort",
+            label = teddString("Sort", "정렬"),
             style = typography.documentMeta,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ) {
@@ -419,7 +436,7 @@ private fun HomeSortFilterControls(
             }
         }
         HomeChipGroup(
-            label = "Format",
+            label = teddString("Format", "형식"),
             style = typography.documentMeta,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ) {
@@ -459,14 +476,16 @@ private fun HomeChipGroup(
     }
 }
 
+@Composable
 private fun HomeSort.chipLabel(): String = when (this) {
-    HomeSort.Recent -> "Recent"
-    HomeSort.Title -> "Title"
-    HomeSort.Format -> "Format"
+    HomeSort.Recent -> teddString("Recent", "최근")
+    HomeSort.Title -> teddString("Title", "제목")
+    HomeSort.Format -> teddString("Format", "형식")
 }
 
+@Composable
 private fun HomeFormatFilter.chipLabel(): String = when (this) {
-    HomeFormatFilter.All -> "All"
+    HomeFormatFilter.All -> teddString("All", "전체")
     HomeFormatFilter.Txt -> "TXT"
     HomeFormatFilter.Pdf -> "PDF"
     HomeFormatFilter.Epub -> "EPUB"
@@ -482,6 +501,7 @@ private fun HomeScreenEmptyPreview() {
                 hasDocuments = false,
             ),
             onOpenFileClick = {},
+            onSettingsClick = {},
             onDocumentClick = {},
             scrollState = rememberScrollState(),
         )
@@ -526,6 +546,7 @@ private fun HomeScreenRecentPreview() {
                 ),
             ),
             onOpenFileClick = {},
+            onSettingsClick = {},
             onDocumentClick = {},
             scrollState = rememberScrollState(),
         )
