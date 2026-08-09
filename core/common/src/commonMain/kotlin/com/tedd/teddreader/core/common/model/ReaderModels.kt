@@ -151,7 +151,7 @@ fun sepiaReaderStyle(): ReaderStyle = ReaderStyle(
 enum class PageTurnMode {
     HORIZONTAL,
     VERTICAL,
-    CONTINUOUS,
+    CONTINUOUS, // Legacy stored value; deserialize as VERTICAL for JSON compatibility.
 }
 
 @Serializable
@@ -160,7 +160,7 @@ enum class PageAnimation {
     SLIDE,
     FADE,
     SCROLL,
-    BOOK_CURL,
+    BOOK_CURL, // Legacy stored value; deserialize as CURL_PAGER for JSON compatibility.
     SHEET_FLIP, // Legacy stored value; deserialize as SLIDE for JSON compatibility.
     FLUID_PAGER,
     CURL_PAGER,
