@@ -382,16 +382,20 @@ private fun ReaderContent(
                 },
         ) {
             val paneCount = readerPaneCount(maxWidth.value)
-            val visiblePageIndex = readerVisiblePageIndex(
+            val actionBarPageIndex = readerSpreadPageIndex(
                 currentPage = uiState.pageIndex.current,
                 totalPages = uiState.pageIndex.total,
                 paneCount = paneCount,
             )
-            val actionBarPageIndex = uiState.pageIndex.copy(current = visiblePageIndex)
-            val actionBarSliderValue = if (bottomSliderValue == uiState.pageIndex.current.toFloat()) {
-                visiblePageIndex.toFloat()
-            } else {
+            var hasBottomSliderDraft by remember(
+                uiState.pageIndex.current,
+                uiState.pageIndex.total,
+                paneCount,
+            ) { mutableStateOf(false) }
+            val actionBarSliderValue = if (hasBottomSliderDraft) {
                 bottomSliderValue
+            } else {
+                actionBarPageIndex.current.toFloat()
             }
             var pageMoveRequest by remember { mutableStateOf<ReaderPageMoveRequest?>(null) }
             var pageMoveRequestId by remember { mutableIntStateOf(0) }
@@ -541,7 +545,7 @@ private fun ReaderContent(
                         onAutoScrollEnabledChange(false)
                         onGoToPage(
                             readerSpreadAnchorPage(
-                                selectedPage = page,
+                                selectedSpread = page,
                                 totalPages = uiState.pageIndex.total,
                                 paneCount = paneCount,
                             ),
@@ -556,7 +560,10 @@ private fun ReaderContent(
                         requestPageMove(ReaderPageMovement.Next)
                     },
                     sliderValue = actionBarSliderValue,
-                    onSliderValueChange = onBottomSliderValueChange,
+                    onSliderValueChange = {
+                        hasBottomSliderDraft = true
+                        onBottomSliderValueChange(it)
+                    },
                     canGoPrevious = uiState.pageIndex.current > 0,
                     canGoNext = readerNextPage(
                         currentPage = uiState.pageIndex.current,
@@ -1108,16 +1115,22 @@ internal fun readerPaneCount(widthDp: Float): Int =
 internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
     (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
 
-internal fun readerVisiblePageIndex(currentPage: Int, totalPages: Int, paneCount: Int): Int {
-    if (totalPages <= 0) return 0
-    return (currentPage + paneCount.coerceAtLeast(1) - 1).coerceIn(0, totalPages - 1)
+internal fun readerSpreadPageIndex(currentPage: Int, totalPages: Int, paneCount: Int): PageIndex {
+    if (totalPages <= 0) return PageIndex(current = 0, total = 0)
+    val step = paneCount.coerceAtLeast(1)
+    val clampedCurrentPage = currentPage.coerceIn(0, totalPages - 1)
+    return PageIndex(
+        current = clampedCurrentPage / step,
+        total = ((totalPages - 1) / step) + 1,
+    )
 }
 
-internal fun readerSpreadAnchorPage(selectedPage: Int, totalPages: Int, paneCount: Int): Int {
+internal fun readerSpreadAnchorPage(selectedSpread: Int, totalPages: Int, paneCount: Int): Int {
     if (totalPages <= 0) return 0
-    val boundedPage = selectedPage.coerceIn(0, totalPages - 1)
     val step = paneCount.coerceAtLeast(1)
-    return (boundedPage / step) * step
+    val maxSpreadIndex = ((totalPages - 1) / step)
+    val boundedSpread = selectedSpread.coerceIn(0, maxSpreadIndex)
+    return (boundedSpread * step).coerceAtMost(totalPages - 1)
 }
 
 private const val ReaderPaneMinWidthDp = 280f
