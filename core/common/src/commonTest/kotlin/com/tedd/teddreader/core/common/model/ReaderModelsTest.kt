@@ -1,6 +1,7 @@
 package com.tedd.teddreader.core.common.model
 
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
@@ -34,5 +35,13 @@ class ReaderModelsTest {
 
         assertEquals(12L, document.characterCount)
         assertEquals(2L, document.wordCount)
+    }
+
+    @Test
+    fun autoScrollModeEntriesIncludeLineBetweenPixelAndPage() {
+        assertContentEquals(
+            listOf(AutoScrollMode.PIXEL, AutoScrollMode.LINE, AutoScrollMode.PAGE),
+            AutoScrollMode.entries,
+        )
     }
 }

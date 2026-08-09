@@ -6,9 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,16 +21,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.feature.reader.impl.autoScrollDistancePx
+import com.tedd.teddreader.feature.reader.impl.autoScrollLineDelayMillis
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.min
@@ -46,10 +54,41 @@ internal fun ReaderPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    isAutoScrollEnabled: Boolean,
+    effectiveAutoScrollMode: AutoScrollMode,
+    autoScrollSpeed: Float,
+    autoScrollLineHeightPx: Float,
+    autoScrollDensity: Float,
+    onAutoScrollStop: () -> Unit,
+    onAutoScrollAdvance: () -> Unit,
     onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
+    if (isAutoScrollEnabled && effectiveAutoScrollMode != AutoScrollMode.PAGE) {
+        ReaderScrollPager(
+            pageKey = pageKey,
+            pageCount = pageCount,
+            pageStep = pageStep,
+            pageTurnMode = PageTurnMode.VERTICAL,
+            pageMoveRequest = pageMoveRequest,
+            onPageMoveRequestConsumed = onPageMoveRequestConsumed,
+            onPreviousPage = onPreviousPage,
+            onNextPage = onNextPage,
+            onToggleControls = onToggleControls,
+            isAutoScrollEnabled = isAutoScrollEnabled,
+            autoScrollMode = effectiveAutoScrollMode,
+            autoScrollSpeed = autoScrollSpeed,
+            autoScrollLineHeightPx = autoScrollLineHeightPx,
+            autoScrollDensity = autoScrollDensity,
+            onAutoScrollStop = onAutoScrollStop,
+            onAutoScrollAdvance = onAutoScrollAdvance,
+            modifier = modifier,
+            content = content,
+        )
+        return
+    }
+
     when (pageAnimation) {
         PageAnimation.SCROLL -> {
             ReaderScrollPager(
@@ -62,6 +101,13 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                isAutoScrollEnabled = isAutoScrollEnabled,
+                autoScrollMode = effectiveAutoScrollMode,
+                autoScrollSpeed = autoScrollSpeed,
+                autoScrollLineHeightPx = autoScrollLineHeightPx,
+                autoScrollDensity = autoScrollDensity,
+                onAutoScrollStop = onAutoScrollStop,
+                onAutoScrollAdvance = onAutoScrollAdvance,
                 modifier = modifier,
                 content = content,
             )
@@ -176,6 +222,13 @@ private fun ReaderScrollPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    isAutoScrollEnabled: Boolean,
+    autoScrollMode: AutoScrollMode,
+    autoScrollSpeed: Float,
+    autoScrollLineHeightPx: Float,
+    autoScrollDensity: Float,
+    onAutoScrollStop: () -> Unit,
+    onAutoScrollAdvance: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
@@ -204,7 +257,7 @@ private fun ReaderScrollPager(
             onPageMoveRequestConsumed(request.id)
         }
     }
-    LaunchedEffect(listState, pageKey, pageCount, pageStep) {
+    LaunchedEffect(listState, pageKey, pageCount, pageStep, isAutoScrollEnabled, autoScrollMode) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
             .filter { (_, isScrollInProgress) -> !isScrollInProgress }
             .map { (index, _) -> index }
@@ -212,9 +265,80 @@ private fun ReaderScrollPager(
             .collect { index ->
                 when (pageOffsets.getOrNull(index)) {
                     -1 -> if (previousPage != null) onPreviousPage()
-                    1 -> if (nextPage != null) onNextPage()
+                    1 -> when {
+                        nextPage == null -> onAutoScrollStop()
+                        isAutoScrollEnabled && autoScrollMode != AutoScrollMode.PAGE -> onAutoScrollAdvance()
+                        else -> onNextPage()
+                    }
                 }
             }
+    }
+    LaunchedEffect(
+        listState,
+        pageKey,
+        pageCount,
+        pageStep,
+        isAutoScrollEnabled,
+        autoScrollMode,
+        autoScrollSpeed,
+        autoScrollLineHeightPx,
+        autoScrollDensity,
+    ) {
+        if (!isAutoScrollEnabled || autoScrollMode == AutoScrollMode.PAGE) return@LaunchedEffect
+        if (nextPage == null && !listState.canScrollForward) {
+            onAutoScrollStop()
+            return@LaunchedEffect
+        }
+
+        when (autoScrollMode) {
+            AutoScrollMode.PIXEL -> {
+                var lastFrameNanos = 0L
+                while (isActive) {
+                    val frameNanos = withFrameNanos { it }
+                    if (lastFrameNanos != 0L) {
+                        val elapsedMillis = (frameNanos - lastFrameNanos) / 1_000_000L
+                        val distancePx = autoScrollDistancePx(
+                            speed = autoScrollSpeed,
+                            density = autoScrollDensity,
+                            elapsedMillis = elapsedMillis,
+                        )
+                        if (distancePx > 0f) listState.scrollBy(distancePx)
+                        if (nextPage == null && !listState.canScrollForward) {
+                            onAutoScrollStop()
+                            break
+                        }
+                    }
+                    lastFrameNanos = frameNanos
+                }
+            }
+
+            AutoScrollMode.LINE -> {
+                val lineHeightPx = autoScrollLineHeightPx.coerceAtLeast(1f)
+                val pixelsPerSecond = autoScrollDistancePx(
+                    speed = autoScrollSpeed,
+                    density = autoScrollDensity,
+                    elapsedMillis = 1_000L,
+                ).coerceAtLeast(1f)
+                val delayMillis = autoScrollLineDelayMillis(
+                    lineHeightPx = lineHeightPx,
+                    pixelsPerSecond = pixelsPerSecond,
+                )
+                while (isActive) {
+                    if (nextPage == null && !listState.canScrollForward) {
+                        onAutoScrollStop()
+                        break
+                    }
+                    listState.animateScrollBy(lineHeightPx)
+                    if (nextPage == null && !listState.canScrollForward) {
+                        onAutoScrollStop()
+                        break
+                    }
+                    delay(delayMillis)
+                }
+            }
+
+            AutoScrollMode.PAGE -> Unit
+        }
     }
 
     val tapModifier = Modifier.pointerInput(pageTurnMode, onToggleControls, previousPage, nextPage) {

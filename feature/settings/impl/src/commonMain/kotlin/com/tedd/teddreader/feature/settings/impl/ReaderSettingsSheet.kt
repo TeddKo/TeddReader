@@ -143,6 +143,7 @@ private fun com.tedd.teddreader.core.common.model.AutoScrollConfig.summary(): St
     if (!enabled) return "Off"
     val modeLabel = when (mode) {
         AutoScrollMode.PIXEL -> "Smooth"
+        AutoScrollMode.LINE -> "Line by line"
         AutoScrollMode.PAGE -> "Page by page"
     }
     return "$modeLabel · ${speed}×"
