@@ -11,10 +11,6 @@ import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.splineBasedDecay
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -124,6 +120,7 @@ internal fun ReaderPager(
             return
         }
 
+        PageAnimation.BOOK_CURL,
         PageAnimation.CURL_PAGER -> {
             FoundationCurlPager(
                 pageKey = pageKey,
@@ -173,11 +170,10 @@ internal fun ReaderPager(
         AnimatedContent(
             targetState = pageKey,
             transitionSpec = {
-                val forward = targetState >= initialState
                 when (pageAnimation) {
                     PageAnimation.NONE -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                     PageAnimation.FADE -> fadeIn(tween(140)) togetherWith fadeOut(tween(140))
-                    PageAnimation.BOOK_CURL -> softSlideTransition(pageTurnMode, forward)
+                    PageAnimation.BOOK_CURL,
                     PageAnimation.SLIDE,
                     PageAnimation.SHEET_FLIP,
                     PageAnimation.SCROLL,
@@ -997,16 +993,6 @@ private fun Offset.rotate90(): Offset = Offset(-y, x)
 
 private fun lerp(start: Float, end: Float, fraction: Float): Float =
     start + ((end - start) * fraction)
-
-@OptIn(ExperimentalAnimationApi::class)
-private fun softSlideTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
-    if (isVerticalMode(pageTurnMode)) {
-        fadeIn(tween(160)) + slideInVertically(tween(220)) { fullHeight -> if (forward) fullHeight / 2 else -fullHeight / 2 } togetherWith
-                fadeOut(tween(160)) + slideOutVertically(tween(220)) { fullHeight -> if (forward) -fullHeight / 4 else fullHeight / 4 }
-    } else {
-        fadeIn(tween(160)) + slideInHorizontally(tween(220)) { fullWidth -> if (forward) fullWidth / 2 else -fullWidth / 2 } togetherWith
-                fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
-    }
 
 internal data class CurlPreset(
 

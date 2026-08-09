@@ -1008,7 +1008,7 @@ private fun PageTurnOptionsSheet(
 ) {
     Column(modifier = modifier) {
         TeddOptionGroup(title = "Page mode") {
-            PageTurnMode.entries.forEach { mode ->
+            readerPageTurnModeOptions.forEach { mode ->
                 TeddRadioRow(
                     title = mode.pageTurnLabel,
                     selected = uiState.pageTurnMode == mode,
@@ -1018,7 +1018,7 @@ private fun PageTurnOptionsSheet(
             }
         }
         TeddOptionGroup(title = "Animation") {
-            PageAnimation.entries.filterNot { it == PageAnimation.SHEET_FLIP }.forEach { animation ->
+            readerPageAnimationOptions.forEach { animation ->
                 TeddRadioRow(
                     title = animation.pageAnimationLabel,
                     selected = uiState.pageAnimation == animation,
@@ -1083,6 +1083,23 @@ private const val LineHeightStepPercent = 5f
 private const val LineHeightSliderSteps = 39
 private const val SpeedSliderSteps = 8
 
+internal val readerPageTurnModeOptions: List<PageTurnMode> = listOf(
+    PageTurnMode.HORIZONTAL,
+    PageTurnMode.VERTICAL,
+)
+
+internal val readerPageAnimationOptions: List<PageAnimation> = listOf(
+    PageAnimation.NONE,
+    PageAnimation.SLIDE,
+    PageAnimation.FADE,
+    PageAnimation.SCROLL,
+    PageAnimation.FLUID_PAGER,
+    PageAnimation.CURL_PAGER,
+    PageAnimation.CIRCLE_REVEAL,
+    PageAnimation.MOVIE_CAROUSEL,
+    PageAnimation.PAGE_FLIP,
+)
+
 private fun formatSpeedLabel(speed: Float): String = "${speed.roundToInt()}x"
 
 internal fun readerPaneCount(widthDp: Float): Int =
@@ -1146,7 +1163,7 @@ private val PageTurnMode.pageTurnLabel: String
     get() = when (this) {
         PageTurnMode.HORIZONTAL -> "Horizontal pages"
         PageTurnMode.VERTICAL -> "Vertical pages"
-        PageTurnMode.CONTINUOUS -> "Continuous scroll"
+        PageTurnMode.CONTINUOUS -> "Vertical pages"
     }
 
 private val PageAnimation.pageAnimationLabel: String
@@ -1155,7 +1172,7 @@ private val PageAnimation.pageAnimationLabel: String
         PageAnimation.SLIDE -> "Slide"
         PageAnimation.FADE -> "Fade"
         PageAnimation.SCROLL -> "Scroll"
-        PageAnimation.BOOK_CURL -> "Book curl"
+        PageAnimation.BOOK_CURL -> "Curl pager"
         PageAnimation.SHEET_FLIP -> "Slide"
         PageAnimation.FLUID_PAGER -> "Fluid pager"
         PageAnimation.CURL_PAGER -> "Curl pager"

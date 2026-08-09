@@ -122,7 +122,7 @@ private fun SettingSummaryRow(
 private fun PageTurnMode.displayName(): String = when (this) {
     PageTurnMode.HORIZONTAL -> "Horizontal"
     PageTurnMode.VERTICAL -> "Vertical"
-    PageTurnMode.CONTINUOUS -> "Continuous"
+    PageTurnMode.CONTINUOUS -> "Vertical"
 }
 
 private fun PageAnimation.displayName(): String = when (this) {
@@ -130,7 +130,7 @@ private fun PageAnimation.displayName(): String = when (this) {
     PageAnimation.SLIDE -> "Slide"
     PageAnimation.FADE -> "Fade"
     PageAnimation.SCROLL -> "Scroll"
-    PageAnimation.BOOK_CURL -> "Book curl"
+    PageAnimation.BOOK_CURL -> "Curl pager"
     PageAnimation.SHEET_FLIP -> "Slide"
     PageAnimation.FLUID_PAGER -> "Fluid pager"
     PageAnimation.CURL_PAGER -> "Curl pager"
@@ -138,7 +138,6 @@ private fun PageAnimation.displayName(): String = when (this) {
     PageAnimation.MOVIE_CAROUSEL -> "Movie carousel"
     PageAnimation.PAGE_FLIP -> "Page flip"
 }
-
 
 private fun com.tedd.teddreader.core.common.model.AutoScrollConfig.summary(): String {
     if (!enabled) return "Off"
