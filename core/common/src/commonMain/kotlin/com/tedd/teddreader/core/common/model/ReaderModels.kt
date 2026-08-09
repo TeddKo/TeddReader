@@ -172,6 +172,7 @@ enum class PageAnimation {
 @Serializable
 enum class AutoScrollMode {
     PIXEL,
+    LINE,
     PAGE,
 }
 

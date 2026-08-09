@@ -47,8 +47,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -382,6 +383,7 @@ private fun ReaderContent(
                     }
                 },
         ) {
+            val density = LocalDensity.current
             val paneCount = readerPaneCount(maxWidth.value)
             val actionBarPageIndex = readerSpreadPageIndex(
                 currentPage = uiState.pageIndex.current,
@@ -417,6 +419,13 @@ private fun ReaderContent(
                     paneCount = paneCount,
                 )?.let(onGoToPage)
             }
+            val effectiveAutoScrollMode = readerEffectiveAutoScrollMode(
+                mode = uiState.autoScrollConfig.mode,
+                isPdfMode = uiState.isPdfMode,
+            )
+            val autoScrollLineHeightPx = with(density) {
+                (uiState.style.fontSizeSp * uiState.style.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
+            }
             val manualMovePrevious: () -> Unit = {
                 if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
                 movePrevious()
@@ -429,6 +438,7 @@ private fun ReaderContent(
             ReaderAutoScrollEffect(
                 uiState = uiState,
                 paneCount = paneCount,
+                effectiveMode = effectiveAutoScrollMode,
                 onNextPage = moveNext,
                 onStop = { onAutoScrollEnabledChange(false) },
             )
@@ -453,10 +463,20 @@ private fun ReaderContent(
                 onPreviousPage = manualMovePrevious,
                 onNextPage = manualMoveNext,
                 onToggleControls = toggleControls,
+                isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
+                effectiveAutoScrollMode = effectiveAutoScrollMode,
+                autoScrollSpeed = uiState.autoScrollConfig.speed,
+                autoScrollLineHeightPx = autoScrollLineHeightPx,
+                autoScrollDensity = density.density,
+                onAutoScrollStop = { onAutoScrollEnabledChange(false) },
+                onAutoScrollAdvance = moveNext,
                 onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
                 modifier = Modifier.readerControlsDragObserver(
                     controlsVisible = uiState.isControlsVisible,
                     onToggleControls = toggleControls,
+                    onManualDrag = {
+                        if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
+                    },
                 ),
             ) { page ->
                 if (paneCount == 1) {
@@ -680,27 +700,26 @@ private fun ReaderPagePane(
 private fun ReaderAutoScrollEffect(
     uiState: ReaderUiState,
     paneCount: Int,
+    effectiveMode: AutoScrollMode,
     onNextPage: () -> Unit,
     onStop: () -> Unit,
 ) {
     val config = uiState.autoScrollConfig
     LaunchedEffect(
         config.enabled,
-        config.mode,
+        effectiveMode,
         config.speed,
         uiState.pageIndex.current,
         uiState.pageIndex.total,
         paneCount,
     ) {
-        if (!config.enabled) return@LaunchedEffect
+        if (!config.enabled || effectiveMode != AutoScrollMode.PAGE) return@LaunchedEffect
         if (readerNextPage(uiState.pageIndex.current, uiState.pageIndex.total, paneCount) == null) {
             onStop()
             return@LaunchedEffect
         }
 
-        val speed = AutoScrollConfig.clampSpeed(config.speed)
-        val delayMillis = (1_000L / speed).toLong()
-        delay(delayMillis)
+        delay(autoScrollPageDelayMillis(config.speed))
         onNextPage()
     }
 }
@@ -1051,11 +1070,12 @@ private fun AutoScrollOptionsSheet(
     TeddOptionGroup(title = "Auto-scroll", modifier = modifier) {
         TeddSwitchRow("Enabled", uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
         AutoScrollMode.entries.forEach { mode ->
+            val isModeEnabled = !uiState.isSavingSettings && !(uiState.isPdfMode && mode == AutoScrollMode.LINE)
             TeddRadioRow(
                 title = mode.autoScrollLabel,
                 selected = uiState.autoScrollConfig.mode == mode,
                 onClick = { onModeChange(mode) },
-                enabled = !uiState.isSavingSettings,
+                enabled = isModeEnabled,
             )
         }
         TeddSliderRow(
@@ -1118,6 +1138,21 @@ internal fun readerPaneCount(widthDp: Float): Int =
 
 internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
     (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
+
+internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isPdfMode: Boolean): AutoScrollMode =
+    if (isPdfMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
+
+internal fun autoScrollPageDelayMillis(speed: Float): Long =
+    (1_000f / AutoScrollConfig.clampSpeed(speed)).toLong()
+
+internal fun autoScrollDistancePx(speed: Float, density: Float, elapsedMillis: Long): Float =
+    200f *
+        density.coerceAtLeast(0f) *
+        AutoScrollConfig.clampSpeed(speed) *
+        (elapsedMillis.coerceAtLeast(0L) / 1_000f)
+
+internal fun autoScrollLineDelayMillis(lineHeightPx: Float, pixelsPerSecond: Float): Long =
+    ((lineHeightPx.coerceAtLeast(0f) / pixelsPerSecond.coerceAtLeast(1f)) * 1_000f).toLong()
 
 internal fun readerSpreadPageIndex(currentPage: Int, totalPages: Int, paneCount: Int): PageIndex {
     if (totalPages <= 0) return PageIndex(current = 0, total = 0)
@@ -1201,6 +1236,7 @@ private val PageAnimation.pageAnimationLabel: String
 private val AutoScrollMode.autoScrollLabel: String
     get() = when (this) {
         AutoScrollMode.PIXEL -> "Smooth scroll"
+        AutoScrollMode.LINE -> "Line by line (Text only)"
         AutoScrollMode.PAGE -> "Page by page"
     }
 
@@ -1249,16 +1285,18 @@ private fun previewReaderUiState(
 private fun Modifier.readerControlsDragObserver(
     controlsVisible: Boolean,
     onToggleControls: () -> Unit,
+    onManualDrag: () -> Unit,
 ): Modifier = composed {
     val latestControlsVisible by rememberUpdatedState(controlsVisible)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
+    val latestOnManualDrag by rememberUpdatedState(onManualDrag)
 
     pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val controlsVisibleAtStart = latestControlsVisible
             var dragDistance = Offset.Zero
-            var toggled = false
+            var manualDragHandled = false
 
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -1266,9 +1304,13 @@ private fun Modifier.readerControlsDragObserver(
                 if (!change.pressed) break
 
                 dragDistance += change.positionChange()
-                if (!toggled && controlsVisibleAtStart && dragDistance.getDistance() > viewConfiguration.touchSlop) {
-                    latestOnToggleControls()
-                    toggled = true
+                if (!manualDragHandled && dragDistance.getDistance() > viewConfiguration.touchSlop) {
+                    if (controlsVisibleAtStart) {
+                        latestOnToggleControls()
+                    } else {
+                        latestOnManualDrag()
+                    }
+                    manualDragHandled = true
                 }
             }
         }
