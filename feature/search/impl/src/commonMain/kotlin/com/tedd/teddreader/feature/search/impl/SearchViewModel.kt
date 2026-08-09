@@ -12,8 +12,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
 
-private const val PdfSearchUnsupportedMessage = "PDF text search is not available yet."
-
 @KoinViewModel
 class SearchViewModel(
     private val findInDocument: FindInDocumentUseCase,
@@ -28,7 +26,7 @@ class SearchViewModel(
                 documentId = documentId,
                 results = emptyList(),
                 errorMessage = null,
-                unsupportedMessage = null,
+                isSearchUnsupported = false,
             )
         }
         viewModelScope.launch {
@@ -36,9 +34,7 @@ class SearchViewModel(
                 .onSuccess { metadata ->
                     _uiState.update {
                         it.copy(
-                            unsupportedMessage = metadata
-                                ?.takeIf { document -> document.format == DocumentFormat.PDF }
-                                ?.let { PdfSearchUnsupportedMessage },
+                            isSearchUnsupported = metadata?.format == DocumentFormat.PDF,
                         )
                     }
                 }
@@ -88,7 +84,7 @@ class SearchViewModel(
                     it.copy(
                         results = emptyList(),
                         isLoading = false,
-                        unsupportedMessage = PdfSearchUnsupportedMessage,
+                        isSearchUnsupported = true,
                     )
                 }
                 return@launch
@@ -101,7 +97,7 @@ class SearchViewModel(
                     it.copy(
                         results = results,
                         isLoading = false,
-                        unsupportedMessage = null,
+                        isSearchUnsupported = false,
                     )
                 }
             }.onFailure { throwable ->

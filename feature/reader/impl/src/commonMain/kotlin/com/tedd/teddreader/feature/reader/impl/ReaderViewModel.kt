@@ -200,7 +200,7 @@ class ReaderViewModel(
             id = "${documentId.value}:${location.asStorageString()}",
             documentId = documentId,
             location = location,
-            label = "Page ${pageIndex.current + 1}",
+            label = null,
             createdAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
         )
 

@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.reader.impl
 
+import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
@@ -126,6 +127,7 @@ class ReaderViewModelTest {
 
         assertTrue(viewModel.uiState.value.isCurrentPageSaved)
         assertEquals(ReaderLocation.TextOffset(0), bookmarkRepository.bookmarks.value.single().location)
+        assertEquals(null, bookmarkRepository.bookmarks.value.single().label)
 
         viewModel.toggleSavedPlace()
         advanceUntilIdle()
@@ -272,6 +274,7 @@ private class FakeReaderSettingsRepository : ReaderSettingsRepository {
     override suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
         lastAutoScrollConfig = autoScrollConfig
     }
+    override suspend fun updateAppLanguage(appLanguage: AppLanguage) = Unit
 }
 
 private class FakeBookmarkRepository : BookmarkRepository {

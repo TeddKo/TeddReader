@@ -21,6 +21,7 @@ import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.teddString
 
 @Composable
 fun DocumentListItem(
@@ -53,7 +54,7 @@ fun DocumentListItem(
             Box {
                 TeddIconButton(
                     onClick = onShowActions,
-                    contentDescription = "Document actions",
+                    contentDescription = teddString("Document actions", "문서 작업"),
                 ) {
                     Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
                 }
@@ -62,7 +63,7 @@ fun DocumentListItem(
                     onDismissRequest = onDismissActions,
                 ) {
                     TeddDropdownMenuItem(
-                        text = if (document.isBookmarked) "Remove from favorites" else "Add to favorites",
+                        text = if (document.isBookmarked) teddString("Remove from favorites", "즐겨찾기에서 제거") else teddString("Add to favorites", "즐겨찾기에 추가"),
                         onClick = onBookmarkClick,
                         leadingIcon = {
                             Icon(
@@ -76,7 +77,7 @@ fun DocumentListItem(
                         },
                     )
                     TeddDropdownMenuItem(
-                        text = "Delete from library",
+                        text = teddString("Delete from library", "라이브러리에서 삭제"),
                         onClick = onDeleteClick,
                     )
                 }
@@ -85,9 +86,10 @@ fun DocumentListItem(
     )
 }
 
+@Composable
 private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
     add(document.location.sizeBytes.toReadableSize())
-    document.pageCount?.let { add("$it pages") }
+    document.pageCount?.let { add(teddString("$it pages", "${it}페이지")) }
 }.joinToString(" • ")
 
 private fun Long.toReadableSize(): String = when {

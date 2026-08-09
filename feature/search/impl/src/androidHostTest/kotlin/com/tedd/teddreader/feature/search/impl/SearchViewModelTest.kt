@@ -68,7 +68,7 @@ class SearchViewModelTest {
         viewModel.search()
         advanceUntilIdle()
 
-        assertEquals("PDF text search is not available yet.", viewModel.uiState.value.unsupportedMessage)
+        assertEquals(true, viewModel.uiState.value.isSearchUnsupported)
         assertEquals(emptyList(), viewModel.uiState.value.results)
         assertEquals(0, searchRepository.searchCount)
     }

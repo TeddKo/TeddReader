@@ -10,5 +10,5 @@ data class SearchUiState(
     val results: List<SearchResult> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val unsupportedMessage: String? = null,
+    val isSearchUnsupported: Boolean = false,
 )

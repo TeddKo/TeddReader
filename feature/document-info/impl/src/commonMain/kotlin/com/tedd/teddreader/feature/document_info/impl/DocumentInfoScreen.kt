@@ -41,6 +41,7 @@ import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.teddString
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
@@ -84,7 +85,7 @@ fun DocumentInfoScreen(
                 .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
-            TeddLoadingIndicator(message = "Loading document info")
+            TeddLoadingIndicator(message = teddString("Loading document info", "문서 정보를 불러오는 중"))
         }
         return
     }
@@ -97,11 +98,11 @@ fun DocumentInfoScreen(
             .systemBarsPadding(),
         topBar = {
             TeddTopBar(
-                title = "Document info",
+                title = teddString("Document info", "문서 정보"),
                 navigationIcon = {
                     TeddIconButton(
                         onClick = onBack,
-                        contentDescription = "Back",
+                        contentDescription = teddString("Back", "뒤로"),
                     ) {
                         Icon(
                             imageVector = TeddIcons.Back,
@@ -132,42 +133,42 @@ fun DocumentInfoScreen(
 
             metadata?.let {
                 TeddOptionGroup(
-                    title = "Overview",
-                    description = "File details and your current place.",
+                    title = teddString("Overview", "개요"),
+                    description = teddString("File details and your current place.", "파일 정보와 현재 위치입니다."),
                 ) {
-                    MetadataRow(label = "Name", value = it.location.displayName)
-                    MetadataRow(label = "Location", value = it.location.sourceUri)
-                    MetadataRow(label = "Format", value = it.format.displayName())
-                    MetadataRow(label = "Size", value = formatSize(it.location.sizeBytes))
-                    MetadataRow(label = "Pages", value = formatPageCount(it.pageCount))
-                    MetadataRow(label = "Current page", value = formatPagePosition(uiState.pageIndex))
+                    MetadataRow(label = teddString("Name", "이름"), value = it.location.displayName)
+                    MetadataRow(label = teddString("Location", "위치"), value = it.location.sourceUri)
+                    MetadataRow(label = teddString("Format", "형식"), value = it.format.displayName(unknown = teddString("Unknown format", "알 수 없는 형식")))
+                    MetadataRow(label = teddString("Size", "크기"), value = formatSize(it.location.sizeBytes, unavailable = teddString("Not available", "정보 없음")))
+                    MetadataRow(label = teddString("Pages", "페이지"), value = formatPageCount(it.pageCount, unavailable = teddString("Not available", "정보 없음")))
+                    MetadataRow(label = teddString("Current page", "현재 페이지"), value = formatPagePosition(uiState.pageIndex, unavailable = teddString("Not available", "정보 없음"), separator = teddString(" of ", " / ")))
                 }
             }
 
             TeddOptionGroup(
-                title = "Reading stats",
-                description = "A quick summary of this document and your reading pace.",
+                title = teddString("Reading stats", "읽기 통계"),
+                description = teddString("A quick summary of this document and your reading pace.", "이 문서와 읽기 속도의 요약입니다."),
             ) {
-                MetadataRow(label = "Reading time", value = formatDuration(uiState.stats?.activeMillis))
-                MetadataRow(label = "Reading pace", value = formatReadingPace(uiState.stats))
-                MetadataRow(label = "Characters", value = formatCount(metadata?.characterCount))
-                MetadataRow(label = "Words", value = formatCount(metadata?.wordCount))
+                MetadataRow(label = teddString("Reading time", "읽은 시간"), value = formatDuration(uiState.stats?.activeMillis, unavailable = teddString("Not available", "정보 없음")))
+                MetadataRow(label = teddString("Reading pace", "읽기 속도"), value = formatReadingPace(uiState.stats, unavailable = teddString("Not available", "정보 없음"), suffix = teddString(" words/min", " 단어/분")))
+                MetadataRow(label = teddString("Characters", "문자 수"), value = formatCount(metadata?.characterCount, unavailable = teddString("Not available", "정보 없음")))
+                MetadataRow(label = teddString("Words", "단어 수"), value = formatCount(metadata?.wordCount, unavailable = teddString("Not available", "정보 없음")))
             }
 
             TeddOptionGroup(
-                title = "Recent sessions",
-                description = "Latest reading sessions for this document.",
+                title = teddString("Recent sessions", "최근 세션"),
+                description = teddString("Latest reading sessions for this document.", "이 문서의 최근 읽기 세션입니다."),
             ) {
                 if (uiState.sessions.isEmpty()) {
                     Text(
-                        text = "No reading sessions yet.",
+                        text = teddString("No reading sessions yet.", "아직 읽기 세션이 없습니다."),
                         style = typography.settingDescription,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     uiState.sessions.take(10).forEachIndexed { index, session ->
                         TeddListItem(
-                            title = "Session ${index + 1}",
+                            title = teddString("Session ${index + 1}", "세션 ${index + 1}"),
                             supportingText = formatDuration(session.activeMillis),
                         )
                     }
@@ -204,16 +205,16 @@ private fun MetadataRow(
     }
 }
 
-internal fun formatSize(sizeBytes: Long?): String {
-    if (sizeBytes == null) return "Not available"
+internal fun formatSize(sizeBytes: Long?, unavailable: String = "Not available"): String {
+    if (sizeBytes == null) return unavailable
     if (sizeBytes < 1_024L) return "$sizeBytes B"
     val kilobytes = sizeBytes / 1_024f
     if (kilobytes < 1_024f) return "${formatDecimal(kilobytes)} KB"
     return "${formatDecimal(kilobytes / 1_024f)} MB"
 }
 
-internal fun formatDuration(activeMillis: Long?): String {
-    if (activeMillis == null) return "Not available"
+internal fun formatDuration(activeMillis: Long?, unavailable: String = "Not available"): String {
+    if (activeMillis == null) return unavailable
     val totalSeconds = (activeMillis / 1_000L).coerceAtLeast(0L)
     val hours = totalSeconds / 3_600L
     val minutes = (totalSeconds % 3_600L) / 60L
@@ -225,18 +226,26 @@ internal fun formatDuration(activeMillis: Long?): String {
     }
 }
 
-internal fun formatReadingPace(stats: ReadingStats?): String {
-    if (stats == null || stats.activeMillis <= 0L || stats.wordsRead <= 0L) return "Not available"
-    return "${stats.wordsPerMinute.roundToInt()} words/min"
+internal fun formatReadingPace(
+    stats: ReadingStats?,
+    unavailable: String = "Not available",
+    suffix: String = " words/min",
+): String {
+    if (stats == null || stats.activeMillis <= 0L || stats.wordsRead <= 0L) return unavailable
+    return "${stats.wordsPerMinute.roundToInt()}$suffix"
 }
 
-internal fun formatCount(value: Long?): String = value?.toString() ?: "Not available"
+internal fun formatCount(value: Long?, unavailable: String = "Not available"): String = value?.toString() ?: unavailable
 
-internal fun formatPageCount(pageCount: Int?): String = pageCount?.toString() ?: "Not available"
+internal fun formatPageCount(pageCount: Int?, unavailable: String = "Not available"): String = pageCount?.toString() ?: unavailable
 
-internal fun formatPagePosition(pageIndex: PageIndex?): String {
-    if (pageIndex == null || pageIndex.total <= 0) return "Not available"
-    return "${pageIndex.current + 1} of ${pageIndex.total}"
+internal fun formatPagePosition(
+    pageIndex: PageIndex?,
+    unavailable: String = "Not available",
+    separator: String = " of ",
+): String {
+    if (pageIndex == null || pageIndex.total <= 0) return unavailable
+    return "${pageIndex.current + 1}$separator${pageIndex.total}"
 }
 
 private fun formatDecimal(value: Float): String {
@@ -248,11 +257,11 @@ private fun formatDecimal(value: Float): String {
     }
 }
 
-private fun DocumentFormat.displayName(): String = when (this) {
+private fun DocumentFormat.displayName(unknown: String = "Unknown format"): String = when (this) {
     DocumentFormat.TXT -> "TXT"
     DocumentFormat.PDF -> "PDF"
     DocumentFormat.EPUB -> "EPUB"
-    DocumentFormat.UNKNOWN -> "Unknown format"
+    DocumentFormat.UNKNOWN -> unknown
 }
 
 @Preview(widthDp = 280)

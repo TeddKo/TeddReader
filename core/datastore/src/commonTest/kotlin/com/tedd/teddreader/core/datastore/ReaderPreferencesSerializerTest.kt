@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.datastore
 
+import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
@@ -18,6 +19,7 @@ class ReaderPreferencesSerializerTest {
         val preferences = ReaderPreferences(
             style = sepiaReaderStyle().copy(fontSizeSp = 24f),
             pageTurnMode = PageTurnMode.VERTICAL,
+            appLanguage = AppLanguage.KOREAN,
         )
         val buffer = Buffer()
 
@@ -94,6 +96,14 @@ class ReaderPreferencesSerializerTest {
         val sheetFlipJson = sheetFlipBuffer.readUtf8()
         assertFalse(sheetFlipJson.contains("SHEET_FLIP"))
         assertTrue(sheetFlipJson.contains("SLIDE"))
+    }
+
+    @Test
+    fun missingAppLanguageDefaultsToSystem() = runTest {
+        assertEquals(
+            AppLanguage.SYSTEM,
+            ReaderPreferencesSerializer.readFrom(Buffer().writeUtf8("""{"style":{}}""")).appLanguage,
+        )
     }
 
     @Test

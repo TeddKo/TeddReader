@@ -50,6 +50,7 @@ import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.teddString
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -135,7 +136,7 @@ fun BookmarksScreen(
                 .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
-            TeddLoadingIndicator(message = "Loading saved places")
+            TeddLoadingIndicator(message = teddString("Loading saved places", "저장한 위치를 불러오는 중"))
         }
         return
     }
@@ -146,11 +147,11 @@ fun BookmarksScreen(
             .systemBarsPadding(),
         topBar = {
             TeddTopBar(
-                title = "Saved places",
+                title = teddString("Saved places", "저장한 위치"),
                 navigationIcon = {
                     TeddIconButton(
                         onClick = onBack,
-                        contentDescription = "Back",
+                        contentDescription = teddString("Back", "뒤로"),
                     ) {
                         Icon(
                             imageVector = TeddIcons.Back,
@@ -171,10 +172,9 @@ fun BookmarksScreen(
         ) {
             Text(
                 text = if (uiState.bookmarks.isEmpty()) {
-                    "Keep meaningful reading positions from this document."
+                    teddString("Keep meaningful reading positions from this document.", "이 문서의 의미 있는 읽기 위치를 저장하세요.")
                 } else {
-                    "${uiState.bookmarks.size} saved " +
-                        if (uiState.bookmarks.size == 1) "place" else "places"
+                    if (uiState.bookmarks.size == 1) teddString("1 saved place", "저장한 위치 1개") else teddString("${uiState.bookmarks.size} saved places", "저장한 위치 ${uiState.bookmarks.size}개")
                 },
                 style = typography.settingDescription,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,8 +186,8 @@ fun BookmarksScreen(
 
             if (uiState.bookmarks.isEmpty()) {
                 TeddEmptyState(
-                    title = "No saved places yet",
-                    description = "Use Save current page from the reader menu to keep a reading position.",
+                    title = teddString("No saved places yet", "아직 저장한 위치가 없습니다"),
+                    description = teddString("Use Save current page from the reader menu to keep a reading position.", "리더 메뉴의 현재 페이지 저장을 사용해 읽기 위치를 보관하세요."),
                 )
             } else {
                 uiState.bookmarks.forEach { bookmark ->
@@ -202,35 +202,37 @@ fun BookmarksScreen(
 
         uiState.editingBookmark?.let { bookmark ->
             TeddModalBottomSheet(
-                title = "Edit saved place",
+                title = teddString("Edit saved place", "저장한 위치 수정"),
                 onDismissRequest = onDismissEdit,
                 sheetState = editSheetState,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.medium)) {
                     Text(
-                        text = bookmark.label ?: bookmark.location.asStorageString(),
+                        text = bookmark.displayTitle(),
                         style = typography.titleMedium,
                     )
-                    Text(
-                        text = bookmark.location.displayLabel(),
-                        style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (bookmark.hasCustomLabel()) {
+                        Text(
+                            text = bookmark.location.displayLabel(),
+                            style = typography.settingDescription,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     TeddTextField(
                         value = note,
                         onValueChange = onNoteChange,
                         modifier = Modifier.fillMaxWidth(),
-                        label = "Note",
+                        label = teddString("Note", "메모"),
                         minLines = 3,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(spacing.small)) {
                         TeddButton(
-                            text = "Save",
+                            text = teddString("Save", "저장"),
                             onClick = { onSaveNote(note) },
                             enabled = note != bookmark.note.orEmpty(),
                         )
                         TeddButton(
-                            text = "Delete",
+                            text = teddString("Delete", "삭제"),
                             onClick = { onRequestDelete(bookmark, true) },
                             emphasis = TeddButtonEmphasis.Destructive,
                         )
@@ -246,22 +248,22 @@ fun BookmarksScreen(
         if (pendingDeleteBookmark != null) {
             AlertDialog(
                 onDismissRequest = onDismissDeleteConfirmation,
-                title = { Text("Delete saved place?") },
+                title = { Text(teddString("Delete saved place?", "저장한 위치를 삭제할까요?")) },
                 text = {
                     Text(
-                        "This removes ${pendingDeleteBookmark.label ?: pendingDeleteBookmark.location.displayLabel()}."
+                        teddString("This removes ${pendingDeleteBookmark.displayTitle()}.", "${pendingDeleteBookmark.displayTitle()} 항목을 삭제합니다.")
                     )
                 },
                 confirmButton = {
                     TeddButton(
-                        text = "Delete",
+                        text = teddString("Delete", "삭제"),
                         onClick = { onConfirmDelete(pendingDeleteBookmark) },
                         emphasis = TeddButtonEmphasis.Destructive,
                     )
                 },
                 dismissButton = {
                     TeddButton(
-                        text = "Cancel",
+                        text = teddString("Cancel", "취소"),
                         onClick = onDismissDeleteConfirmation,
                         emphasis = TeddButtonEmphasis.Secondary,
                     )
@@ -282,7 +284,7 @@ private fun BookmarkRow(
 
     TeddCard(modifier = modifier.fillMaxWidth()) {
         TeddListItem(
-            title = bookmark.label ?: bookmark.location.displayLabel(),
+            title = bookmark.displayTitle(),
             supportingText = buildBookmarkSupportingText(bookmark),
             onClick = onBookmarkClick,
             showDivider = false,
@@ -296,12 +298,12 @@ private fun BookmarkRow(
             horizontalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             TeddButton(
-                text = "Open",
+                text = teddString("Open", "열기"),
                 onClick = onBookmarkClick,
                 emphasis = TeddButtonEmphasis.Text,
             )
             TeddButton(
-                text = "Edit note",
+                text = teddString("Edit note", "메모 수정"),
                 onClick = onEditClick,
                 emphasis = TeddButtonEmphasis.Secondary,
             )
@@ -309,13 +311,28 @@ private fun BookmarkRow(
     }
 }
 
+private val legacyPageLabelPattern = Regex("^Page \\d+$")
+
+private fun Bookmark.hasCustomLabel(): Boolean {
+    val currentLabel = label
+    return currentLabel != null && !legacyPageLabelPattern.matches(currentLabel)
+}
+
+@Composable
+private fun Bookmark.displayTitle(): String =
+    label
+        ?.takeIf { hasCustomLabel() }
+        ?: location.displayLabel()
+
+@Composable
 private fun buildBookmarkSupportingText(bookmark: Bookmark): String =
     bookmark.note?.takeIf { it.isNotBlank() } ?: bookmark.location.displayLabel()
 
+@Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
-    is ReaderLocation.PdfPage -> "PDF page ${pageIndex + 1}"
-    is ReaderLocation.TextOffset -> "Text position ${offset + 1}"
-    is ReaderLocation.EpubOffset -> "EPUB section ${spineIndex + 1} · position ${offset + 1}"
+    is ReaderLocation.PdfPage -> teddString("PDF page ${pageIndex + 1}", "PDF ${pageIndex + 1}페이지")
+    is ReaderLocation.TextOffset -> teddString("Text position ${offset + 1}", "텍스트 위치 ${offset + 1}")
+    is ReaderLocation.EpubOffset -> teddString("EPUB section ${spineIndex + 1} · position ${offset + 1}", "EPUB 섹션 ${spineIndex + 1} · 위치 ${offset + 1}")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
