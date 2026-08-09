@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.datastore
 
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.okio.OkioSerializer
+import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import kotlinx.serialization.SerializationException
@@ -41,5 +42,8 @@ object ReaderPreferencesSerializer : OkioSerializer<ReaderPreferences> {
             PageAnimation.SHEET_FLIP -> PageAnimation.SLIDE
             else -> preferences.pageAnimation
         },
+        autoScrollConfig = preferences.autoScrollConfig.copy(
+            speed = AutoScrollConfig.clampSpeed(preferences.autoScrollConfig.speed),
+        ),
     )
 }

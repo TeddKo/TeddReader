@@ -179,10 +179,17 @@ enum class AutoScrollMode {
 data class AutoScrollConfig(
     val enabled: Boolean = false,
     val mode: AutoScrollMode = AutoScrollMode.PIXEL,
-    val speed: Float = 1f,
+    val speed: Float = MAX_SPEED,
 ) {
     init {
         require(speed > 0f) { "Auto-scroll speed must be positive." }
+    }
+
+    companion object {
+        const val MIN_SPEED: Float = 0.1f
+        const val MAX_SPEED: Float = 1f
+
+        fun clampSpeed(speed: Float): Float = speed.coerceIn(MIN_SPEED, MAX_SPEED)
     }
 }
 

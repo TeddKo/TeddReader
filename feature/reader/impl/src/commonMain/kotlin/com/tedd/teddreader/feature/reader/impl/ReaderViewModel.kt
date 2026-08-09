@@ -272,7 +272,7 @@ class ReaderViewModel(
     }
 
     fun updateAutoScrollSpeed(speed: Float) {
-        updateAutoScroll(_uiState.value.autoScrollConfig.copy(speed = speed.coerceAtLeast(0.1f)))
+        updateAutoScroll(_uiState.value.autoScrollConfig.copy(speed = AutoScrollConfig.clampSpeed(speed)))
     }
 
     fun updateBrightnessOverlayAlpha(alpha: Float) {
@@ -329,8 +329,9 @@ class ReaderViewModel(
     }
 
     private fun updateAutoScroll(config: AutoScrollConfig) {
-        _uiState.update { state -> state.copy(autoScrollConfig = config) }
-        saveReaderSettings { readerSettingsRepository.updateAutoScrollConfig(config) }
+        val normalizedConfig = config.copy(speed = AutoScrollConfig.clampSpeed(config.speed))
+        _uiState.update { state -> state.copy(autoScrollConfig = normalizedConfig) }
+        saveReaderSettings { readerSettingsRepository.updateAutoScrollConfig(normalizedConfig) }
     }
 
     private fun saveReaderSettings(block: suspend () -> Unit) {

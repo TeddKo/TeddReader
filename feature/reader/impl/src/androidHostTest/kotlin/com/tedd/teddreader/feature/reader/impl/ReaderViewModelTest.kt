@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.reader.impl
 
+import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -132,15 +133,48 @@ class ReaderViewModelTest {
         assertFalse(viewModel.uiState.value.isCurrentPageSaved)
     }
 
+    @Test
+    fun updateAutoScrollSpeedClampsToMinimum() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val readerSettingsRepository = FakeReaderSettingsRepository()
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(documentId),
+            readerSettingsRepository = readerSettingsRepository,
+        )
+
+        viewModel.updateAutoScrollSpeed(0f)
+        advanceUntilIdle()
+
+        assertEquals(0.1f, viewModel.uiState.value.autoScrollConfig.speed)
+        assertEquals(0.1f, readerSettingsRepository.lastAutoScrollConfig?.speed)
+    }
+
+    @Test
+    fun updateAutoScrollSpeedClampsToMaximum() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val readerSettingsRepository = FakeReaderSettingsRepository()
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(documentId),
+            readerSettingsRepository = readerSettingsRepository,
+        )
+
+        viewModel.updateAutoScrollSpeed(2f)
+        advanceUntilIdle()
+
+        assertEquals(1f, viewModel.uiState.value.autoScrollConfig.speed)
+        assertEquals(1f, readerSettingsRepository.lastAutoScrollConfig?.speed)
+    }
+
     private fun createViewModel(
         documentRepository: FakeDocumentRepository,
         bookmarkRepository: FakeBookmarkRepository = FakeBookmarkRepository(),
+        readerSettingsRepository: FakeReaderSettingsRepository = FakeReaderSettingsRepository(),
     ): ReaderViewModel {
         val readerRepository = FakeReaderRepository()
         return ReaderViewModel(
             documentRepository = documentRepository,
             bookmarkRepository = bookmarkRepository,
-            readerSettingsRepository = FakeReaderSettingsRepository(),
+            readerSettingsRepository = readerSettingsRepository,
             restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
             saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
         )
@@ -230,10 +264,14 @@ private class FakeReaderRepository : ReaderRepository {
 
 private class FakeReaderSettingsRepository : ReaderSettingsRepository {
     override val settings: Flow<ReaderSettings> = flowOf(ReaderSettings())
+    var lastAutoScrollConfig: AutoScrollConfig? = null
+
     override suspend fun updateStyle(style: ReaderStyle) = Unit
     override suspend fun updatePageTurnMode(pageTurnMode: com.tedd.teddreader.core.common.model.PageTurnMode) = Unit
     override suspend fun updatePageAnimation(pageAnimation: com.tedd.teddreader.core.common.model.PageAnimation) = Unit
-    override suspend fun updateAutoScrollConfig(autoScrollConfig: com.tedd.teddreader.core.common.model.AutoScrollConfig) = Unit
+    override suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
+        lastAutoScrollConfig = autoScrollConfig
+    }
 }
 
 private class FakeBookmarkRepository : BookmarkRepository {
