@@ -17,10 +17,8 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -362,7 +360,11 @@ private fun ReaderContent(
 ) {
     ReaderSystemBarsEffect(
         visible = uiState.isControlsVisible || uiState.activeSheet != null,
-        backgroundColor = uiState.style.readerColors().background,
+        backgroundColor = if (uiState.isControlsVisible) {
+            uiState.style.readerColors().controls
+        } else {
+            uiState.style.readerColors().background
+        },
         keepScreenOn = uiState.keepScreenOn,
     )
     val movieTransitionProgress = remember { mutableFloatStateOf(0f) }
@@ -384,6 +386,7 @@ private fun ReaderContent(
                 },
         ) {
             val density = LocalDensity.current
+            val systemBarsInsets = readerSystemBarsInsets()
             val paneCount = readerPaneCount(maxWidth.value)
             val actionBarPageIndex = readerSpreadPageIndex(
                 currentPage = uiState.pageIndex.current,
@@ -498,9 +501,8 @@ private fun ReaderContent(
                 ReaderTopControls(
                     title = uiState.documentTitle,
                     style = uiState.style,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding(),
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                     titleLabel = "Reading",
                     navigationIcon = {
                         TeddIconButton(onClick = onBack, contentDescription = "Back") {
@@ -541,9 +543,8 @@ private fun ReaderContent(
                 ReaderBottomActionBar(
                     pageIndex = actionBarPageIndex,
                     style = uiState.style,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding(),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Bottom),
                     isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                     showProgress = uiState.showProgress,
                     onAutoScrollToggle = onAutoScrollToggle,

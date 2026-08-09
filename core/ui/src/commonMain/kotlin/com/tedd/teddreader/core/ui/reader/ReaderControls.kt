@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ fun ReaderTopControls(
     modifier: Modifier = Modifier,
     titleLabel: String? = "Reading",
     navigationIcon: (@Composable () -> Unit)? = null,
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.small,
         vertical = DefaultTeddReaderSpacing.xxSmall,
@@ -47,6 +49,7 @@ fun ReaderTopControls(
         style = style,
         modifier = modifier.fillMaxWidth(),
         contentPadding = contentPadding,
+        windowInsets = windowInsets,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -92,6 +95,7 @@ fun ReaderBottomControls(
     style: ReaderStyle,
     modifier: Modifier = Modifier,
     progress: (@Composable BoxScope.() -> Unit)? = null,
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.small,
         vertical = DefaultTeddReaderSpacing.xxSmall,
@@ -104,6 +108,7 @@ fun ReaderBottomControls(
         style = style,
         modifier = modifier.fillMaxWidth(),
         contentPadding = contentPadding,
+        windowInsets = windowInsets,
         dividerAtTop = true,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {

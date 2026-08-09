@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl.component
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ fun ReaderBottomActionBar(
     sliderValue: Float,
     onSliderValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     canGoPrevious: Boolean = pageIndex.current > 0,
     canGoNext: Boolean = pageIndex.current < (pageIndex.total - 1).coerceAtLeast(0),
 ) {
@@ -52,6 +54,7 @@ fun ReaderBottomActionBar(
     ReaderBottomControls(
         style = style,
         modifier = modifier,
+        windowInsets = windowInsets,
         progress = if (showProgress) {
             {
                 Row(

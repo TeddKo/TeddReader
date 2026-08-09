@@ -3,8 +3,10 @@ package com.tedd.teddreader.core.ui.reader
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -23,6 +25,7 @@ fun ReaderChromeSurface(
     style: ReaderStyle,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues,
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     dividerAtTop: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -50,6 +53,7 @@ fun ReaderChromeSurface(
                         strokeWidth = strokeWidth,
                     )
                 }
+                .windowInsetsPadding(windowInsets)
                 .padding(contentPadding),
         ) {
             content()
