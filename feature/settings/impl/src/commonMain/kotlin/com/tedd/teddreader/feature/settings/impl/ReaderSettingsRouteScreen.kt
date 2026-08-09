@@ -44,6 +44,10 @@ fun ReaderSettingsRouteScreen(
     ) { scaffoldPadding ->
         ReaderSettingsSheet(
             uiState = uiState,
+            onStyleChange = viewModel::updateStyle,
+            onPageTurnModeChange = viewModel::updatePageTurnMode,
+            onPageAnimationChange = viewModel::updatePageAnimation,
+            onAutoScrollConfigChange = viewModel::updateAutoScrollConfig,
             onAppLanguageChange = viewModel::updateAppLanguage,
             modifier = Modifier
                 .fillMaxSize()

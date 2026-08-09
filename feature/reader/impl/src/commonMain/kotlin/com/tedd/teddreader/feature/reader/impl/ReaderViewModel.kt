@@ -15,8 +15,7 @@ import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.ViewportSize
-import com.tedd.teddreader.core.common.model.darkReaderStyle
-import com.tedd.teddreader.core.common.model.sepiaReaderStyle
+import com.tedd.teddreader.core.common.model.withThemeMode
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.BookmarkRepository
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
@@ -245,12 +244,7 @@ class ReaderViewModel(
     }
 
     fun updateThemeMode(mode: ReaderThemeMode) {
-        val style = when (mode) {
-            ReaderThemeMode.DARK -> darkReaderStyle()
-            ReaderThemeMode.SEPIA -> sepiaReaderStyle()
-            else -> ReaderStyle(themeMode = mode)
-        }
-        updateStyle(style)
+        updateStyle(_uiState.value.style.withThemeMode(mode))
     }
 
     fun updatePageTurnMode(mode: PageTurnMode) {
