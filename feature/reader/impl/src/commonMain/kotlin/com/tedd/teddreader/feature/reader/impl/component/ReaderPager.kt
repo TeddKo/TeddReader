@@ -78,6 +78,7 @@ internal fun ReaderPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
@@ -115,6 +116,7 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                onMovieTransitionProgressChanged = onMovieTransitionProgressChanged,
                 modifier = modifier,
                 content = content,
             )

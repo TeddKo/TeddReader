@@ -197,6 +197,36 @@ class FoundationPagerEffectMathTest {
     }
 
     @Test
+    fun `fluid edge release moves monotonically toward target without crossing`() {
+        val edge = FoundationFluidEdge(pointCount = 5)
+        val target = 0.6f
+
+        edge.applyTarget(
+            side = FoundationFluidSide.Start,
+            progress = target,
+            touchCrossAxis = 0.5f,
+        )
+        repeat(8) { edge.tick(1f) }
+        edge.applyTarget(
+            side = FoundationFluidSide.Start,
+            progress = target,
+            touchCrossAxis = 0.5f,
+            touchActive = false,
+        )
+
+        var previousDistances = edge.points.map { target - it.x }
+        repeat(24) {
+            edge.tick(1f)
+            edge.points.forEachIndexed { index, point ->
+                val distance = target - point.x
+                assertTrue(abs(distance) <= abs(previousDistances[index]) + tolerance)
+                assertTrue(distance == 0f || previousDistances[index] == 0f || distance * previousDistances[index] >= -tolerance)
+            }
+            previousDistances = edge.points.map { target - it.x }
+        }
+    }
+
+    @Test
     fun `fluid shadow follows curved fluid edge`() {
         val edge = FoundationFluidEdge(pointCount = 5)
         edge.applyTarget(
@@ -301,6 +331,15 @@ class FoundationPagerEffectMathTest {
         assertEquals(FoundationFluidSide.End, foundationMovieCarouselShadowSide(FoundationPagerPage.Previous))
         assertEquals(FoundationFluidSide.Start, foundationMovieCarouselShadowSide(FoundationPagerPage.Next))
         assertEquals(null, foundationMovieCarouselShadowSide(FoundationPagerPage.Current))
+    }
+
+    @Test
+    fun `movie carousel dim alpha is clamped and peaks mid transition`() {
+        assertEquals(0f, foundationMovieCarouselDimAlpha(0f), tolerance)
+        assertEquals(0f, foundationMovieCarouselDimAlpha(1f), tolerance)
+        assertEquals(0f, foundationMovieCarouselDimAlpha(-1f), tolerance)
+        assertEquals(0f, foundationMovieCarouselDimAlpha(2f), tolerance)
+        assertTrue(foundationMovieCarouselDimAlpha(0.5f) > 0f)
     }
 
     @Test
