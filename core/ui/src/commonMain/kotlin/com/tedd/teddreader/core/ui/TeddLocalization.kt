@@ -2,17 +2,22 @@ package com.tedd.teddreader.core.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.text.intl.Locale
+import androidx.compose.runtime.ProvidedValue
+import androidx.compose.runtime.key
 import com.tedd.teddreader.core.common.model.AppLanguage
 
-val LocalTeddLanguage = staticCompositionLocalOf { AppLanguage.ENGLISH }
+expect object LocalAppLocale {
+    val current: String
+        @Composable get
 
-fun resolveTeddLanguage(appLanguage: AppLanguage, systemLanguage: String): AppLanguage = when (appLanguage) {
-    AppLanguage.SYSTEM -> if (systemLanguage.isKoreanLanguageTag()) AppLanguage.KOREAN else AppLanguage.ENGLISH
-    AppLanguage.ENGLISH,
-    AppLanguage.KOREAN,
-        -> appLanguage
+    @Composable
+    infix fun provides(value: String?): ProvidedValue<*>
+}
+
+fun AppLanguage.resourceLocaleTag(): String? = when (this) {
+    AppLanguage.SYSTEM -> null
+    AppLanguage.ENGLISH -> "en"
+    AppLanguage.KOREAN -> "ko"
 }
 
 @Composable
@@ -20,17 +25,10 @@ fun ProvideTeddLocalization(
     appLanguage: AppLanguage,
     content: @Composable () -> Unit,
 ) {
-    CompositionLocalProvider(
-        LocalTeddLanguage provides resolveTeddLanguage(appLanguage, Locale.current.language),
-        content = content,
-    )
-}
-
-@Composable
-fun teddString(english: String, korean: String): String =
-    if (LocalTeddLanguage.current == AppLanguage.KOREAN) korean else english
-
-private fun String.isKoreanLanguageTag(): Boolean =
-    lowercase().replace('_', '-').let { normalized ->
-        normalized == "ko" || normalized.startsWith("ko-")
+    val localeTag = appLanguage.resourceLocaleTag()
+    CompositionLocalProvider(LocalAppLocale provides localeTag) {
+        key(localeTag) {
+            content()
+        }
     }
+}

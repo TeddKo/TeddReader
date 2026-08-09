@@ -17,7 +17,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun PdfPageSurface(
@@ -38,7 +39,7 @@ fun PdfPageSurface(
             scaleY = zoom,
             rotationZ = rotationDegrees,
         ),
-        message = message ?: teddString("PDF page renderer is not connected yet.", "PDF 페이지 렌더러가 아직 연결되지 않았습니다."),
+        message = message ?: stringResource(Res.string.pdf_renderer_not_connected),
         contentPadding = contentPadding,
         placeholderContentPadding = placeholderContentPadding,
     )
@@ -74,10 +75,7 @@ internal fun PdfPlaceholderSurface(
         ) {
             Text("PDF", style = MaterialTheme.typography.headlineMedium)
             Text(
-                text = teddString(
-                    "Page ${pageIndex.current + 1} / ${pageIndex.total}",
-                    "페이지 ${pageIndex.current + 1} / ${pageIndex.total}",
-                ),
+                text = stringResource(Res.string.pdf_page_fraction, pageIndex.current + 1, pageIndex.total),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(

@@ -20,7 +20,8 @@ import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddSlider
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.reader.ReaderBottomControls
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
 @Composable
@@ -47,7 +48,7 @@ fun ReaderBottomActionBar(
     val displayedSliderValue = sliderValue.coerceIn(sliderRange.start, sliderRange.endInclusive)
     val selectedPage = displayedSliderValue.roundToInt().coerceIn(0, lastPage)
     val pageLabel = if (pageIndex.total == 0) {
-        teddString("0 / 0", "0 / 0")
+        stringResource(Res.string.page_fraction_zero)
     } else {
         "${selectedPage + 1} / ${pageIndex.total}"
     }
@@ -88,20 +89,20 @@ fun ReaderBottomActionBar(
             TeddIconButton(
                 onClick = onPreviousPage,
                 enabled = canGoPrevious,
-                contentDescription = teddString("Previous page", "이전 페이지"),
+                contentDescription = stringResource(Res.string.previous_page),
             ) {
                 Icon(imageVector = TeddIcons.Previous, contentDescription = null)
             }
             TeddIconButton(
                 onClick = onNextPage,
                 enabled = canGoNext,
-                contentDescription = teddString("Next page", "다음 페이지"),
+                contentDescription = stringResource(Res.string.next_page),
             ) {
                 Icon(imageVector = TeddIcons.Next, contentDescription = null)
             }
             TeddIconButton(
                 onClick = onAutoScrollToggle,
-                contentDescription = if (isAutoScrollEnabled) teddString("Pause auto-scroll", "자동 스크롤 일시정지") else teddString("Start auto-scroll", "자동 스크롤 시작"),
+                contentDescription = if (isAutoScrollEnabled) stringResource(Res.string.pause_auto_scroll) else stringResource(Res.string.start_auto_scroll),
             ) {
                 Icon(
                     imageVector = if (isAutoScrollEnabled) TeddIcons.Pause else TeddIcons.Play,

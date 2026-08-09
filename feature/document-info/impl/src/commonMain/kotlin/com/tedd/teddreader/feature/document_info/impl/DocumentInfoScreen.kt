@@ -41,7 +41,8 @@ import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
@@ -85,7 +86,7 @@ fun DocumentInfoScreen(
                 .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center,
         ) {
-            TeddLoadingIndicator(message = teddString("Loading document info", "문서 정보를 불러오는 중"))
+            TeddLoadingIndicator(message = stringResource(Res.string.loading_document_info))
         }
         return
     }
@@ -98,11 +99,11 @@ fun DocumentInfoScreen(
             .systemBarsPadding(),
         topBar = {
             TeddTopBar(
-                title = teddString("Document info", "문서 정보"),
+                title = stringResource(Res.string.document_info),
                 navigationIcon = {
                     TeddIconButton(
                         onClick = onBack,
-                        contentDescription = teddString("Back", "뒤로"),
+                        contentDescription = stringResource(Res.string.back),
                     ) {
                         Icon(
                             imageVector = TeddIcons.Back,
@@ -133,42 +134,42 @@ fun DocumentInfoScreen(
 
             metadata?.let {
                 TeddOptionGroup(
-                    title = teddString("Overview", "개요"),
-                    description = teddString("File details and your current place.", "파일 정보와 현재 위치입니다."),
+                    title = stringResource(Res.string.overview),
+                    description = stringResource(Res.string.overview_description),
                 ) {
-                    MetadataRow(label = teddString("Name", "이름"), value = it.location.displayName)
-                    MetadataRow(label = teddString("Location", "위치"), value = it.location.sourceUri)
-                    MetadataRow(label = teddString("Format", "형식"), value = it.format.displayName(unknown = teddString("Unknown format", "알 수 없는 형식")))
-                    MetadataRow(label = teddString("Size", "크기"), value = formatSize(it.location.sizeBytes, unavailable = teddString("Not available", "정보 없음")))
-                    MetadataRow(label = teddString("Pages", "페이지"), value = formatPageCount(it.pageCount, unavailable = teddString("Not available", "정보 없음")))
-                    MetadataRow(label = teddString("Current page", "현재 페이지"), value = formatPagePosition(uiState.pageIndex, unavailable = teddString("Not available", "정보 없음"), separator = teddString(" of ", " / ")))
+                    MetadataRow(label = stringResource(Res.string.name), value = it.location.displayName)
+                    MetadataRow(label = stringResource(Res.string.location), value = it.location.sourceUri)
+                    MetadataRow(label = stringResource(Res.string.format), value = it.format.displayName(unknown = stringResource(Res.string.unknown_format)))
+                    MetadataRow(label = stringResource(Res.string.size), value = formatSize(it.location.sizeBytes, unavailable = stringResource(Res.string.not_available)))
+                    MetadataRow(label = stringResource(Res.string.pages), value = formatPageCount(it.pageCount, unavailable = stringResource(Res.string.not_available)))
+                    MetadataRow(label = stringResource(Res.string.current_page), value = formatPagePosition(uiState.pageIndex, unavailable = stringResource(Res.string.not_available), separator = stringResource(Res.string.page_position_separator)))
                 }
             }
 
             TeddOptionGroup(
-                title = teddString("Reading stats", "읽기 통계"),
-                description = teddString("A quick summary of this document and your reading pace.", "이 문서와 읽기 속도의 요약입니다."),
+                title = stringResource(Res.string.reading_stats),
+                description = stringResource(Res.string.reading_stats_description),
             ) {
-                MetadataRow(label = teddString("Reading time", "읽은 시간"), value = formatDuration(uiState.stats?.activeMillis, unavailable = teddString("Not available", "정보 없음")))
-                MetadataRow(label = teddString("Reading pace", "읽기 속도"), value = formatReadingPace(uiState.stats, unavailable = teddString("Not available", "정보 없음"), suffix = teddString(" words/min", " 단어/분")))
-                MetadataRow(label = teddString("Characters", "문자 수"), value = formatCount(metadata?.characterCount, unavailable = teddString("Not available", "정보 없음")))
-                MetadataRow(label = teddString("Words", "단어 수"), value = formatCount(metadata?.wordCount, unavailable = teddString("Not available", "정보 없음")))
+                MetadataRow(label = stringResource(Res.string.reading_time), value = formatDuration(uiState.stats?.activeMillis, unavailable = stringResource(Res.string.not_available)))
+                MetadataRow(label = stringResource(Res.string.reading_pace), value = formatReadingPace(uiState.stats, unavailable = stringResource(Res.string.not_available), suffix = stringResource(Res.string.reading_pace_suffix)))
+                MetadataRow(label = stringResource(Res.string.characters), value = formatCount(metadata?.characterCount, unavailable = stringResource(Res.string.not_available)))
+                MetadataRow(label = stringResource(Res.string.words), value = formatCount(metadata?.wordCount, unavailable = stringResource(Res.string.not_available)))
             }
 
             TeddOptionGroup(
-                title = teddString("Recent sessions", "최근 세션"),
-                description = teddString("Latest reading sessions for this document.", "이 문서의 최근 읽기 세션입니다."),
+                title = stringResource(Res.string.recent_sessions),
+                description = stringResource(Res.string.recent_sessions_description),
             ) {
                 if (uiState.sessions.isEmpty()) {
                     Text(
-                        text = teddString("No reading sessions yet.", "아직 읽기 세션이 없습니다."),
+                        text = stringResource(Res.string.no_reading_sessions),
                         style = typography.settingDescription,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     uiState.sessions.take(10).forEachIndexed { index, session ->
                         TeddListItem(
-                            title = teddString("Session ${index + 1}", "세션 ${index + 1}"),
+                            title = stringResource(Res.string.session_title, index + 1),
                             supportingText = formatDuration(session.activeMillis),
                         )
                     }

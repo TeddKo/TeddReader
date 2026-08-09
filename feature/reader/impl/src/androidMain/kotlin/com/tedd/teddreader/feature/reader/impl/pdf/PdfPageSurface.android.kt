@@ -27,7 +27,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.tedd.teddreader.core.common.model.PageIndex
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -72,7 +73,7 @@ internal actual fun PlatformPdfPageSurface(
         ) {
             Image(
                 bitmap = currentState.image,
-                contentDescription = teddString("PDF page ${pageIndex.current + 1}", "PDF ${pageIndex.current + 1}페이지"),
+                contentDescription = stringResource(Res.string.pdf_page_content_description, pageIndex.current + 1),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
             )

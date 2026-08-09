@@ -21,7 +21,8 @@ import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun DocumentListItem(
@@ -54,7 +55,7 @@ fun DocumentListItem(
             Box {
                 TeddIconButton(
                     onClick = onShowActions,
-                    contentDescription = teddString("Document actions", "문서 작업"),
+                    contentDescription = stringResource(Res.string.document_actions),
                 ) {
                     Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
                 }
@@ -63,7 +64,7 @@ fun DocumentListItem(
                     onDismissRequest = onDismissActions,
                 ) {
                     TeddDropdownMenuItem(
-                        text = if (document.isBookmarked) teddString("Remove from favorites", "즐겨찾기에서 제거") else teddString("Add to favorites", "즐겨찾기에 추가"),
+                        text = if (document.isBookmarked) stringResource(Res.string.remove_from_favorites) else stringResource(Res.string.add_to_favorites),
                         onClick = onBookmarkClick,
                         leadingIcon = {
                             Icon(
@@ -77,7 +78,7 @@ fun DocumentListItem(
                         },
                     )
                     TeddDropdownMenuItem(
-                        text = teddString("Delete from library", "라이브러리에서 삭제"),
+                        text = stringResource(Res.string.delete_from_library),
                         onClick = onDeleteClick,
                     )
                 }
@@ -89,7 +90,7 @@ fun DocumentListItem(
 @Composable
 private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
     add(document.location.sizeBytes.toReadableSize())
-    document.pageCount?.let { add(teddString("$it pages", "${it}페이지")) }
+    document.pageCount?.let { add(stringResource(Res.string.document_pages, it)) }
 }.joinToString(" • ")
 
 private fun Long.toReadableSize(): String = when {

@@ -17,7 +17,8 @@ import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.feature.reader.impl.ReaderMenuAction
 
 @Composable
@@ -31,7 +32,7 @@ fun ReaderActionMenu(
     Box(modifier = modifier) {
         TeddIconButton(
             onClick = { onExpandedChange(true) },
-            contentDescription = teddString("Reader actions", "리더 작업"),
+            contentDescription = stringResource(Res.string.reader_actions),
         ) {
             Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
         }
@@ -40,7 +41,7 @@ fun ReaderActionMenu(
             onDismissRequest = { onExpandedChange(false) },
         ) {
             ReaderMenuSection(
-                title = teddString("Navigation", "탐색"),
+                title = stringResource(Res.string.navigation),
                 actions = listOf(
                     ReaderMenuAction.TableOfContents,
                     ReaderMenuAction.GoToPage,
@@ -54,7 +55,7 @@ fun ReaderActionMenu(
             )
             HorizontalDivider()
             ReaderMenuSection(
-                title = teddString("Appearance", "화면"),
+                title = stringResource(Res.string.appearance),
                 actions = listOf(
                     ReaderMenuAction.ViewOptions,
                     ReaderMenuAction.FontOptions,
@@ -67,7 +68,7 @@ fun ReaderActionMenu(
             )
             HorizontalDivider()
             ReaderMenuSection(
-                title = teddString("Reading tools", "읽기 도구"),
+                title = stringResource(Res.string.reading_tools),
                 actions = listOf(
                     ReaderMenuAction.ToggleSavedPlace,
                     ReaderMenuAction.PageTurnOptions,
@@ -117,19 +118,19 @@ private fun ReaderMenuSection(
 
 @Composable
 private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (this) {
-    ReaderMenuAction.Search -> teddString("Search in document", "문서에서 검색")
-    ReaderMenuAction.ToggleSavedPlace -> if (isCurrentPageSaved) teddString("Remove saved place", "저장한 위치 제거") else teddString("Save current page", "현재 페이지 저장")
-    ReaderMenuAction.SavedPlaces -> teddString("Saved places", "저장한 위치")
-    ReaderMenuAction.TableOfContents -> teddString("Table of contents", "목차")
-    ReaderMenuAction.GoToPage -> teddString("Jump to page", "페이지로 이동")
-    ReaderMenuAction.ViewOptions -> teddString("Display", "표시")
-    ReaderMenuAction.FontOptions -> teddString("Typography", "글자")
-    ReaderMenuAction.ThemeOptions -> teddString("Theme", "테마")
-    ReaderMenuAction.PageTurnOptions -> teddString("Page movement", "페이지 이동")
-    ReaderMenuAction.AutoScrollOptions -> teddString("Auto-scroll", "자동 스크롤")
-    ReaderMenuAction.BrightnessOptions -> teddString("Brightness", "밝기")
-    ReaderMenuAction.ControlOptions -> teddString("Bottom bar", "하단 바")
-    ReaderMenuAction.DocumentInfo -> teddString("Document details", "문서 정보")
+    ReaderMenuAction.Search -> stringResource(Res.string.search_in_document)
+    ReaderMenuAction.ToggleSavedPlace -> if (isCurrentPageSaved) stringResource(Res.string.remove_saved_place) else stringResource(Res.string.save_current_page)
+    ReaderMenuAction.SavedPlaces -> stringResource(Res.string.saved_places)
+    ReaderMenuAction.TableOfContents -> stringResource(Res.string.table_of_contents)
+    ReaderMenuAction.GoToPage -> stringResource(Res.string.jump_to_page)
+    ReaderMenuAction.ViewOptions -> stringResource(Res.string.display)
+    ReaderMenuAction.FontOptions -> stringResource(Res.string.typography)
+    ReaderMenuAction.ThemeOptions -> stringResource(Res.string.theme)
+    ReaderMenuAction.PageTurnOptions -> stringResource(Res.string.page_movement)
+    ReaderMenuAction.AutoScrollOptions -> stringResource(Res.string.auto_scroll)
+    ReaderMenuAction.BrightnessOptions -> stringResource(Res.string.reader_option_brightness)
+    ReaderMenuAction.ControlOptions -> stringResource(Res.string.bottom_bar)
+    ReaderMenuAction.DocumentInfo -> stringResource(Res.string.document_details)
 }
 
 @Preview

@@ -38,7 +38,8 @@ import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -89,11 +90,11 @@ fun SearchScreen(
             .systemBarsPadding(),
         topBar = {
             TeddTopBar(
-                title = teddString("Search", "검색"),
+                title = stringResource(Res.string.search),
                 navigationIcon = {
                     TeddIconButton(
                         onClick = onBack,
-                        contentDescription = teddString("Back", "뒤로"),
+                        contentDescription = stringResource(Res.string.back),
                     ) {
                         Icon(
                             imageVector = TeddIcons.Back,
@@ -114,7 +115,7 @@ fun SearchScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
                 Text(
-                    text = teddString("Find a passage in the current document.", "현재 문서에서 구절을 찾아보세요."),
+                    text = stringResource(Res.string.search_find_passage_description),
                     style = typography.settingDescription,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -122,7 +123,7 @@ fun SearchScreen(
                     value = uiState.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(teddString("Search text", "검색어 입력")) },
+                    placeholder = { Text(stringResource(Res.string.search_text_placeholder)) },
                     singleLine = true,
                     enabled = isFieldEnabled,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -133,7 +134,7 @@ fun SearchScreen(
                     ),
                 )
                 TeddButton(
-                    text = teddString("Search", "검색"),
+                    text = stringResource(Res.string.search),
                     onClick = onSearchClick,
                     enabled = canSearch,
                 )
@@ -142,10 +143,7 @@ fun SearchScreen(
             when {
                 uiState.isSearchUnsupported -> {
                     TeddErrorBanner(
-                        message = teddString(
-                            "PDF text search is not available yet.",
-                            "PDF 텍스트 검색은 아직 지원하지 않습니다.",
-                        ),
+                        message = stringResource(Res.string.search_pdf_unsupported),
                     )
                 }
 
@@ -154,26 +152,26 @@ fun SearchScreen(
                 }
 
                 uiState.isLoading -> {
-                    TeddLoadingIndicator(message = teddString("Searching", "검색 중"))
+                    TeddLoadingIndicator(message = stringResource(Res.string.search_loading))
                 }
 
                 uiState.query.isBlank() -> {
                     TeddEmptyState(
-                        title = teddString("Search this document", "이 문서 검색"),
-                        description = teddString("Type a word or phrase to jump to matching passages.", "단어나 구문을 입력해 일치하는 구절로 이동하세요."),
+                        title = stringResource(Res.string.search_empty_title),
+                        description = stringResource(Res.string.search_empty_description),
                     )
                 }
 
                 uiState.results.isEmpty() -> {
                     TeddEmptyState(
-                        title = teddString("No results", "검색 결과 없음"),
-                        description = teddString("Try a different word or a shorter phrase.", "다른 단어나 더 짧은 구문을 시도해 보세요."),
+                        title = stringResource(Res.string.search_no_results_title),
+                        description = stringResource(Res.string.search_no_results_description),
                     )
                 }
 
                 else -> {
                     Text(
-                        text = teddString("${uiState.results.size} matches", "${uiState.results.size}개 결과"),
+                        text = stringResource(Res.string.search_matches_count, uiState.results.size),
                         style = typography.settingTitle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -33,6 +33,8 @@ import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
 import com.tedd.teddreader.core.ui.component.TeddTopBar
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.feature.bookmarks.api.BookmarksRoute
 import com.tedd.teddreader.feature.bookmarks.impl.BookmarksRouteScreen
 import com.tedd.teddreader.feature.document_info.api.DocumentInfoRoute
@@ -194,8 +196,8 @@ fun ReaderNavHost(
 
                 else -> NavEntry(key) {
                     PlaceholderDestination(
-                        title = com.tedd.teddreader.core.ui.teddString("Unknown", "알 수 없음"),
-                        description = com.tedd.teddreader.core.ui.teddString("Unsupported destination.", "지원되지 않는 화면입니다."),
+                        title = stringResource(Res.string.unsupported_destination_title),
+                        description = stringResource(Res.string.unsupported_destination_description),
                         onBack = { backStack.removeLastOrNull() },
                     )
                 }
@@ -234,7 +236,7 @@ private fun PlaceholderDestination(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TeddButton(
-                text = com.tedd.teddreader.core.ui.teddString("Back", "뒤로"),
+                text = stringResource(Res.string.back),
                 onClick = onBack,
                 emphasis = TeddButtonEmphasis.Secondary,
             )
