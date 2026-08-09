@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.datastore
 
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.okio.OkioSerializer
+import com.tedd.teddreader.core.common.model.PageAnimation
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okio.BufferedSink
@@ -17,7 +18,16 @@ object ReaderPreferencesSerializer : OkioSerializer<ReaderPreferences> {
 
     override suspend fun readFrom(source: BufferedSource): ReaderPreferences = try {
         val raw = source.readUtf8()
-        if (raw.isBlank()) defaultValue else json.decodeFromString(raw)
+        when {
+            raw.isBlank() -> defaultValue
+            else -> json.decodeFromString<ReaderPreferences>(raw).let { preferences ->
+                if (preferences.pageAnimation == PageAnimation.SHEET_FLIP) {
+                    preferences.copy(pageAnimation = PageAnimation.SLIDE)
+                } else {
+                    preferences
+                }
+            }
+        }
     } catch (exception: SerializationException) {
         throw CorruptionException("Cannot read reader preferences.", exception)
     }

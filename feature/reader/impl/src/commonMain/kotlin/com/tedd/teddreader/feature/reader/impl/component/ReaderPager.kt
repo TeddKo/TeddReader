@@ -11,8 +11,6 @@ import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -100,6 +98,8 @@ internal fun ReaderPager(
             return
         }
 
+        PageAnimation.SLIDE,
+        PageAnimation.SHEET_FLIP,
         PageAnimation.FLUID_PAGER,
         PageAnimation.CIRCLE_REVEAL,
         PageAnimation.MOVIE_CAROUSEL,
@@ -176,9 +176,9 @@ internal fun ReaderPager(
                 when (pageAnimation) {
                     PageAnimation.NONE -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                     PageAnimation.FADE -> fadeIn(tween(140)) togetherWith fadeOut(tween(140))
-                    PageAnimation.SLIDE -> slideTransition(pageTurnMode, forward, 180)
                     PageAnimation.BOOK_CURL -> softSlideTransition(pageTurnMode, forward)
-                    PageAnimation.SHEET_FLIP -> sheetFlipTransition(pageTurnMode, forward)
+                    PageAnimation.SLIDE,
+                    PageAnimation.SHEET_FLIP,
                     PageAnimation.SCROLL,
                     PageAnimation.FLUID_PAGER,
                     PageAnimation.CURL_PAGER,
@@ -991,16 +991,6 @@ private fun lerp(start: Float, end: Float, fraction: Float): Float =
     start + ((end - start) * fraction)
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun slideTransition(pageTurnMode: PageTurnMode, forward: Boolean, durationMillis: Int) =
-    if (isVerticalMode(pageTurnMode)) {
-        slideInVertically(tween(durationMillis)) { fullHeight -> if (forward) fullHeight else -fullHeight } togetherWith
-                slideOutVertically(tween(durationMillis)) { fullHeight -> if (forward) -fullHeight else fullHeight }
-    } else {
-        slideInHorizontally(tween(durationMillis)) { fullWidth -> if (forward) fullWidth else -fullWidth } togetherWith
-                slideOutHorizontally(tween(durationMillis)) { fullWidth -> if (forward) -fullWidth else fullWidth }
-    }
-
-@OptIn(ExperimentalAnimationApi::class)
 private fun softSlideTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
     if (isVerticalMode(pageTurnMode)) {
         fadeIn(tween(160)) + slideInVertically(tween(220)) { fullHeight -> if (forward) fullHeight / 2 else -fullHeight / 2 } togetherWith
@@ -1010,29 +1000,8 @@ private fun softSlideTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
                 fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { fullWidth -> if (forward) -fullWidth / 4 else fullWidth / 4 }
     }
 
-@OptIn(ExperimentalAnimationApi::class)
-private fun sheetFlipTransition(pageTurnMode: PageTurnMode, forward: Boolean) =
-    if (isVerticalMode(pageTurnMode)) {
-        scaleIn(
-            tween(200),
-            initialScale = 0.96f
-        ) + slideInVertically(tween(200)) { fullHeight -> if (forward) fullHeight / 3 else -fullHeight / 3 } togetherWith
-                scaleOut(
-                    tween(200),
-                    targetScale = 0.98f
-                ) + slideOutVertically(tween(200)) { fullHeight -> if (forward) -fullHeight / 5 else fullHeight / 5 }
-    } else {
-        scaleIn(
-            tween(200),
-            initialScale = 0.96f
-        ) + slideInHorizontally(tween(200)) { fullWidth -> if (forward) fullWidth / 3 else -fullWidth / 3 } togetherWith
-                scaleOut(
-                    tween(200),
-                    targetScale = 0.98f
-                ) + slideOutHorizontally(tween(200)) { fullWidth -> if (forward) -fullWidth / 5 else fullWidth / 5 }
-    }
-
 internal data class CurlPreset(
+
     val maxRotation: Float = 0f,
     val translationRatio: Float = 0f,
     val shadowAlpha: Float = 0f,
