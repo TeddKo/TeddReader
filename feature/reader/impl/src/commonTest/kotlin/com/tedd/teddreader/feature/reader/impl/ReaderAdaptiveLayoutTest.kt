@@ -41,4 +41,20 @@ class ReaderAdaptiveLayoutTest {
         assertEquals(null, readerNextPage(currentPage = 2, totalPages = 4, paneCount = 2))
         assertEquals(4, readerNextPage(currentPage = 2, totalPages = 5, paneCount = 2))
     }
+
+    @Test
+    fun visiblePageIndexUsesEndOfVisibleSpread() {
+        assertEquals(3, readerVisiblePageIndex(currentPage = 2, totalPages = 4, paneCount = 2))
+        assertEquals(3, readerVisiblePageIndex(currentPage = 2, totalPages = 5, paneCount = 2))
+        assertEquals(4, readerVisiblePageIndex(currentPage = 4, totalPages = 5, paneCount = 2))
+        assertEquals(2, readerVisiblePageIndex(currentPage = 2, totalPages = 5, paneCount = 1))
+    }
+
+    @Test
+    fun selectedPageUsesSpreadAnchorForGoToPage() {
+        assertEquals(2, readerSpreadAnchorPage(selectedPage = 3, totalPages = 4, paneCount = 2))
+        assertEquals(2, readerSpreadAnchorPage(selectedPage = 3, totalPages = 5, paneCount = 2))
+        assertEquals(4, readerSpreadAnchorPage(selectedPage = 4, totalPages = 5, paneCount = 2))
+        assertEquals(3, readerSpreadAnchorPage(selectedPage = 3, totalPages = 5, paneCount = 1))
+    }
 }

@@ -26,4 +26,22 @@ class ReaderPagerPageTargetTest {
         assertNull(readerPagerAdjacentPage(0, 10, 2, -1))
         assertNull(readerPagerAdjacentPage(9, 10, 2, 1))
     }
+
+    @Test
+    fun dragBoundaryBlocksOnlyMissingDirection() {
+        assertEquals(true, foundationPagerShouldBlockDrag(primaryDelta = 24f, hasPreviousPage = false, hasNextPage = true))
+        assertEquals(false, foundationPagerShouldBlockDrag(primaryDelta = 24f, hasPreviousPage = true, hasNextPage = false))
+        assertEquals(true, foundationPagerShouldBlockDrag(primaryDelta = -24f, hasPreviousPage = true, hasNextPage = false))
+        assertEquals(false, foundationPagerShouldBlockDrag(primaryDelta = -24f, hasPreviousPage = false, hasNextPage = true))
+        assertEquals(false, foundationPagerShouldBlockDrag(primaryDelta = 0f, hasPreviousPage = false, hasNextPage = false))
+    }
+
+    @Test
+    fun scrollPagerUsesOnlyAvailableOffsets() {
+        assertEquals(listOf(0, 1), readerScrollPageOffsets(hasPreviousPage = false, hasNextPage = true))
+        assertEquals(listOf(-1, 0), readerScrollPageOffsets(hasPreviousPage = true, hasNextPage = false))
+        assertEquals(listOf(-1, 0, 1), readerScrollPageOffsets(hasPreviousPage = true, hasNextPage = true))
+        assertEquals(0, readerScrollCurrentIndex(hasPreviousPage = false))
+        assertEquals(1, readerScrollCurrentIndex(hasPreviousPage = true))
+    }
 }
