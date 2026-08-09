@@ -49,7 +49,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -526,10 +525,6 @@ private fun Modifier.foundationEffectPageModifier(
             )
             .then(foundationFluidShadow(page, axis, activeSide, activeProgress, fluidEdge, fluidVersion))
 
-        PageAnimation.CURL_PAGER -> cancelTranslation
-            .zIndex(foundationCurlZIndex(page, activeSide, activeProgress))
-            .then(foundationCurlModifier(page, axis, activeSide, activeProgress, gestureState))
-
         PageAnimation.CIRCLE_REVEAL -> cancelTranslation
             .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
             .then(
@@ -561,24 +556,6 @@ private fun Modifier.foundationEffectPageModifier(
 
         else -> Modifier
     }
-}
-
-private fun foundationRevealShadow(
-    page: FoundationPagerPage,
-    axis: FoundationPagerAxis,
-    activeSide: FoundationFluidSide,
-    progress: Float,
-): Modifier {
-    if (page == FoundationPagerPage.Current) return Modifier
-    if (page.side != activeSide || progress <= 0f) return Modifier
-    return Modifier.foundationMovingEdgeShadow(
-        axis = axis,
-        side = activeSide,
-        progress = progress,
-        maxAlpha = FoundationRevealShadowAlpha,
-        castWidth = FoundationRevealShadowWidth,
-        contactWidth = FoundationRevealContactShadowWidth,
-    )
 }
 
 private fun foundationFluidShadow(
@@ -997,39 +974,6 @@ private enum class FoundationRevealStyle {
     Circle,
 }
 
-private fun foundationCurlZIndex(
-    page: FoundationPagerPage,
-    activeSide: FoundationFluidSide,
-    progress: Float,
-): Float = when {
-    progress <= 0f -> if (page == FoundationPagerPage.Current) 1f else 0f
-    activeSide == FoundationFluidSide.End && page == FoundationPagerPage.Current -> 3f
-    activeSide == FoundationFluidSide.End && page == FoundationPagerPage.Next -> 1f
-    activeSide == FoundationFluidSide.Start && page == FoundationPagerPage.Previous -> 3f
-    activeSide == FoundationFluidSide.Start && page == FoundationPagerPage.Current -> 1f
-    else -> 0f
-}
-
-private fun foundationCurlModifier(
-    page: FoundationPagerPage,
-    axis: FoundationPagerAxis,
-    activeSide: FoundationFluidSide,
-    progress: Float,
-    gestureState: FoundationPagerGestureState,
-): Modifier = when {
-    progress <= 0f && page != FoundationPagerPage.Current -> Modifier.foundationHiddenWhenInactive(true)
-    activeSide == FoundationFluidSide.End && page == FoundationPagerPage.Current -> {
-        Modifier.foundationCurlDraw(axis, FoundationFluidSide.End, progress, gestureState)
-    }
-    activeSide == FoundationFluidSide.End && page == FoundationPagerPage.Next -> Modifier
-    activeSide == FoundationFluidSide.Start && page == FoundationPagerPage.Previous -> {
-        Modifier.foundationCurlDraw(axis, FoundationFluidSide.Start, progress, gestureState)
-    }
-    activeSide == FoundationFluidSide.Start && page == FoundationPagerPage.Current -> Modifier
-    page == FoundationPagerPage.Current -> Modifier
-    else -> Modifier.foundationHiddenWhenInactive(true)
-}
-
 private fun Modifier.foundationFluidClip(
     axis: FoundationPagerAxis,
     side: FoundationFluidSide,
@@ -1132,174 +1076,6 @@ private fun foundationPageFlipZIndex(pageOffset: Float): Float {
     }
 }
 
-private fun Modifier.foundationCurlDraw(
-    axis: FoundationPagerAxis,
-    side: FoundationFluidSide,
-    progress: Float,
-    gestureState: FoundationPagerGestureState,
-): Modifier = drawWithCache {
-    val sizeModel = FoundationPagerSize(size.width, size.height)
-    val canonicalSize = axis.toCanonicalSize(sizeModel)
-    val clampedProgress = progress.coerceIn(0f, 1f)
-
-    if (canonicalSize.width <= 1f || canonicalSize.height <= 1f) {
-        return@drawWithCache onDrawWithContent { drawContent() }
-    }
-    if (clampedProgress <= 0f) {
-        return@drawWithCache onDrawWithContent {
-            if (side == FoundationFluidSide.End) drawContent()
-        }
-    }
-    if (clampedProgress >= 1f) {
-        return@drawWithCache onDrawWithContent {
-            if (side == FoundationFluidSide.Start) drawContent()
-        }
-    }
-
-    val touchPoint = gestureState.touchPoint()
-    val startCrossAxis = foundationTouchCrossAxis(axis, sizeModel, gestureState.startPoint())
-    val currentCrossAxis = foundationTouchCrossAxis(axis, sizeModel, touchPoint)
-    val currentPrimary = if (gestureState.active) {
-        foundationTouchPrimaryAxis(axis, sizeModel, touchPoint)
-    } else {
-        null
-    }
-    val edge = foundationCurlEdge(
-        size = canonicalSize,
-        side = side,
-        progress = clampedProgress,
-        startCrossAxis = startCrossAxis,
-        currentCrossAxis = currentCrossAxis,
-        currentPrimary = currentPrimary,
-    )
-    val topIntersection = foundationLineLineIntersection(
-        FoundationPagerPoint(0f, 0f),
-        FoundationPagerPoint(canonicalSize.width, 0f),
-        edge.top,
-        edge.bottom,
-    )
-    val bottomIntersection = foundationLineLineIntersection(
-        FoundationPagerPoint(0f, canonicalSize.height),
-        FoundationPagerPoint(canonicalSize.width, canonicalSize.height),
-        edge.top,
-        edge.bottom,
-    )
-    if (topIntersection == null || bottomIntersection == null) {
-        return@drawWithCache onDrawWithContent { drawContent() }
-    }
-
-    val topCurl = topIntersection.copy(x = max(0f, topIntersection.x))
-    val bottomCurl = bottomIntersection.copy(x = max(0f, bottomIntersection.x))
-    val visiblePath = foundationCurlVisiblePath(canonicalSize, topCurl, bottomCurl).toPath(axis)
-    val foldedPath = foundationCurlFoldedPath(canonicalSize, topCurl, bottomCurl).toPath(axis)
-    val pivot = axis.fromCanonical(Offset(bottomCurl.x, bottomCurl.y))
-    val lineStart = axis.fromCanonical(Offset(topCurl.x, topCurl.y))
-    val lineEnd = axis.fromCanonical(Offset(bottomCurl.x, bottomCurl.y))
-    val lineVector = topCurl - bottomCurl
-    val angleDegrees = (PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2f) * FoundationDegreesPerRadian
-
-    onDrawWithContent {
-        clipPath(visiblePath) {
-            this@onDrawWithContent.drawContent()
-        }
-        val curlShadowAlpha = FoundationCurlShadowAlpha * sin(clampedProgress * PI.toFloat())
-        drawLine(
-            color = Color.Black.copy(alpha = curlShadowAlpha * 0.24f),
-            start = lineStart,
-            end = lineEnd,
-            strokeWidth = FoundationCurlShadowWidth * 2.8f,
-        )
-        drawLine(
-            color = Color.Black.copy(alpha = curlShadowAlpha * 0.55f),
-            start = lineStart,
-            end = lineEnd,
-            strokeWidth = FoundationCurlShadowWidth * 1.35f,
-        )
-        drawLine(
-            color = Color.Black.copy(alpha = curlShadowAlpha),
-            start = lineStart,
-            end = lineEnd,
-            strokeWidth = FoundationCurlContactShadowWidth,
-        )
-        withTransform({
-            if (axis == FoundationPagerAxis.Horizontal) {
-                scale(scaleX = -1f, scaleY = 1f, pivot = pivot)
-            } else {
-                scale(scaleX = 1f, scaleY = -1f, pivot = pivot)
-            }
-            rotate(degrees = angleDegrees, pivot = pivot)
-        }) {
-            clipPath(foldedPath) {
-                this@onDrawWithContent.drawContent()
-                val curlBackAlpha = (FoundationCurlBackOverlayAlpha + curlShadowAlpha * 0.18f).coerceAtMost(0.34f)
-                val curlBackColors = when (side) {
-                    FoundationFluidSide.Start -> listOf(
-                        Color.Transparent,
-                        Color.Black.copy(alpha = curlBackAlpha * 0.55f),
-                        Color.Black.copy(alpha = curlBackAlpha),
-                    )
-                    FoundationFluidSide.End -> listOf(
-                        Color.Black.copy(alpha = curlBackAlpha),
-                        Color.Black.copy(alpha = curlBackAlpha * 0.55f),
-                        Color.Transparent,
-                    )
-                }
-                drawRect(
-                    brush = if (axis == FoundationPagerAxis.Horizontal) {
-                        Brush.horizontalGradient(curlBackColors)
-                    } else {
-                        Brush.verticalGradient(curlBackColors)
-                    },
-                )
-            }
-        }
-    }
-}
-
-private fun foundationCurlVisiblePath(
-    size: FoundationPagerSize,
-    topCurl: FoundationPagerPoint,
-    bottomCurl: FoundationPagerPoint,
-): List<FoundationPagerPoint> = listOf(
-    FoundationPagerPoint(0f, 0f),
-    topCurl,
-    bottomCurl,
-    FoundationPagerPoint(0f, size.height),
-)
-
-internal fun foundationCurlFoldedPath(
-    size: FoundationPagerSize,
-    topCurl: FoundationPagerPoint,
-    bottomCurl: FoundationPagerPoint,
-): List<FoundationPagerPoint> = buildList {
-    val rightIntersection = foundationLineLineIntersection(
-        topCurl,
-        bottomCurl,
-        FoundationPagerPoint(size.width, 0f),
-        FoundationPagerPoint(size.width, size.height),
-    )
-
-    fun addRightIntersection() {
-        val point = rightIntersection ?: FoundationPagerPoint(size.width, size.height / 2f)
-        add(point)
-        add(point)
-    }
-
-    if (topCurl.x < size.width) {
-        add(topCurl)
-        add(FoundationPagerPoint(size.width, topCurl.y))
-    } else {
-        addRightIntersection()
-    }
-
-    if (bottomCurl.x < size.width) {
-        add(FoundationPagerPoint(size.width, size.height))
-        add(bottomCurl)
-    } else {
-        addRightIntersection()
-    }
-}
-
 internal enum class FoundationPageFlipHalf {
     Top,
     Bottom,
@@ -1387,92 +1163,6 @@ internal fun foundationMovieCarouselSpec(
         scale = foundationPagerLerp(1f, FoundationMovieMinScale, distance),
         alpha = foundationPagerLerp(1f, FoundationMovieMinAlpha, distance),
     )
-}
-
-internal data class FoundationCurlEdge(
-    val top: FoundationPagerPoint,
-    val bottom: FoundationPagerPoint,
-)
-
-internal fun foundationCurlDragProgress(
-    axis: FoundationPagerAxis,
-    size: FoundationPagerSize,
-    start: FoundationPagerPoint,
-    current: FoundationPagerPoint,
-): Float {
-    val delta = when (axis) {
-        FoundationPagerAxis.Horizontal -> current.x - start.x
-        FoundationPagerAxis.Vertical -> current.y - start.y
-    }
-    val extent = when (axis) {
-        FoundationPagerAxis.Horizontal -> size.width
-        FoundationPagerAxis.Vertical -> size.height
-    }
-    if (extent <= 0f) return 0f
-    return (abs(delta) / extent).coerceIn(0f, 1f)
-}
-
-internal fun foundationCurlShouldCommit(progress: Float): Boolean =
-    progress >= FoundationCurlCommitThreshold
-
-internal fun foundationCurlShouldConsumePointer(progress: Float): Boolean =
-    progress > 0f
-
-internal fun foundationCurlShouldResetBeforePageCallback(commit: Boolean): Boolean =
-    !commit
-
-internal fun foundationCurlEdge(
-    size: FoundationPagerSize,
-    side: FoundationFluidSide,
-    progress: Float,
-    startCrossAxis: Float,
-    currentCrossAxis: Float,
-    currentPrimary: Float? = null,
-): FoundationCurlEdge {
-    val clampedProgress = progress.coerceIn(0f, 1f)
-    val fallbackPrimary = when (side) {
-        FoundationFluidSide.End -> 1f - clampedProgress
-        FoundationFluidSide.Start -> clampedProgress
-    }
-    val fallbackX = size.width * fallbackPrimary
-    if (currentPrimary == null) {
-        return FoundationCurlEdge(
-            top = FoundationPagerPoint(fallbackX, 0f),
-            bottom = FoundationPagerPoint(fallbackX, size.height),
-        )
-    }
-    val startCross = size.height * startCrossAxis.coerceIn(0f, 1f)
-    val currentCross = size.height * currentCrossAxis.coerceIn(0f, 1f)
-    val current = FoundationPagerPoint(
-        x = size.width * currentPrimary.coerceIn(0f, 1f),
-        y = currentCross,
-    )
-    val edgeStart = FoundationPagerPoint(size.width, startCross)
-    val vector = edgeStart - current
-    val rotatedVector = FoundationPagerPoint(-vector.y, vector.x)
-    val edge = FoundationCurlEdge(
-        top = current - rotatedVector,
-        bottom = current + rotatedVector,
-    )
-    return edge
-}
-
-private fun FoundationPagerPoint.mirrorX(width: Float): FoundationPagerPoint = copy(x = width - x)
-
-internal fun foundationLineLineIntersection(
-    line1a: FoundationPagerPoint,
-    line1b: FoundationPagerPoint,
-    line2a: FoundationPagerPoint,
-    line2b: FoundationPagerPoint,
-): FoundationPagerPoint? {
-    val denominator = (line1a.x - line1b.x) * (line2a.y - line2b.y) -
-        (line1a.y - line1b.y) * (line2a.x - line2b.x)
-    if (abs(denominator) < FoundationIntersectionEpsilon) return null
-    val x = ((line1a.x * line1b.y - line1a.y * line1b.x) * (line2a.x - line2b.x) -
-        (line1a.x - line1b.x) * (line2a.x * line2b.y - line2a.y * line2b.x)) / denominator
-    val y = ((line1a.x * line1b.y - line1a.y * line1b.x) * (line2a.y - line2b.y) -
-        (line1a.y - line1b.y) * (line2a.x * line2b.y - line2a.y * line2b.x)) / denominator
-    return FoundationPagerPoint(x, y)
 }
 
 internal fun foundationPagerShouldBlockDrag(
@@ -1935,12 +1625,6 @@ private const val FoundationMovieTranslationRatio = 0f
 private const val FoundationMovieMinScale = 0.9f
 private const val FoundationMovieMinAlpha = 0.55f
 private const val FoundationPageFlipRotationDegrees = 180f
-internal const val FoundationCurlCommitThreshold = 0.18f
-private const val FoundationCurlSettleMillis = 220
-private const val FoundationCurlShadowAlpha = 0.38f
-private const val FoundationCurlBackOverlayAlpha = 0.18f
-private const val FoundationCurlShadowWidth = 18f
-private const val FoundationCurlContactShadowWidth = 2.5f
 private const val FoundationRevealShadowAlpha = 0.28f
 private const val FoundationRevealShadowWidth = 58f
 private const val FoundationRevealContactShadowWidth = 3f
@@ -1954,5 +1638,3 @@ private const val FoundationPageFlipPageShadowWidth = 44f
 private const val FoundationPageFlipHalfAmbientAlpha = 0.14f
 private const val FoundationPageFlipHalfHingeAlpha = 0.36f
 private const val FoundationPageFlipHingeWidthRatio = 0.22f
-private const val FoundationDegreesPerRadian = 180f / PI.toFloat()
-private const val FoundationIntersectionEpsilon = 0.0001f
