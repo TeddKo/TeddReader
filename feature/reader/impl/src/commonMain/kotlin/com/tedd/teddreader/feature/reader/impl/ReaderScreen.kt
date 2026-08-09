@@ -53,6 +53,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
@@ -119,9 +120,9 @@ fun ReaderRouteScreen(
     var lineHeightPercentDraft by rememberSaveable(documentId, committedLineHeightPercent) {
         mutableStateOf(committedLineHeightPercent.toFloat())
     }
-    val committedAutoScrollSpeed = uiState.autoScrollConfig.speed.roundToInt().coerceIn(1, 10)
+    val committedAutoScrollSpeed = uiState.autoScrollConfig.speed.roundToTenths()
     var autoScrollSpeedDraft by rememberSaveable(documentId, committedAutoScrollSpeed) {
-        mutableStateOf(committedAutoScrollSpeed.toFloat())
+        mutableStateOf(committedAutoScrollSpeed)
     }
     var bottomSliderValue by rememberSaveable(documentId, uiState.pageIndex.current, uiState.pageIndex.total) {
         mutableStateOf(uiState.pageIndex.current.toFloat())
@@ -195,7 +196,7 @@ fun ReaderRouteScreen(
             lineHeightPercentDraft = (it / LineHeightStepPercent).roundToInt() * LineHeightStepPercent
         },
         autoScrollSpeedDraft = autoScrollSpeedDraft,
-        onAutoScrollSpeedDraftChange = { autoScrollSpeedDraft = it.roundToInt().toFloat() },
+        onAutoScrollSpeedDraftChange = { autoScrollSpeedDraft = it.roundToTenths() },
         bottomSliderValue = bottomSliderValue,
         onBottomSliderValueChange = { bottomSliderValue = it },
         isActionMenuExpanded = isActionMenuExpanded,
@@ -697,8 +698,8 @@ private fun ReaderAutoScrollEffect(
             return@LaunchedEffect
         }
 
-        val speed = config.speed.coerceAtLeast(0.1f)
-        val delayMillis = (1_000L / speed).toLong().coerceAtLeast(100L)
+        val speed = AutoScrollConfig.clampSpeed(config.speed)
+        val delayMillis = (1_000L / speed).toLong()
         delay(delayMillis)
         onNextPage()
     }
@@ -1062,7 +1063,7 @@ private fun AutoScrollOptionsSheet(
             value = speedDraft,
             onValueChange = onSpeedDraftChange,
             onValueChangeFinished = { onSpeedChange(speedDraft) },
-            valueRange = 1f..10f,
+            valueRange = AutoScrollConfig.MIN_SPEED..AutoScrollConfig.MAX_SPEED,
             steps = SpeedSliderSteps,
             valueLabel = formatSpeedLabel(speedDraft),
             enabled = !uiState.isSavingSettings,
@@ -1107,7 +1108,10 @@ internal val readerPageAnimationOptions: List<PageAnimation> = listOf(
     PageAnimation.PAGE_FLIP,
 )
 
-private fun formatSpeedLabel(speed: Float): String = "${speed.roundToInt()}x"
+private fun formatSpeedLabel(speed: Float): String = "${speed.roundToTenths()}x"
+
+private fun Float.roundToTenths(): Float =
+    (this * 10f).roundToInt().div(10f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
 internal fun readerPaneCount(widthDp: Float): Int =
     if (widthDp >= TwoPaneMinWidthDp) 2 else 1

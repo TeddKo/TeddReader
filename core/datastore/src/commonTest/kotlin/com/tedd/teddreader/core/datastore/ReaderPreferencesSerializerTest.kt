@@ -1,5 +1,7 @@
 package com.tedd.teddreader.core.datastore
 
+import com.tedd.teddreader.core.common.model.AutoScrollConfig
+import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.sepiaReaderStyle
@@ -92,5 +94,21 @@ class ReaderPreferencesSerializerTest {
         val sheetFlipJson = sheetFlipBuffer.readUtf8()
         assertFalse(sheetFlipJson.contains("SHEET_FLIP"))
         assertTrue(sheetFlipJson.contains("SLIDE"))
+    }
+
+    @Test
+    fun outOfRangeAutoScrollSpeedReadBackWithinSupportedRange() = runTest {
+        assertEquals(
+            AutoScrollConfig(enabled = true, mode = AutoScrollMode.PIXEL, speed = 1f),
+            ReaderPreferencesSerializer.readFrom(
+                Buffer().writeUtf8("""{"autoScrollConfig":{"enabled":true,"mode":"PIXEL","speed":5.0}}"""),
+            ).autoScrollConfig,
+        )
+        assertEquals(
+            AutoScrollConfig(enabled = true, mode = AutoScrollMode.PAGE, speed = 0.1f),
+            ReaderPreferencesSerializer.readFrom(
+                Buffer().writeUtf8("""{"autoScrollConfig":{"enabled":true,"mode":"PAGE","speed":0.05}}"""),
+            ).autoScrollConfig,
+        )
     }
 }
