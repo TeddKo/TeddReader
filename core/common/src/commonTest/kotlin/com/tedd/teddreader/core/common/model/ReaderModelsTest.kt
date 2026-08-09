@@ -44,4 +44,39 @@ class ReaderModelsTest {
             AutoScrollMode.entries,
         )
     }
+
+    @Test
+    fun withThemeModePreservesTypographyAndUpdatesBuiltInThemeColors() {
+        val style = ReaderStyle(
+            fontSizeSp = 24f,
+            fontFamilyName = "serif",
+            lineHeightMultiplier = 1.8f,
+            textColor = ReaderColor(0xFF010203),
+            backgroundColor = ReaderColor(0xFF040506),
+            backgroundImage = BackgroundImage(uri = "file:///bg.png", opacity = 0.5f),
+            themeMode = ReaderThemeMode.CUSTOM,
+        )
+
+        val dark = style.withThemeMode(ReaderThemeMode.DARK)
+        val system = style.withThemeMode(ReaderThemeMode.SYSTEM)
+        val custom = style.withThemeMode(ReaderThemeMode.CUSTOM)
+
+        assertEquals(24f, dark.fontSizeSp)
+        assertEquals("serif", dark.fontFamilyName)
+        assertEquals(1.8f, dark.lineHeightMultiplier)
+        assertEquals(ReaderColor(ReaderDarkTextArgb), dark.textColor)
+        assertEquals(ReaderColor(ReaderDarkBackgroundArgb), dark.backgroundColor)
+        assertEquals(null, dark.backgroundImage)
+        assertEquals(ReaderThemeMode.DARK, dark.themeMode)
+
+        assertEquals(ReaderColor(ReaderLightTextArgb), system.textColor)
+        assertEquals(ReaderColor(ReaderLightBackgroundArgb), system.backgroundColor)
+        assertEquals(ReaderThemeMode.SYSTEM, system.themeMode)
+        assertEquals(null, system.backgroundImage)
+
+        assertEquals(ReaderColor(0xFF010203), custom.textColor)
+        assertEquals(ReaderColor(0xFF040506), custom.backgroundColor)
+        assertEquals(ReaderThemeMode.CUSTOM, custom.themeMode)
+        assertEquals(BackgroundImage(uri = "file:///bg.png", opacity = 0.5f), custom.backgroundImage)
+    }
 }

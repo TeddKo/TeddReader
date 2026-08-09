@@ -142,6 +142,35 @@ data class ReaderStyle(
     }
 }
 
+fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) {
+    ReaderThemeMode.SYSTEM,
+    ReaderThemeMode.LIGHT,
+        -> copy(
+            textColor = ReaderColor(ReaderLightTextArgb),
+            backgroundColor = ReaderColor(ReaderLightBackgroundArgb),
+            backgroundImage = null,
+            themeMode = mode,
+        )
+
+    ReaderThemeMode.DARK -> copy(
+        textColor = ReaderColor(ReaderDarkTextArgb),
+        backgroundColor = ReaderColor(ReaderDarkBackgroundArgb),
+        backgroundImage = null,
+        themeMode = ReaderThemeMode.DARK,
+    )
+
+    ReaderThemeMode.SEPIA -> copy(
+        textColor = ReaderColor(ReaderSepiaTextArgb),
+        backgroundColor = ReaderColor(ReaderSepiaBackgroundArgb),
+        backgroundImage = null,
+        themeMode = ReaderThemeMode.SEPIA,
+    )
+
+    ReaderThemeMode.CUSTOM -> copy(
+        themeMode = ReaderThemeMode.CUSTOM,
+    )
+}
+
 fun darkReaderStyle(): ReaderStyle = ReaderStyle(
     textColor = ReaderColor(ReaderDarkTextArgb),
     backgroundColor = ReaderColor(ReaderDarkBackgroundArgb),
