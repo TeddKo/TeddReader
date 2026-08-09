@@ -75,7 +75,7 @@ Every new coding, documentation, configuration, or maintenance task must use its
 8. In a clean integration checkout, merge the branch into `develop` with `--no-ff`, then delete the merged task branch:
    ```bash
    git switch develop
-   git merge --no-ff <type>/<slug> -m "<commit-type>: <한글 명사형 병합 요약>"
+   git merge --no-ff <type>/<slug> -m "<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>"
    git branch -d <type>/<slug>
    ```
 
@@ -97,20 +97,54 @@ Use matching branch and commit intent:
 
 Do not mix unrelated work types in one branch. Split them into separate task branches when they require independent review or rollback.
 
-### Korean noun-form commit messages
+### Detailed Korean noun-form commit messages
 
 - Format every commit subject as `<type>: <한글 요약>`.
 - End the Korean summary with a noun-form expression such as `추가`, `수정`, `개편`, `정리`, `제거`, `병합`, or `구성`.
 - Do not end with an imperative or finite verb such as `추가한다`, `수정함`, or `개편했다`.
-- Keep commit bodies optional and concise; when present, write their bullet items as Korean noun phrases too.
+- Subject must contain all three elements in one phrase: concrete target/scope, principal behavior/structural change, and noun-form result.
+- A noun ending alone is not specific; use `수정/개선/개편/정리/병합` only after explicit target and concrete action.
+- For non-trivial changes, body is required; include concise `-` noun-form bullets for applicable items (주요 구현 내용, 경계/호환 처리, 마이그레이션 처리, 테스트/검증). Trivial single-line changes may omit body only when fully explained by subject.
+- Merge commit message must preserve task detail and keep `<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>`.
+- Keep commit bullets noun-form too.
+- Before every non-trivial commit, inspect `git diff --cached --stat`, `git diff --cached`, and `git diff --cached --check`; keep only files matching the commit scope and make subject/body describe every material staged change.
 
-Examples:
+Bad:
 
 ```text
-feat: 독서 화면 에디토리얼 UI 개편
-fix: 검색 입력 활성화 오류 수정
-hotfix: 앱 시작 크래시 긴급 수정
-chore: Git 작업 규칙 정립
+chore: 작업 반영
+fix: develop 병합
+fix: 페이지 이동 효과 구분 수정
+fix: 펼침 화면 페이지 경계 오류 수정
+refactor: UI 컴포넌트 역할별 파일 정리
+```
+
+Good:
+
+```text
+fix: Scroll 연속 이동과 Slide 페이지 스냅 분리 및 Sheet Flip 통합
+
+- Slide의 HorizontalPager·VerticalPager 기반 손가락 추적 전환
+- 저장된 SHEET_FLIP 값을 SLIDE로 변환하는 호환 처리
+- 페이지 이동 분기 및 설정 직렬화 회귀 테스트 추가
+
+fix: 펼침 화면 마지막 spread 진행률 보정 및 페이지 경계 드래그 차단
+
+- 2-pane 마지막 spread의 slider 위치와 페이지 표기 보정
+- Scroll 빈 인접 슬롯 제거 및 Pager 경계 방향 포인터 소비
+- 펼침 화면 진행률·드래그 경계 회귀 테스트 추가
+
+refactor: 카드·행·입력 UI 컴포넌트 역할별 파일 재배치
+
+- TeddWrappers 제거 및 역할별 컴포넌트 이동
+- 공개 Composable 함수 시그니처와 동작 유지
+- core UI Android host 테스트 통과
+```
+
+Merge good example:
+
+```text
+fix: 펼침 화면 마지막 spread 진행률 보정 및 페이지 경계 드래그 차단 병합
 ```
 
 The rules above apply to tasks started after this section is added. Do not automatically reset, move, or discard pre-existing dirty changes; migrate them only as a separately reviewed task.
