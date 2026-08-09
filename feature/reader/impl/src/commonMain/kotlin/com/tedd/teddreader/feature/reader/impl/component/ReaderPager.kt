@@ -24,6 +24,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.overscroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -209,20 +210,25 @@ private fun ReaderScrollPager(
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = CenterPageIndex)
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(pageKey, pageCount, pageStep) {
-        listState.scrollToItem(CenterPageIndex)
-    }
     val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
     val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    val pageOffsets = readerScrollPageOffsets(
+        hasPreviousPage = previousPage != null,
+        hasNextPage = nextPage != null,
+    )
+    val currentIndex = readerScrollCurrentIndex(hasPreviousPage = previousPage != null)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex)
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(pageKey, pageCount, pageStep, currentIndex) {
+        listState.scrollToItem(currentIndex)
+    }
     LaunchedEffect(pageMoveRequest?.id) {
         val request = pageMoveRequest ?: return@LaunchedEffect
         try {
             val targetIndex = when (request.movement) {
-                ReaderPageMovement.Previous -> 0.takeIf { previousPage != null }
-                ReaderPageMovement.Next -> 2.takeIf { nextPage != null }
+                ReaderPageMovement.Previous -> pageOffsets.indexOf(-1).takeIf { it >= 0 }
+                ReaderPageMovement.Next -> pageOffsets.indexOf(1).takeIf { it >= 0 }
             }
             if (targetIndex != null) listState.animateScrollToItem(targetIndex)
         } finally {
@@ -235,9 +241,9 @@ private fun ReaderScrollPager(
             .map { (index, _) -> index }
             .distinctUntilChanged()
             .collect { index ->
-                when (index) {
-                    0 -> if (previousPage != null) onPreviousPage()
-                    2 -> if (nextPage != null) onNextPage()
+                when (pageOffsets.getOrNull(index)) {
+                    -1 -> if (previousPage != null) onPreviousPage()
+                    1 -> if (nextPage != null) onNextPage()
                 }
             }
     }
@@ -250,7 +256,7 @@ private fun ReaderScrollPager(
                 primary < extent * PreviousTapZoneRatio -> {
                     if (previousPage != null) {
                         coroutineScope.launch {
-                            listState.animateScrollToItem(0)
+                            listState.animateScrollToItem(pageOffsets.indexOf(-1))
                         }
                     }
                 }
@@ -258,7 +264,7 @@ private fun ReaderScrollPager(
                 primary > extent * NextTapZoneRatio -> {
                     if (nextPage != null) {
                         coroutineScope.launch {
-                            listState.animateScrollToItem(2)
+                            listState.animateScrollToItem(pageOffsets.indexOf(1))
                         }
                     }
                 }
@@ -272,8 +278,9 @@ private fun ReaderScrollPager(
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxSize().then(tapModifier),
+            overscrollEffect = null,
         ) {
-            items(ScrollPageOffsets) { pageOffset ->
+            items(pageOffsets) { pageOffset ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
                     val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
                     if (documentPage != null) content(documentPage)
@@ -284,8 +291,9 @@ private fun ReaderScrollPager(
         LazyRow(
             state = listState,
             modifier = modifier.fillMaxSize().then(tapModifier),
+            overscrollEffect = null,
         ) {
-            items(ScrollPageOffsets) { pageOffset ->
+            items(pageOffsets) { pageOffset ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
                     val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
                     if (documentPage != null) content(documentPage)
@@ -1053,8 +1061,13 @@ internal enum class ReaderPageMovement(val pageOffset: Int) {
     Next(1),
 }
 
-private val ScrollPageOffsets = listOf(-1, 0, 1)
-private const val CenterPageIndex = 1
+internal fun readerScrollPageOffsets(hasPreviousPage: Boolean, hasNextPage: Boolean): List<Int> = buildList {
+    if (hasPreviousPage) add(-1)
+    add(0)
+    if (hasNextPage) add(1)
+}
+
+internal fun readerScrollCurrentIndex(hasPreviousPage: Boolean): Int = if (hasPreviousPage) 1 else 0
 private const val TouchSlopPx = 8f
 private const val SwipeThresholdPx = 72f
 private const val CurlCommitRatio = 0.18f

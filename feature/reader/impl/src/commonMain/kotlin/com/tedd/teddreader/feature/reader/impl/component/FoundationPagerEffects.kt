@@ -171,7 +171,7 @@ internal fun FoundationEffectPager(
         }
     }
 
-    val gestureModifier = Modifier.pointerInput(axis) {
+    val gestureModifier = Modifier.pointerInput(axis, previousPage != null, nextPage != null) {
         var localGesture = FoundationPagerGestureState()
         awaitPointerEventScope {
             while (true) {
@@ -179,8 +179,22 @@ internal fun FoundationEffectPager(
                 val pressedChange = event.changes.firstOrNull { it.pressed }
                 if (pressedChange != null) {
                     val position = pressedChange.position
+                    val primaryDelta = if (axis == FoundationPagerAxis.Horizontal) {
+                        position.x - localGesture.start.x
+                    } else {
+                        position.y - localGesture.start.y
+                    }
+                    val blockDrag = localGesture.active && foundationPagerShouldBlockDrag(
+                        primaryDelta = primaryDelta,
+                        hasPreviousPage = previousPage != null,
+                        hasNextPage = nextPage != null,
+                    )
+                    if (blockDrag) {
+                        event.changes.forEach { it.consume() }
+                    }
                     localGesture = if (localGesture.active) {
-                        localGesture.copy(current = position, last = position)
+                        val current = if (blockDrag) localGesture.start else position
+                        localGesture.copy(current = current, last = current)
                     } else {
                         fluidEdge.reset()
                         FoundationPagerGestureState(
@@ -1459,6 +1473,16 @@ internal fun foundationLineLineIntersection(
     val y = ((line1a.x * line1b.y - line1a.y * line1b.x) * (line2a.y - line2b.y) -
         (line1a.y - line1b.y) * (line2a.x * line2b.y - line2a.y * line2b.x)) / denominator
     return FoundationPagerPoint(x, y)
+}
+
+internal fun foundationPagerShouldBlockDrag(
+    primaryDelta: Float,
+    hasPreviousPage: Boolean,
+    hasNextPage: Boolean,
+): Boolean = when {
+    primaryDelta > 0f -> !hasPreviousPage
+    primaryDelta < 0f -> !hasNextPage
+    else -> false
 }
 
 private data class FoundationPagerGestureState(
