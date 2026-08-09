@@ -15,7 +15,8 @@ import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
@@ -33,9 +34,9 @@ fun ReaderSettingsRouteScreen(
             .systemBarsPadding(),
         topBar = {
             TeddTopBar(
-                title = teddString("Settings", "설정"),
+                title = stringResource(Res.string.settings),
                 navigationIcon = {
-                    TeddIconButton(onClick = onBack, contentDescription = teddString("Back", "뒤로")) {
+                    TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
                         Icon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },

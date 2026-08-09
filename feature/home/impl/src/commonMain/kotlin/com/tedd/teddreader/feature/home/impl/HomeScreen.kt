@@ -42,7 +42,8 @@ import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.feature.home.impl.component.DocumentListItem
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -99,7 +100,7 @@ fun HomeScreen(
     if (uiState.isLoading) {
         TeddFullScreenLoadingIndicator(
             modifier = modifier,
-            message = teddString("Loading recent documents", "최근 문서를 불러오는 중"),
+            message = stringResource(Res.string.home_loading_recent_documents),
         )
         return
     }
@@ -133,12 +134,12 @@ fun HomeScreen(
             when {
                 !uiState.hasDocuments -> {
                     TeddEmptyState(
-                        title = teddString("No documents yet", "아직 문서가 없습니다"),
-                        description = teddString("Open a TXT, PDF, or EPUB file from device.", "기기에서 TXT, PDF, EPUB 파일을 열어보세요."),
+                        title = stringResource(Res.string.home_no_documents_title),
+                        description = stringResource(Res.string.home_no_documents_description),
                         modifier = Modifier.fillMaxWidth(),
                         action = {
                             TeddButton(
-                                text = teddString("Open file", "파일 열기"),
+                                text = stringResource(Res.string.open_file),
                                 onClick = onOpenFileClick,
                             )
                         },
@@ -170,14 +171,11 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(spacing.small),
             ) {
                 HomeSectionHeader(
-                    title = teddString("Favorites", "즐겨찾기"),
+                    title = stringResource(Res.string.favorites),
                     description = if (uiState.favoriteDocuments.size == 1) {
-                        teddString("1 hand-picked document", "엄선한 문서 1개")
+                        stringResource(Res.string.favorite_documents_single)
                     } else {
-                        teddString(
-                            "${uiState.favoriteDocuments.size} hand-picked documents",
-                            "엄선한 문서 ${uiState.favoriteDocuments.size}개",
-                        )
+                        stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
                     },
                     showFavoriteIcon = true,
                 )
@@ -211,8 +209,8 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(spacing.small),
             ) {
                 HomeSectionHeader(
-                    title = teddString("Recent reading", "최근 읽은 문서"),
-                    description = teddString("Continue where you left off", "중단한 지점부터 이어 읽기"),
+                    title = stringResource(Res.string.recent_reading),
+                    description = stringResource(Res.string.recent_reading_description),
                     modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
                 )
                 HomeDocumentList(
@@ -241,18 +239,15 @@ fun HomeScreen(
     if (pendingDeleteDocument != null) {
         AlertDialog(
             onDismissRequest = { pendingDeleteDocumentId = null },
-            title = { Text(teddString("Remove from library?", "라이브러리에서 삭제할까요?")) },
+            title = { Text(stringResource(Res.string.remove_from_library_title)) },
             text = {
                 Text(
-                    teddString(
-                        "\"${pendingDeleteDocument.location.displayName}\" and its reading data will be removed from TeddReader. The original file will stay on your device.",
-                        "\"${pendingDeleteDocument.location.displayName}\"와 해당 읽기 데이터가 TeddReader에서 삭제됩니다. 원본 파일은 기기에 그대로 남습니다.",
-                    ),
+                    stringResource(Res.string.remove_from_library_message, pendingDeleteDocument.location.displayName),
                 )
             },
             confirmButton = {
                 TeddButton(
-                    text = teddString("Delete", "삭제"),
+                    text = stringResource(Res.string.delete),
                     onClick = {
                         pendingDeleteDocumentId = null
                         onDeleteDocument(pendingDeleteDocument.id)
@@ -262,7 +257,7 @@ fun HomeScreen(
             },
             dismissButton = {
                 TeddButton(
-                    text = teddString("Cancel", "취소"),
+                    text = stringResource(Res.string.cancel),
                     onClick = { pendingDeleteDocumentId = null },
                     emphasis = TeddButtonEmphasis.Secondary,
                 )
@@ -348,7 +343,7 @@ private fun HomeMasthead(
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
         Text(
-            text = teddString("Library", "라이브러리"),
+            text = stringResource(Res.string.library),
             style = typography.documentMeta,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -357,19 +352,19 @@ private fun HomeMasthead(
             style = typography.headlineSmall,
         )
         Text(
-            text = teddString("Open local TXT, PDF, and EPUB documents.", "로컬 TXT, PDF, EPUB 문서를 열어보세요."),
+            text = stringResource(Res.string.masthead_description),
             style = typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(spacing.small)) {
             if (showOpenFileAction) {
                 TeddButton(
-                    text = teddString("Open file", "파일 열기"),
+                    text = stringResource(Res.string.open_file),
                     onClick = onOpenFileClick,
                 )
             }
             TeddButton(
-                text = teddString("Settings", "설정"),
+                text = stringResource(Res.string.settings),
                 onClick = onSettingsClick,
                 emphasis = TeddButtonEmphasis.Secondary,
             )
@@ -390,16 +385,16 @@ private fun HomeFilteredEmptyState(
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
         Text(
-            text = teddString("No matching documents", "조건에 맞는 문서가 없습니다"),
+            text = stringResource(Res.string.home_no_matching_documents),
             style = typography.titleMedium,
         )
         Text(
-            text = teddString("Try another format filter or show all documents.", "다른 형식 필터를 선택하거나 전체 문서를 표시해 보세요."),
+            text = stringResource(Res.string.home_no_matching_documents_description),
             style = typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TeddButton(
-            text = teddString("Show all", "전체 보기"),
+            text = stringResource(Res.string.show_all),
             onClick = onShowAllClick,
             emphasis = TeddButtonEmphasis.Secondary,
         )
@@ -423,7 +418,7 @@ private fun HomeSortFilterControls(
         verticalArrangement = Arrangement.spacedBy(spacing.medium),
     ) {
         HomeChipGroup(
-            label = teddString("Sort", "정렬"),
+            label = stringResource(Res.string.sort),
             style = typography.documentMeta,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ) {
@@ -436,7 +431,7 @@ private fun HomeSortFilterControls(
             }
         }
         HomeChipGroup(
-            label = teddString("Format", "형식"),
+            label = stringResource(Res.string.format),
             style = typography.documentMeta,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ) {
@@ -478,14 +473,14 @@ private fun HomeChipGroup(
 
 @Composable
 private fun HomeSort.chipLabel(): String = when (this) {
-    HomeSort.Recent -> teddString("Recent", "최근")
-    HomeSort.Title -> teddString("Title", "제목")
-    HomeSort.Format -> teddString("Format", "형식")
+    HomeSort.Recent -> stringResource(Res.string.recent)
+    HomeSort.Title -> stringResource(Res.string.title)
+    HomeSort.Format -> stringResource(Res.string.format)
 }
 
 @Composable
 private fun HomeFormatFilter.chipLabel(): String = when (this) {
-    HomeFormatFilter.All -> teddString("All", "전체")
+    HomeFormatFilter.All -> stringResource(Res.string.all)
     HomeFormatFilter.Txt -> "TXT"
     HomeFormatFilter.Pdf -> "PDF"
     HomeFormatFilter.Epub -> "EPUB"

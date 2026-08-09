@@ -26,7 +26,8 @@ import com.tedd.teddreader.core.ui.component.TeddRadioRow
 import com.tedd.teddreader.core.ui.component.TeddSliderRow
 import com.tedd.teddreader.core.ui.component.TeddSwitchRow
 import com.tedd.teddreader.core.ui.reader.ReaderOptionPreview
-import com.tedd.teddreader.core.ui.teddString
+import com.tedd.teddreader.core.ui.generated.resources.*
+import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
 @Composable
@@ -42,7 +43,7 @@ fun ReaderSettingsSheet(
     val spacing = teddReaderSpacing()
     if (uiState.isLoading) {
         TeddLoadingIndicator(
-            message = teddString("Loading reader settings", "리더 설정을 불러오는 중"),
+            message = stringResource(Res.string.loading_reader_settings),
             modifier = modifier,
         )
         return
@@ -68,17 +69,14 @@ fun ReaderSettingsSheet(
     ) {
         ReaderOptionPreview(
             style = previewStyle,
-            title = teddString("Reader preview", "리더 미리보기"),
-            description = teddString("Current reading appearance.", "현재 읽기 모양입니다."),
+            title = stringResource(Res.string.reader_preview_title),
+            description = stringResource(Res.string.reader_preview_description),
             modifier = Modifier.fillMaxWidth(),
         )
 
         TeddOptionGroup(
-            title = teddString("App language", "앱 언어"),
-            description = teddString(
-                "Choose the language used across the app.",
-                "앱 전체에서 사용할 언어를 선택하세요.",
-            ),
+            title = stringResource(Res.string.app_language),
+            description = stringResource(Res.string.app_language_description),
         ) {
             AppLanguage.entries.forEach { language ->
                 TeddRadioRow(
@@ -90,14 +88,11 @@ fun ReaderSettingsSheet(
         }
 
         TeddOptionGroup(
-            title = teddString("Reading appearance", "읽기 모양"),
-            description = teddString(
-                "Text choices that affect comfort and readability.",
-                "읽기 편안함과 가독성에 영향을 주는 텍스트 설정입니다.",
-            ),
+            title = stringResource(Res.string.reading_appearance),
+            description = stringResource(Res.string.reading_appearance_description),
         ) {
             TeddSliderRow(
-                title = teddString("Font size", "글자 크기"),
+                title = stringResource(Res.string.font_size),
                 value = fontSizeDraft,
                 onValueChange = { fontSizeDraft = it.roundToInt().toFloat() },
                 onValueChangeFinished = {
@@ -108,7 +103,7 @@ fun ReaderSettingsSheet(
                 valueLabel = "${fontSizeDraft.roundToInt()}sp",
             )
             TeddSliderRow(
-                title = teddString("Line height", "줄 높이"),
+                title = stringResource(Res.string.line_height),
                 value = lineHeightPercentDraft,
                 onValueChange = {
                     lineHeightPercentDraft = (it / LineHeightStepPercent).roundToInt() * LineHeightStepPercent
@@ -121,17 +116,17 @@ fun ReaderSettingsSheet(
                 valueLabel = "${lineHeightPercentDraft.roundToInt()}%",
             )
             TeddRadioRow(
-                title = teddString("Sans", "고딕"),
+                title = stringResource(Res.string.font_family_sans),
                 selected = uiState.style.fontFamilyName == null || uiState.style.fontFamilyName == "sans",
                 onClick = { onStyleChange(uiState.style.copy(fontFamilyName = null)) },
             )
             TeddRadioRow(
-                title = teddString("Serif", "세리프"),
+                title = stringResource(Res.string.font_family_serif),
                 selected = uiState.style.fontFamilyName == "serif",
                 onClick = { onStyleChange(uiState.style.copy(fontFamilyName = "serif")) },
             )
             TeddRadioRow(
-                title = teddString("Mono", "고정폭"),
+                title = stringResource(Res.string.font_family_mono),
                 selected = uiState.style.fontFamilyName == "mono",
                 onClick = { onStyleChange(uiState.style.copy(fontFamilyName = "mono")) },
             )
@@ -150,11 +145,8 @@ fun ReaderSettingsSheet(
         }
 
         TeddOptionGroup(
-            title = teddString("Page movement", "페이지 이동"),
-            description = teddString(
-                "How pages move when you read and navigate.",
-                "읽고 이동할 때 페이지가 움직이는 방식을 설정합니다.",
-            ),
+            title = stringResource(Res.string.page_movement),
+            description = stringResource(Res.string.page_movement_description),
         ) {
             listOf(PageTurnMode.HORIZONTAL, PageTurnMode.VERTICAL).forEach { mode ->
                 TeddRadioRow(
@@ -173,14 +165,11 @@ fun ReaderSettingsSheet(
         }
 
         TeddOptionGroup(
-            title = teddString("Hands-free reading", "핸즈프리 읽기"),
-            description = teddString(
-                "Automatic movement when you want the document to keep going.",
-                "문서를 자동으로 계속 읽고 싶을 때의 이동 설정입니다.",
-            ),
+            title = stringResource(Res.string.hands_free_reading),
+            description = stringResource(Res.string.hands_free_reading_description),
         ) {
             TeddSwitchRow(
-                title = teddString("Enabled", "사용"),
+                title = stringResource(Res.string.enabled),
                 checked = uiState.autoScrollConfig.enabled,
                 onCheckedChange = { enabled ->
                     onAutoScrollConfigChange(uiState.autoScrollConfig.copy(enabled = enabled))
@@ -194,7 +183,7 @@ fun ReaderSettingsSheet(
                 )
             }
             TeddSliderRow(
-                title = teddString("Speed", "속도"),
+                title = stringResource(Res.string.speed),
                 value = autoScrollSpeedDraft,
                 onValueChange = { autoScrollSpeedDraft = it.roundToTenths() },
                 onValueChangeFinished = {
@@ -227,50 +216,50 @@ private val settingsPageAnimationOptions = listOf(
 
 @Composable
 private fun AppLanguage.displayName(): String = when (this) {
-    AppLanguage.SYSTEM -> teddString("System default", "시스템 기본")
+    AppLanguage.SYSTEM -> stringResource(Res.string.system_default)
     AppLanguage.ENGLISH -> "English"
     AppLanguage.KOREAN -> "한국어"
 }
 
 @Composable
 private fun ReaderThemeMode.displayName(): String = when (this) {
-    ReaderThemeMode.SYSTEM -> teddString("Follow system", "시스템 설정 따름")
-    ReaderThemeMode.LIGHT -> teddString("Light", "라이트")
-    ReaderThemeMode.DARK -> teddString("Dark", "다크")
-    ReaderThemeMode.SEPIA -> teddString("Sepia", "세피아")
-    ReaderThemeMode.CUSTOM -> teddString("Custom", "사용자 지정")
+    ReaderThemeMode.SYSTEM -> stringResource(Res.string.follow_system)
+    ReaderThemeMode.LIGHT -> stringResource(Res.string.light)
+    ReaderThemeMode.DARK -> stringResource(Res.string.dark)
+    ReaderThemeMode.SEPIA -> stringResource(Res.string.sepia)
+    ReaderThemeMode.CUSTOM -> stringResource(Res.string.custom)
 }
 
 @Composable
 private fun PageTurnMode.displayName(): String = when (this) {
-    PageTurnMode.HORIZONTAL -> teddString("Horizontal", "가로")
+    PageTurnMode.HORIZONTAL -> stringResource(Res.string.horizontal)
     PageTurnMode.VERTICAL,
     PageTurnMode.CONTINUOUS,
-        -> teddString("Vertical", "세로")
+        -> stringResource(Res.string.vertical)
 }
 
 @Composable
 private fun PageAnimation.displayName(): String = when (this) {
-    PageAnimation.NONE -> teddString("None", "없음")
+    PageAnimation.NONE -> stringResource(Res.string.animation_none)
     PageAnimation.SLIDE,
     PageAnimation.SHEET_FLIP,
-        -> teddString("Slide", "슬라이드")
-    PageAnimation.FADE -> teddString("Fade", "페이드")
-    PageAnimation.SCROLL -> teddString("Scroll", "스크롤")
+        -> stringResource(Res.string.animation_slide)
+    PageAnimation.FADE -> stringResource(Res.string.animation_fade)
+    PageAnimation.SCROLL -> stringResource(Res.string.animation_scroll)
     PageAnimation.BOOK_CURL,
     PageAnimation.CURL_PAGER,
-        -> teddString("Curl pager", "컬 페이지")
-    PageAnimation.FLUID_PAGER -> teddString("Fluid pager", "플루이드 페이지")
-    PageAnimation.CIRCLE_REVEAL -> teddString("Circle reveal", "원형 전환")
-    PageAnimation.MOVIE_CAROUSEL -> teddString("Movie carousel", "무비 캐러셀")
-    PageAnimation.PAGE_FLIP -> teddString("Page flip", "페이지 플립")
+        -> stringResource(Res.string.animation_curl_pager)
+    PageAnimation.FLUID_PAGER -> stringResource(Res.string.animation_fluid_pager)
+    PageAnimation.CIRCLE_REVEAL -> stringResource(Res.string.animation_circle_reveal)
+    PageAnimation.MOVIE_CAROUSEL -> stringResource(Res.string.animation_movie_carousel)
+    PageAnimation.PAGE_FLIP -> stringResource(Res.string.animation_page_flip)
 }
 
 @Composable
 private fun AutoScrollMode.displayName(): String = when (this) {
-    AutoScrollMode.PIXEL -> teddString("Smooth", "부드럽게")
-    AutoScrollMode.LINE -> teddString("Line by line", "한 줄씩")
-    AutoScrollMode.PAGE -> teddString("Page by page", "페이지별")
+    AutoScrollMode.PIXEL -> stringResource(Res.string.auto_scroll_smooth)
+    AutoScrollMode.LINE -> stringResource(Res.string.auto_scroll_line_by_line)
+    AutoScrollMode.PAGE -> stringResource(Res.string.auto_scroll_page_by_page)
 }
 
 private fun Float.roundToTenths(): Float =
