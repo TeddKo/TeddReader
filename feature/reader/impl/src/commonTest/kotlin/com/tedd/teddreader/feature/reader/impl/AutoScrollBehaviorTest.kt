@@ -1,8 +1,10 @@
 package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.AutoScrollMode
+import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class AutoScrollBehaviorTest {
     @Test
@@ -46,5 +48,12 @@ class AutoScrollBehaviorTest {
     @Test
     fun autoScrollLineDelayMillisDerivesDelayFromLineHeightAndPixelsPerSecond() {
         assertEquals(150L, autoScrollLineDelayMillis(lineHeightPx = 60f, pixelsPerSecond = 400f))
+    }
+
+    @Test
+    fun readerAutoScrollPageMovementOnlyPagesByRequestQueue() {
+        assertEquals(ReaderPageMovement.Next, readerAutoScrollPageMovement(AutoScrollMode.PAGE))
+        assertNull(readerAutoScrollPageMovement(AutoScrollMode.PIXEL))
+        assertNull(readerAutoScrollPageMovement(AutoScrollMode.LINE))
     }
 }

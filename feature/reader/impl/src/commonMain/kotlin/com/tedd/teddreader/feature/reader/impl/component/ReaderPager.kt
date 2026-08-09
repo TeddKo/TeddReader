@@ -70,7 +70,7 @@ internal fun ReaderPager(
             pageKey = pageKey,
             pageCount = pageCount,
             pageStep = pageStep,
-            pageTurnMode = PageTurnMode.VERTICAL,
+            pageTurnMode = pageTurnMode,
             pageMoveRequest = pageMoveRequest,
             onPageMoveRequestConsumed = onPageMoveRequestConsumed,
             onPreviousPage = onPreviousPage,
