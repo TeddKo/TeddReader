@@ -65,30 +65,6 @@ internal fun ReaderPager(
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
-    if (isAutoScrollEnabled && effectiveAutoScrollMode != AutoScrollMode.PAGE) {
-        ReaderScrollPager(
-            pageKey = pageKey,
-            pageCount = pageCount,
-            pageStep = pageStep,
-            pageTurnMode = pageTurnMode,
-            pageMoveRequest = pageMoveRequest,
-            onPageMoveRequestConsumed = onPageMoveRequestConsumed,
-            onPreviousPage = onPreviousPage,
-            onNextPage = onNextPage,
-            onToggleControls = onToggleControls,
-            isAutoScrollEnabled = isAutoScrollEnabled,
-            autoScrollMode = effectiveAutoScrollMode,
-            autoScrollSpeed = autoScrollSpeed,
-            autoScrollLineHeightPx = autoScrollLineHeightPx,
-            autoScrollDensity = autoScrollDensity,
-            onAutoScrollStop = onAutoScrollStop,
-            onAutoScrollAdvance = onAutoScrollAdvance,
-            modifier = modifier,
-            content = content,
-        )
-        return
-    }
-
     when (pageAnimation) {
         PageAnimation.SCROLL -> {
             ReaderScrollPager(
@@ -132,6 +108,12 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                isAutoScrollEnabled = isAutoScrollEnabled,
+                autoScrollMode = effectiveAutoScrollMode,
+                autoScrollSpeed = autoScrollSpeed,
+                autoScrollLineHeightPx = autoScrollLineHeightPx,
+                autoScrollDensity = autoScrollDensity,
+                onAutoScrollStop = onAutoScrollStop,
                 onMovieTransitionProgressChanged = onMovieTransitionProgressChanged,
                 modifier = modifier,
                 content = content,

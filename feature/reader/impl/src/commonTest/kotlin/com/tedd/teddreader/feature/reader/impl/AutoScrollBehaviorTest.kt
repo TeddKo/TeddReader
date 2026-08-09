@@ -1,6 +1,7 @@
 package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.AutoScrollMode
+import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,9 +52,43 @@ class AutoScrollBehaviorTest {
     }
 
     @Test
-    fun readerAutoScrollPageMovementOnlyPagesByRequestQueue() {
-        assertEquals(ReaderPageMovement.Next, readerAutoScrollPageMovement(AutoScrollMode.PAGE))
-        assertNull(readerAutoScrollPageMovement(AutoScrollMode.PIXEL))
-        assertNull(readerAutoScrollPageMovement(AutoScrollMode.LINE))
+    fun readerAutoScrollPageMovementRoutesByModeAndAnimation() {
+        PageAnimation.entries.forEach { animation ->
+            assertEquals(
+                ReaderPageMovement.Next,
+                readerAutoScrollPageMovement(AutoScrollMode.PAGE, animation),
+            )
+        }
+
+        val incrementalAnimations = listOf(
+            PageAnimation.SCROLL,
+            PageAnimation.SLIDE,
+            PageAnimation.SHEET_FLIP,
+            PageAnimation.FLUID_PAGER,
+            PageAnimation.CIRCLE_REVEAL,
+            PageAnimation.MOVIE_CAROUSEL,
+            PageAnimation.PAGE_FLIP,
+        )
+        incrementalAnimations.forEach { animation ->
+            assertNull(readerAutoScrollPageMovement(AutoScrollMode.PIXEL, animation))
+            assertNull(readerAutoScrollPageMovement(AutoScrollMode.LINE, animation))
+        }
+
+        val discreteAnimations = listOf(
+            PageAnimation.NONE,
+            PageAnimation.FADE,
+            PageAnimation.BOOK_CURL,
+            PageAnimation.CURL_PAGER,
+        )
+        discreteAnimations.forEach { animation ->
+            assertEquals(
+                ReaderPageMovement.Next,
+                readerAutoScrollPageMovement(AutoScrollMode.PIXEL, animation),
+            )
+            assertEquals(
+                ReaderPageMovement.Next,
+                readerAutoScrollPageMovement(AutoScrollMode.LINE, animation),
+            )
+        }
     }
 }

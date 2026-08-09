@@ -4,6 +4,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -41,8 +42,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.zIndex
+import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.feature.reader.impl.autoScrollDistancePx
+import com.tedd.teddreader.feature.reader.impl.autoScrollLineDelayMillis
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -68,6 +74,12 @@ internal fun FoundationEffectPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    isAutoScrollEnabled: Boolean,
+    autoScrollMode: AutoScrollMode,
+    autoScrollSpeed: Float,
+    autoScrollLineHeightPx: Float,
+    autoScrollDensity: Float,
+    onAutoScrollStop: () -> Unit,
     onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
@@ -145,10 +157,78 @@ internal fun FoundationEffectPager(
                     }
                     FoundationNextPage -> {
                         pagerState.scrollToPage(FoundationCenterPage)
-                        if (nextPage != null) latestOnNextPage()
+                        if (nextPage != null) latestOnNextPage() else onAutoScrollStop()
                     }
                 }
             }
+    }
+    LaunchedEffect(
+        pagerState,
+        pageKey,
+        pageCount,
+        pageStep,
+        pageAnimation,
+        isAutoScrollEnabled,
+        autoScrollMode,
+        autoScrollSpeed,
+        autoScrollLineHeightPx,
+        autoScrollDensity,
+    ) {
+        if (!isAutoScrollEnabled || autoScrollMode == AutoScrollMode.PAGE) return@LaunchedEffect
+        if (nextPage == null) {
+            onAutoScrollStop()
+            return@LaunchedEffect
+        }
+
+        when (autoScrollMode) {
+            AutoScrollMode.PIXEL -> {
+                pagerState.scroll {
+                    var lastFrameMillis = 0L
+                    while (isActive) {
+                        val frameMillis = withFrameMillis { it }
+                        if (lastFrameMillis != 0L) {
+                            val elapsedMillis = frameMillis - lastFrameMillis
+                            val distancePx = autoScrollDistancePx(
+                                speed = autoScrollSpeed,
+                                density = autoScrollDensity,
+                                elapsedMillis = elapsedMillis,
+                            )
+                            if (distancePx > 0f) {
+                                val consumed = scrollBy(distancePx)
+                                if (consumed == 0f && !pagerState.canScrollForward) {
+                                    break
+                                }
+                            }
+                        }
+                        lastFrameMillis = frameMillis
+                    }
+                }
+            }
+
+            AutoScrollMode.LINE -> {
+                val lineHeightPx = autoScrollLineHeightPx.coerceAtLeast(1f)
+                val pixelsPerSecond = autoScrollDistancePx(
+                    speed = autoScrollSpeed,
+                    density = autoScrollDensity,
+                    elapsedMillis = 1_000L,
+                ).coerceAtLeast(1f)
+                val delayMillis = autoScrollLineDelayMillis(
+                    lineHeightPx = lineHeightPx,
+                    pixelsPerSecond = pixelsPerSecond,
+                )
+                pagerState.scroll {
+                    while (isActive) {
+                        val consumed = scrollBy(lineHeightPx)
+                        if (consumed == 0f && !pagerState.canScrollForward) {
+                            break
+                        }
+                        delay(delayMillis)
+                    }
+                }
+            }
+
+            AutoScrollMode.PAGE -> Unit
+        }
     }
     LaunchedEffect(pageAnimation, pagerState) {
         if (pageAnimation != PageAnimation.MOVIE_CAROUSEL) {
