@@ -324,7 +324,12 @@ class ReaderViewModel(
 
     private fun updateAutoScroll(config: AutoScrollConfig) {
         val normalizedConfig = config.copy(speed = AutoScrollConfig.clampSpeed(config.speed))
-        _uiState.update { state -> state.copy(autoScrollConfig = normalizedConfig) }
+        _uiState.update { state ->
+            state.copy(
+                autoScrollConfig = normalizedConfig,
+                isControlsVisible = state.isControlsVisible && !normalizedConfig.enabled,
+            )
+        }
         saveReaderSettings { readerSettingsRepository.updateAutoScrollConfig(normalizedConfig) }
     }
 
