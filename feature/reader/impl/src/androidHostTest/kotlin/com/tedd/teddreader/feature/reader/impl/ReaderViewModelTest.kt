@@ -167,6 +167,18 @@ class ReaderViewModelTest {
         assertEquals(1f, readerSettingsRepository.lastAutoScrollConfig?.speed)
     }
 
+    @Test
+    fun enablingAutoScrollHidesReaderControls() = runTest(dispatcher) {
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(DocumentId("doc-1")),
+        )
+
+        viewModel.updateAutoScrollEnabled(true)
+
+        assertTrue(viewModel.uiState.value.autoScrollConfig.enabled)
+        assertFalse(viewModel.uiState.value.isControlsVisible)
+    }
+
     private fun createViewModel(
         documentRepository: FakeDocumentRepository,
         bookmarkRepository: FakeBookmarkRepository = FakeBookmarkRepository(),
