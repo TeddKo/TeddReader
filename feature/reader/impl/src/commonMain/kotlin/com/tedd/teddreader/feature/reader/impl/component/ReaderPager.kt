@@ -240,12 +240,23 @@ private fun ReaderScrollPager(
         }
     }
     LaunchedEffect(listState, pageKey, pageCount, pageStep, isAutoScrollEnabled, autoScrollMode) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.isScrollInProgress }
-            .filter { (_, isScrollInProgress) -> !isScrollInProgress }
-            .map { (index, _) -> index }
+        snapshotFlow {
+            Triple(
+                pageOffsets.getOrNull(listState.firstVisibleItemIndex),
+                listState.canScrollBackward,
+                listState.isScrollInProgress,
+            )
+        }
+            .filter { (_, _, isScrollInProgress) -> !isScrollInProgress }
+            .map { (pageOffset, canScrollBackward, _) ->
+                readerScrollSettledPageOffset(
+                    pageOffset = pageOffset,
+                    canScrollBackward = canScrollBackward,
+                )
+            }
             .distinctUntilChanged()
-            .collect { index ->
-                when (pageOffsets.getOrNull(index)) {
+            .collect { pageOffset ->
+                when (pageOffset) {
                     -1 -> if (previousPage != null) onPreviousPage()
                     1 -> when {
                         nextPage == null -> onAutoScrollStop()
@@ -478,6 +489,12 @@ internal fun readerScrollPageOffsets(hasPreviousPage: Boolean, hasNextPage: Bool
 }
 
 internal fun readerScrollCurrentIndex(hasPreviousPage: Boolean): Int = if (hasPreviousPage) 1 else 0
+
+internal fun readerScrollSettledPageOffset(pageOffset: Int?, canScrollBackward: Boolean): Int? = when (pageOffset) {
+    -1 -> if (canScrollBackward) null else -1
+    1 -> 1
+    else -> null
+}
 private const val TouchSlopPx = 8f
 private const val SwipeThresholdPx = 72f
 private const val PreviousTapZoneRatio = 0.28f
