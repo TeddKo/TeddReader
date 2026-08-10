@@ -464,9 +464,6 @@ private fun ReaderContent(
                 onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
                 modifier = Modifier.readerControlsDragObserver(
                     controlsVisible = uiState.isControlsVisible,
-                    onPointerDown = {
-                        if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
-                    },
                     onToggleControls = onToggleControls,
                 ),
             ) { page ->
@@ -552,7 +549,6 @@ private fun ReaderContent(
                     showProgress = uiState.showProgress,
                     onAutoScrollToggle = onAutoScrollToggle,
                     onPageSelected = { page ->
-                        onAutoScrollEnabledChange(false)
                         onGoToPage(
                             readerSpreadAnchorPage(
                                 selectedSpread = page,
@@ -562,11 +558,9 @@ private fun ReaderContent(
                         )
                     },
                     onPreviousPage = {
-                        onAutoScrollEnabledChange(false)
                         requestPageMove(ReaderPageMovement.Previous)
                     },
                     onNextPage = {
-                        onAutoScrollEnabledChange(false)
                         requestPageMove(ReaderPageMovement.Next)
                     },
                     sliderValue = actionBarSliderValue,
@@ -1328,17 +1322,14 @@ private fun previewReaderUiState(
 
 private fun Modifier.readerControlsDragObserver(
     controlsVisible: Boolean,
-    onPointerDown: () -> Unit,
     onToggleControls: () -> Unit,
 ): Modifier = composed {
     val latestControlsVisible by rememberUpdatedState(controlsVisible)
-    val latestOnPointerDown by rememberUpdatedState(onPointerDown)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
 
     pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            latestOnPointerDown()
             val controlsVisibleAtStart = latestControlsVisible
             var dragDistance = Offset.Zero
             var gestureHandled = false
