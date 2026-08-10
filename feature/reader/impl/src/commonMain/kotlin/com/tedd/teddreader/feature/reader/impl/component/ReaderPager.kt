@@ -133,6 +133,10 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                isAutoScrollEnabled = isAutoScrollEnabled,
+                autoScrollMode = effectiveAutoScrollMode,
+                autoScrollSpeed = autoScrollSpeed,
+                onAutoScrollStop = onAutoScrollStop,
                 modifier = modifier,
                 content = content,
             )
@@ -159,9 +163,10 @@ internal fun ReaderPager(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(pageTurnMode, onPreviousPage, onNextPage, onToggleControls) {
+            .pointerInput(pageTurnMode, isAutoScrollEnabled, onPreviousPage, onNextPage, onToggleControls) {
                 detectReaderGesture(
                     pageTurnMode = pageTurnMode,
+                    isAutoScrollEnabled = isAutoScrollEnabled,
                     onPreviousPage = onPreviousPage,
                     onNextPage = onNextPage,
                     onToggleControls = onToggleControls,
@@ -334,8 +339,12 @@ private fun ReaderScrollPager(
         }
     }
 
-    val tapModifier = Modifier.pointerInput(pageTurnMode, onToggleControls, previousPage, nextPage) {
+    val tapModifier = Modifier.pointerInput(isAutoScrollEnabled, pageTurnMode, onToggleControls, previousPage, nextPage) {
         detectTapGestures { position ->
+            if (isAutoScrollEnabled) {
+                onToggleControls()
+                return@detectTapGestures
+            }
             val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
             val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
             when {
@@ -364,6 +373,7 @@ private fun ReaderScrollPager(
         LazyColumn(
             state = listState,
             modifier = modifier.fillMaxSize().then(tapModifier),
+            userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
             items(pageOffsets) { pageOffset ->
@@ -377,6 +387,7 @@ private fun ReaderScrollPager(
         LazyRow(
             state = listState,
             modifier = modifier.fillMaxSize().then(tapModifier),
+            userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
             items(pageOffsets) { pageOffset ->
@@ -391,6 +402,7 @@ private fun ReaderScrollPager(
 
 private suspend fun PointerInputScope.detectReaderGesture(
     pageTurnMode: PageTurnMode,
+    isAutoScrollEnabled: Boolean,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
@@ -410,9 +422,17 @@ private suspend fun PointerInputScope.detectReaderGesture(
         }
 
         if (moved) {
-            handleSwipe(pageTurnMode, drag, onPreviousPage, onNextPage)
+            if (!isAutoScrollEnabled) {
+                handleSwipe(pageTurnMode, drag, onPreviousPage, onNextPage)
+            }
         } else {
-            handleTap(down.position, onPreviousPage, onNextPage, onToggleControls)
+            handleTap(
+                position = down.position,
+                isAutoScrollEnabled = isAutoScrollEnabled,
+                onPreviousPage = onPreviousPage,
+                onNextPage = onNextPage,
+                onToggleControls = onToggleControls,
+            )
         }
     }
 }
@@ -432,11 +452,13 @@ private fun PointerInputScope.handleSwipe(
 
 private fun PointerInputScope.handleTap(
     position: Offset,
+    isAutoScrollEnabled: Boolean,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
 ) {
     when {
+        isAutoScrollEnabled -> onToggleControls()
         position.x < size.width * PreviousTapZoneRatio -> onPreviousPage()
         position.x > size.width * NextTapZoneRatio -> onNextPage()
         else -> onToggleControls()

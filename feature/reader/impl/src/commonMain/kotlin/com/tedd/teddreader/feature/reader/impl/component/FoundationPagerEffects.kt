@@ -130,6 +130,12 @@ internal fun FoundationEffectPager(
             pagerState.scrollToPage(FoundationCenterPage)
         }
     }
+    LaunchedEffect(isAutoScrollEnabled) {
+        if (isAutoScrollEnabled) {
+            gestureState = FoundationPagerGestureState()
+            fluidEdge.reset()
+        }
+    }
     LaunchedEffect(pageAnimation) {
         var previousFrameMillis = 0L
         while (pageAnimation == PageAnimation.FLUID_PAGER) {
@@ -250,51 +256,59 @@ internal fun FoundationEffectPager(
         }
     }
 
-    val gestureModifier = Modifier.pointerInput(axis, previousPage != null, nextPage != null) {
-        var localGesture = FoundationPagerGestureState()
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                val pressedChange = event.changes.firstOrNull { it.pressed }
-                if (pressedChange != null) {
-                    val position = pressedChange.position
-                    val primaryDelta = if (axis == FoundationPagerAxis.Horizontal) {
-                        position.x - localGesture.start.x
-                    } else {
-                        position.y - localGesture.start.y
-                    }
-                    val blockDrag = localGesture.active && foundationPagerShouldBlockDrag(
-                        primaryDelta = primaryDelta,
-                        hasPreviousPage = previousPage != null,
-                        hasNextPage = nextPage != null,
-                    )
-                    if (blockDrag) {
-                        event.changes.forEach { it.consume() }
-                    }
-                    localGesture = if (localGesture.active) {
-                        val current = if (blockDrag) localGesture.start else position
-                        localGesture.copy(current = current, last = current)
-                    } else {
-                        fluidEdge.reset()
-                        FoundationPagerGestureState(
-                            start = position,
-                            current = position,
-                            last = position,
-                            active = true,
-                            touched = true,
+    val gestureModifier = if (isAutoScrollEnabled) {
+        Modifier
+    } else {
+        Modifier.pointerInput(axis, previousPage != null, nextPage != null) {
+            var localGesture = FoundationPagerGestureState()
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val pressedChange = event.changes.firstOrNull { it.pressed }
+                    if (pressedChange != null) {
+                        val position = pressedChange.position
+                        val primaryDelta = if (axis == FoundationPagerAxis.Horizontal) {
+                            position.x - localGesture.start.x
+                        } else {
+                            position.y - localGesture.start.y
+                        }
+                        val blockDrag = localGesture.active && foundationPagerShouldBlockDrag(
+                            primaryDelta = primaryDelta,
+                            hasPreviousPage = previousPage != null,
+                            hasNextPage = nextPage != null,
                         )
+                        if (blockDrag) {
+                            event.changes.forEach { it.consume() }
+                        }
+                        localGesture = if (localGesture.active) {
+                            val current = if (blockDrag) localGesture.start else position
+                            localGesture.copy(current = current, last = current)
+                        } else {
+                            fluidEdge.reset()
+                            FoundationPagerGestureState(
+                                start = position,
+                                current = position,
+                                last = position,
+                                active = true,
+                                touched = true,
+                            )
+                        }
+                        gestureState = localGesture
+                    } else if (localGesture.active) {
+                        localGesture = localGesture.copy(active = false)
+                        gestureState = localGesture
                     }
-                    gestureState = localGesture
-                } else if (localGesture.active) {
-                    localGesture = localGesture.copy(active = false)
-                    gestureState = localGesture
                 }
             }
         }
     }
 
-    val tapModifier = Modifier.pointerInput(axis, pagerState, onToggleControls, previousPage, nextPage) {
+    val tapModifier = Modifier.pointerInput(axis, pagerState, isAutoScrollEnabled, onToggleControls, previousPage, nextPage) {
         detectTapGestures { position ->
+            if (isAutoScrollEnabled) {
+                onToggleControls()
+                return@detectTapGestures
+            }
             val primary = if (axis == FoundationPagerAxis.Horizontal) position.x else position.y
             val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
             when {
@@ -348,6 +362,7 @@ internal fun FoundationEffectPager(
         VerticalPager(
             state = pagerState,
             modifier = pagerModifier,
+            userScrollEnabled = !isAutoScrollEnabled,
             beyondViewportPageCount = 1,
             flingBehavior = flingBehavior,
         ) { pagerPage ->
@@ -372,6 +387,7 @@ internal fun FoundationEffectPager(
         HorizontalPager(
             state = pagerState,
             modifier = pagerModifier,
+            userScrollEnabled = !isAutoScrollEnabled,
             beyondViewportPageCount = 1,
             flingBehavior = flingBehavior,
         ) { pagerPage ->
@@ -406,6 +422,10 @@ internal fun FoundationCurlPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    isAutoScrollEnabled: Boolean,
+    autoScrollMode: AutoScrollMode,
+    autoScrollSpeed: Float,
+    onAutoScrollStop: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
@@ -419,6 +439,10 @@ internal fun FoundationCurlPager(
         onPreviousPage = onPreviousPage,
         onNextPage = onNextPage,
         onToggleControls = onToggleControls,
+        isAutoScrollEnabled = isAutoScrollEnabled,
+        autoScrollMode = autoScrollMode,
+        autoScrollSpeed = autoScrollSpeed,
+        onAutoScrollStop = onAutoScrollStop,
         modifier = modifier,
         content = content,
     )

@@ -68,6 +68,8 @@ class AutoScrollBehaviorTest {
             PageAnimation.CIRCLE_REVEAL,
             PageAnimation.MOVIE_CAROUSEL,
             PageAnimation.PAGE_FLIP,
+            PageAnimation.BOOK_CURL,
+            PageAnimation.CURL_PAGER,
         )
         incrementalAnimations.forEach { animation ->
             assertNull(readerAutoScrollPageMovement(AutoScrollMode.PIXEL, animation))
@@ -77,8 +79,6 @@ class AutoScrollBehaviorTest {
         val discreteAnimations = listOf(
             PageAnimation.NONE,
             PageAnimation.FADE,
-            PageAnimation.BOOK_CURL,
-            PageAnimation.CURL_PAGER,
         )
         discreteAnimations.forEach { animation ->
             assertEquals(

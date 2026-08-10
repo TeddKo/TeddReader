@@ -45,10 +45,14 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.feature.reader.impl.autoScrollPageDelayMillis
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -70,6 +74,10 @@ internal fun FoundationPagerCurlReferenceImpl(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    isAutoScrollEnabled: Boolean,
+    autoScrollMode: AutoScrollMode,
+    autoScrollSpeed: Float,
+    onAutoScrollStop: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
@@ -125,6 +133,7 @@ internal fun FoundationPagerCurlReferenceImpl(
 
         fun animateTap(
             direction: FoundationReferenceCurlDirection,
+            animationDurationMillis: Int = FoundationReferenceTapDurationMillis,
             onFinished: () -> Unit = {},
         ) {
             animationJob?.cancel()
@@ -141,14 +150,20 @@ internal fun FoundationPagerCurlReferenceImpl(
                     reset()
                     edge.animateTo(
                         targetValue = end,
-                        animationSpec = foundationReferenceTapSpec(direction, canonicalSize),
+                        animationSpec = foundationReferenceTapSpec(
+                            direction = direction,
+                            size = canonicalSize,
+                            durationMillisOverride = animationDurationMillis,
+                        ),
                     )
                     completed = true
                 } finally {
+                    withContext(NonCancellable) {
+                        edge.snapTo(start)
+                        pagerState.scrollToPage(FoundationReferenceCenterPage)
+                        onFinished()
+                    }
                     if (completed) complete(direction)
-                    edge.snapTo(start)
-                    pagerState.scrollToPage(FoundationReferenceCenterPage)
-                    onFinished()
                 }
             }
         }
@@ -173,35 +188,57 @@ internal fun FoundationPagerCurlReferenceImpl(
                 animateTap(direction) { onPageMoveRequestConsumed(request.id) }
             }
         }
-        val dragModifier = Modifier.pointerInput(
-            forwardEdge,
-            backwardEdge,
-            canGoForward,
-            canGoBackward,
-        ) {
-            detectFoundationReferenceCurlGestures(
-                axis = axis,
-                canonicalSize = canonicalSize,
-                scope = scope,
-                forwardEdge = forwardEdge,
-                backwardEdge = backwardEdge,
-                canGoForward = canGoForward,
-                canGoBackward = canGoBackward,
-                onDragStart = {
-                    animationJob?.cancel()
-                    scope.launch { reset() }
-                },
-                onComplete = { direction ->
-                    complete(direction)
-                    scope.launch { reset() }
-                },
+        LaunchedEffect(isAutoScrollEnabled, autoScrollMode, autoScrollSpeed, pageKey, nextPage) {
+            if (!isAutoScrollEnabled || autoScrollMode == AutoScrollMode.PAGE) return@LaunchedEffect
+            if (nextPage == null) {
+                onAutoScrollStop()
+                return@LaunchedEffect
+            }
+            animateTap(
+                direction = FoundationReferenceCurlDirection.Forward,
+                animationDurationMillis = autoScrollPageDelayMillis(autoScrollSpeed).toInt().coerceAtLeast(1),
+                onFinished = {},
             )
         }
-        val tapModifier = Modifier.pointerInput(canGoForward, canGoBackward, axis) {
+        LaunchedEffect(isAutoScrollEnabled, autoScrollMode) {
+            if (isAutoScrollEnabled && autoScrollMode != AutoScrollMode.PAGE) return@LaunchedEffect
+            animationJob?.cancel()
+            reset()
+        }
+        val dragModifier = if (isAutoScrollEnabled) {
+            Modifier
+        } else {
+            Modifier.pointerInput(
+                forwardEdge,
+                backwardEdge,
+                canGoForward,
+                canGoBackward,
+            ) {
+                detectFoundationReferenceCurlGestures(
+                    axis = axis,
+                    canonicalSize = canonicalSize,
+                    scope = scope,
+                    forwardEdge = forwardEdge,
+                    backwardEdge = backwardEdge,
+                    canGoForward = canGoForward,
+                    canGoBackward = canGoBackward,
+                    onDragStart = {
+                        animationJob?.cancel()
+                        scope.launch { reset() }
+                    },
+                    onComplete = { direction ->
+                        complete(direction)
+                        scope.launch { reset() }
+                    },
+                )
+            }
+        }
+        val tapModifier = Modifier.pointerInput(canGoForward, canGoBackward, axis, isAutoScrollEnabled) {
             detectFoundationReferenceCurlTaps(
                 axis = axis,
                 canGoForward = canGoForward,
                 canGoBackward = canGoBackward,
+                isAutoScrollEnabled = isAutoScrollEnabled,
                 onPageTap = ::animateTap,
                 onToggleControls = { latestOnToggleControls() },
             )
@@ -395,6 +432,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
     axis: FoundationReferenceCurlAxis,
     canGoForward: Boolean,
     canGoBackward: Boolean,
+    isAutoScrollEnabled: Boolean,
     onPageTap: (FoundationReferenceCurlDirection) -> Unit,
     onToggleControls: () -> Unit,
 ) {
@@ -403,7 +441,16 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
         val up = waitForUpOrCancellation() ?: return@awaitEachGesture
         if ((down.position - up.position).getDistance() > viewConfiguration.touchSlop) return@awaitEachGesture
 
-        when (foundationReferenceCurlTapAction(up.position, size, axis, canGoBackward, canGoForward)) {
+        when (
+            foundationReferenceCurlTapAction(
+                position = up.position,
+                size = size,
+                axis = axis,
+                canGoBackward = canGoBackward,
+                canGoForward = canGoForward,
+                isAutoScrollEnabled = isAutoScrollEnabled,
+            )
+        ) {
             FoundationReferenceCurlTapAction.Backward -> onPageTap(FoundationReferenceCurlDirection.Backward)
             FoundationReferenceCurlTapAction.ToggleControls -> onToggleControls()
             FoundationReferenceCurlTapAction.Forward -> onPageTap(FoundationReferenceCurlDirection.Forward)
@@ -418,9 +465,11 @@ internal fun foundationReferenceCurlTapAction(
     axis: FoundationReferenceCurlAxis,
     canGoBackward: Boolean,
     canGoForward: Boolean,
+    isAutoScrollEnabled: Boolean = false,
 ): FoundationReferenceCurlTapAction? {
     val primary = axis.toCanonical(position).x
     val extent = axis.canonicalSize(size).width
+    if (isAutoScrollEnabled) return FoundationReferenceCurlTapAction.ToggleControls
     return when {
         primary < extent * FoundationReferencePreviousTapZoneRatio ->
             FoundationReferenceCurlTapAction.Backward.takeIf { canGoBackward }
@@ -475,8 +524,11 @@ internal fun foundationReferenceCurlEdge(
 private fun foundationReferenceTapSpec(
     direction: FoundationReferenceCurlDirection,
     size: IntSize,
+    durationMillisOverride: Int = FoundationReferenceTapDurationMillis,
 ) = keyframes {
-    durationMillis = FoundationReferenceTapDurationMillis
+    val totalDurationMillis = durationMillisOverride.coerceAtLeast(1)
+    val middleDurationMillis = max(1, totalDurationMillis / 3)
+    durationMillis = totalDurationMillis
     val left = FoundationReferenceCurlEdge.left(size)
     val end = FoundationReferenceCurlEdge.end(size)
     val middle = FoundationReferenceCurlEdge(
@@ -485,10 +537,10 @@ private fun foundationReferenceTapSpec(
     )
     if (direction == FoundationReferenceCurlDirection.Forward) {
         end at 0
-        middle at FoundationReferenceTapMiddleMillis
+        middle at middleDurationMillis
     } else {
         left at 0
-        middle at FoundationReferenceTapDurationMillis - FoundationReferenceTapMiddleMillis
+        middle at totalDurationMillis - middleDurationMillis
     }
 }
 
@@ -722,7 +774,6 @@ private fun Offset.foundationReferenceNormalized(): Offset {
 private const val FoundationReferencePagerPageCount = 3
 private const val FoundationReferenceCenterPage = 1
 private const val FoundationReferenceTapDurationMillis = 450
-private const val FoundationReferenceTapMiddleMillis = 150
 private const val FoundationReferencePreviousTapZoneRatio = 0.25f
 private const val FoundationReferenceNextTapZoneRatio = 0.75f
 private const val FoundationReferenceDragThresholdRatio = 0.2f
