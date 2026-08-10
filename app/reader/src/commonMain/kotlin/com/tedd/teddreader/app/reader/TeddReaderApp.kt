@@ -14,6 +14,7 @@ import com.tedd.teddreader.app.reader.di.rememberPlatformReaderModule
 import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
 import com.tedd.teddreader.app.reader.importer.rememberDocumentImporter
 import com.tedd.teddreader.app.reader.navigation.ReaderNavHost
+import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.domain.repository.ReaderSettings
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
@@ -37,9 +38,13 @@ fun TeddReaderApp(
         val documentImporter = rememberDocumentImporter()
         val readerSettingsRepository = koinInject<ReaderSettingsRepository>()
         val settings by readerSettingsRepository.settings.collectAsStateWithLifecycle(initialValue = ReaderSettings())
+        val appDarkTheme = appUsesDarkTheme(
+            themeMode = settings.style.themeMode,
+            systemInDarkTheme = darkTheme,
+        )
         ProvideTeddLocalization(appLanguage = settings.appLanguage) {
             TeddReaderTheme(
-                darkTheme = darkTheme,
+                darkTheme = appDarkTheme,
             ) {
                 Surface(
                     modifier = modifier.fillMaxSize(),
@@ -55,3 +60,10 @@ fun TeddReaderApp(
         }
     }
 }
+
+internal fun appUsesDarkTheme(themeMode: ReaderThemeMode, systemInDarkTheme: Boolean): Boolean =
+    when (themeMode) {
+        ReaderThemeMode.SYSTEM -> systemInDarkTheme
+        ReaderThemeMode.DARK -> true
+        ReaderThemeMode.LIGHT, ReaderThemeMode.SEPIA, ReaderThemeMode.CUSTOM -> false
+    }
