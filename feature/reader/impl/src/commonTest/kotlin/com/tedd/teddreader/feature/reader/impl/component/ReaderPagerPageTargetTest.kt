@@ -44,4 +44,12 @@ class ReaderPagerPageTargetTest {
         assertEquals(0, readerScrollCurrentIndex(hasPreviousPage = false))
         assertEquals(1, readerScrollCurrentIndex(hasPreviousPage = true))
     }
+
+    @Test
+    fun scrollPagerSettledOffsetRequiresPreviousBoundaryBeforeBackwardTurn() {
+        assertNull(readerScrollSettledPageOffset(pageOffset = -1, canScrollBackward = true))
+        assertEquals(-1, readerScrollSettledPageOffset(pageOffset = -1, canScrollBackward = false))
+        assertEquals(1, readerScrollSettledPageOffset(pageOffset = 1, canScrollBackward = true))
+        assertNull(readerScrollSettledPageOffset(pageOffset = 0, canScrollBackward = true))
+    }
 }
