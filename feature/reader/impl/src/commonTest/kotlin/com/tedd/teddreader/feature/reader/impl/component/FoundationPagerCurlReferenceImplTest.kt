@@ -136,6 +136,45 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     @Test
+    fun autoScrollTapsAlwaysToggleControlsRegardlessOfZoneOrAvailablePages() {
+        val size = IntSize(100, 200)
+
+        assertEquals(
+            FoundationReferenceCurlTapAction.ToggleControls,
+            foundationReferenceCurlTapAction(
+                position = Offset(10f, 100f),
+                size = size,
+                axis = FoundationReferenceCurlAxis.Horizontal,
+                canGoBackward = false,
+                canGoForward = true,
+                isAutoScrollEnabled = true,
+            ),
+        )
+        assertEquals(
+            FoundationReferenceCurlTapAction.ToggleControls,
+            foundationReferenceCurlTapAction(
+                position = Offset(50f, 100f),
+                size = size,
+                axis = FoundationReferenceCurlAxis.Horizontal,
+                canGoBackward = true,
+                canGoForward = true,
+                isAutoScrollEnabled = true,
+            ),
+        )
+        assertEquals(
+            FoundationReferenceCurlTapAction.ToggleControls,
+            foundationReferenceCurlTapAction(
+                position = Offset(90f, 100f),
+                size = size,
+                axis = FoundationReferenceCurlAxis.Horizontal,
+                canGoBackward = true,
+                canGoForward = false,
+                isAutoScrollEnabled = true,
+            ),
+        )
+    }
+
+    @Test
     fun tapsUsePrimaryAxisQuarterZonesAndRespectAvailablePages() {
         val size = IntSize(100, 200)
 

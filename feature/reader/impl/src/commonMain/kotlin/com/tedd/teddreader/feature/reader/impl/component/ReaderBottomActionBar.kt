@@ -77,7 +77,7 @@ fun ReaderBottomActionBar(
                         },
                         onValueChangeFinished = { onPageSelected(selectedPage) },
                         valueRange = sliderRange,
-                        enabled = pageIndex.total > 1,
+                        enabled = pageIndex.total > 1 && !isAutoScrollEnabled,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -88,14 +88,14 @@ fun ReaderBottomActionBar(
         actions = {
             TeddIconButton(
                 onClick = onPreviousPage,
-                enabled = canGoPrevious,
+                enabled = canGoPrevious && !isAutoScrollEnabled,
                 contentDescription = stringResource(Res.string.previous_page),
             ) {
                 Icon(imageVector = TeddIcons.Previous, contentDescription = null)
             }
             TeddIconButton(
                 onClick = onNextPage,
-                enabled = canGoNext,
+                enabled = canGoNext && !isAutoScrollEnabled,
                 contentDescription = stringResource(Res.string.next_page),
             ) {
                 Icon(imageVector = TeddIcons.Next, contentDescription = null)

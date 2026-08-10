@@ -1166,12 +1166,12 @@ internal fun readerAutoScrollPageMovement(
             PageAnimation.CIRCLE_REVEAL,
             PageAnimation.MOVIE_CAROUSEL,
             PageAnimation.PAGE_FLIP,
+            PageAnimation.BOOK_CURL,
+            PageAnimation.CURL_PAGER,
                 -> null
 
             PageAnimation.NONE,
             PageAnimation.FADE,
-            PageAnimation.BOOK_CURL,
-            PageAnimation.CURL_PAGER,
                 -> ReaderPageMovement.Next
         }
 }
