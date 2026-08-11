@@ -18,12 +18,19 @@ data class ExternalDocumentImportRequest(
 }
 
 interface DocumentImporter {
+    val supportsGoogleDrivePicker: Boolean
+
     fun openFiles(
         onImported: (List<DocumentId>) -> Unit,
         onError: (String) -> Unit,
     )
 
     fun openFolder(
+        onImported: (List<DocumentId>) -> Unit,
+        onError: (String) -> Unit,
+    )
+
+    fun openGoogleDrive(
         onImported: (List<DocumentId>) -> Unit,
         onError: (String) -> Unit,
     )
@@ -36,7 +43,9 @@ interface DocumentImporter {
 }
 
 @Composable
-internal expect fun rememberDocumentImporter(): DocumentImporter
+internal expect fun rememberDocumentImporter(
+    googleDrivePickerBridge: GoogleDrivePickerBridge? = null,
+): DocumentImporter
 
 internal data class DocumentImportBatchResult(
     val importedDocumentIds: List<DocumentId>,

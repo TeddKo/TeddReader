@@ -62,6 +62,7 @@ fun HomeRouteScreen(
     importMessage: String? = null,
     onOpenFilesClick: () -> Unit = {},
     onOpenFolderClick: () -> Unit = {},
+    onOpenGoogleDriveClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit = {},
     onDocumentClick: (DocumentId) -> Unit = {},
     viewModel: HomeViewModel = koinViewModel(),
@@ -75,6 +76,7 @@ fun HomeRouteScreen(
         ),
         onOpenFilesClick = onOpenFilesClick,
         onOpenFolderClick = onOpenFolderClick,
+        onOpenGoogleDriveClick = onOpenGoogleDriveClick,
         onSettingsClick = onSettingsClick,
         onDocumentClick = onDocumentClick,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
@@ -91,6 +93,7 @@ fun HomeScreen(
     uiState: HomeUiState,
     onOpenFilesClick: () -> Unit,
     onOpenFolderClick: () -> Unit,
+    onOpenGoogleDriveClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
     scrollState: ScrollState,
@@ -275,6 +278,12 @@ fun HomeScreen(
             onSelectFolderClick = {
                 showAddDialog = false
                 onOpenFolderClick()
+            },
+            onSelectGoogleDriveClick = onOpenGoogleDriveClick?.let {
+                {
+                    showAddDialog = false
+                    it()
+                }
             },
         )
     }
@@ -550,24 +559,36 @@ private fun HomeAddDocumentsDialog(
     onDismissRequest: () -> Unit,
     onSelectFilesClick: () -> Unit,
     onSelectFolderClick: () -> Unit,
+    onSelectGoogleDriveClick: (() -> Unit)? = null,
 ) {
+    val spacing = teddReaderSpacing()
+
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(stringResource(Res.string.add_documents)) },
-        text = { Text(stringResource(Res.string.home_add_documents_description)) },
-        confirmButton = {
-            TeddButton(
-                text = stringResource(Res.string.select_files),
-                onClick = onSelectFilesClick,
-            )
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                Text(stringResource(Res.string.home_add_documents_description))
+                TeddButton(
+                    text = stringResource(Res.string.select_files),
+                    onClick = onSelectFilesClick,
+                )
+                TeddButton(
+                    text = stringResource(Res.string.select_folder),
+                    onClick = onSelectFolderClick,
+                    emphasis = TeddButtonEmphasis.Secondary,
+                )
+                onSelectGoogleDriveClick?.let { onClick ->
+                    TeddButton(
+                        text = stringResource(Res.string.google_drive),
+                        onClick = onClick,
+                        emphasis = TeddButtonEmphasis.Secondary,
+                    )
+                }
+            }
         },
-        dismissButton = {
-            TeddButton(
-                text = stringResource(Res.string.select_folder),
-                onClick = onSelectFolderClick,
-                emphasis = TeddButtonEmphasis.Secondary,
-            )
-        },
+        confirmButton = {},
+        dismissButton = {},
     )
 }
 

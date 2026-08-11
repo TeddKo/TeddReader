@@ -1,12 +1,15 @@
 package com.tedd.teddreader.app.reader.importer
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
 import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
+import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.google.android.gms.auth.api.identity.Identity
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.SupportedDocumentExtensions
@@ -27,12 +31,63 @@ import org.koin.compose.getKoin
 private val AndroidPickerMimeTypes = SupportedDocumentMimeTypes.toTypedArray()
 
 @Composable
-internal actual fun rememberDocumentImporter(): DocumentImporter {
+internal actual fun rememberDocumentImporter(
+    googleDrivePickerBridge: GoogleDrivePickerBridge?,
+): DocumentImporter {
     val context = LocalContext.current.applicationContext
+    val activity = LocalContext.current.findActivity()
     val scope = rememberCoroutineScope()
     val openDocumentUseCase = getKoin().get<OpenDocumentUseCase>()
+    val authorizationClient = remember(activity) { activity?.let(Identity::getAuthorizationClient) }
     var importedCallback by remember { mutableStateOf<(List<DocumentId>) -> Unit>({}) }
     var errorCallback by remember { mutableStateOf<(String) -> Unit>({}) }
+
+    fun clearDriveCallbacks() {
+        importedCallback = {}
+        errorCallback = {}
+    }
+
+    fun handleGoogleDrivePickerResult(result: GoogleDrivePickerResult) {
+        scope.launch {
+            try {
+                val client = authorizationClient ?: error("Google Drive is unavailable on this device.")
+                val sources = fetchGoogleDriveImportSources(
+                    authorizationClient = client,
+                    pickerResult = result,
+                )
+                val importResult = importDocuments(sources) { source ->
+                    openDocumentUseCase(
+                        source = source,
+                        openedAtEpochMillis = System.currentTimeMillis(),
+                    ).id
+                }
+                dispatchBatchImportResult(importResult, importedCallback, errorCallback)
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (throwable: Throwable) {
+                errorCallback(throwable.message ?: "Failed to import Google Drive document.")
+            } finally {
+                clearDriveCallbacks()
+            }
+        }
+    }
+
+    val googleDriveAuthorizationLauncher = rememberLauncherForActivityResult(StartIntentSenderForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            clearDriveCallbacks()
+            return@rememberLauncherForActivityResult
+        }
+        try {
+            val pickerResult = authorizationClient
+                ?.getAuthorizationResultFromIntent(result.data)
+                ?.toGoogleDrivePickerResult()
+                ?: error("Google Drive authorization is unavailable.")
+            handleGoogleDrivePickerResult(pickerResult)
+        } catch (throwable: Throwable) {
+            errorCallback(throwable.message ?: "Failed to open Google Drive.")
+            clearDriveCallbacks()
+        }
+    }
 
     val filesLauncher = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
@@ -75,6 +130,8 @@ internal actual fun rememberDocumentImporter(): DocumentImporter {
 
     return remember {
         object : DocumentImporter {
+            override val supportsGoogleDrivePicker: Boolean = activity != null && authorizationClient != null
+
             override fun openFiles(
                 onImported: (List<DocumentId>) -> Unit,
                 onError: (String) -> Unit,
@@ -93,20 +150,58 @@ internal actual fun rememberDocumentImporter(): DocumentImporter {
                 folderLauncher.launch(null)
             }
 
+            override fun openGoogleDrive(
+                onImported: (List<DocumentId>) -> Unit,
+                onError: (String) -> Unit,
+            ) {
+                val client = authorizationClient
+                if (activity == null || client == null) {
+                    onError("Google Drive is unavailable on this device.")
+                    return
+                }
+
+                importedCallback = onImported
+                errorCallback = onError
+                scope.launch {
+                    try {
+                        val authorizationResult = client.awaitAuthorize(buildGoogleDriveAuthorizationRequest())
+                        if (authorizationResult.hasResolution()) {
+                            val pendingIntent = authorizationResult.pendingIntent
+                                ?: error("Google Drive authorization did not return a resolution.")
+                            googleDriveAuthorizationLauncher.launch(
+                                IntentSenderRequest.Builder(pendingIntent.intentSender).build(),
+                            )
+                        } else {
+                            handleGoogleDrivePickerResult(authorizationResult.toGoogleDrivePickerResult())
+                        }
+                    } catch (cancellationException: CancellationException) {
+                        throw cancellationException
+                    } catch (throwable: Throwable) {
+                        onError(throwable.message ?: "Failed to open Google Drive.")
+                        clearDriveCallbacks()
+                    }
+                }
+            }
+
             override fun importExternal(
                 request: ExternalDocumentImportRequest,
                 onImported: (DocumentId) -> Unit,
                 onError: (String) -> Unit,
             ) {
                 scope.launch {
-                    runCatching {
-                        importExternalRequest(
-                            context = context,
-                            request = request,
-                            openDocumentUseCase = openDocumentUseCase,
+                    try {
+                        onImported(
+                            importExternalRequest(
+                                context = context,
+                                request = request,
+                                openDocumentUseCase = openDocumentUseCase,
+                            ),
                         )
-                    }.onSuccess(onImported)
-                        .onFailure { throwable -> onError(throwable.message ?: "Failed open selected document.") }
+                    } catch (cancellationException: CancellationException) {
+                        throw cancellationException
+                    } catch (throwable: Throwable) {
+                        onError(throwable.message ?: "Failed open selected document.")
+                    }
                 }
             }
         }

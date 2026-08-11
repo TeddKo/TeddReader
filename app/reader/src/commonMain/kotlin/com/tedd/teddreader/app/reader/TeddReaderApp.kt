@@ -12,6 +12,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.app.reader.di.readerAppModule
 import com.tedd.teddreader.app.reader.di.rememberPlatformReaderModule
 import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
+import com.tedd.teddreader.app.reader.importer.GoogleDrivePickerBridge
 import com.tedd.teddreader.app.reader.importer.rememberDocumentImporter
 import com.tedd.teddreader.app.reader.navigation.ReaderNavHost
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
@@ -26,6 +27,7 @@ import org.koin.dsl.koinConfiguration
 @Composable
 fun TeddReaderApp(
     initialExternalImportRequest: ExternalDocumentImportRequest? = null,
+    googleDrivePickerBridge: GoogleDrivePickerBridge? = null,
     modifier: Modifier = Modifier,
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
@@ -35,7 +37,7 @@ fun TeddReaderApp(
     KoinApplication(
         configuration = koinConfiguration { modules(appModule, platformModule) },
     ) {
-        val documentImporter = rememberDocumentImporter()
+        val documentImporter = rememberDocumentImporter(googleDrivePickerBridge = googleDrivePickerBridge)
         val readerSettingsRepository = koinInject<ReaderSettingsRepository>()
         val settings by readerSettingsRepository.settings.collectAsStateWithLifecycle(initialValue = ReaderSettings())
         val appDarkTheme = appUsesDarkTheme(

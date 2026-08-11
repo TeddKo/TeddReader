@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		3B8F67673D65A040D2A1B598 /* AppAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 552AA74C4E20B587E57C81FB /* AppAuth */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		0B28772D4837751F0692101F /* TeddReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TeddReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -41,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3B8F67673D65A040D2A1B598 /* AppAuth in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +90,7 @@
 			);
 			name = iosApp;
 			packageProductDependencies = (
+				552AA74C4E20B587E57C81FB /* AppAuth */,
 			);
 			productName = iosApp;
 			productReference = 0B28772D4837751F0692101F /* TeddReader.app */;
@@ -118,6 +124,9 @@
 			productRefGroup = 5F118A33D086F8CCB51664DB /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				8D7B611AA571710F0E0C6950 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */,
+			);
 			targets = (
 				4BE945CDA89E6A7B24258925 /* iosApp */,
 			);
@@ -368,6 +377,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8D7B611AA571710F0E0C6950 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/openid/AppAuth-iOS.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		552AA74C4E20B587E57C81FB /* AppAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8D7B611AA571710F0E0C6950 /* XCRemoteSwiftPackageReference "AppAuth-iOS" */;
+			productName = AppAuth;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 35A4284689AA747A80A222CB /* Project object */;
 }
