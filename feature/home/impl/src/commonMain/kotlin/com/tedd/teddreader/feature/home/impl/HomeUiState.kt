@@ -7,6 +7,7 @@ import com.tedd.teddreader.core.common.model.DocumentMetadata
 data class HomeUiState(
     val favoriteDocuments: List<DocumentMetadata> = emptyList(),
     val recentDocuments: List<DocumentMetadata> = emptyList(),
+    val documentCoverImages: Map<String, ByteArray> = emptyMap(),
     val hasDocuments: Boolean = false,
     val sort: HomeSort = HomeSort.Recent,
     val formatFilter: HomeFormatFilter = HomeFormatFilter.All,

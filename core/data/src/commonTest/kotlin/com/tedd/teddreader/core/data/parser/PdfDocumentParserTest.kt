@@ -49,4 +49,20 @@ class PdfDocumentParserTest {
 
         assertEquals(1, document.pageCount)
     }
+
+    @Test
+    fun passesThroughPlatformCoverBytes() {
+        val bytes = byteArrayOf(9, 8, 7)
+        val parser = PdfDocumentParser(
+            object : PdfMetadataReader {
+                override fun pageCount(location: DocumentLocation, bytes: ByteArray): Int = 1
+                override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray): ByteArray? = bytes
+            },
+        )
+
+        assertContentEquals(
+            bytes,
+            parser.coverImageBytes(location, bytes),
+        )
+    }
 }

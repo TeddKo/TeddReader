@@ -22,4 +22,9 @@ class PdfDocumentParser(
         sections = emptyList(),
         pageCount = metadataReader.pageCount(location, bytes).coerceAtLeast(1),
     )
+
+    fun coverImageBytes(
+        location: DocumentLocation,
+        bytes: ByteArray,
+    ): ByteArray? = metadataReader.coverImageBytes(location, bytes)
 }

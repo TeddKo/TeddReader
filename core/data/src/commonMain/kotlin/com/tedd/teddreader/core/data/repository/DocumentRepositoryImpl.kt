@@ -23,8 +23,10 @@ import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.room.dao.DocumentDao
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import org.koin.core.annotation.Single
 
 @Single([DocumentRepository::class])
@@ -43,6 +45,24 @@ class DocumentRepositoryImpl(
 
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
         documentDao.getDocument(documentId.value)?.toDocumentMetadata()
+
+    override suspend fun getDocumentCover(documentId: DocumentId): ByteArray? = withContext(Dispatchers.Default) {
+        val metadata = getDocument(documentId) ?: return@withContext null
+        when (metadata.format) {
+            DocumentFormat.TXT,
+            DocumentFormat.UNKNOWN -> null
+            DocumentFormat.EPUB,
+            DocumentFormat.PDF -> {
+                val fileSource = documentFileSource ?: return@withContext null
+                val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
+                when (metadata.format) {
+                    DocumentFormat.EPUB -> epubDocumentParser.coverImageBytes(bytes)
+                    DocumentFormat.PDF -> pdfDocumentParser.coverImageBytes(metadata.location, bytes)
+                    else -> null
+                }
+            }
+        }
+    }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
         val metadata = getDocument(documentId) ?: return null
