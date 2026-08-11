@@ -32,6 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -105,6 +108,13 @@ fun HomeScreen(
     var pendingDeleteDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showAddDialog by remember { mutableStateOf(false) }
+    val selectionBackState = rememberNavigationEventState(NavigationEventInfo.None)
+
+    NavigationBackHandler(
+        state = selectionBackState,
+        isBackEnabled = selectedDocumentIds.isNotEmpty(),
+        onBackCompleted = { selectedDocumentIds = emptySet() },
+    )
 
     LaunchedEffect(visibleDocumentIds) {
         selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in visibleDocumentIds }

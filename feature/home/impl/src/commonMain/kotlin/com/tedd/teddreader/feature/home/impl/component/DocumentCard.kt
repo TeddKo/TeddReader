@@ -13,13 +13,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -135,27 +135,21 @@ fun DocumentCard(
                 .align(Alignment.TopEnd)
                 .padding(DefaultTeddReaderSpacing.small),
         ) {
-            Surface(
+            IconButton(
                 onClick = onShowActions,
-                modifier = Modifier
-                    .size(48.dp)
-                    .semantics {
-                        contentDescription = actionsDescription
-                    },
+                modifier = Modifier.semantics {
+                    contentDescription = actionsDescription
+                },
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                tonalElevation = 0.dp,
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = TeddIcons.MoreVert,
-                        contentDescription = null,
-                    )
-                }
+                Icon(
+                    imageVector = TeddIcons.MoreVert,
+                    contentDescription = null,
+                )
             }
 
             DropdownMenu(
