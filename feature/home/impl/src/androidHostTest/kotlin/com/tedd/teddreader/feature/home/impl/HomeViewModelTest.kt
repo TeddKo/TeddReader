@@ -68,22 +68,53 @@ class HomeViewModelTest {
 
         assertFalse(viewModel.uiState.value.hasDocuments)
     }
+
+    @Test
+    fun deleteDocumentsRemovesAllSelectedRecentDocuments() = runTest {
+        val repository = FakeDocumentRepository(includeSecondDocument = true)
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.deleteDocuments(listOf(repository.documentId, repository.secondDocumentId))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.hasDocuments)
+    }
 }
 
-private class FakeDocumentRepository : DocumentRepository {
+private class FakeDocumentRepository(
+    includeSecondDocument: Boolean = false,
+) : DocumentRepository {
     val documentId = DocumentId("document-1")
+    val secondDocumentId = DocumentId("document-2")
     private val documents = MutableStateFlow(
-        listOf(
-            DocumentMetadata(
-                id = documentId,
-                location = DocumentLocation(
-                    sourceUri = "file:///document.txt",
-                    displayName = "document.txt",
+        buildList {
+            add(
+                DocumentMetadata(
+                    id = documentId,
+                    location = DocumentLocation(
+                        sourceUri = "file:///document.txt",
+                        displayName = "document.txt",
+                    ),
+                    format = DocumentFormat.TXT,
+                    addedAtEpochMillis = 1_000L,
                 ),
-                format = DocumentFormat.TXT,
-                addedAtEpochMillis = 1_000L,
-            ),
-        ),
+            )
+            if (includeSecondDocument) {
+                add(
+                    DocumentMetadata(
+                        id = secondDocumentId,
+                        location = DocumentLocation(
+                            sourceUri = "file:///document-2.txt",
+                            displayName = "document-2.txt",
+                        ),
+                        format = DocumentFormat.TXT,
+                        addedAtEpochMillis = 2_000L,
+                    ),
+                )
+            }
+        },
     )
 
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = documents

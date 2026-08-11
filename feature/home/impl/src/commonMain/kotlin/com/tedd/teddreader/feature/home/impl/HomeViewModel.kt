@@ -66,9 +66,14 @@ class HomeViewModel(
     }
 
     fun deleteDocument(documentId: DocumentId) {
+        deleteDocuments(listOf(documentId))
+    }
+
+    fun deleteDocuments(documentIds: Collection<DocumentId>) {
         viewModelScope.launch {
-            runCatching { documentRepository.deleteDocument(documentId) }
-                .onFailure { controls.update { it.copy(errorMessage = "Failed to delete document.") } }
+            runCatching {
+                documentIds.forEach { documentId -> documentRepository.deleteDocument(documentId) }
+            }.onFailure { controls.update { it.copy(errorMessage = "Failed to delete document.") } }
         }
     }
 }

@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-08-09
+- Last refreshed: 2026-08-11
 - Primary product surfaces: library/home, document reader, search, bookmarks, document info, reader settings sheets
 - Evidence reviewed: `core/designsystem`, every production composable in `core/ui` and `feature/*/impl`, `TeddReaderApp`, `ReaderNavHost`, Android/iOS platform adapters, existing Compose previews
 
@@ -43,7 +43,7 @@
 
 ## Components
 - Existing components to reuse after restyling: `TeddListItem`, `TeddButton`, `TeddChip`, `TeddEmptyState`, `ReaderChromeSurface`, `ReaderTopControls`, `ReaderBottomControls`.
-- New/changed components: editorial screen header, flat document row, segmented sort/filter control, compact reader bottom chrome, shared vector icon actions, drag observer for chrome dismissal.
+- New/changed components: editorial screen header, 4:3 horizontal document card pager, segmented sort/filter control, multi-select action strip, import choice dialog, compact reader bottom chrome, shared vector icon actions, drag observer for chrome dismissal.
 - Variants and states: compact phone (<= 359 dp), regular phone, wide/tablet; loading, empty, error, populated, disabled.
 - Token/component ownership: colors/type/spacing/shapes stay in `core/designsystem`; reusable interaction layout stays in `core/ui`.
 
@@ -61,7 +61,7 @@
 
 ## Screen contracts
 - App shell: the root theme owns the full-window background. Destinations own their safe content insets; no global system-bar padding is allowed.
-- Home: a compact editorial masthead leads into Recent reading. Empty state has exactly one Open file action. Populated state exposes Open file once, then restrained sort/filter and a flat document collection. The document row is the complete click/ripple target; cards do not wrap every row.
+- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA that opens file or folder import choices. Document cards use a 4:3 ratio, keep title/format/meta inside the card, support clipped ripple, and allow long-press multi-select across both sections. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
 - Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
@@ -75,6 +75,7 @@
 - TeddIconButton: production calls require a non-empty content description and a minimum 48 dp touch target. Text glyphs are replaced by shared vector resources.
 - TeddChip: selected state is visual and semantic; labels never encode selection with punctuation; ripple stays clipped to the visible pill while Material handles the minimum touch target.
 - TeddListItem: modifier order is container size -> clickable/ripple -> internal content padding. Title/supporting text ellipsize predictably and the entire row is one coherent semantic target.
+- Home document card: 4:3 card width is the available width minus 20 dp side margins, capped at 280 dp; title, format, and compact metadata stay inside the card; clipped ripple, selected semantics, and long-click semantics are required; overflow actions stay secondary to the full-card target.
 - TeddInfoRow: use a label/value row only when both remain readable; stack at compact width or for long values.
 - TeddTextField/TeddSearchField: expose keyboard type/action, error/supporting text, focus behavior, and IME-safe scrolling.
 - TeddSwitchRow/TeddCheckboxRow/TeddRadioRow: the parent row owns the single selection semantic and the visual control is non-interactive; no duplicate focus target.
@@ -88,7 +89,7 @@
 | Surface | 240-359 dp | 360-599 dp | 600-839 dp | 840+ dp |
 | --- | --- | --- | --- | --- |
 | Standard screens | single column, stacked actions | single column | centered bounded column | bounded content; adaptive card grid only where appropriate |
-| Home documents | one full-width item | one full-width item | one bounded list | adaptive 280 dp minimum cells |
+| Home documents | single-card horizontal pager | single-card horizontal pager | single-card horizontal pager with wider peek | single-card horizontal pager capped at 280 dp cards |
 | Search/bookmarks | one result per row | one result per row | bounded single column | optional two-column bookmarks; search remains single column |
 | Document stats | stacked label/value | two-column stat cards when space allows | two columns | up to four columns |
 | Reader page | one page | one page | two pages only when each pane remains at least 280 dp | two bounded pages |
@@ -98,7 +99,7 @@
 ## Interaction model
 - Pointer input observers never consume events unless they own the gesture outcome.
 - Gesture visibility state is captured at gesture start; callbacks use updated state without restarting pointer input.
-- Destructive actions require explicit confirmation and are never adjacent to the primary action with equal emphasis.
+- Destructive actions require explicit confirmation and are never adjacent to the primary action with equal emphasis. Home multi-select starts on long press, tap toggles selection across Favorites and Recent, and selections that disappear from filtered/visible content are removed immediately.
 - Navigation and screen actions remain available to keyboard, accessibility services, and pointer input; gesture shortcuts are additive.
 - Motion uses the design-system 120/200/300 ms durations, is interruptible, and has a no-animation reader option.
 - State restoration covers navigation, query text, selected filters, sheet drafts, and current document location; transient loading/errors remain ViewModel-owned.

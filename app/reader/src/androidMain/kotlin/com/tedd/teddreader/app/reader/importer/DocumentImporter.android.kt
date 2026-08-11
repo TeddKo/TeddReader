@@ -3,8 +3,10 @@ package com.tedd.teddreader.app.reader.importer
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree
+import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,9 +16,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
+import com.tedd.teddreader.core.common.model.SupportedDocumentExtensions
 import com.tedd.teddreader.core.common.model.SupportedDocumentMimeTypes
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.usecase.OpenDocumentUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.koin.compose.getKoin
 
@@ -27,22 +31,43 @@ internal actual fun rememberDocumentImporter(): DocumentImporter {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val openDocumentUseCase = getKoin().get<OpenDocumentUseCase>()
-    var importedCallback by remember { mutableStateOf<(DocumentId) -> Unit>({}) }
+    var importedCallback by remember { mutableStateOf<(List<DocumentId>) -> Unit>({}) }
     var errorCallback by remember { mutableStateOf<(String) -> Unit>({}) }
 
-    val launcher = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val filesLauncher = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            runCatching {
+            val result = importDocuments(uris) { uri ->
                 importUri(
                     context = context,
                     uri = uri,
                     grantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     openDocumentUseCase = openDocumentUseCase,
                 )
-            }.onSuccess { documentId ->
-                importedCallback(documentId)
-            }.onFailure { throwable ->
+            }
+            dispatchBatchImportResult(result, importedCallback, errorCallback)
+        }
+    }
+    val folderLauncher = rememberLauncherForActivityResult(OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val documentUris = resolveSupportedTreeDocumentUris(context, uri)
+                val result = importDocuments(documentUris) { documentUri ->
+                    importUri(
+                        context = context,
+                        uri = documentUri,
+                        grantFlags = 0,
+                        openDocumentUseCase = openDocumentUseCase,
+                    )
+                }
+                dispatchBatchImportResult(result, importedCallback, errorCallback)
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (throwable: Throwable) {
                 errorCallback(throwable.message ?: "Failed open selected document.")
             }
         }
@@ -50,13 +75,22 @@ internal actual fun rememberDocumentImporter(): DocumentImporter {
 
     return remember {
         object : DocumentImporter {
-            override fun open(
-                onImported: (DocumentId) -> Unit,
+            override fun openFiles(
+                onImported: (List<DocumentId>) -> Unit,
                 onError: (String) -> Unit,
             ) {
                 importedCallback = onImported
                 errorCallback = onError
-                launcher.launch(AndroidPickerMimeTypes)
+                filesLauncher.launch(AndroidPickerMimeTypes)
+            }
+
+            override fun openFolder(
+                onImported: (List<DocumentId>) -> Unit,
+                onError: (String) -> Unit,
+            ) {
+                importedCallback = onImported
+                errorCallback = onError
+                folderLauncher.launch(null)
             }
 
             override fun importExternal(
@@ -121,4 +155,75 @@ private suspend fun importUri(
         openedAtEpochMillis = System.currentTimeMillis(),
     )
     return document.id
+}
+
+private data class AndroidTreeDocument(
+    val displayName: String,
+    val uri: Uri,
+)
+
+private fun resolveSupportedTreeDocumentUris(
+    context: Context,
+    treeUri: Uri,
+): List<Uri> {
+    val resolver = context.contentResolver
+    val rootDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+        treeUri,
+        DocumentsContract.getTreeDocumentId(treeUri),
+    )
+    val results = mutableListOf<AndroidTreeDocument>()
+
+    fun visit(documentUri: Uri) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            documentUri,
+            DocumentsContract.getDocumentId(documentUri),
+        )
+        resolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            while (cursor.moveToNext()) {
+                val childId = cursor.getString(idIndex)
+                val displayName = cursor.getString(nameIndex) ?: childId
+                val mimeType = cursor.getString(mimeIndex)
+                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    visit(childUri)
+                } else if (isSupportedDocument(displayName, mimeType)) {
+                    results += AndroidTreeDocument(displayName = displayName, uri = childUri)
+                }
+            }
+        }
+    }
+
+    visit(rootDocumentUri)
+    return results
+        .sortedWith(compareBy<AndroidTreeDocument> { it.displayName.lowercase() }.thenBy { it.uri.toString() })
+        .map(AndroidTreeDocument::uri)
+}
+
+private fun isSupportedDocument(displayName: String, mimeType: String?): Boolean {
+    val extension = displayName.substringAfterLast('.', missingDelimiterValue = "")
+    return mimeType in SupportedDocumentMimeTypes || extension.lowercase() in SupportedDocumentExtensions
+}
+
+private fun dispatchBatchImportResult(
+    result: DocumentImportBatchResult,
+    onImported: (List<DocumentId>) -> Unit,
+    onError: (String) -> Unit,
+) {
+    if (result.importedDocumentIds.isNotEmpty()) {
+        onImported(result.importedDocumentIds)
+    }
+    result.toImportErrorMessage()?.let(onError)
 }
