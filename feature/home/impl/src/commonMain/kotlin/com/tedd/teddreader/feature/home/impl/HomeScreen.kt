@@ -2,7 +2,6 @@ package com.tedd.teddreader.feature.home.impl
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -451,46 +450,43 @@ private fun HomeDocumentPager(
 ) {
     val spacing = teddReaderSpacing()
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val cardWidth = (maxWidth - 40.dp).coerceAtMost(280.dp)
-        val horizontalPadding = ((maxWidth - cardWidth) / 2).coerceAtLeast(20.dp)
-        val cardHeight = cardWidth * 4f / 3f
-        val pagerState = rememberPagerState(pageCount = { documents.size })
+    val pagerState = rememberPagerState(pageCount = { documents.size })
 
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(cardHeight),
-            pageSize = PageSize.Fixed(cardWidth),
-            pageSpacing = spacing.medium,
-            userScrollEnabled = documents.size > 1,
-            contentPadding = PaddingValues(horizontal = horizontalPadding),
-        ) { page ->
-            val document = documents[page]
-            val selectionMode = selectedDocumentIds.isNotEmpty()
-            DocumentCard(
-                document = document,
-                coverImageBytes = documentCoverImages[document.id.value],
-                selected = document.id.value in selectedDocumentIds,
-                actionsExpanded = actionDocumentId == document.id.value,
-                onClick = {
-                    if (selectionMode) {
-                        onToggleSelection(document.id)
-                    } else {
-                        onDocumentClick(document.id)
-                    }
-                },
-                onLongClick = { onStartSelection(document.id) },
-                onShowActions = { onShowActions(document.id.value) },
-                onDismissActions = onDismissActions,
-                onBookmarkClick = { onBookmarkClick(document) },
-                onDeleteClick = { onDeleteClick(document) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+    HorizontalPager(
+        state = pagerState,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(HomeDocumentCardWidth * 4f / 3f),
+        pageSize = PageSize.Fixed(HomeDocumentCardWidth),
+        pageSpacing = spacing.medium,
+        userScrollEnabled = documents.size > 1,
+        contentPadding = PaddingValues(horizontal = DefaultTeddReaderSpacing.screenPadding),
+    ) { page ->
+        val document = documents[page]
+        val selectionMode = selectedDocumentIds.isNotEmpty()
+        DocumentCard(
+            document = document,
+            coverImageBytes = documentCoverImages[document.id.value],
+            selected = document.id.value in selectedDocumentIds,
+            actionsExpanded = actionDocumentId == document.id.value,
+            onClick = {
+                if (selectionMode) {
+                    onToggleSelection(document.id)
+                } else {
+                    onDocumentClick(document.id)
+                }
+            },
+            onLongClick = { onStartSelection(document.id) },
+            onShowActions = { onShowActions(document.id.value) },
+            onDismissActions = onDismissActions,
+            onBookmarkClick = { onBookmarkClick(document) },
+            onDeleteClick = { onDeleteClick(document) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
+
+private val HomeDocumentCardWidth = 180.dp
 
 @Composable
 private fun HomeMasthead(

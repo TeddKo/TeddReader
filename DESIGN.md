@@ -75,7 +75,7 @@
 - TeddIconButton: production calls require a non-empty content description and a minimum 48 dp touch target. Text glyphs are replaced by shared vector resources.
 - TeddChip: selected state is visual and semantic; labels never encode selection with punctuation; ripple stays clipped to the visible pill while Material handles the minimum touch target.
 - TeddListItem: modifier order is container size -> clickable/ripple -> internal content padding. Title/supporting text ellipsize predictably and the entire row is one coherent semantic target.
-- Home document card: portrait 3:4 card aspect uses the available width minus 20 dp side margins, capped at 280 dp; title, format, and compact metadata stay inside the card; real cover bytes render full-bleed first, then the shaped book-cover fallback; clipped ripple, selected semantics, and long-click semantics are required; overflow actions stay secondary to the full-card target.
+- Home document card: portrait 3:4 cards use a compact 180 dp width and start-align with the screen content edge on every window size, allowing unfolded foldables to show multiple covers instead of centering one oversized card; title, format, and compact metadata stay inside the card; real cover bytes render full-bleed first, then the shaped book-cover fallback; clipped ripple, selected semantics, and long-click semantics are required; overflow actions stay secondary to the full-card target.
 - TeddInfoRow: use a label/value row only when both remain readable; stack at compact width or for long values.
 - TeddTextField/TeddSearchField: expose keyboard type/action, error/supporting text, focus behavior, and IME-safe scrolling.
 - TeddSwitchRow/TeddCheckboxRow/TeddRadioRow: the parent row owns the single selection semantic and the visual control is non-interactive; no duplicate focus target.
@@ -89,7 +89,7 @@
 | Surface | 240-359 dp | 360-599 dp | 600-839 dp | 840+ dp |
 | --- | --- | --- | --- | --- |
 | Standard screens | single column, stacked actions | single column | centered bounded column | bounded content; adaptive card grid only where appropriate |
-| Home documents | single-card horizontal pager with portrait 3:4 covers | single-card horizontal pager with portrait 3:4 covers | single-card horizontal pager with portrait 3:4 covers and wider peek | single-card horizontal pager capped at 280 dp portrait cards |
+| Home documents | compact horizontal pager with portrait 3:4 covers | compact horizontal pager with portrait 3:4 covers | start-aligned horizontal pager with multiple visible covers | start-aligned horizontal pager with multiple visible covers |
 | Search/bookmarks | one result per row | one result per row | bounded single column | optional two-column bookmarks; search remains single column |
 | Document stats | stacked label/value | two-column stat cards when space allows | two columns | up to four columns |
 | Reader page | one page | one page | two pages only when each pane remains at least 280 dp | two bounded pages |
