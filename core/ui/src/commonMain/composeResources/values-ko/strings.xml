@@ -153,6 +153,7 @@
     <string name="pdf_renderer_not_connected">PDF 페이지 렌더러가 아직 연결되지 않았습니다.</string>
     <string name="pdf_page_fraction">페이지 %1$d / %2$d</string>
     <string name="pdf_page_content_description">PDF %1$d페이지</string>
+    <string name="pdf_zoom">PDF 확대</string>
     <string name="library">라이브러리</string>
     <string name="home_loading_recent_documents">최근 문서를 불러오는 중</string>
     <string name="home_no_documents_title">아직 문서가 없습니다</string>
