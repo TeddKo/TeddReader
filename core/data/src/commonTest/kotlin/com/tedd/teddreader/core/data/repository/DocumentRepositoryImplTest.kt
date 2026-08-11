@@ -27,6 +27,33 @@ import kotlin.test.assertFailsWith
 
 class DocumentRepositoryImplTest {
     @Test
+    fun getDocumentCoverReturnsNullForTxtDocuments() = runTest {
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+
+        repository.importDocument(
+            source = DocumentImportSource(
+                location = DocumentLocation(
+                    sourceUri = "file:///book.txt",
+                    displayName = "book.txt",
+                    mimeType = "text/plain",
+                ),
+                bytes = "Hello reader".encodeToByteArray(),
+            ),
+            importedAtEpochMillis = 1_000,
+        )
+
+        assertEquals(null, repository.getDocumentCover(DocumentId("file:///book.txt")))
+    }
+
+    @Test
     fun importsTxtDocumentAndIndexesSections() = runTest {
         val documentDao = FakeDocumentDao()
         val searchIndexDao = FakeDocumentSearchIndexDao()

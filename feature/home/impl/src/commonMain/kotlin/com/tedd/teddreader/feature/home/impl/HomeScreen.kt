@@ -220,6 +220,7 @@ fun HomeScreen(
                     pendingDeleteDocumentIds = setOf(document.id.value)
                 },
                 modifier = Modifier,
+                documentCoverImages = uiState.documentCoverImages,
             )
         }
 
@@ -250,6 +251,7 @@ fun HomeScreen(
                     pendingDeleteDocumentIds = setOf(document.id.value)
                 },
                 modifier = Modifier.padding(bottom = DefaultTeddReaderSpacing.large),
+                documentCoverImages = uiState.documentCoverImages,
             )
         }
     }
@@ -401,6 +403,7 @@ private fun HomeDocumentSection(
     onBookmarkClick: (DocumentMetadata) -> Unit,
     onDeleteClick: (DocumentMetadata) -> Unit,
     modifier: Modifier = Modifier,
+    documentCoverImages: Map<String, ByteArray> = emptyMap(),
     showFavoriteIcon: Boolean = false,
 ) {
     val spacing = teddReaderSpacing()
@@ -426,6 +429,7 @@ private fun HomeDocumentSection(
             onDismissActions = onDismissActions,
             onBookmarkClick = onBookmarkClick,
             onDeleteClick = onDeleteClick,
+            documentCoverImages = documentCoverImages,
         )
     }
 }
@@ -442,6 +446,7 @@ private fun HomeDocumentPager(
     onDismissActions: () -> Unit,
     onBookmarkClick: (DocumentMetadata) -> Unit,
     onDeleteClick: (DocumentMetadata) -> Unit,
+    documentCoverImages: Map<String, ByteArray>,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
@@ -449,7 +454,7 @@ private fun HomeDocumentPager(
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val cardWidth = (maxWidth - 40.dp).coerceAtMost(280.dp)
         val horizontalPadding = ((maxWidth - cardWidth) / 2).coerceAtLeast(20.dp)
-        val cardHeight = cardWidth * 3f / 4f
+        val cardHeight = cardWidth * 4f / 3f
         val pagerState = rememberPagerState(pageCount = { documents.size })
 
         HorizontalPager(
@@ -466,6 +471,7 @@ private fun HomeDocumentPager(
             val selectionMode = selectedDocumentIds.isNotEmpty()
             DocumentCard(
                 document = document,
+                coverImageBytes = documentCoverImages[document.id.value],
                 selected = document.id.value in selectedDocumentIds,
                 actionsExpanded = actionDocumentId == document.id.value,
                 onClick = {

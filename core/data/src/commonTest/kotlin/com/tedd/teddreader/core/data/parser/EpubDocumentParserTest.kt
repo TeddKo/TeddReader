@@ -24,4 +24,60 @@ class EpubDocumentParserTest {
         assertEquals("Intro Hello reader", document.sections.first().text)
         assertEquals("Second & chapter", document.sections[1].text)
     }
+
+    @Test
+    fun findsCoverHrefFromEpub3CoverImageProperty() {
+        val opf = """
+            <package>
+              <manifest>
+                <item id="cover" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+                <item id="chapter" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+            </package>
+        """.trimIndent()
+
+        assertEquals("images/cover.jpg", findEpubCoverHref(opf))
+    }
+
+    @Test
+    fun findsCoverHrefFromEpub2MetaCoverId() {
+        val opf = """
+            <package>
+              <metadata>
+                <meta name="cover" content="cover-image-id"/>
+              </metadata>
+              <manifest>
+                <item id="cover-image-id" href="images/cover.png" media-type="image/png"/>
+              </manifest>
+            </package>
+        """.trimIndent()
+
+        assertEquals("images/cover.png", findEpubCoverHref(opf))
+    }
+
+    @Test
+    fun fallsBackToRasterItemWithCoverHint() {
+        val opf = """
+            <package>
+              <manifest>
+                <item id="front-cover" href="images/front-cover.webp" media-type="image/webp"/>
+              </manifest>
+            </package>
+        """.trimIndent()
+
+        assertEquals("images/front-cover.webp", findEpubCoverHref(opf))
+    }
+
+    @Test
+    fun returnsNullWhenNoCoverExists() {
+        val opf = """
+            <package>
+              <manifest>
+                <item id="chapter" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+            </package>
+        """.trimIndent()
+
+        assertEquals(null, findEpubCoverHref(opf))
+    }
 }

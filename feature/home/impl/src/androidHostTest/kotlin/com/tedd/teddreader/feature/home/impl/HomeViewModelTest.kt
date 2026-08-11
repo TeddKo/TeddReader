@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -81,6 +82,32 @@ class HomeViewModelTest {
 
         assertFalse(viewModel.uiState.value.hasDocuments)
     }
+
+    @Test
+    fun loadsPdfCoverAndSkipsTxtCoverRequests() = runTest {
+        val repository = FakeDocumentRepository(includeSecondDocument = true)
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertContentEquals(listOf(repository.documentId.value), repository.coverRequestIds)
+        assertContentEquals(repository.pdfCoverBytes, viewModel.uiState.value.documentCoverImages[repository.documentId.value])
+        assertFalse(viewModel.uiState.value.documentCoverImages.containsKey(repository.secondDocumentId.value))
+    }
+
+    @Test
+    fun deleteRemovesLoadedCoverBytes() = runTest {
+        val repository = FakeDocumentRepository()
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.deleteDocument(repository.documentId)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.documentCoverImages.containsKey(repository.documentId.value))
+        assertFalse(viewModel.uiState.value.hasDocuments)
+    }
 }
 
 private class FakeDocumentRepository(
@@ -88,16 +115,18 @@ private class FakeDocumentRepository(
 ) : DocumentRepository {
     val documentId = DocumentId("document-1")
     val secondDocumentId = DocumentId("document-2")
+    val pdfCoverBytes = byteArrayOf(1, 3, 3, 7)
+    val coverRequestIds = mutableListOf<String>()
     private val documents = MutableStateFlow(
         buildList {
             add(
                 DocumentMetadata(
                     id = documentId,
                     location = DocumentLocation(
-                        sourceUri = "file:///document.txt",
-                        displayName = "document.txt",
+                        sourceUri = "file:///document.pdf",
+                        displayName = "document.pdf",
                     ),
-                    format = DocumentFormat.TXT,
+                    format = DocumentFormat.PDF,
                     addedAtEpochMillis = 1_000L,
                 ),
             )
@@ -120,6 +149,11 @@ private class FakeDocumentRepository(
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = documents
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
         documents.value.firstOrNull { it.id == documentId }
+
+    override suspend fun getDocumentCover(documentId: DocumentId): ByteArray? {
+        coverRequestIds += documentId.value
+        return if (documentId == this.documentId) pdfCoverBytes else null
+    }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
 
