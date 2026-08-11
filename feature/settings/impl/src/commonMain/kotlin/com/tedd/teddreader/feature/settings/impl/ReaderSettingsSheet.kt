@@ -185,13 +185,12 @@ fun ReaderSettingsSheet(
             TeddSliderRow(
                 title = stringResource(Res.string.speed),
                 value = autoScrollSpeedDraft,
-                onValueChange = { autoScrollSpeedDraft = it.roundToTenths() },
+                onValueChange = { autoScrollSpeedDraft = it.roundToHundredths() },
                 onValueChangeFinished = {
                     onAutoScrollConfigChange(uiState.autoScrollConfig.copy(speed = autoScrollSpeedDraft))
                 },
                 valueRange = AutoScrollConfig.MIN_SPEED..AutoScrollConfig.MAX_SPEED,
                 steps = SpeedSliderSteps,
-                valueLabel = "${autoScrollSpeedDraft.roundToTenths()}x",
             )
         }
     }
@@ -200,7 +199,7 @@ fun ReaderSettingsSheet(
 private const val FontSizeSliderSteps = 71
 private const val LineHeightStepPercent = 5f
 private const val LineHeightSliderSteps = 39
-private const val SpeedSliderSteps = 8
+private const val SpeedSliderSteps = 98
 
 private val settingsPageAnimationOptions = listOf(
     PageAnimation.NONE,
@@ -262,8 +261,8 @@ private fun AutoScrollMode.displayName(): String = when (this) {
     AutoScrollMode.PAGE -> stringResource(Res.string.auto_scroll_page_by_page)
 }
 
-private fun Float.roundToTenths(): Float =
-    (this * 10f).roundToInt().div(10f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
+private fun Float.roundToHundredths(): Float =
+    (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)

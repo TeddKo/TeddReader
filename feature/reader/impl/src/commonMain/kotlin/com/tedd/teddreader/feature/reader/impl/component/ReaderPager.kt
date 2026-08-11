@@ -34,8 +34,6 @@ import com.tedd.teddreader.feature.reader.impl.autoScrollDistancePx
 import com.tedd.teddreader.feature.reader.impl.autoScrollLineDelayMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -53,6 +51,7 @@ internal fun ReaderPager(
     onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
+    onPageSelected: (Int) -> Unit,
     onToggleControls: () -> Unit,
     isAutoScrollEnabled: Boolean,
     effectiveAutoScrollMode: AutoScrollMode,
@@ -60,7 +59,6 @@ internal fun ReaderPager(
     autoScrollLineHeightPx: Float,
     autoScrollDensity: Float,
     onAutoScrollStop: () -> Unit,
-    onAutoScrollAdvance: () -> Unit,
     onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
@@ -74,8 +72,7 @@ internal fun ReaderPager(
                 pageTurnMode = pageTurnMode,
                 pageMoveRequest = pageMoveRequest,
                 onPageMoveRequestConsumed = onPageMoveRequestConsumed,
-                onPreviousPage = onPreviousPage,
-                onNextPage = onNextPage,
+                onPageSelected = onPageSelected,
                 onToggleControls = onToggleControls,
                 isAutoScrollEnabled = isAutoScrollEnabled,
                 autoScrollMode = effectiveAutoScrollMode,
@@ -83,7 +80,6 @@ internal fun ReaderPager(
                 autoScrollLineHeightPx = autoScrollLineHeightPx,
                 autoScrollDensity = autoScrollDensity,
                 onAutoScrollStop = onAutoScrollStop,
-                onAutoScrollAdvance = onAutoScrollAdvance,
                 modifier = modifier,
                 content = content,
             )
@@ -206,8 +202,7 @@ private fun ReaderScrollPager(
     pageTurnMode: PageTurnMode,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
-    onPreviousPage: () -> Unit,
-    onNextPage: () -> Unit,
+    onPageSelected: (Int) -> Unit,
     onToggleControls: () -> Unit,
     isAutoScrollEnabled: Boolean,
     autoScrollMode: AutoScrollMode,
@@ -215,67 +210,44 @@ private fun ReaderScrollPager(
     autoScrollLineHeightPx: Float,
     autoScrollDensity: Float,
     onAutoScrollStop: () -> Unit,
-    onAutoScrollAdvance: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
-    val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
-    val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
-    val pageOffsets = readerScrollPageOffsets(
-        hasPreviousPage = previousPage != null,
-        hasNextPage = nextPage != null,
-    )
-    val currentIndex = readerScrollCurrentIndex(hasPreviousPage = previousPage != null)
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex)
+    val anchors = readerScrollPageAnchors(pageCount = pageCount, pageStep = pageStep)
+    val currentAnchorIndex = readerScrollAnchorIndex(page = pageKey, anchors = anchors)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentAnchorIndex)
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(pageKey, pageCount, pageStep, currentIndex) {
-        listState.scrollToItem(currentIndex)
+    LaunchedEffect(pageKey, anchors) {
+        if (anchors.isEmpty() || listState.isScrollInProgress) return@LaunchedEffect
+        if (listState.firstVisibleItemIndex != currentAnchorIndex) {
+            listState.scrollToItem(currentAnchorIndex)
+        }
     }
-    LaunchedEffect(pageMoveRequest?.id) {
+    LaunchedEffect(pageMoveRequest?.id, pageKey, pageCount, pageStep, anchors) {
         val request = pageMoveRequest ?: return@LaunchedEffect
         try {
-            val targetIndex = when (request.movement) {
-                ReaderPageMovement.Previous -> pageOffsets.indexOf(-1).takeIf { it >= 0 }
-                ReaderPageMovement.Next -> pageOffsets.indexOf(1).takeIf { it >= 0 }
+            val targetPage = readerPagerRequestedPage(pageKey, pageCount, pageStep, request.movement)
+            if (targetPage != null) {
+                val targetIndex = readerScrollAnchorIndex(page = targetPage, anchors = anchors)
+                if (targetIndex != listState.firstVisibleItemIndex) {
+                    listState.animateScrollToItem(targetIndex)
+                }
             }
-            if (targetIndex != null) listState.animateScrollToItem(targetIndex)
         } finally {
             onPageMoveRequestConsumed(request.id)
         }
     }
-    LaunchedEffect(listState, pageKey, pageCount, pageStep, isAutoScrollEnabled, autoScrollMode) {
-        snapshotFlow {
-            Triple(
-                pageOffsets.getOrNull(listState.firstVisibleItemIndex),
-                listState.canScrollBackward,
-                listState.isScrollInProgress,
-            )
-        }
-            .filter { (_, _, isScrollInProgress) -> !isScrollInProgress }
-            .map { (pageOffset, canScrollBackward, _) ->
-                readerScrollSettledPageOffset(
-                    pageOffset = pageOffset,
-                    canScrollBackward = canScrollBackward,
-                )
-            }
+    LaunchedEffect(listState, anchors) {
+        snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
-            .collect { pageOffset ->
-                when (pageOffset) {
-                    -1 -> if (previousPage != null) onPreviousPage()
-                    1 -> when {
-                        nextPage == null -> onAutoScrollStop()
-                        isAutoScrollEnabled && autoScrollMode != AutoScrollMode.PAGE -> onAutoScrollAdvance()
-                        else -> onNextPage()
-                    }
-                }
+            .collect { index ->
+                anchors.getOrNull(index)?.let(onPageSelected)
             }
     }
     LaunchedEffect(
         listState,
-        pageKey,
-        pageCount,
-        pageStep,
+        anchors,
         isAutoScrollEnabled,
         autoScrollMode,
         autoScrollSpeed,
@@ -283,7 +255,11 @@ private fun ReaderScrollPager(
         autoScrollDensity,
     ) {
         if (!isAutoScrollEnabled || autoScrollMode == AutoScrollMode.PAGE) return@LaunchedEffect
-        if (nextPage == null && !listState.canScrollForward) {
+        if (anchors.isEmpty()) {
+            onAutoScrollStop()
+            return@LaunchedEffect
+        }
+        if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
             onAutoScrollStop()
             return@LaunchedEffect
         }
@@ -301,7 +277,7 @@ private fun ReaderScrollPager(
                             elapsedMillis = elapsedMillis,
                         )
                         if (distancePx > 0f) listState.scrollBy(distancePx)
-                        if (nextPage == null && !listState.canScrollForward) {
+                        if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
                             onAutoScrollStop()
                             break
                         }
@@ -322,12 +298,12 @@ private fun ReaderScrollPager(
                     pixelsPerSecond = pixelsPerSecond,
                 )
                 while (isActive) {
-                    if (nextPage == null && !listState.canScrollForward) {
+                    if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
                         onAutoScrollStop()
                         break
                     }
                     listState.animateScrollBy(lineHeightPx)
-                    if (nextPage == null && !listState.canScrollForward) {
+                    if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
                         onAutoScrollStop()
                         break
                     }
@@ -339,7 +315,7 @@ private fun ReaderScrollPager(
         }
     }
 
-    val tapModifier = Modifier.pointerInput(isAutoScrollEnabled, pageTurnMode, onToggleControls, previousPage, nextPage) {
+    val tapModifier = Modifier.pointerInput(isAutoScrollEnabled, pageTurnMode, onToggleControls, anchors) {
         detectTapGestures { position ->
             if (isAutoScrollEnabled) {
                 onToggleControls()
@@ -347,20 +323,17 @@ private fun ReaderScrollPager(
             }
             val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
             val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
+            val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, anchors.lastIndex.coerceAtLeast(0))
             when {
                 primary < extent * PreviousTapZoneRatio -> {
-                    if (previousPage != null) {
-                        coroutineScope.launch {
-                            listState.animateScrollToItem(pageOffsets.indexOf(-1))
-                        }
+                    if (currentIndex > 0) {
+                        coroutineScope.launch { listState.animateScrollToItem(currentIndex - 1) }
                     }
                 }
 
                 primary > extent * NextTapZoneRatio -> {
-                    if (nextPage != null) {
-                        coroutineScope.launch {
-                            listState.animateScrollToItem(pageOffsets.indexOf(1))
-                        }
+                    if (currentIndex < anchors.lastIndex) {
+                        coroutineScope.launch { listState.animateScrollToItem(currentIndex + 1) }
                     }
                 }
 
@@ -376,10 +349,9 @@ private fun ReaderScrollPager(
             userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
-            items(pageOffsets) { pageOffset ->
+            items(count = anchors.size, key = { index -> anchors[index] }) { index ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
-                    if (documentPage != null) content(documentPage)
+                    content(anchors[index])
                 }
             }
         }
@@ -390,10 +362,9 @@ private fun ReaderScrollPager(
             userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
-            items(pageOffsets) { pageOffset ->
+            items(count = anchors.size, key = { index -> anchors[index] }) { index ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
-                    if (documentPage != null) content(documentPage)
+                    content(anchors[index])
                 }
             }
         }
@@ -504,18 +475,17 @@ internal enum class ReaderPageMovement(val pageOffset: Int) {
     Next(1),
 }
 
-internal fun readerScrollPageOffsets(hasPreviousPage: Boolean, hasNextPage: Boolean): List<Int> = buildList {
-    if (hasPreviousPage) add(-1)
-    add(0)
-    if (hasNextPage) add(1)
+internal fun readerScrollPageAnchors(pageCount: Int, pageStep: Int): List<Int> {
+    if (pageCount <= 0) return emptyList()
+    val step = pageStep.coerceAtLeast(1)
+    return (0 until pageCount step step).toList()
 }
 
-internal fun readerScrollCurrentIndex(hasPreviousPage: Boolean): Int = if (hasPreviousPage) 1 else 0
-
-internal fun readerScrollSettledPageOffset(pageOffset: Int?, canScrollBackward: Boolean): Int? = when (pageOffset) {
-    -1 -> if (canScrollBackward) null else -1
-    1 -> 1
-    else -> null
+internal fun readerScrollAnchorIndex(page: Int, anchors: List<Int>): Int {
+    if (anchors.isEmpty()) return 0
+    return anchors.indexOfLast { anchor -> anchor <= page }
+        .takeIf { it >= 0 }
+        ?: 0
 }
 private const val TouchSlopPx = 8f
 private const val SwipeThresholdPx = 72f

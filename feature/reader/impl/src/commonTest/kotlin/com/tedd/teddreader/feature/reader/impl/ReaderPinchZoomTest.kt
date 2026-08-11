@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ReaderPinchZoomTest {
     @Test
@@ -54,5 +55,21 @@ class ReaderPinchZoomTest {
             viewportSize = viewportSize,
         )
         assertEquals(4f, clampedZoomIn.zoom)
+    }
+
+    @Test
+    fun `reader pdf transform keeps existing transform for unspecified centroid`() {
+        val transform = readerPdfTransform(
+            current = ReaderPdfTransform(zoom = 2f, pan = Offset(120f, 80f)),
+            zoomChange = 1f,
+            panChange = Offset.Zero,
+            centroid = Offset.Unspecified,
+            viewportSize = IntSize(width = 1000, height = 800),
+        )
+
+        assertEquals(2f, transform.zoom)
+        assertEquals(Offset(120f, 80f), transform.pan)
+        assertTrue(transform.pan.x.isFinite())
+        assertTrue(transform.pan.y.isFinite())
     }
 }

@@ -147,8 +147,24 @@ class ReaderViewModelTest {
         viewModel.updateAutoScrollSpeed(0f)
         advanceUntilIdle()
 
-        assertEquals(0.1f, viewModel.uiState.value.autoScrollConfig.speed)
-        assertEquals(0.1f, readerSettingsRepository.lastAutoScrollConfig?.speed)
+        assertEquals(0.01f, viewModel.uiState.value.autoScrollConfig.speed)
+        assertEquals(0.01f, readerSettingsRepository.lastAutoScrollConfig?.speed)
+    }
+
+    @Test
+    fun openDocumentDisablesAutoScrollForReaderSessionEvenWhenSavedSettingIsEnabled() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(documentId),
+            readerSettingsRepository = FakeReaderSettingsRepository(
+                ReaderSettings(autoScrollConfig = AutoScrollConfig(enabled = true)),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.autoScrollConfig.enabled)
     }
 
     @Test
@@ -177,6 +193,24 @@ class ReaderViewModelTest {
 
         assertTrue(viewModel.uiState.value.autoScrollConfig.enabled)
         assertFalse(viewModel.uiState.value.isControlsVisible)
+    }
+
+    @Test
+    fun stopAutoScrollDisablesUiImmediatelyAndPersistsDisabledState() = runTest(dispatcher) {
+        val readerSettingsRepository = FakeReaderSettingsRepository()
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(DocumentId("doc-1")),
+            readerSettingsRepository = readerSettingsRepository,
+        )
+
+        viewModel.updateAutoScrollEnabled(true)
+        viewModel.stopAutoScroll()
+
+        assertFalse(viewModel.uiState.value.autoScrollConfig.enabled)
+
+        advanceUntilIdle()
+
+        assertFalse(readerSettingsRepository.lastAutoScrollConfig?.enabled ?: true)
     }
 
     private fun createViewModel(
@@ -276,8 +310,10 @@ private class FakeReaderRepository : ReaderRepository {
     }
 }
 
-private class FakeReaderSettingsRepository : ReaderSettingsRepository {
-    override val settings: Flow<ReaderSettings> = flowOf(ReaderSettings())
+private class FakeReaderSettingsRepository(
+    initialSettings: ReaderSettings = ReaderSettings(),
+) : ReaderSettingsRepository {
+    override val settings: Flow<ReaderSettings> = flowOf(initialSettings)
     var lastAutoScrollConfig: AutoScrollConfig? = null
 
     override suspend fun updateStyle(style: ReaderStyle) = Unit

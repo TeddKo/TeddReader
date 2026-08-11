@@ -100,6 +100,12 @@ class ReaderViewModel(
                     sections = readerDocument?.sections.orEmpty(),
                     totalPages = totalPages,
                 )
+                val documentPages = documentPages(
+                    pageIndex = pageIndex,
+                    documentUri = documentUri,
+                    isPdfMode = isPdfMode,
+                    pageWindows = pageWindows,
+                )
 
                 ReaderUiState(
                     documentTitle = metadata?.location?.displayName ?: documentId.value,
@@ -121,6 +127,7 @@ class ReaderViewModel(
                         isPdfMode = isPdfMode,
                         pageWindows = pageWindows,
                     ),
+                    documentPages = documentPages,
                     pageSlots = pageSlots(
                         currentPage = currentPage,
                         pageIndex = pageIndex,
@@ -131,7 +138,7 @@ class ReaderViewModel(
                     style = settings.style,
                     pageTurnMode = settings.pageTurnMode,
                     pageAnimation = settings.pageAnimation,
-                    autoScrollConfig = settings.autoScrollConfig,
+                    autoScrollConfig = settings.autoScrollConfig.copy(enabled = false),
                     outlineItems = outlineItems,
                     isPdfMode = isPdfMode,
                     isFavorite = metadata?.isBookmarked == true,
@@ -269,6 +276,11 @@ class ReaderViewModel(
         updateAutoScroll(_uiState.value.autoScrollConfig.copy(speed = AutoScrollConfig.clampSpeed(speed)))
     }
 
+    fun stopAutoScroll() {
+        if (!_uiState.value.autoScrollConfig.enabled) return
+        updateAutoScrollEnabled(false)
+    }
+
     fun updateBrightnessOverlayAlpha(alpha: Float) {
         _uiState.update { state -> state.copy(brightnessOverlayAlpha = alpha.coerceIn(0f, 0.8f)) }
     }
@@ -403,6 +415,24 @@ class ReaderViewModel(
         )
     }
 
+    private fun documentPages(
+        pageIndex: PageIndex,
+        documentUri: String?,
+        isPdfMode: Boolean,
+        pageWindows: List<PageWindow> = currentPageWindows,
+    ): List<ReaderPageUi> {
+        if (isPdfMode || pageIndex.total <= 0) return emptyList()
+        return (0 until pageIndex.total).mapNotNull { page ->
+            pageUi(
+                page = page,
+                pageIndex = pageIndex,
+                documentUri = documentUri,
+                isPdfMode = false,
+                pageWindows = pageWindows,
+            )
+        }
+    }
+
     fun moveToPage(page: Int) {
         val state = _uiState.value
         val total = state.pageIndex.total
@@ -458,6 +488,12 @@ class ReaderViewModel(
         currentPageWindows = pageWindows
         val currentPage = _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         val pageIndex = PageIndex(current = currentPage, total = pageWindows.size)
+        val documentPages = documentPages(
+            pageIndex = pageIndex,
+            documentUri = _uiState.value.documentUri,
+            isPdfMode = false,
+            pageWindows = pageWindows,
+        )
         _uiState.update {
             val currentPageUi = currentPageUi(
                 pageIndex = pageIndex,
@@ -483,6 +519,7 @@ class ReaderViewModel(
                     isPdfMode = false,
                     pageWindows = pageWindows,
                 ),
+                documentPages = documentPages,
                 pageSlots = pageSlots(
                     currentPage = currentPage,
                     pageIndex = pageIndex,

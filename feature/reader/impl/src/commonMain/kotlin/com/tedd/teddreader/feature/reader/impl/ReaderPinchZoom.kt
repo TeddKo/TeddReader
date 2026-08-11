@@ -49,8 +49,10 @@ internal fun readerPdfTransform(
         x = viewportSize.width / 2f,
         y = viewportSize.height / 2f,
     )
-    val focalOffset = centroid - center
-    val unclampedPan = current.pan * ratio + focalOffset * (1f - ratio) + panChange
+    val safeCentroid = if (centroid.x.isFinite() && centroid.y.isFinite()) centroid else center
+    val safePanChange = if (panChange.x.isFinite() && panChange.y.isFinite()) panChange else Offset.Zero
+    val focalOffset = safeCentroid - center
+    val unclampedPan = current.pan * ratio + focalOffset * (1f - ratio) + safePanChange
     val maxPanX = viewportSize.width / 2f * (newZoom - 1f)
     val maxPanY = viewportSize.height / 2f * (newZoom - 1f)
 
