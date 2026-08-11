@@ -178,9 +178,10 @@
     <string name="document_pages">%1$d pages</string>
     <string name="unsupported_destination_title">Unknown</string>
     <string name="add_documents">Add documents</string>
-    <string name="home_add_documents_description">Choose files from your device or Google Drive, or choose a folder. Sign in to Google Drive from the system file picker.</string>
+    <string name="home_add_documents_description">Choose files from your device, open Google Drive, or choose a folder.</string>
     <string name="select_files">Select files</string>
     <string name="select_folder">Select folder</string>
+    <string name="google_drive">Google Drive</string>
     <string name="home_selection_count">%1$d selected</string>
     <string name="remove_from_library_multiple_message">%1$d documents and their reading data will be removed from TeddReader. The original files will stay on your device.</string>
     <string name="select_document">Select document</string>

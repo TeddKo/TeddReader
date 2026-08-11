@@ -18,6 +18,7 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.findLibrary("androidx-activity-compose").get())
+            implementation(libs.findLibrary("google-play-services-auth").get())
         }
         commonMain.dependencies {
             implementation(project(":core:common"))

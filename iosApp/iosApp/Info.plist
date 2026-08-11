@@ -4,5 +4,22 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>GoogleDriveClientID</key>
+	<string>$(GOOGLE_DRIVE_IOS_CLIENT_ID)</string>
+	<key>GoogleDriveRedirectURI</key>
+	<string>$(GOOGLE_DRIVE_IOS_REDIRECT_URI)</string>
+	<key>GoogleDriveURLScheme</key>
+	<string>$(GOOGLE_DRIVE_IOS_URL_SCHEME)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_DRIVE_IOS_URL_SCHEME)</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

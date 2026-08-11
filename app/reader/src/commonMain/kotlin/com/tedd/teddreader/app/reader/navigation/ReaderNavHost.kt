@@ -155,6 +155,19 @@ fun ReaderNavHost(
                                 onError = { message -> homeImportMessage = message },
                             )
                         },
+                        onOpenGoogleDriveClick = documentImporter
+                            .takeIf { it.supportsGoogleDrivePicker }
+                            ?.let {
+                                {
+                                    it.openGoogleDrive(
+                                        onImported = { documentIds ->
+                                            homeImportMessage = null
+                                            importedDocumentRoute(documentIds)?.let(backStack::add)
+                                        },
+                                        onError = { message -> homeImportMessage = message },
+                                    )
+                                }
+                            },
                         onDocumentClick = { documentId ->
                             homeImportMessage = null
                             backStack.add(ReaderRoute(documentId.value))
