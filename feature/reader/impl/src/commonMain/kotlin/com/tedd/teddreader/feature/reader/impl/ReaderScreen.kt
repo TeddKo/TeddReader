@@ -40,12 +40,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -370,6 +373,12 @@ private fun ReaderContent(
         keepScreenOn = uiState.keepScreenOn,
     )
     val movieTransitionProgress = remember { mutableFloatStateOf(0f) }
+    val textCommittedFontSize = uiState.style.fontSizeSp.roundToInt()
+    var textGestureScale by remember { mutableFloatStateOf(1f) }
+    var isTransformGestureActive by remember { mutableStateOf(false) }
+    var pdfZoom by rememberSaveable(uiState.documentUri) { mutableFloatStateOf(1f) }
+    var pdfPan by remember(uiState.documentUri, uiState.pageIndex.current) { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
 
     Box(
         modifier = modifier
@@ -379,6 +388,7 @@ private fun ReaderContent(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
+                .onSizeChanged { viewportSize = it }
                 .drawWithContent {
                     drawContent()
                     if (uiState.pageAnimation == PageAnimation.MOVIE_CAROUSEL) {
@@ -390,6 +400,23 @@ private fun ReaderContent(
             val density = LocalDensity.current
             val systemBarsInsets = readerSystemBarsInsets()
             val paneCount = readerPaneCount(maxWidth.value)
+            val pdfTransform = ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan)
+            val contentTransformModifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .graphicsLayer {
+                    if (uiState.isPdfMode) {
+                        scaleX = pdfTransform.zoom
+                        scaleY = pdfTransform.zoom
+                        translationX = pdfTransform.pan.x
+                        translationY = pdfTransform.pan.y
+                    } else {
+                        scaleX = textGestureScale
+                        scaleY = textGestureScale
+                        translationX = 0f
+                        translationY = 0f
+                    }
+                }
             val actionBarPageIndex = readerSpreadPageIndex(
                 currentPage = uiState.pageIndex.current,
                 totalPages = uiState.pageIndex.total,
@@ -462,21 +489,39 @@ private fun ReaderContent(
                 onAutoScrollStop = { onAutoScrollEnabledChange(false) },
                 onAutoScrollAdvance = moveNext,
                 onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
-                modifier = Modifier.readerControlsDragObserver(
-                    controlsVisible = uiState.isControlsVisible,
-                    onToggleControls = onToggleControls,
-                ),
+                modifier = Modifier
+                    .readerPinchZoomGesture(
+                        enabled = uiState.pageIndex.total > 0,
+                        viewportSize = viewportSize,
+                        isPdfMode = uiState.isPdfMode,
+                        textStartFontSizeSp = textCommittedFontSize,
+                        pdfTransform = pdfTransform,
+                        isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
+                        onAutoScrollEnabledChange = onAutoScrollEnabledChange,
+                        onGestureActiveChange = { isTransformGestureActive = it },
+                        onTextGestureScaleChange = { textGestureScale = it },
+                        onTextFontSizeCommit = { onFontSizeChange(it.toFloat()) },
+                        onPdfTransformChange = { next ->
+                            pdfZoom = next.zoom
+                            pdfPan = next.pan
+                        },
+                    )
+                    .readerControlsDragObserver(
+                        controlsVisible = uiState.isControlsVisible,
+                        gestureBlocked = isTransformGestureActive,
+                        onToggleControls = onToggleControls,
+                    ),
             ) { page ->
                 if (paneCount == 1) {
                     ReaderPagePane(
                         uiState = uiState,
                         page = page,
                         onViewportSizeChanged = onViewportSizeChanged,
+                        modifier = contentTransformModifier,
                     )
                 } else {
                     Row(
-                        modifier = Modifier
-                            .fillMaxSize()
+                        modifier = contentTransformModifier
                             .background(uiState.style.readerColors().background),
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
                     ) {
@@ -594,6 +639,18 @@ private fun ReaderContent(
                 onKeepScreenOnChange = onKeepScreenOnChange,
                 onFullscreenChange = onFullscreenChange,
                 onShowProgressChange = onShowProgressChange,
+                pdfZoom = pdfZoom,
+                onPdfZoomChange = { nextZoom ->
+                    val snappedZoom = nextZoom
+                        .coerceIn(ReaderPdfZoomRange.start, ReaderPdfZoomRange.endInclusive)
+                    val clampedTransform = readerClampedPdfTransform(
+                        zoom = snappedZoom,
+                        pan = pdfPan,
+                        viewportSize = viewportSize,
+                    )
+                    pdfZoom = clampedTransform.zoom
+                    pdfPan = clampedTransform.pan
+                },
                 onFontSizeChange = onFontSizeChange,
                 onLineHeightChange = onLineHeightChange,
                 onFontFamilyChange = onFontFamilyChange,
@@ -647,7 +704,6 @@ private fun ReaderPagePane(
             pageIndex = uiState.pageIndexFor(page),
             modifier = modifier.fillMaxSize(),
             documentUri = uiState.pageSlot(page)?.documentUri ?: uiState.documentUri,
-            zoom = uiState.pdfZoom,
             rotationDegrees = uiState.pdfRotationDegrees,
         )
     } else {
@@ -718,6 +774,8 @@ private fun ReaderActiveSheet(
     onKeepScreenOnChange: (Boolean) -> Unit,
     onFullscreenChange: (Boolean) -> Unit,
     onShowProgressChange: (Boolean) -> Unit,
+    pdfZoom: Float,
+    onPdfZoomChange: (Float) -> Unit,
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
@@ -777,6 +835,8 @@ private fun ReaderActiveSheet(
                 )
                 ReaderOptionSheet.View -> ViewOptionsSheet(
                     uiState = uiState,
+                    pdfZoom = pdfZoom,
+                    onPdfZoomChange = onPdfZoomChange,
                     onKeepScreenOnChange = onKeepScreenOnChange,
                     onFullscreenChange = onFullscreenChange,
                     onShowProgressChange = onShowProgressChange,
@@ -932,6 +992,8 @@ private fun BrightnessOptionsSheet(
 @Composable
 private fun ViewOptionsSheet(
     uiState: ReaderUiState,
+    pdfZoom: Float,
+    onPdfZoomChange: (Float) -> Unit,
     onKeepScreenOnChange: (Boolean) -> Unit,
     onFullscreenChange: (Boolean) -> Unit,
     onShowProgressChange: (Boolean) -> Unit,
@@ -941,6 +1003,18 @@ private fun ViewOptionsSheet(
         TeddSwitchRow(stringResource(Res.string.keep_screen_on), uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow(stringResource(Res.string.fullscreen_reader), uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow(stringResource(Res.string.show_progress), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+        if (uiState.isPdfMode) {
+            TeddSliderRow(
+                title = stringResource(Res.string.pdf_zoom),
+                value = pdfZoom * 100f,
+                onValueChange = { onPdfZoomChange(it / 100f) },
+                onValueChangeFinished = null,
+                valueRange = 100f..400f,
+                steps = 11,
+                valueLabel = "${(pdfZoom * 100f).roundToInt()}%",
+                enabled = !uiState.isSavingSettings,
+            )
+        }
     }
 }
 
@@ -967,7 +1041,7 @@ private fun FontOptionsSheet(
             value = fontSizeDraft,
             onValueChange = onFontSizeDraftChange,
             onValueChangeFinished = { onFontSizeChange(fontSizeDraft) },
-            valueRange = 8f..80f,
+            valueRange = ReaderPinchFontSizeRange,
             steps = FontSizeSliderSteps,
             valueLabel = "${fontSizeDraft.roundToInt()}sp",
             enabled = !uiState.isSavingSettings,
@@ -1322,9 +1396,11 @@ private fun previewReaderUiState(
 
 private fun Modifier.readerControlsDragObserver(
     controlsVisible: Boolean,
+    gestureBlocked: Boolean,
     onToggleControls: () -> Unit,
 ): Modifier = composed {
     val latestControlsVisible by rememberUpdatedState(controlsVisible)
+    val latestGestureBlocked by rememberUpdatedState(gestureBlocked)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
 
     pointerInput(Unit) {
@@ -1336,6 +1412,7 @@ private fun Modifier.readerControlsDragObserver(
 
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (latestGestureBlocked || event.changes.count { it.pressed } > 1) break
                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                 if (!change.pressed) break
 

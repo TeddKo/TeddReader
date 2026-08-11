@@ -65,7 +65,7 @@
 - Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
-- Reader: content always owns the full viewport. The page is the hero; controls use translucent/tonal edge chrome rather than floating card clusters. Visible chrome hides once a content drag crosses touch slop, while the pager continues the same gesture and animation. Center tap toggles chrome; page-edge taps and swipes navigate.
+- Reader: content always owns the full viewport. The page is the hero; controls use translucent/tonal edge chrome rather than floating card clusters. Visible chrome hides once a content drag crosses touch slop, while the pager continues the same gesture and animation. Center tap toggles chrome; page-edge taps and swipes navigate. TXT/EPUB two-finger pinch previews scale immediately and commits one font-size save/repage on release. PDF keeps session-local 1x-4x zoom, resets pan on page change, and exposes a View sheet slider fallback.
 - Settings and reader sheets: options are grouped by user job, not implementation type. Draft slider values update previews immediately and commit once at gesture end. Unsupported future controls are omitted rather than shown disabled.
 - Placeholder/unknown destination: use a standard top bar, concise explanation, and one recovery action.
 
@@ -97,7 +97,7 @@
 | Modal sheets | full safe width | full safe width | capped width | capped width |
 
 ## Interaction model
-- Pointer input observers never consume events unless they own the gesture outcome.
+- Pointer input observers never consume events unless they own the gesture outcome. Reader multi-touch owns the Initial pass ahead of page navigation, keeps ownership until every pointer lifts, and PDF one-finger pan only takes over while zoom > 1.
 - Gesture visibility state is captured at gesture start; callbacks use updated state without restarting pointer input.
 - Destructive actions require explicit confirmation and are never adjacent to the primary action with equal emphasis. Home multi-select starts on long press, tap toggles selection across Favorites and Recent, and selections that disappear from filtered/visible content are removed immediately.
 - Navigation and screen actions remain available to keyboard, accessibility services, and pointer input; gesture shortcuts are additive.
