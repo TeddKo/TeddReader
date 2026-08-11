@@ -178,7 +178,7 @@
     <string name="document_pages">%1$d pages</string>
     <string name="unsupported_destination_title">Unknown</string>
     <string name="add_documents">Add documents</string>
-    <string name="home_add_documents_description">Choose files or a folder to import from your device.</string>
+    <string name="home_add_documents_description">Choose files from your device or Google Drive, or choose a folder. Sign in to Google Drive from the system file picker.</string>
     <string name="select_files">Select files</string>
     <string name="select_folder">Select folder</string>
     <string name="home_selection_count">%1$d selected</string>
