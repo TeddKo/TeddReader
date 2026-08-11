@@ -37,19 +37,76 @@ class ReaderPagerPageTargetTest {
     }
 
     @Test
-    fun scrollPagerUsesOnlyAvailableOffsets() {
-        assertEquals(listOf(0, 1), readerScrollPageOffsets(hasPreviousPage = false, hasNextPage = true))
-        assertEquals(listOf(-1, 0), readerScrollPageOffsets(hasPreviousPage = true, hasNextPage = false))
-        assertEquals(listOf(-1, 0, 1), readerScrollPageOffsets(hasPreviousPage = true, hasNextPage = true))
-        assertEquals(0, readerScrollCurrentIndex(hasPreviousPage = false))
-        assertEquals(1, readerScrollCurrentIndex(hasPreviousPage = true))
+    fun `scroll anchors cover whole document and map page to anchor index`() {
+        assertEquals(listOf(0, 1, 2, 3, 4), readerScrollPageAnchors(pageCount = 5, pageStep = 1))
+        assertEquals(listOf(0, 2, 4), readerScrollPageAnchors(pageCount = 5, pageStep = 2))
+        assertEquals(emptyList(), readerScrollPageAnchors(pageCount = 0, pageStep = 1))
+
+        assertEquals(1, readerScrollAnchorIndex(page = 3, anchors = listOf(0, 2, 4)))
+        assertEquals(2, readerScrollAnchorIndex(page = 4, anchors = listOf(0, 2, 4)))
     }
 
     @Test
-    fun scrollPagerSettledOffsetRequiresPreviousBoundaryBeforeBackwardTurn() {
-        assertNull(readerScrollSettledPageOffset(pageOffset = -1, canScrollBackward = true))
-        assertEquals(-1, readerScrollSettledPageOffset(pageOffset = -1, canScrollBackward = false))
-        assertEquals(1, readerScrollSettledPageOffset(pageOffset = 1, canScrollBackward = true))
-        assertNull(readerScrollSettledPageOffset(pageOffset = 0, canScrollBackward = true))
+    fun foundationPagerDragTargetOffsetFollowsManualFlingContract() {
+        assertEquals(
+            0,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = -40f,
+                velocityPxPerSecond = -100f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = true,
+                hasNextPage = true,
+            ),
+        )
+        assertEquals(
+            1,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = -40f,
+                velocityPxPerSecond = -3000f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = true,
+                hasNextPage = true,
+            ),
+        )
+        assertEquals(
+            -1,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = 40f,
+                velocityPxPerSecond = 3000f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = true,
+                hasNextPage = true,
+            ),
+        )
+        assertEquals(
+            1,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = -400f,
+                velocityPxPerSecond = -100f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = true,
+                hasNextPage = true,
+            ),
+        )
+        assertEquals(
+            0,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = -40f,
+                velocityPxPerSecond = -3000f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = true,
+                hasNextPage = false,
+            ),
+        )
+        assertEquals(
+            0,
+            foundationPagerDragTargetOffset(
+                dragDistancePx = 40f,
+                velocityPxPerSecond = 3000f,
+                viewportExtentPx = 1000f,
+                hasPreviousPage = false,
+                hasNextPage = true,
+            ),
+        )
     }
 }

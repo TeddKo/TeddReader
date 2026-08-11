@@ -3,12 +3,14 @@ package com.tedd.teddreader.feature.reader.impl.component
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -100,12 +102,10 @@ internal fun FoundationEffectPager(
     val settleAnimationSpec = remember {
         tween<Float>(FoundationPagerSettleMillis, easing = FastOutSlowInEasing)
     }
-    val flingBehavior = PagerDefaults.flingBehavior(
-        state = pagerState,
-        snapAnimationSpec = settleAnimationSpec,
-    )
     val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
     val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    var isManualDragInProgress by remember { mutableStateOf(false) }
+    val manualDragDistancePx = remember { floatArrayOf(0f) }
     LaunchedEffect(pageMoveRequest?.id) {
         val request = pageMoveRequest ?: return@LaunchedEffect
         try {
@@ -150,10 +150,10 @@ internal fun FoundationEffectPager(
     val latestOnPreviousPage by rememberUpdatedState(onPreviousPage)
     val latestOnNextPage by rememberUpdatedState(onNextPage)
     val latestOnMovieTransitionProgressChanged by rememberUpdatedState(onMovieTransitionProgressChanged)
-    LaunchedEffect(pagerState, pageKey, pageCount, pageStep) {
-        snapshotFlow { pagerState.currentPage to pagerState.isScrollInProgress }
-            .filter { (_, isScrollInProgress) -> !isScrollInProgress }
-            .map { (page, _) -> page }
+    LaunchedEffect(pagerState, pageKey, pageCount, pageStep, isManualDragInProgress) {
+        snapshotFlow { Triple(pagerState.currentPage, pagerState.isScrollInProgress, isManualDragInProgress) }
+            .filter { (_, isScrollInProgress, manualInProgress) -> !isScrollInProgress && !manualInProgress }
+            .map { (page, _, _) -> page }
             .distinctUntilChanged()
             .collect { page ->
                 when (page) {
@@ -303,6 +303,53 @@ internal fun FoundationEffectPager(
         }
     }
 
+    val manualDragModifier = if (isAutoScrollEnabled) {
+        Modifier
+    } else {
+        Modifier.draggable(
+            orientation = if (axis == FoundationPagerAxis.Horizontal) Orientation.Horizontal else Orientation.Vertical,
+            state = rememberDraggableState { delta ->
+                val nextDistance = manualDragDistancePx[0] + delta
+                val blocked = foundationPagerShouldBlockDrag(
+                    primaryDelta = nextDistance,
+                    hasPreviousPage = previousPage != null,
+                    hasNextPage = nextPage != null,
+                )
+                if (!blocked) {
+                    manualDragDistancePx[0] = nextDistance
+                    pagerState.dispatchRawDelta(-delta)
+                }
+            },
+            onDragStarted = {
+                isManualDragInProgress = true
+                manualDragDistancePx[0] = 0f
+            },
+            onDragStopped = { velocity ->
+                val targetOffset = foundationPagerDragTargetOffset(
+                    dragDistancePx = manualDragDistancePx[0],
+                    velocityPxPerSecond = velocity,
+                    viewportExtentPx = pagerState.layoutInfo.viewportSize.let {
+                        if (axis == FoundationPagerAxis.Horizontal) it.width.toFloat() else it.height.toFloat()
+                    },
+                    hasPreviousPage = previousPage != null,
+                    hasNextPage = nextPage != null,
+                )
+                manualDragDistancePx[0] = 0f
+                coroutineScope.launch {
+                    try {
+                        pagerState.animateScrollToPage(
+                            page = (FoundationCenterPage + targetOffset).coerceIn(0, FoundationPagerPageCount - 1),
+                            animationSpec = settleAnimationSpec,
+                        )
+                    } finally {
+                        isManualDragInProgress = false
+                        manualDragDistancePx[0] = 0f
+                    }
+                }
+            },
+        )
+    }
+
     val tapModifier = Modifier.pointerInput(axis, pagerState, isAutoScrollEnabled, onToggleControls, previousPage, nextPage) {
         detectTapGestures { position ->
             if (isAutoScrollEnabled) {
@@ -356,15 +403,15 @@ internal fun FoundationEffectPager(
     val pagerModifier = modifier
         .fillMaxSize()
         .then(gestureModifier)
+        .then(manualDragModifier)
         .then(tapModifier)
 
     if (axis == FoundationPagerAxis.Vertical) {
         VerticalPager(
             state = pagerState,
             modifier = pagerModifier,
-            userScrollEnabled = !isAutoScrollEnabled,
+            userScrollEnabled = false,
             beyondViewportPageCount = 1,
-            flingBehavior = flingBehavior,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
             FoundationPageFlipAwareBox(
@@ -387,9 +434,8 @@ internal fun FoundationEffectPager(
         HorizontalPager(
             state = pagerState,
             modifier = pagerModifier,
-            userScrollEnabled = !isAutoScrollEnabled,
+            userScrollEnabled = false,
             beyondViewportPageCount = 1,
-            flingBehavior = flingBehavior,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
             FoundationPageFlipAwareBox(
@@ -1269,6 +1315,26 @@ internal fun foundationMovieCarouselSpec(
     )
 }
 
+internal fun foundationPagerDragTargetOffset(
+    dragDistancePx: Float,
+    velocityPxPerSecond: Float,
+    viewportExtentPx: Float,
+    hasPreviousPage: Boolean,
+    hasNextPage: Boolean,
+): Int {
+    val extent = viewportExtentPx.coerceAtLeast(1f)
+    val rawTarget = when {
+        abs(velocityPxPerSecond) >= FoundationManualFlingVelocityThresholdPxPerSecond -> if (velocityPxPerSecond < 0f) 1 else -1
+        abs(dragDistancePx) >= extent * FoundationManualDragDistanceThresholdRatio -> if (dragDistancePx < 0f) 1 else -1
+        else -> 0
+    }
+    return when {
+        rawTarget < 0 && !hasPreviousPage -> 0
+        rawTarget > 0 && !hasNextPage -> 0
+        else -> rawTarget
+    }
+}
+
 internal fun foundationPagerShouldBlockDrag(
     primaryDelta: Float,
     hasPreviousPage: Boolean,
@@ -1278,6 +1344,9 @@ internal fun foundationPagerShouldBlockDrag(
     primaryDelta < 0f -> !hasNextPage
     else -> false
 }
+
+private const val FoundationManualFlingVelocityThresholdPxPerSecond = 1000f
+private const val FoundationManualDragDistanceThresholdRatio = 0.25f
 
 private data class FoundationPagerGestureState(
     val start: Offset = Offset.Zero,

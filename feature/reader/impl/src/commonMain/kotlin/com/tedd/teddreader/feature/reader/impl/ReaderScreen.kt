@@ -27,6 +27,7 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -124,7 +125,7 @@ fun ReaderRouteScreen(
     var lineHeightPercentDraft by rememberSaveable(documentId, committedLineHeightPercent) {
         mutableStateOf(committedLineHeightPercent.toFloat())
     }
-    val committedAutoScrollSpeed = uiState.autoScrollConfig.speed.roundToTenths()
+    val committedAutoScrollSpeed = uiState.autoScrollConfig.speed.roundToHundredths()
     var autoScrollSpeedDraft by rememberSaveable(documentId, committedAutoScrollSpeed) {
         mutableStateOf(committedAutoScrollSpeed)
     }
@@ -137,6 +138,10 @@ fun ReaderRouteScreen(
 
     LaunchedEffect(documentId) {
         viewModel.openDocument(documentId)
+    }
+
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.stopAutoScroll() }
     }
 
     LaunchedEffect(jumpLocation) {
@@ -200,7 +205,7 @@ fun ReaderRouteScreen(
             lineHeightPercentDraft = (it / LineHeightStepPercent).roundToInt() * LineHeightStepPercent
         },
         autoScrollSpeedDraft = autoScrollSpeedDraft,
-        onAutoScrollSpeedDraftChange = { autoScrollSpeedDraft = it.roundToTenths() },
+        onAutoScrollSpeedDraftChange = { autoScrollSpeedDraft = it.roundToHundredths() },
         bottomSliderValue = bottomSliderValue,
         onBottomSliderValueChange = { bottomSliderValue = it },
         isActionMenuExpanded = isActionMenuExpanded,
@@ -480,6 +485,7 @@ private fun ReaderContent(
                 },
                 onPreviousPage = movePrevious,
                 onNextPage = moveNext,
+                onPageSelected = onGoToPage,
                 onToggleControls = onToggleControls,
                 isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                 effectiveAutoScrollMode = effectiveAutoScrollMode,
@@ -487,7 +493,6 @@ private fun ReaderContent(
                 autoScrollLineHeightPx = autoScrollLineHeightPx,
                 autoScrollDensity = density.density,
                 onAutoScrollStop = { onAutoScrollEnabledChange(false) },
-                onAutoScrollAdvance = moveNext,
                 onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
                 modifier = Modifier
                     .readerPinchZoomGesture(
@@ -1168,7 +1173,6 @@ private fun AutoScrollOptionsSheet(
             onValueChangeFinished = { onSpeedChange(speedDraft) },
             valueRange = AutoScrollConfig.MIN_SPEED..AutoScrollConfig.MAX_SPEED,
             steps = SpeedSliderSteps,
-            valueLabel = formatSpeedLabel(speedDraft),
             enabled = !uiState.isSavingSettings,
         )
     }
@@ -1192,7 +1196,7 @@ private fun ControlOptionsSheet(
 private const val FontSizeSliderSteps = 71
 private const val LineHeightStepPercent = 5f
 private const val LineHeightSliderSteps = 39
-private const val SpeedSliderSteps = 8
+private const val SpeedSliderSteps = 98
 
 internal val readerPageTurnModeOptions: List<PageTurnMode> = listOf(
     PageTurnMode.HORIZONTAL,
@@ -1211,10 +1215,8 @@ internal val readerPageAnimationOptions: List<PageAnimation> = listOf(
     PageAnimation.PAGE_FLIP,
 )
 
-private fun formatSpeedLabel(speed: Float): String = "${speed.roundToTenths()}x"
-
-private fun Float.roundToTenths(): Float =
-    (this * 10f).roundToInt().div(10f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
+private fun Float.roundToHundredths(): Float =
+    (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
 internal fun readerPaneCount(widthDp: Float): Int =
     if (widthDp >= TwoPaneMinWidthDp) 2 else 1
@@ -1285,12 +1287,14 @@ private const val ReaderPaneGutterDp = 16f
 private const val TwoPaneMinWidthDp = ReaderPaneMinWidthDp * 2f + ReaderPaneGutterDp
 
 internal fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? =
-    pageSlots.firstOrNull { it.page == page } ?: when {
-        previousPage?.page == page -> previousPage
-        currentPage.page == page -> currentPage
-        nextPage?.page == page -> nextPage
-        else -> null
-    }
+    pageSlots.firstOrNull { it.page == page }
+        ?: documentPages.getOrNull(page)
+        ?: when {
+            previousPage?.page == page -> previousPage
+            currentPage.page == page -> currentPage
+            nextPage?.page == page -> nextPage
+            else -> null
+        }
 
 private fun ReaderUiState.pageIndexFor(page: Int): PageIndex {
     if (pageIndex.total <= 0) return pageIndex

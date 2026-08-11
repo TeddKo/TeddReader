@@ -115,9 +115,9 @@ class ReaderPreferencesSerializerTest {
             ).autoScrollConfig,
         )
         assertEquals(
-            AutoScrollConfig(enabled = true, mode = AutoScrollMode.PAGE, speed = 0.1f),
+            AutoScrollConfig(enabled = true, mode = AutoScrollMode.PAGE, speed = 0.01f),
             ReaderPreferencesSerializer.readFrom(
-                Buffer().writeUtf8("""{"autoScrollConfig":{"enabled":true,"mode":"PAGE","speed":0.05}}"""),
+                Buffer().writeUtf8("""{"autoScrollConfig":{"enabled":true,"mode":"PAGE","speed":0.005}}"""),
             ).autoScrollConfig,
         )
     }

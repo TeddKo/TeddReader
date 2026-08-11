@@ -25,6 +25,7 @@ data class ReaderUiState(
     val currentPage: ReaderPageUi = ReaderPageUi(),
     val nextPage: ReaderPageUi? = null,
     val pageSlots: List<ReaderPageUi> = emptyList(),
+    val documentPages: List<ReaderPageUi> = emptyList(),
     val style: ReaderStyle = ReaderStyle(),
     val isControlsVisible: Boolean = true,
     val isLoading: Boolean = true,

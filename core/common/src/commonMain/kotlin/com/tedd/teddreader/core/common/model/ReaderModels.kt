@@ -223,7 +223,7 @@ data class AutoScrollConfig(
     }
 
     companion object {
-        const val MIN_SPEED: Float = 0.1f
+        const val MIN_SPEED: Float = 0.01f
         const val MAX_SPEED: Float = 1f
 
         fun clampSpeed(speed: Float): Float = speed.coerceIn(MIN_SPEED, MAX_SPEED)
