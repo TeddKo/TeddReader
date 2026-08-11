@@ -2,6 +2,7 @@ package com.tedd.teddreader.app.reader.importer
 
 import androidx.compose.runtime.Composable
 import com.tedd.teddreader.core.common.model.DocumentId
+import kotlinx.coroutines.CancellationException
 
 data class ExternalDocumentImportRequest(
     val sourceUri: String,
@@ -17,8 +18,13 @@ data class ExternalDocumentImportRequest(
 }
 
 interface DocumentImporter {
-    fun open(
-        onImported: (DocumentId) -> Unit,
+    fun openFiles(
+        onImported: (List<DocumentId>) -> Unit,
+        onError: (String) -> Unit,
+    )
+
+    fun openFolder(
+        onImported: (List<DocumentId>) -> Unit,
         onError: (String) -> Unit,
     )
 
@@ -31,3 +37,37 @@ interface DocumentImporter {
 
 @Composable
 internal expect fun rememberDocumentImporter(): DocumentImporter
+
+internal data class DocumentImportBatchResult(
+    val importedDocumentIds: List<DocumentId>,
+    val failedCount: Int,
+)
+
+internal suspend fun <T> importDocuments(
+    items: Collection<T>,
+    importItem: suspend (T) -> DocumentId,
+): DocumentImportBatchResult {
+    val importedDocumentIds = mutableListOf<DocumentId>()
+    var failedCount = 0
+
+    items.forEach { item ->
+        try {
+            importedDocumentIds += importItem(item)
+        } catch (cancellationException: CancellationException) {
+            throw cancellationException
+        } catch (_: Throwable) {
+            failedCount += 1
+        }
+    }
+
+    return DocumentImportBatchResult(
+        importedDocumentIds = importedDocumentIds,
+        failedCount = failedCount,
+    )
+}
+
+internal fun DocumentImportBatchResult.toImportErrorMessage(): String? = when {
+    importedDocumentIds.isEmpty() && failedCount == 0 -> "No supported documents found."
+    failedCount == 0 -> null
+    else -> "$failedCount documents failed to import."
+}

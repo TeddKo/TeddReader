@@ -26,6 +26,7 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
 import com.tedd.teddreader.app.reader.importer.DocumentImporter
 import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
+import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.parseReaderLocation
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
@@ -81,6 +82,9 @@ internal fun storageTokenToNavKey(token: String): Any = when {
     else -> error("Unsupported navigation token: $token")
 }
 
+internal fun importedDocumentRoute(documentIds: List<DocumentId>): ReaderRoute? =
+    documentIds.singleOrNull()?.let { documentId -> ReaderRoute(documentId.value) }
+
 @Composable
 fun ReaderNavHost(
     documentImporter: DocumentImporter,
@@ -133,11 +137,20 @@ fun ReaderNavHost(
                     HomeRouteScreen(
                         importMessage = homeImportMessage,
                         onSettingsClick = { backStack.add(SettingsRoute) },
-                        onOpenFileClick = {
-                            documentImporter.open(
-                                onImported = { documentId ->
+                        onOpenFilesClick = {
+                            documentImporter.openFiles(
+                                onImported = { documentIds ->
                                     homeImportMessage = null
-                                    backStack.add(ReaderRoute(documentId.value))
+                                    importedDocumentRoute(documentIds)?.let(backStack::add)
+                                },
+                                onError = { message -> homeImportMessage = message },
+                            )
+                        },
+                        onOpenFolderClick = {
+                            documentImporter.openFolder(
+                                onImported = { documentIds ->
+                                    homeImportMessage = null
+                                    importedDocumentRoute(documentIds)?.let(backStack::add)
                                 },
                                 onError = { message -> homeImportMessage = message },
                             )

@@ -25,8 +25,7 @@ class IosDocumentFileSource : DocumentFileSource {
         mimeType: String? = null,
     ): DocumentLocation {
         val data = NSData.dataWithContentsOfFile(sourcePath) ?: error("Cannot open document: $sourcePath")
-        val destination = "${NSHomeDirectory()}/Documents/$displayName"
-        NSFileManager.defaultManager.removeItemAtPath(destination, error = null)
+        val destination = uniqueDestinationPath(displayName)
         check(
             NSFileManager.defaultManager.copyItemAtPath(
                 srcPath = sourcePath,
@@ -40,6 +39,20 @@ class IosDocumentFileSource : DocumentFileSource {
             mimeType = mimeType,
             sizeBytes = data.length.toLong(),
         )
+    }
+
+    private fun uniqueDestinationPath(displayName: String): String {
+        val directory = "${NSHomeDirectory()}/Documents"
+        val dotIndex = displayName.lastIndexOf('.')
+        val name = if (dotIndex > 0) displayName.substring(0, dotIndex) else displayName
+        val extension = if (dotIndex > 0) displayName.substring(dotIndex) else ""
+        var candidate = "$directory/$displayName"
+        var suffix = 2
+        while (NSFileManager.defaultManager.fileExistsAtPath(candidate)) {
+            candidate = "$directory/$name-$suffix$extension"
+            suffix += 1
+        }
+        return candidate
     }
 }
 

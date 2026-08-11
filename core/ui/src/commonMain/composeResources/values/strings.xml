@@ -156,8 +156,7 @@
     <string name="library">Library</string>
     <string name="home_loading_recent_documents">Loading recent documents</string>
     <string name="home_no_documents_title">No documents yet</string>
-    <string name="home_no_documents_description">Open a TXT, PDF, or EPUB file from device.</string>
-    <string name="open_file">Open file</string>
+    <string name="home_no_documents_description">Add TXT, PDF, or EPUB files or a folder from your device.</string>
     <string name="favorites">Favorites</string>
     <string name="favorite_documents_single">1 hand-picked document</string>
     <string name="favorite_documents_count">%1$d hand-picked documents</string>
@@ -177,5 +176,12 @@
     <string name="delete_from_library">Delete from library</string>
     <string name="document_pages">%1$d pages</string>
     <string name="unsupported_destination_title">Unknown</string>
+    <string name="add_documents">Add documents</string>
+    <string name="home_add_documents_description">Choose files or a folder to import from your device.</string>
+    <string name="select_files">Select files</string>
+    <string name="select_folder">Select folder</string>
+    <string name="home_selection_count">%1$d selected</string>
+    <string name="remove_from_library_multiple_message">%1$d documents and their reading data will be removed from TeddReader. The original files will stay on your device.</string>
+    <string name="select_document">Select document</string>
     <string name="unsupported_destination_description">Unsupported destination.</string>
 </resources>
