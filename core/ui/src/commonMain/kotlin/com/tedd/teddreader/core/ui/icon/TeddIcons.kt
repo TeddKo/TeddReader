@@ -186,4 +186,59 @@ object TeddIcons {
             }
         }.build()
     }
+
+    val Battery: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Battery",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            path(
+                fill = SolidColor(Color.Transparent),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(5f, 7f)
+                lineTo(18f, 7f)
+                lineTo(18f, 17f)
+                lineTo(5f, 17f)
+                close()
+                moveTo(21f, 10f)
+                lineTo(21f, 14f)
+            }
+        }.build()
+    }
+
+    val Delete: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Delete",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            path(
+                fill = SolidColor(Color.Transparent),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            ) {
+                moveTo(4f, 7f)
+                lineTo(20f, 7f)
+                moveTo(9f, 7f)
+                lineTo(9f, 4f)
+                lineTo(15f, 4f)
+                lineTo(15f, 7f)
+                moveTo(7f, 7f)
+                lineTo(8f, 20f)
+                lineTo(16f, 20f)
+                lineTo(17f, 7f)
+            }
+        }.build()
+    }
 }

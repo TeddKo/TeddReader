@@ -58,6 +58,24 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun bookmarkDocumentsMovesAllSelectedDocumentsToFavorites() = runTest {
+        val repository = FakeDocumentRepository(includeSecondDocument = true)
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.setDocumentsBookmarked(
+            listOf(repository.documentId, repository.secondDocumentId),
+            true,
+        )
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.favoriteDocuments.size)
+        assertTrue(viewModel.uiState.value.favoriteDocuments.all(DocumentMetadata::isBookmarked))
+        assertEquals(emptyList(), viewModel.uiState.value.recentDocuments)
+    }
+
+    @Test
     fun deleteRemovesRecentDocument() = runTest {
         val repository = FakeDocumentRepository()
         val viewModel = HomeViewModel(repository)

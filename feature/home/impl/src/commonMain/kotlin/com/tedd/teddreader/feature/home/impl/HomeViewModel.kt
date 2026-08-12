@@ -103,10 +103,18 @@ class HomeViewModel(
     }
 
     fun setDocumentBookmarked(documentId: DocumentId, isBookmarked: Boolean) {
+        setDocumentsBookmarked(listOf(documentId), isBookmarked)
+    }
+
+    fun setDocumentsBookmarked(documentIds: Collection<DocumentId>, isBookmarked: Boolean) {
         viewModelScope.launch {
             runCatching {
-                val document = documentRepository.getDocument(documentId) ?: return@runCatching
-                documentRepository.upsertDocument(document.copy(isBookmarked = isBookmarked))
+                documentIds.forEach { documentId ->
+                    val document = documentRepository.getDocument(documentId) ?: return@forEach
+                    if (document.isBookmarked != isBookmarked) {
+                        documentRepository.upsertDocument(document.copy(isBookmarked = isBookmarked))
+                    }
+                }
             }
                 .onFailure { controls.update { it.copy(errorMessage = "Failed to update document.") } }
         }
