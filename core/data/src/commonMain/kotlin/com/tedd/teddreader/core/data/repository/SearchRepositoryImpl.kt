@@ -4,7 +4,7 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
-import com.tedd.teddreader.core.data.mapper.toSearchResult
+import com.tedd.teddreader.core.data.mapper.toSearchResults
 import com.tedd.teddreader.core.domain.repository.SearchRepository
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
 import org.koin.core.annotation.Single
@@ -32,7 +32,8 @@ class SearchRepositoryImpl(
 
         return searchIndexDao
             .search(documentId.value, trimmedQuery, limit.coerceAtLeast(1))
-            .map { entry -> entry.toSearchResult(trimmedQuery) }
+            .flatMap { entry -> entry.toSearchResults(trimmedQuery) }
+            .take(limit.coerceAtLeast(1))
     }
 
     override suspend fun clearIndex(documentId: DocumentId) {
