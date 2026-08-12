@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-08-11
+- Last refreshed: 2026-08-12
 - Primary product surfaces: library/home, document reader, search, bookmarks, document info, reader settings sheets
 - Evidence reviewed: `core/designsystem`, every production composable in `core/ui` and `feature/*/impl`, `TeddReaderApp`, `ReaderNavHost`, Android/iOS platform adapters, existing Compose previews
 
@@ -43,7 +43,7 @@
 
 ## Components
 - Existing components to reuse after restyling: `TeddListItem`, `TeddButton`, `TeddChip`, `TeddEmptyState`, `ReaderChromeSurface`, `ReaderTopControls`, `ReaderBottomControls`.
-- New/changed components: editorial screen header, horizontal document card pager with portrait 3:4 covers, segmented sort/filter control, multi-select action strip, import choice dialog, compact reader bottom chrome, shared vector icon actions, drag observer for chrome dismissal.
+- New/changed components: editorial screen header, horizontal document card pager with portrait 3:4 covers, segmented sort/filter control, fixed multi-select top bar, import choice dialog, compact reader bottom chrome, persistent reader status footer, shared vector icon actions, drag observer for chrome dismissal.
 - Variants and states: compact phone (<= 359 dp), regular phone, wide/tablet; loading, empty, error, populated, disabled.
 - Token/component ownership: colors/type/spacing/shapes stay in `core/designsystem`; reusable interaction layout stays in `core/ui`.
 
@@ -61,11 +61,11 @@
 
 ## Screen contracts
 - App shell: the root theme owns the full-window background. Destinations own their safe content insets; no global system-bar padding is allowed.
-- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
+- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Selection replaces transient in-flow actions with a fixed top bar that can add all selected documents to Favorites or request confirmed deletion; it remains outside the scroll container. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
 - Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
-- Reader: content always owns the full viewport. The page is the hero; controls use translucent/tonal edge chrome rather than floating card clusters. Visible chrome hides once a content drag crosses touch slop, while the selected page motion owns both slow and fast swipes without falling through to a default pager fling. `SCROLL` keeps the full document page stream in one stable lazy container instead of swapping previous/current/next windows. Center tap toggles chrome; page-edge taps and swipes navigate. TXT/EPUB two-finger pinch previews scale immediately and commits one font-size save/repage on release. PDF keeps session-local 1x-4x zoom with finite, viewport-clamped pan, resets pan on page change, and exposes a View sheet slider fallback. Auto-scroll is session-scoped, stops when Reader leaves, and uses an unlabeled 0.01-1.00 speed slider.
+- Reader: content owns the viewport remaining above a persistent, non-interactive status footer. The footer keeps battery level left, ellipsized document title centered, and completed reading percentage right; transient page controls remain separate and slide/fade over the page. The page is the hero; controls use translucent/tonal edge chrome rather than floating card clusters. Visible chrome hides once a content drag crosses touch slop, while the selected page motion owns both slow and fast swipes without falling through to a default pager fling. `SCROLL` keeps the full document page stream in one stable lazy container instead of swapping previous/current/next windows. Center tap toggles chrome; page-edge taps and swipes navigate. TXT/EPUB two-finger pinch previews scale immediately and commits one font-size save/repage on release. PDF keeps session-local 1x-4x zoom with finite, viewport-clamped pan, resets pan on page change, and exposes a View sheet slider fallback. Auto-scroll is session-scoped, stops when Reader leaves, and uses an unlabeled 0.01-1.00 speed slider.
 - Settings and reader sheets: options are grouped by user job, not implementation type. Draft slider values update previews immediately and commit once at gesture end. Unsupported future controls are omitted rather than shown disabled.
 - Placeholder/unknown destination: use a standard top bar, concise explanation, and one recovery action.
 
@@ -82,7 +82,7 @@
 - TeddSliderRow: title/value remain visible at 240 dp, the slider spans the available width, and semantics announce the formatted value.
 - TeddEmptyState/TeddErrorBanner/TeddLoadingIndicator: preserve the screen background, announce state changes, and provide at most one recovery action.
 - TeddModalBottomSheet/TeddOptionGroup: account for navigation and IME insets, keep headings stable, and avoid nested elevated cards.
-- ReaderChromeSurface/ReaderTopControls/ReaderBottomControls: use reader-theme colors, contrast-aware system icons, interruptible visibility motion, and compact/regular layouts without shrinking controls.
+- ReaderChromeSurface/ReaderTopControls/ReaderBottomControls/ReaderStatusFooter: use reader-theme colors, contrast-aware system icons, interruptible visibility motion, and compact/regular layouts without shrinking controls; the status footer remains visible when transient controls hide and consumes the bottom safe inset once.
 - ReaderPageSurface/ReaderProgressBar: cap line length, adapt margins without reducing readability, and expose progress semantics independent of visual labels.
 
 ## Adaptive matrix

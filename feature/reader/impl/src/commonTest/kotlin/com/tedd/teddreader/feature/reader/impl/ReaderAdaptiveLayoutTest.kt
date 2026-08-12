@@ -72,4 +72,12 @@ class ReaderAdaptiveLayoutTest {
         assertEquals(4, readerSpreadAnchorPage(selectedSpread = 99, totalPages = 5, paneCount = 2))
         assertEquals(3, readerSpreadAnchorPage(selectedSpread = 3, totalPages = 5, paneCount = 1))
     }
+
+    @Test
+    fun readProgressCountsTheCurrentPageAndCompletesOnTheLastPage() {
+        assertEquals(0, readerReadProgressPercent(PageIndex(current = 0, total = 0)))
+        assertEquals(5, readerReadProgressPercent(PageIndex(current = 0, total = 20)))
+        assertEquals(50, readerReadProgressPercent(PageIndex(current = 9, total = 20)))
+        assertEquals(100, readerReadProgressPercent(PageIndex(current = 19, total = 20)))
+    }
 }

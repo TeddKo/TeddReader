@@ -1,5 +1,10 @@
 package com.tedd.teddreader.feature.reader.impl.component
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -14,6 +19,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddIconButton
@@ -42,6 +48,7 @@ fun ReaderBottomActionBar(
     canGoNext: Boolean = pageIndex.current < (pageIndex.total - 1).coerceAtLeast(0),
 ) {
     val spacing = teddReaderSpacing()
+    val motion = teddReaderMotion()
     val typography = teddReaderTypography()
     val lastPage = (pageIndex.total - 1).coerceAtLeast(0)
     val sliderRange = if (lastPage > 0) 0f..lastPage.toFloat() else 0f..1f
@@ -53,64 +60,73 @@ fun ReaderBottomActionBar(
         "${selectedPage + 1} / ${pageIndex.total}"
     }
 
-    ReaderBottomControls(
-        style = style,
+    AnimatedContent(
         modifier = modifier,
-        windowInsets = windowInsets,
-        progress = if (showProgress) {
-            {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+        targetState = showProgress,
+        transitionSpec = {
+            fadeIn(tween(motion.mediumDurationMs)) togetherWith
+                fadeOut(tween(motion.shortDurationMs))
+        },
+        label = "Reader progress visibility",
+    ) { progressVisible ->
+        ReaderBottomControls(
+            style = style,
+            windowInsets = windowInsets,
+            progress = if (progressVisible) {
+                {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+                    ) {
+                        Text(
+                            text = pageLabel,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = typography.readerCaption,
+                        )
+                        TeddSlider(
+                            value = displayedSliderValue,
+                            onValueChange = { value ->
+                                onSliderValueChange(value.coerceIn(sliderRange.start, sliderRange.endInclusive))
+                            },
+                            onValueChangeFinished = { onPageSelected(selectedPage) },
+                            valueRange = sliderRange,
+                            enabled = pageIndex.total > 1 && !isAutoScrollEnabled,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+            actions = {
+                TeddIconButton(
+                    onClick = onPreviousPage,
+                    enabled = canGoPrevious && !isAutoScrollEnabled,
+                    contentDescription = stringResource(Res.string.previous_page),
                 ) {
-                    Text(
-                        text = pageLabel,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = typography.readerCaption,
-                    )
-                    TeddSlider(
-                        value = displayedSliderValue,
-                        onValueChange = { value ->
-                            onSliderValueChange(value.coerceIn(sliderRange.start, sliderRange.endInclusive))
-                        },
-                        onValueChangeFinished = { onPageSelected(selectedPage) },
-                        valueRange = sliderRange,
-                        enabled = pageIndex.total > 1 && !isAutoScrollEnabled,
-                        modifier = Modifier.weight(1f),
+                    Icon(imageVector = TeddIcons.Previous, contentDescription = null)
+                }
+                TeddIconButton(
+                    onClick = onNextPage,
+                    enabled = canGoNext && !isAutoScrollEnabled,
+                    contentDescription = stringResource(Res.string.next_page),
+                ) {
+                    Icon(imageVector = TeddIcons.Next, contentDescription = null)
+                }
+                TeddIconButton(
+                    onClick = onAutoScrollToggle,
+                    contentDescription = if (isAutoScrollEnabled) stringResource(Res.string.pause_auto_scroll) else stringResource(Res.string.start_auto_scroll),
+                ) {
+                    Icon(
+                        imageVector = if (isAutoScrollEnabled) TeddIcons.Pause else TeddIcons.Play,
+                        contentDescription = null,
                     )
                 }
-            }
-        } else {
-            null
-        },
-        actions = {
-            TeddIconButton(
-                onClick = onPreviousPage,
-                enabled = canGoPrevious && !isAutoScrollEnabled,
-                contentDescription = stringResource(Res.string.previous_page),
-            ) {
-                Icon(imageVector = TeddIcons.Previous, contentDescription = null)
-            }
-            TeddIconButton(
-                onClick = onNextPage,
-                enabled = canGoNext && !isAutoScrollEnabled,
-                contentDescription = stringResource(Res.string.next_page),
-            ) {
-                Icon(imageVector = TeddIcons.Next, contentDescription = null)
-            }
-            TeddIconButton(
-                onClick = onAutoScrollToggle,
-                contentDescription = if (isAutoScrollEnabled) stringResource(Res.string.pause_auto_scroll) else stringResource(Res.string.start_auto_scroll),
-            ) {
-                Icon(
-                    imageVector = if (isAutoScrollEnabled) TeddIcons.Pause else TeddIcons.Play,
-                    contentDescription = null,
-                )
-            }
-        },
-    )
+            },
+        )
+    }
 }
 
 @Preview(widthDp = 360)

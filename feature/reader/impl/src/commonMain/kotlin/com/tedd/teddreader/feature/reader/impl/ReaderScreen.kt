@@ -2,6 +2,12 @@
 
 package com.tedd.teddreader.feature.reader.impl
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -68,6 +74,7 @@ import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
+import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddIconButton
@@ -91,6 +98,7 @@ import com.tedd.teddreader.feature.reader.impl.component.ReaderBottomActionBar
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMoveRequest
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPager
+import com.tedd.teddreader.feature.reader.impl.component.ReaderStatusFooter
 import com.tedd.teddreader.feature.reader.impl.component.foundationMovieCarouselDimAlpha
 import com.tedd.teddreader.feature.reader.impl.pdf.PdfPageSurface
 import kotlinx.coroutines.delay
@@ -212,6 +220,7 @@ fun ReaderRouteScreen(
         onActionMenuExpandedChange = { isActionMenuExpanded = it },
         activeSheetScrollState = activeSheetScrollState,
         modalSheetState = modalSheetState,
+        batteryPercent = rememberReaderBatteryPercent(),
         modifier = modifier,
     )
 }
@@ -260,6 +269,7 @@ fun ReaderScreen(
     onActionMenuExpandedChange: (Boolean) -> Unit,
     activeSheetScrollState: ScrollState,
     modalSheetState: SheetState,
+    batteryPercent: Int? = null,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -316,6 +326,7 @@ fun ReaderScreen(
             onActionMenuExpandedChange = onActionMenuExpandedChange,
             activeSheetScrollState = activeSheetScrollState,
             modalSheetState = modalSheetState,
+            batteryPercent = batteryPercent,
             modifier = modifier,
         )
     }
@@ -366,6 +377,7 @@ private fun ReaderContent(
     onActionMenuExpandedChange: (Boolean) -> Unit,
     activeSheetScrollState: ScrollState,
     modalSheetState: SheetState,
+    batteryPercent: Int?,
     modifier: Modifier = Modifier,
 ) {
     ReaderSystemBarsEffect(
@@ -384,6 +396,7 @@ private fun ReaderContent(
     var pdfZoom by rememberSaveable(uiState.documentUri) { mutableFloatStateOf(1f) }
     var pdfPan by remember(uiState.documentUri, uiState.pageIndex.current) { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    val motion = teddReaderMotion()
 
     Box(
         modifier = modifier
@@ -391,16 +404,7 @@ private fun ReaderContent(
             .background(uiState.style.readerColors().background),
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { viewportSize = it }
-                .drawWithContent {
-                    drawContent()
-                    if (uiState.pageAnimation == PageAnimation.MOVIE_CAROUSEL) {
-                        val dimAlpha = foundationMovieCarouselDimAlpha(movieTransitionProgress.floatValue)
-                        if (dimAlpha > 0f) drawRect(Color.Black.copy(alpha = dimAlpha))
-                    }
-                },
+            modifier = Modifier.fillMaxSize(),
         ) {
             val density = LocalDensity.current
             val systemBarsInsets = readerSystemBarsInsets()
@@ -464,176 +468,231 @@ private fun ReaderContent(
                 (uiState.style.fontSizeSp * uiState.style.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
             }
 
-            ReaderAutoScrollEffect(
-                uiState = uiState,
-                paneCount = paneCount,
-                effectiveMode = effectiveAutoScrollMode,
-                pageAnimation = uiState.pageAnimation,
-                onRequestPageMove = requestPageMove,
-                onStop = { onAutoScrollEnabledChange(false) },
-            )
-
-            ReaderPager(
-                pageKey = uiState.pageIndex.current,
-                pageCount = uiState.pageIndex.total,
-                pageStep = paneCount,
-                pageTurnMode = uiState.pageTurnMode,
-                pageAnimation = uiState.pageAnimation,
-                pageMoveRequest = pageMoveRequest,
-                onPageMoveRequestConsumed = { requestId ->
-                    if (pageMoveRequest?.id == requestId) pageMoveRequest = null
-                },
-                onPreviousPage = movePrevious,
-                onNextPage = moveNext,
-                onPageSelected = onGoToPage,
-                onToggleControls = onToggleControls,
-                isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
-                effectiveAutoScrollMode = effectiveAutoScrollMode,
-                autoScrollSpeed = uiState.autoScrollConfig.speed,
-                autoScrollLineHeightPx = autoScrollLineHeightPx,
-                autoScrollDensity = density.density,
-                onAutoScrollStop = { onAutoScrollEnabledChange(false) },
-                onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
-                modifier = Modifier
-                    .readerPinchZoomGesture(
-                        enabled = uiState.pageIndex.total > 0,
-                        viewportSize = viewportSize,
-                        isPdfMode = uiState.isPdfMode,
-                        textStartFontSizeSp = textCommittedFontSize,
-                        pdfTransform = pdfTransform,
-                        isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
-                        onAutoScrollEnabledChange = onAutoScrollEnabledChange,
-                        onGestureActiveChange = { isTransformGestureActive = it },
-                        onTextGestureScaleChange = { textGestureScale = it },
-                        onTextFontSizeCommit = { onFontSizeChange(it.toFloat()) },
-                        onPdfTransformChange = { next ->
-                            pdfZoom = next.zoom
-                            pdfPan = next.pan
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .onSizeChanged { viewportSize = it }
+                        .drawWithContent {
+                            drawContent()
+                            if (uiState.pageAnimation == PageAnimation.MOVIE_CAROUSEL) {
+                                val dimAlpha = foundationMovieCarouselDimAlpha(movieTransitionProgress.floatValue)
+                                if (dimAlpha > 0f) drawRect(Color.Black.copy(alpha = dimAlpha))
+                            }
                         },
-                    )
-                    .readerControlsDragObserver(
-                        controlsVisible = uiState.isControlsVisible,
-                        gestureBlocked = isTransformGestureActive,
-                        onToggleControls = onToggleControls,
-                    ),
-            ) { page ->
-                if (paneCount == 1) {
-                    ReaderPagePane(
+                ) {
+                    ReaderAutoScrollEffect(
                         uiState = uiState,
-                        page = page,
-                        onViewportSizeChanged = onViewportSizeChanged,
-                        modifier = contentTransformModifier,
+                        paneCount = paneCount,
+                        effectiveMode = effectiveAutoScrollMode,
+                        pageAnimation = uiState.pageAnimation,
+                        onRequestPageMove = requestPageMove,
+                        onStop = { onAutoScrollEnabledChange(false) },
                     )
-                } else {
-                    Row(
-                        modifier = contentTransformModifier
-                            .background(uiState.style.readerColors().background),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
-                    ) {
-                        ReaderPagePane(
-                            uiState = uiState,
-                            page = page,
-                            onViewportSizeChanged = onViewportSizeChanged,
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        ReaderPagePane(
-                            uiState = uiState,
-                            page = page + 1,
-                            onViewportSizeChanged = onViewportSizeChanged,
-                            reportViewportSize = false,
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                    }
-                }
-            }
 
-            if (uiState.isControlsVisible) {
-                ReaderTopControls(
-                    title = uiState.documentTitle,
-                    style = uiState.style,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                    titleLabel = stringResource(Res.string.reader_reading_label),
-                    navigationIcon = {
-                        TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                            Icon(imageVector = TeddIcons.Back, contentDescription = null)
-                        }
-                    },
-                    actions = {
-                        TeddIconButton(
-                            onClick = onFavoriteToggle,
-                            contentDescription = if (uiState.isFavorite) {
-                                stringResource(Res.string.remove_from_favorites)
-                            } else {
-                                stringResource(Res.string.add_to_favorites)
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.isFavorite) {
-                                    TeddIcons.BookmarkFilled
-                                } else {
-                                    TeddIcons.BookmarkOutline
+                    ReaderPager(
+                        pageKey = uiState.pageIndex.current,
+                        pageCount = uiState.pageIndex.total,
+                        pageStep = paneCount,
+                        pageTurnMode = uiState.pageTurnMode,
+                        pageAnimation = uiState.pageAnimation,
+                        pageMoveRequest = pageMoveRequest,
+                        onPageMoveRequestConsumed = { requestId ->
+                            if (pageMoveRequest?.id == requestId) pageMoveRequest = null
+                        },
+                        onPreviousPage = movePrevious,
+                        onNextPage = moveNext,
+                        onPageSelected = onGoToPage,
+                        onToggleControls = onToggleControls,
+                        isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
+                        effectiveAutoScrollMode = effectiveAutoScrollMode,
+                        autoScrollSpeed = uiState.autoScrollConfig.speed,
+                        autoScrollLineHeightPx = autoScrollLineHeightPx,
+                        autoScrollDensity = density.density,
+                        onAutoScrollStop = { onAutoScrollEnabledChange(false) },
+                        onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
+                        modifier = Modifier
+                            .readerPinchZoomGesture(
+                                enabled = uiState.pageIndex.total > 0,
+                                viewportSize = viewportSize,
+                                isPdfMode = uiState.isPdfMode,
+                                textStartFontSizeSp = textCommittedFontSize,
+                                pdfTransform = pdfTransform,
+                                isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
+                                onAutoScrollEnabledChange = onAutoScrollEnabledChange,
+                                onGestureActiveChange = { isTransformGestureActive = it },
+                                onTextGestureScaleChange = { textGestureScale = it },
+                                onTextFontSizeCommit = { onFontSizeChange(it.toFloat()) },
+                                onPdfTransformChange = { next ->
+                                    pdfZoom = next.zoom
+                                    pdfPan = next.pan
                                 },
-                                contentDescription = null,
-                                tint = if (uiState.isFavorite) {
-                                    uiState.style.readerColors().bookmark
-                                } else {
-                                    uiState.style.readerColors().controlsContent
+                            )
+                            .readerControlsDragObserver(
+                                controlsVisible = uiState.isControlsVisible,
+                                gestureBlocked = isTransformGestureActive,
+                                onToggleControls = onToggleControls,
+                            ),
+                    ) { page ->
+                        if (paneCount == 1) {
+                            ReaderPagePane(
+                                uiState = uiState,
+                                page = page,
+                                onViewportSizeChanged = onViewportSizeChanged,
+                                windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
+                                modifier = contentTransformModifier,
+                            )
+                        } else {
+                            Row(
+                                modifier = contentTransformModifier
+                                    .background(uiState.style.readerColors().background),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
+                            ) {
+                                ReaderPagePane(
+                                    uiState = uiState,
+                                    page = page,
+                                    onViewportSizeChanged = onViewportSizeChanged,
+                                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
+                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                )
+                                ReaderPagePane(
+                                    uiState = uiState,
+                                    page = page + 1,
+                                    onViewportSizeChanged = onViewportSizeChanged,
+                                    reportViewportSize = false,
+                                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
+                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                )
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
+                    ) {
+                        AnimatedVisibility(
+                            visible = uiState.isControlsVisible,
+                            enter = fadeIn(tween(motion.mediumDurationMs)) +
+                                slideInVertically(tween(motion.mediumDurationMs)) { -it / 4 },
+                            exit = fadeOut(tween(motion.shortDurationMs)) +
+                                slideOutVertically(tween(motion.shortDurationMs)) { -it / 4 },
+                        ) {
+                            ReaderTopControls(
+                                title = uiState.documentTitle,
+                                style = uiState.style,
+                                windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
+                                titleLabel = stringResource(Res.string.reader_reading_label),
+                                navigationIcon = {
+                                    TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
+                                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                                    }
+                                },
+                                actions = {
+                                    TeddIconButton(
+                                        onClick = onFavoriteToggle,
+                                        contentDescription = if (uiState.isFavorite) {
+                                            stringResource(Res.string.remove_from_favorites)
+                                        } else {
+                                            stringResource(Res.string.add_to_favorites)
+                                        },
+                                    ) {
+                                        Icon(
+                                            imageVector = if (uiState.isFavorite) {
+                                                TeddIcons.BookmarkFilled
+                                            } else {
+                                                TeddIcons.BookmarkOutline
+                                            },
+                                            contentDescription = null,
+                                            tint = if (uiState.isFavorite) {
+                                                uiState.style.readerColors().bookmark
+                                            } else {
+                                                uiState.style.readerColors().controlsContent
+                                            },
+                                        )
+                                    }
+                                    ReaderActionMenu(
+                                        expanded = isActionMenuExpanded,
+                                        isCurrentPageSaved = uiState.isCurrentPageSaved,
+                                        onExpandedChange = onActionMenuExpandedChange,
+                                        onActionSelected = onActionSelected,
+                                    )
                                 },
                             )
                         }
-                        ReaderActionMenu(
-                            expanded = isActionMenuExpanded,
-                            isCurrentPageSaved = uiState.isCurrentPageSaved,
-                            onExpandedChange = onActionMenuExpandedChange,
-                            onActionSelected = onActionSelected,
-                        )
-                    },
-                )
-                ReaderBottomActionBar(
-                    pageIndex = actionBarPageIndex,
-                    style = uiState.style,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Bottom),
-                    isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
-                    showProgress = uiState.showProgress,
-                    onAutoScrollToggle = onAutoScrollToggle,
-                    onPageSelected = { page ->
-                        onGoToPage(
-                            readerSpreadAnchorPage(
-                                selectedSpread = page,
-                                totalPages = uiState.pageIndex.total,
-                                paneCount = paneCount,
-                            ),
-                        )
-                    },
-                    onPreviousPage = {
-                        requestPageMove(ReaderPageMovement.Previous)
-                    },
-                    onNextPage = {
-                        requestPageMove(ReaderPageMovement.Next)
-                    },
-                    sliderValue = actionBarSliderValue,
-                    onSliderValueChange = {
-                        hasBottomSliderDraft = true
-                        onBottomSliderValueChange(it)
-                    },
-                    canGoPrevious = uiState.pageIndex.current > 0,
-                    canGoNext = readerNextPage(
-                        currentPage = uiState.pageIndex.current,
-                        totalPages = uiState.pageIndex.total,
-                        paneCount = paneCount,
-                    ) != null,
-                )
-            }
+                    }
 
-            if (uiState.brightnessOverlayAlpha > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth(),
+                    ) {
+                        AnimatedVisibility(
+                            visible = uiState.isControlsVisible,
+                            enter = fadeIn(tween(motion.mediumDurationMs)) +
+                                slideInVertically(tween(motion.mediumDurationMs)) { it / 4 },
+                            exit = fadeOut(tween(motion.shortDurationMs)) +
+                                slideOutVertically(tween(motion.shortDurationMs)) { it / 4 },
+                        ) {
+                            ReaderBottomActionBar(
+                                pageIndex = actionBarPageIndex,
+                                style = uiState.style,
+                                isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
+                                showProgress = uiState.showProgress,
+                                onAutoScrollToggle = onAutoScrollToggle,
+                                onPageSelected = { page ->
+                                    onGoToPage(
+                                        readerSpreadAnchorPage(
+                                            selectedSpread = page,
+                                            totalPages = uiState.pageIndex.total,
+                                            paneCount = paneCount,
+                                        ),
+                                    )
+                                },
+                                onPreviousPage = {
+                                    requestPageMove(ReaderPageMovement.Previous)
+                                },
+                                onNextPage = {
+                                    requestPageMove(ReaderPageMovement.Next)
+                                },
+                                sliderValue = actionBarSliderValue,
+                                onSliderValueChange = {
+                                    hasBottomSliderDraft = true
+                                    onBottomSliderValueChange(it)
+                                },
+                                canGoPrevious = uiState.pageIndex.current > 0,
+                                canGoNext = readerNextPage(
+                                    currentPage = uiState.pageIndex.current,
+                                    totalPages = uiState.pageIndex.total,
+                                    paneCount = paneCount,
+                                ) != null,
+                            )
+                        }
+                    }
+                }
+
+                ReaderStatusFooter(
+                    title = uiState.documentTitle,
+                    readProgressPercent = readerReadProgressPercent(actionBarPageIndex),
+                    batteryPercent = batteryPercent,
+                    style = uiState.style,
+                    windowInsets = systemBarsInsets.only(WindowInsetsSides.Bottom),
                 )
             }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.brightnessOverlayAlpha > 0f,
+            enter = fadeIn(tween(motion.shortDurationMs)),
+            exit = fadeOut(tween(motion.shortDurationMs)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = uiState.brightnessOverlayAlpha)),
+            )
         }
 
         uiState.activeSheet?.let { sheet ->
@@ -1282,6 +1341,13 @@ internal fun readerSpreadAnchorPage(selectedSpread: Int, totalPages: Int, paneCo
     return (boundedSpread * step).coerceAtMost(totalPages - 1)
 }
 
+internal fun readerReadProgressPercent(pageIndex: PageIndex): Int =
+    if (pageIndex.total == 0) {
+        0
+    } else {
+        (((pageIndex.current + 1f) / pageIndex.total) * 100f).roundToInt().coerceIn(0, 100)
+    }
+
 private const val ReaderPaneMinWidthDp = 280f
 private const val ReaderPaneGutterDp = 16f
 private const val TwoPaneMinWidthDp = ReaderPaneMinWidthDp * 2f + ReaderPaneGutterDp
@@ -1482,6 +1548,7 @@ private fun ReaderScreenCompactPreview() {
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
             modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            batteryPercent = 73,
         )
     }
 }
@@ -1533,6 +1600,7 @@ private fun ReaderScreenHiddenChromePreview() {
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
             modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            batteryPercent = 73,
         )
     }
 }
@@ -1584,6 +1652,7 @@ private fun ReaderScreenDarkPreview() {
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
             modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            batteryPercent = 73,
         )
     }
 }
@@ -1641,6 +1710,7 @@ private fun ReaderScreenPreview() {
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
             modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            batteryPercent = 73,
         )
     }
 }

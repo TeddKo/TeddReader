@@ -188,6 +188,9 @@
     <string name="google_drive">Google Drive</string>
     <string name="google_drive_description">Choose documents stored in Google Drive.</string>
     <string name="home_selection_count">%1$d selected</string>
+    <string name="reader_battery_percentage">Battery %1$d%%</string>
+    <string name="reader_battery_unavailable">Battery unavailable</string>
+    <string name="reader_read_progress_percentage">Read %1$d%%</string>
     <string name="remove_from_library_multiple_message">%1$d documents and their reading data will be removed from TeddReader. The original files will stay on your device.</string>
     <string name="select_document">Select document</string>
     <string name="unsupported_destination_description">Unsupported destination.</string>
