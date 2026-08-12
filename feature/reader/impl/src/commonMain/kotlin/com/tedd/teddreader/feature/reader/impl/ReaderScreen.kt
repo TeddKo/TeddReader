@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -946,17 +947,24 @@ private fun TableOfContentsSheet(
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = stringResource(Res.string.contents), modifier = modifier) {
+    TeddOptionGroup(title = null, modifier = modifier) {
         if (uiState.outlineItems.isEmpty()) {
             Text(
                 text = stringResource(Res.string.no_table_of_contents),
+                modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             )
         } else {
-            uiState.outlineItems.forEach { item ->
+            uiState.outlineItems.forEachIndexed { index, item ->
                 TeddButton(
                     text = item.displayTitle(),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = DefaultTeddReaderSpacing.medium,
+                            end = DefaultTeddReaderSpacing.medium,
+                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else DefaultTeddReaderSpacing.small,
+                        ),
                     onClick = { onLocationClick(item.location) },
                 )
             }
@@ -999,13 +1007,15 @@ private fun GoToPageSheet(
     val targetPage = pageText.toIntOrNull()?.coerceIn(1, totalPages)
 
     TeddOptionGroup(
-        title = stringResource(Res.string.go_to_page),
+        title = null,
         modifier = modifier,
         description = stringResource(Res.string.go_to_page_description, totalPages),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = DefaultTeddReaderSpacing.medium),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TeddTextField(
@@ -1017,6 +1027,7 @@ private fun GoToPageSheet(
             )
             TeddButton(
                 text = stringResource(Res.string.go),
+                modifier = Modifier.heightIn(min = 56.dp),
                 enabled = targetPage != null,
                 onClick = { targetPage?.let { onGoToPage(it - 1) } },
             )
@@ -1033,7 +1044,7 @@ private fun BrightnessOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(
-        title = stringResource(Res.string.brightness),
+        title = null,
         modifier = modifier,
         description = stringResource(Res.string.brightness_description),
     ) {
@@ -1097,7 +1108,7 @@ private fun FontOptionsSheet(
         lineHeightMultiplier = lineHeightPercentDraft / 100f,
     )
 
-    TeddOptionGroup(title = stringResource(Res.string.typography), modifier = modifier) {
+    TeddOptionGroup(title = null, modifier = modifier) {
         TeddSliderRow(
             title = stringResource(Res.string.font_size),
             value = fontSizeDraft,
@@ -1137,6 +1148,7 @@ private fun FontOptionsSheet(
             enabled = !uiState.isSavingSettings,
         )
         ReaderOptionPreview(
+            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
             style = previewStyle,
             title = stringResource(Res.string.typography_preview_title),
             description = stringResource(Res.string.typography_preview_description),
@@ -1153,12 +1165,13 @@ private fun ThemeOptionsSheet(
 ) {
     Column(modifier = modifier) {
         ReaderOptionPreview(
+            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
             style = uiState.style,
             title = stringResource(Res.string.theme_preview_title),
             description = stringResource(Res.string.theme_preview_description),
             previewText = stringResource(Res.string.theme_preview_text),
         )
-        TeddOptionGroup(title = stringResource(Res.string.theme)) {
+        TeddOptionGroup(title = null) {
             listOf(ReaderThemeMode.SYSTEM, ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
                 TeddRadioRow(
                     title = mode.themeLabel(),
@@ -1212,7 +1225,7 @@ private fun AutoScrollOptionsSheet(
     onSpeedChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = stringResource(Res.string.auto_scroll), modifier = modifier) {
+    TeddOptionGroup(title = null, modifier = modifier) {
         TeddSwitchRow(stringResource(Res.string.enabled), uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
         AutoScrollMode.entries.forEach { mode ->
             val isModeEnabled = !uiState.isSavingSettings && !(uiState.isPdfMode && mode == AutoScrollMode.LINE)
@@ -1242,7 +1255,7 @@ private fun ControlOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(
-        title = stringResource(Res.string.bottom_bar),
+        title = null,
         modifier = modifier,
         description = stringResource(Res.string.bottom_bar_description),
     ) {
