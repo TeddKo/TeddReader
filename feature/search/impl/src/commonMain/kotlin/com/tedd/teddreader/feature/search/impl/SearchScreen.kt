@@ -165,7 +165,7 @@ fun SearchScreen(
                         }
                         items(uiState.results) { result ->
                             TeddListItem(
-                                title = result.sectionTitle?.takeIf { it.isNotBlank() } ?: result.snippet,
+                                title = result.snippet,
                                 supportingText = buildSearchSupportingText(result),
                                 onClick = { onResultClick(result.location) },
                             )
@@ -268,10 +268,18 @@ private fun SearchField(
     )
 }
 
+@Composable
 private fun buildSearchSupportingText(result: SearchResult): String = buildList {
-    if (result.sectionTitle?.isNotBlank() == true) add(result.snippet)
-    add(result.location.asStorageString())
+    result.sectionTitle?.takeIf { it.isNotBlank() }?.let(::add)
+    add(result.location.displayLabel())
 }.joinToString(separator = "\n")
+
+@Composable
+private fun ReaderLocation.displayLabel(): String = when (this) {
+    is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, pageIndex + 1)
+    is ReaderLocation.TextOffset -> stringResource(Res.string.reader_location_text_position, offset + 1)
+    is ReaderLocation.EpubOffset -> stringResource(Res.string.reader_location_epub_section, spineIndex + 1)
+}
 
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)

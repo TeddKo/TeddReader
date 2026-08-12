@@ -77,26 +77,35 @@ fun ReaderSection.toSearchIndexEntity(documentId: DocumentId): SearchIndexEntity
     endOffset = range.end,
 )
 
-fun SearchIndexEntity.toSearchResult(query: String): SearchResult {
-    val matchOffset = text.indexOf(query, ignoreCase = true).takeIf { it >= 0 }?.toLong() ?: 0L
-    val matchStart = startOffset + matchOffset
-    val matchEnd = (matchStart + query.length).coerceAtMost(endOffset)
-    return SearchResult(
-        documentId = DocumentId(documentId),
-        snippet = text.snippetAround(query),
-        location = ReaderLocation.TextOffset(matchStart),
-        sectionTitle = sectionTitle,
-        range = TextRange(matchStart, matchEnd),
-        query = query,
-    )
+fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
+    if (query.isEmpty()) return emptyList()
+    return buildList {
+        var searchStartIndex = 0
+        while (searchStartIndex <= text.length - query.length) {
+            val matchIndex = text.indexOf(query, startIndex = searchStartIndex, ignoreCase = true)
+            if (matchIndex < 0) break
+
+            val matchStart = startOffset + matchIndex
+            val matchEnd = (matchStart + query.length).coerceAtMost(endOffset)
+            add(
+                SearchResult(
+                    documentId = DocumentId(documentId),
+                    snippet = text.snippetAround(matchIndex, query.length),
+                    location = ReaderLocation.TextOffset(matchStart),
+                    sectionTitle = sectionTitle,
+                    range = TextRange(matchStart, matchEnd),
+                    query = query,
+                ),
+            )
+            searchStartIndex = matchIndex + query.length
+        }
+    }
 }
 
-private fun String.snippetAround(query: String): String {
-    val index = indexOf(query, ignoreCase = true).takeIf { it >= 0 } ?: return take(SNIPPET_LENGTH)
-    val start = (index - SNIPPET_RADIUS).coerceAtLeast(0)
-    val end = (index + query.length + SNIPPET_RADIUS).coerceAtMost(length)
+private fun String.snippetAround(matchIndex: Int, matchLength: Int): String {
+    val start = (matchIndex - SNIPPET_RADIUS).coerceAtLeast(0)
+    val end = (matchIndex + matchLength + SNIPPET_RADIUS).coerceAtMost(length)
     return substring(start, end)
 }
 
 private const val SNIPPET_RADIUS = 40
-private const val SNIPPET_LENGTH = 120
