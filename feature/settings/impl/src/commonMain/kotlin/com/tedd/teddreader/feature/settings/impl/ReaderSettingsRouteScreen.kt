@@ -54,7 +54,7 @@ fun ReaderSettingsRouteScreen(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(scaffoldPadding)
-                .padding(DefaultTeddReaderSpacing.screenPadding),
+                .padding(vertical = DefaultTeddReaderSpacing.screenPadding),
         )
     }
 }
