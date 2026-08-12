@@ -871,6 +871,7 @@ private fun ReaderActiveSheet(
         onDismissRequest = onDismiss,
         modifier = modifier,
         sheetState = sheetState,
+        contentPadding = PaddingValues(bottom = DefaultTeddReaderSpacing.large),
     ) {
         Column(
             modifier = Modifier

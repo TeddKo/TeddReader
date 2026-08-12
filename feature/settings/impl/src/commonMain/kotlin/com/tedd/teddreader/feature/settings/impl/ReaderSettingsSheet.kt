@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.settings.impl
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -18,6 +19,7 @@ import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.withThemeMode
+import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
@@ -71,7 +73,9 @@ fun ReaderSettingsSheet(
             style = previewStyle,
             title = stringResource(Res.string.reader_preview_title),
             description = stringResource(Res.string.reader_preview_description),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
         )
 
         TeddOptionGroup(

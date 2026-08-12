@@ -30,8 +30,9 @@ fun TeddModalBottomSheet(
     modifier: Modifier = Modifier,
     description: String? = null,
     contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.sheetPadding,
-        vertical = DefaultTeddReaderSpacing.large,
+        start = DefaultTeddReaderSpacing.sheetPadding,
+        end = DefaultTeddReaderSpacing.sheetPadding,
+        bottom = DefaultTeddReaderSpacing.large,
     ),
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -45,23 +46,35 @@ fun TeddModalBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .consumeUnconsumedVerticalScroll()
-                .padding(contentPadding),
+                .consumeUnconsumedVerticalScroll(),
         ) {
-            Text(
-                text = title,
-                style = typography.titleLarge,
-            )
-            if (description != null) {
+            Column(
+                modifier = Modifier.padding(
+                    start = DefaultTeddReaderSpacing.sheetPadding,
+                    top = DefaultTeddReaderSpacing.large,
+                    end = DefaultTeddReaderSpacing.sheetPadding,
+                ),
+            ) {
                 Text(
-                    text = description,
-                    modifier = Modifier.padding(top = spacing.xxSmall),
-                    style = typography.settingDescription,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = title,
+                    style = typography.titleLarge,
                 )
+                if (description != null) {
+                    Text(
+                        text = description,
+                        modifier = Modifier.padding(top = spacing.xxSmall),
+                        style = typography.settingDescription,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(spacing.medium))
-            content()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(contentPadding),
+                content = content,
+            )
         }
     }
 }
