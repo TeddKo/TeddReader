@@ -77,13 +77,19 @@ fun ReaderSection.toSearchIndexEntity(documentId: DocumentId): SearchIndexEntity
     endOffset = range.end,
 )
 
-fun SearchIndexEntity.toSearchResult(query: String): SearchResult = SearchResult(
-    documentId = DocumentId(documentId),
-    snippet = text.snippetAround(query),
-    location = ReaderLocation.TextOffset(startOffset),
-    sectionTitle = sectionTitle,
-    range = TextRange(startOffset, endOffset),
-)
+fun SearchIndexEntity.toSearchResult(query: String): SearchResult {
+    val matchOffset = text.indexOf(query, ignoreCase = true).takeIf { it >= 0 }?.toLong() ?: 0L
+    val matchStart = startOffset + matchOffset
+    val matchEnd = (matchStart + query.length).coerceAtMost(endOffset)
+    return SearchResult(
+        documentId = DocumentId(documentId),
+        snippet = text.snippetAround(query),
+        location = ReaderLocation.TextOffset(matchStart),
+        sectionTitle = sectionTitle,
+        range = TextRange(matchStart, matchEnd),
+        query = query,
+    )
+}
 
 private fun String.snippetAround(query: String): String {
     val index = indexOf(query, ignoreCase = true).takeIf { it >= 0 } ?: return take(SNIPPET_LENGTH)
