@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentId
@@ -93,6 +94,15 @@ fun SearchScreen(
     val typography = teddReaderTypography()
     val isFieldEnabled = !uiState.isSearchUnsupported
     val canSearch = isFieldEnabled && uiState.query.isNotBlank() && !uiState.isLoading
+    val startPadding = contentPadding.calculateLeftPadding(LayoutDirection.Ltr)
+    val endPadding = contentPadding.calculateRightPadding(LayoutDirection.Ltr)
+    val horizontalContentPadding = PaddingValues(start = startPadding, end = endPadding)
+    val resultContentPadding = PaddingValues(
+        start = startPadding,
+        top = DefaultTeddReaderSpacing.small,
+        end = endPadding,
+        bottom = DefaultTeddReaderSpacing.small,
+    )
 
     TeddScaffold(
         modifier = modifier
@@ -121,8 +131,10 @@ fun SearchScreen(
                 modifier = Modifier
                     .widthIn(max = ScreenMaxWidth)
                     .fillMaxSize(),
-                contentPadding = contentPadding,
-                verticalArrangement = Arrangement.spacedBy(spacing.large),
+                contentPadding = PaddingValues(
+                    top = contentPadding.calculateTopPadding(),
+                    bottom = contentPadding.calculateBottomPadding(),
+                ),
             ) {
                 item {
                     SearchForm(
@@ -131,22 +143,37 @@ fun SearchScreen(
                         canSearch = canSearch,
                         onQueryChange = onQueryChange,
                         onSearchClick = onSearchClick,
+                        modifier = Modifier
+                            .padding(horizontalContentPadding)
+                            .padding(bottom = spacing.large),
                     )
                 }
 
                 when {
                     uiState.isSearchUnsupported -> item {
-                        TeddErrorBanner(message = stringResource(Res.string.search_pdf_unsupported))
+                        TeddErrorBanner(
+                            message = stringResource(Res.string.search_pdf_unsupported),
+                            modifier = Modifier.padding(horizontalContentPadding),
+                        )
                     }
                     uiState.errorMessage != null -> item {
-                        TeddErrorBanner(message = uiState.errorMessage)
+                        TeddErrorBanner(
+                            message = uiState.errorMessage,
+                            modifier = Modifier.padding(horizontalContentPadding),
+                        )
                     }
                     uiState.isLoading -> item {
-                        TeddLoadingIndicator(message = stringResource(Res.string.search_loading))
+                        TeddLoadingIndicator(
+                            message = stringResource(Res.string.search_loading),
+                            modifier = Modifier.padding(horizontalContentPadding),
+                        )
                     }
                     uiState.query.isBlank() -> Unit
                     uiState.results.isEmpty() -> item {
-                        Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
+                        Column(
+                            modifier = Modifier.padding(horizontalContentPadding),
+                            verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+                        ) {
                             Text(text = stringResource(Res.string.search_no_results_title), style = typography.titleMedium)
                             Text(
                                 text = stringResource(Res.string.search_no_results_description),
@@ -159,6 +186,9 @@ fun SearchScreen(
                         item {
                             Text(
                                 text = stringResource(Res.string.search_matches_count, uiState.results.size),
+                                modifier = Modifier
+                                    .padding(horizontalContentPadding)
+                                    .padding(bottom = spacing.small),
                                 style = typography.settingTitle,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -168,6 +198,7 @@ fun SearchScreen(
                                 title = result.snippet,
                                 supportingText = buildSearchSupportingText(result),
                                 onClick = { onResultClick(result.location) },
+                                contentPadding = resultContentPadding,
                             )
                         }
                     }
@@ -184,11 +215,12 @@ private fun SearchForm(
     canSearch: Boolean,
     onQueryChange: (String) -> Unit,
     onSearchClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
 
-    Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing.small)) {
         Text(
             text = stringResource(Res.string.search_find_passage_description),
             style = typography.settingDescription,

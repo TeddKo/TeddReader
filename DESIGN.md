@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-08-12
+- Last refreshed: 2026-08-13
 - Primary product surfaces: library/home, document reader, search, bookmarks, document info, reader settings sheets
 - Evidence reviewed: `core/designsystem`, every production composable in `core/ui` and `feature/*/impl`, `TeddReaderApp`, `ReaderNavHost`, Android/iOS platform adapters, existing Compose previews
 
@@ -62,7 +62,7 @@
 ## Screen contracts
 - App shell: the root theme owns the full-window background. Destinations own their safe content insets; no global system-bar padding is allowed.
 - Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Selection replaces transient in-flow actions with a fixed top bar that can add all selected documents to Favorites or request confirmed deletion; it remains outside the scroll container. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
-- Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive.
+- Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive. Result rows stay contiguous, with horizontal screen padding living in the row’s internal content padding so divider and ripple run across the full bounded width without section spacing between them.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
 - Reader: content owns the viewport remaining above a persistent, non-interactive status footer. The footer keeps battery level left, ellipsized document title centered, and completed reading percentage right; transient page controls remain separate and slide/fade over the page. The page is the hero; controls use translucent/tonal edge chrome rather than floating card clusters. Visible chrome hides once a content drag crosses touch slop, while the selected page motion owns both slow and fast swipes without falling through to a default pager fling. `SCROLL` keeps the full document page stream in one stable lazy container instead of swapping previous/current/next windows. Center tap toggles chrome; page-edge taps and swipes navigate. TXT/EPUB two-finger pinch previews scale immediately and commits one font-size save/repage on release. PDF keeps session-local 1x-4x zoom with finite, viewport-clamped pan, resets pan on page change, and exposes a View sheet slider fallback. Auto-scroll is session-scoped, stops when Reader leaves, and uses an unlabeled 0.01-1.00 speed slider.
