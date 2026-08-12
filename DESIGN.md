@@ -12,13 +12,13 @@
 - Avoid: generic dashboard styling, indigo-heavy “template app” color, card/pill soup, gradients, oversized empty decoration, duplicate actions, unexplained symbols
 
 ## Product goals
-- Goals: open a local document quickly; resume recent reading; keep reading controls discoverable without obstructing content
+- Goals: import a local or selected Google Drive document quickly; resume recent reading; keep reading controls discoverable without obstructing content
 - Non-goals: social/library-store features, ornamental dashboards, configuration-heavy home screens
 - Success signals: one obvious primary action per state, no horizontal clipping at 240 dp, reader gestures remain continuous while chrome hides
 
 ## Personas and jobs
 - Primary personas: phone readers opening local TXT/PDF/EPUB files; tablet/foldable readers using longer sessions
-- User jobs: import a file, resume a document, navigate pages, search/bookmark, tune reading comfort
+- User jobs: import a local or Google Drive document, resume a document, navigate pages, search/bookmark, tune reading comfort
 - Key contexts of use: one-handed narrow phones, dark rooms, portrait and landscape, intermittent short sessions
 
 ## Information architecture
@@ -61,7 +61,7 @@
 
 ## Screen contracts
 - App shell: the root theme owns the full-window background. Destinations own their safe content insets; no global system-bar padding is allowed.
-- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA that opens file or folder import choices. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
+- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
 - Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
@@ -119,7 +119,7 @@
 - Error: inline recoverable banner without displacing navigation.
 - Success: content replaces transient status where possible.
 - Disabled: retain labels and sufficient contrast; suppress interaction semantics.
-- Offline/slow network: not applicable to local-first document flows.
+- Offline/slow network: local imports stay available; Google Drive failures use the existing import error feedback without blocking local sources.
 
 ## Content voice
 - Tone: short, direct, calm.

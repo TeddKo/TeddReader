@@ -100,6 +100,7 @@ Symbols:
 - HomeRouteScreen — feature/home/.../HomeScreen.kt:40
 - HomeScreen — HomeScreen.kt:64
 - HomeSortFilterControls — HomeScreen.kt:173
+- HomeAddDocumentsDialog — HomeScreen.kt
 - DocumentListItem — feature/home/.../component/DocumentListItem.kt:19
 
 Target hierarchy:
@@ -116,6 +117,13 @@ State contract:
 - Populated: top-bar Open file is the single primary action; empty CTA absent.
 - Import failure: inline error with retry/open action only if actionable.
 - Filter returns zero items: “No matching documents,” Clear filters action; do not reuse first-run empty copy.
+
+Import choice dialog:
+
+- Group file and folder actions under “On this device.”
+- Show Google Drive in a separate “Cloud” group only when the platform bridge is available.
+- Each source is a full-width row with a title, concise supporting text, clipped ripple, and a 48 dp minimum target; do not present three equal-emphasis buttons in one stack.
+- Keep focus order local files, local folder, then Google Drive.
 
 Adaptive contract:
 
