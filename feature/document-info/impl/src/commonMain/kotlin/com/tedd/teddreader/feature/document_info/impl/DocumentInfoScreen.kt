@@ -1,19 +1,22 @@
 package com.tedd.teddreader.feature.document_info.impl
 
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
@@ -34,17 +38,20 @@ import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
+import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddOptionGroup
-import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
-import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.generated.resources.*
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
+
+private val ScreenMaxWidth = 720.dp
+private val ReadingStatsTwoColumnMinWidth = 320.dp
 
 @Composable
 fun DocumentInfoRouteScreen(
@@ -54,7 +61,7 @@ fun DocumentInfoRouteScreen(
     viewModel: DocumentInfoViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scrollState = rememberScrollState()
+    val listState = rememberLazyListState()
 
     LaunchedEffect(documentId) {
         viewModel.setDocument(documentId)
@@ -63,7 +70,7 @@ fun DocumentInfoRouteScreen(
     DocumentInfoScreen(
         uiState = uiState,
         onBack = onBack,
-        scrollState = scrollState,
+        listState = listState,
         modifier = modifier,
     )
 }
@@ -72,25 +79,12 @@ fun DocumentInfoRouteScreen(
 fun DocumentInfoScreen(
     uiState: DocumentInfoUiState,
     onBack: () -> Unit,
-    scrollState: ScrollState,
+    listState: LazyListState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
-
-    if (uiState.isLoading) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
-            contentAlignment = Alignment.Center,
-        ) {
-            TeddLoadingIndicator(message = stringResource(Res.string.loading_document_info))
-        }
-        return
-    }
-
     val metadata = uiState.metadata
 
     TeddScaffold(
@@ -101,78 +95,134 @@ fun DocumentInfoScreen(
             TeddTopBar(
                 title = stringResource(Res.string.document_info),
                 navigationIcon = {
-                    TeddIconButton(
-                        onClick = onBack,
-                        contentDescription = stringResource(Res.string.back),
-                    ) {
-                        Icon(
-                            imageVector = TeddIcons.Back,
-                            contentDescription = null,
-                        )
+                    TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
+                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
             )
         },
     ) { scaffoldPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(scaffoldPadding)
-                .padding(contentPadding),
-            verticalArrangement = Arrangement.spacedBy(spacing.medium),
+                .padding(scaffoldPadding),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            Text(
-                text = metadata?.location?.displayName ?: uiState.documentId,
-                style = typography.settingDescription,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .widthIn(max = ScreenMaxWidth)
+                    .fillMaxSize(),
+                contentPadding = contentPadding,
+                verticalArrangement = Arrangement.spacedBy(spacing.medium),
+            ) {
+                uiState.errorMessage?.let { message ->
+                    item { TeddErrorBanner(message = message) }
+                }
 
-            uiState.errorMessage?.let { message ->
-                TeddErrorBanner(message = message)
-            }
+                if (uiState.isLoading) {
+                    item {
+                        TeddLoadingIndicator(message = stringResource(Res.string.loading_document_info))
+                    }
+                } else {
+                    metadata?.let {
+                        item {
+                            Text(text = it.location.displayName, style = typography.titleMedium)
+                        }
+                        item {
+                            TeddOptionGroup(
+                                title = stringResource(Res.string.overview),
+                                description = stringResource(Res.string.overview_description),
+                                headerPadding = PaddingValues(),
+                            ) {
+                                SelectionContainer {
+                                    MetadataRow(label = stringResource(Res.string.location), value = it.location.sourceUri)
+                                }
+                                MetadataRow(label = stringResource(Res.string.format), value = it.format.displayName(unknown = stringResource(Res.string.unknown_format)))
+                                MetadataRow(label = stringResource(Res.string.size), value = formatSize(it.location.sizeBytes, unavailable = stringResource(Res.string.not_available)))
+                                MetadataRow(label = stringResource(Res.string.pages), value = formatPageCount(it.pageCount, unavailable = stringResource(Res.string.not_available)))
+                                MetadataRow(label = stringResource(Res.string.current_page), value = formatPagePosition(uiState.pageIndex, unavailable = stringResource(Res.string.not_available), separator = stringResource(Res.string.page_position_separator)))
+                            }
+                        }
+                    }
 
-            metadata?.let {
-                TeddOptionGroup(
-                    title = stringResource(Res.string.overview),
-                    description = stringResource(Res.string.overview_description),
-                ) {
-                    MetadataRow(label = stringResource(Res.string.name), value = it.location.displayName)
-                    MetadataRow(label = stringResource(Res.string.location), value = it.location.sourceUri)
-                    MetadataRow(label = stringResource(Res.string.format), value = it.format.displayName(unknown = stringResource(Res.string.unknown_format)))
-                    MetadataRow(label = stringResource(Res.string.size), value = formatSize(it.location.sizeBytes, unavailable = stringResource(Res.string.not_available)))
-                    MetadataRow(label = stringResource(Res.string.pages), value = formatPageCount(it.pageCount, unavailable = stringResource(Res.string.not_available)))
-                    MetadataRow(label = stringResource(Res.string.current_page), value = formatPagePosition(uiState.pageIndex, unavailable = stringResource(Res.string.not_available), separator = stringResource(Res.string.page_position_separator)))
+                    item {
+                        TeddOptionGroup(
+                            title = stringResource(Res.string.reading_stats),
+                            description = stringResource(Res.string.reading_stats_description),
+                            headerPadding = PaddingValues(),
+                        ) {
+                            ReadingStatsContent(
+                                readingTime = formatDuration(uiState.stats?.activeMillis, unavailable = stringResource(Res.string.not_available)),
+                                readingPace = formatReadingPace(uiState.stats, unavailable = stringResource(Res.string.not_available), suffix = stringResource(Res.string.reading_pace_suffix)),
+                                characters = formatCount(metadata?.characterCount, unavailable = stringResource(Res.string.not_available)),
+                                words = formatCount(metadata?.wordCount, unavailable = stringResource(Res.string.not_available)),
+                            )
+                        }
+                    }
+
+                    item {
+                        TeddOptionGroup(
+                            title = stringResource(Res.string.recent_sessions),
+                            description = stringResource(Res.string.recent_sessions_description),
+                            headerPadding = PaddingValues(),
+                        ) {
+                            if (uiState.sessions.isEmpty()) {
+                                Text(
+                                    text = stringResource(Res.string.no_reading_sessions),
+                                    style = typography.settingDescription,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                uiState.sessions.take(10).forEachIndexed { index, session ->
+                                    TeddListItem(
+                                        title = stringResource(Res.string.session_title, index + 1),
+                                        supportingText = formatDuration(session.activeMillis),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+}
 
-            TeddOptionGroup(
-                title = stringResource(Res.string.reading_stats),
-                description = stringResource(Res.string.reading_stats_description),
-            ) {
-                MetadataRow(label = stringResource(Res.string.reading_time), value = formatDuration(uiState.stats?.activeMillis, unavailable = stringResource(Res.string.not_available)))
-                MetadataRow(label = stringResource(Res.string.reading_pace), value = formatReadingPace(uiState.stats, unavailable = stringResource(Res.string.not_available), suffix = stringResource(Res.string.reading_pace_suffix)))
-                MetadataRow(label = stringResource(Res.string.characters), value = formatCount(metadata?.characterCount, unavailable = stringResource(Res.string.not_available)))
-                MetadataRow(label = stringResource(Res.string.words), value = formatCount(metadata?.wordCount, unavailable = stringResource(Res.string.not_available)))
-            }
+@Composable
+private fun ReadingStatsContent(
+    readingTime: String,
+    readingPace: String,
+    characters: String,
+    words: String,
+) {
+    val spacing = teddReaderSpacing()
+    val stats = listOf(
+        stringResource(Res.string.reading_time) to readingTime,
+        stringResource(Res.string.reading_pace) to readingPace,
+        stringResource(Res.string.characters) to characters,
+        stringResource(Res.string.words) to words,
+    )
 
-            TeddOptionGroup(
-                title = stringResource(Res.string.recent_sessions),
-                description = stringResource(Res.string.recent_sessions_description),
-            ) {
-                if (uiState.sessions.isEmpty()) {
-                    Text(
-                        text = stringResource(Res.string.no_reading_sessions),
-                        style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    uiState.sessions.take(10).forEachIndexed { index, session ->
-                        TeddListItem(
-                            title = stringResource(Res.string.session_title, index + 1),
-                            supportingText = formatDuration(session.activeMillis),
-                        )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (maxWidth >= ReadingStatsTwoColumnMinWidth) {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                stats.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        rowItems.forEach { (label, value) ->
+                            MetadataRow(label = label, value = value, modifier = Modifier.weight(1f))
+                        }
                     }
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                stats.forEach { (label, value) ->
+                    MetadataRow(label = label, value = value)
                 }
             }
         }
@@ -189,20 +239,11 @@ private fun MetadataRow(
     val typography = teddReaderTypography()
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(bottom = spacing.small),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
     ) {
-        Text(
-            text = label,
-            style = typography.settingDescription,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = typography.settingTitle,
-        )
+        Text(text = label, style = typography.settingDescription, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = value, style = typography.settingTitle)
     }
 }
 
@@ -237,7 +278,6 @@ internal fun formatReadingPace(
 }
 
 internal fun formatCount(value: Long?, unavailable: String = "Not available"): String = value?.toString() ?: unavailable
-
 internal fun formatPageCount(pageCount: Int?, unavailable: String = "Not available"): String = pageCount?.toString() ?: unavailable
 
 internal fun formatPagePosition(
@@ -251,11 +291,7 @@ internal fun formatPagePosition(
 
 private fun formatDecimal(value: Float): String {
     val rounded = (value * 10).roundToInt() / 10f
-    return if (rounded % 1f == 0f) {
-        rounded.toInt().toString()
-    } else {
-        rounded.toString()
-    }
+    return if (rounded % 1f == 0f) rounded.toInt().toString() else rounded.toString()
 }
 
 private fun DocumentFormat.displayName(unknown: String = "Unknown format"): String = when (this) {
@@ -267,6 +303,7 @@ private fun DocumentFormat.displayName(unknown: String = "Unknown format"): Stri
 
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
+@Preview(widthDp = 840)
 @Composable
 private fun DocumentInfoScreenPreview() {
     TeddReaderTheme {
@@ -275,11 +312,7 @@ private fun DocumentInfoScreenPreview() {
                 isLoading = false,
                 metadata = DocumentMetadata(
                     id = DocumentId("preview"),
-                    location = DocumentLocation(
-                        "file:///preview/very/long/path/to/preview.txt",
-                        "preview.txt",
-                        sizeBytes = 42_500L,
-                    ),
+                    location = DocumentLocation("file:///preview/very/long/path/to/preview.txt", "preview.txt", sizeBytes = 42_500L),
                     format = DocumentFormat.TXT,
                     addedAtEpochMillis = 0L,
                     pageCount = 10,
@@ -287,12 +320,7 @@ private fun DocumentInfoScreenPreview() {
                     wordCount = 200L,
                 ),
                 pageIndex = PageIndex(current = 3, total = 10),
-                stats = ReadingStats(
-                    documentId = DocumentId("preview"),
-                    activeMillis = 12_345L,
-                    charactersRead = 1_000L,
-                    wordsRead = 200L,
-                ),
+                stats = ReadingStats(documentId = DocumentId("preview"), activeMillis = 12_345L, charactersRead = 1_000L, wordsRead = 200L),
                 sessions = listOf(
                     com.tedd.teddreader.core.domain.repository.ReadingSession(
                         id = "session-1",
@@ -304,7 +332,7 @@ private fun DocumentInfoScreenPreview() {
                 ),
             ),
             onBack = {},
-            scrollState = rememberScrollState(),
+            listState = rememberLazyListState(),
         )
     }
 }

@@ -2,12 +2,15 @@ package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
@@ -51,6 +54,7 @@ fun TeddSearchField(
     modifier: Modifier = Modifier,
     placeholder: String = "Search",
     enabled: Boolean = true,
+    onSearch: (() -> Unit)? = null,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
@@ -65,6 +69,8 @@ fun TeddSearchField(
         trailingIcon = trailingContent,
         singleLine = true,
         enabled = enabled,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
         shape = teddReaderShapes().medium,
         textStyle = teddReaderTypography().bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(

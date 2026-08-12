@@ -270,6 +270,7 @@ private fun Float.roundToHundredths(): Float =
 
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
+@Preview(widthDp = 720)
 @Composable
 private fun ReaderSettingsSheetPreview() {
     TeddReaderTheme {

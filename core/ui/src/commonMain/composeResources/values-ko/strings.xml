@@ -59,6 +59,7 @@
     <string name="auto_scroll_page_by_page">페이지별</string>
     <string name="search_find_passage_description">현재 문서에서 구절을 찾아보세요.</string>
     <string name="search_text_placeholder">검색어 입력</string>
+    <string name="clear_search_query">검색어 지우기</string>
     <string name="search_pdf_unsupported">PDF 텍스트 검색은 아직 지원하지 않습니다.</string>
     <string name="search_loading">검색 중</string>
     <string name="search_empty_title">이 문서 검색</string>

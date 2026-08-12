@@ -59,6 +59,7 @@
     <string name="auto_scroll_page_by_page">Page by page</string>
     <string name="search_find_passage_description">Find a passage in the current document.</string>
     <string name="search_text_placeholder">Search text</string>
+    <string name="clear_search_query">Clear search query</string>
     <string name="search_pdf_unsupported">PDF text search is not available yet.</string>
     <string name="search_loading">Searching</string>
     <string name="search_empty_title">Search this document</string>
