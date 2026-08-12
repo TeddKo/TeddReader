@@ -113,13 +113,11 @@ final class GoogleDrivePickerBridgeImpl: NSObject, GoogleDrivePickerBridge {
         guard let authorizationFlow = currentAuthorizationFlow else {
             return false
         }
-        do {
-            try authorizationFlow.resumeExternalUserAgentFlow(with: url)
+        let didResume = TeddResumeExternalUserAgentFlow(authorizationFlow, url)
+        if didResume {
             currentAuthorizationFlow = nil
-            return true
-        } catch {
-            return false
         }
+        return didResume
     }
 
     private func topViewController(
