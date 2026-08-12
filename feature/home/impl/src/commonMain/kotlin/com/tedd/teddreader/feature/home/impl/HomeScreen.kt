@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
@@ -50,6 +52,7 @@ import com.tedd.teddreader.core.ui.component.TeddChip
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
+import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
@@ -562,28 +565,63 @@ private fun HomeAddDocumentsDialog(
     onSelectGoogleDriveClick: (() -> Unit)? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val typography = teddReaderTypography()
+    val trailingIcon: @Composable RowScope.() -> Unit = {
+        Icon(
+            imageVector = TeddIcons.Next,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
         title = { Text(stringResource(Res.string.add_documents)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.medium)) {
                 Text(stringResource(Res.string.home_add_documents_description))
-                TeddButton(
-                    text = stringResource(Res.string.select_files),
-                    onClick = onSelectFilesClick,
-                )
-                TeddButton(
-                    text = stringResource(Res.string.select_folder),
-                    onClick = onSelectFolderClick,
-                    emphasis = TeddButtonEmphasis.Secondary,
-                )
-                onSelectGoogleDriveClick?.let { onClick ->
-                    TeddButton(
-                        text = stringResource(Res.string.google_drive),
-                        onClick = onClick,
-                        emphasis = TeddButtonEmphasis.Secondary,
+
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                    Text(
+                        text = stringResource(Res.string.local_documents),
+                        style = typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    TeddCard(modifier = Modifier.fillMaxWidth()) {
+                        TeddListItem(
+                            title = stringResource(Res.string.select_files),
+                            supportingText = stringResource(Res.string.select_files_description),
+                            onClick = onSelectFilesClick,
+                            trailingContent = trailingIcon,
+                        )
+                        TeddListItem(
+                            title = stringResource(Res.string.select_folder),
+                            supportingText = stringResource(Res.string.select_folder_description),
+                            onClick = onSelectFolderClick,
+                            showDivider = false,
+                            trailingContent = trailingIcon,
+                        )
+                    }
+                }
+
+                onSelectGoogleDriveClick?.let { onClick ->
+                    Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
+                        Text(
+                            text = stringResource(Res.string.cloud_documents),
+                            style = typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TeddCard(modifier = Modifier.fillMaxWidth()) {
+                            TeddListItem(
+                                title = stringResource(Res.string.google_drive),
+                                supportingText = stringResource(Res.string.google_drive_description),
+                                onClick = onClick,
+                                showDivider = false,
+                                trailingContent = trailingIcon,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -708,6 +746,20 @@ private fun HomeFormatFilter.chipLabel(): String = when (this) {
 
 private fun Set<String>.toggle(value: String): Set<String> =
     if (value in this) this - value else this + value
+
+@Preview(widthDp = 280)
+@Preview(widthDp = 360)
+@Composable
+private fun HomeAddDocumentsDialogPreview() {
+    TeddReaderTheme {
+        HomeAddDocumentsDialog(
+            onDismissRequest = {},
+            onSelectFilesClick = {},
+            onSelectFolderClick = {},
+            onSelectGoogleDriveClick = {},
+        )
+    }
+}
 
 @Preview(widthDp = 280)
 @Composable
