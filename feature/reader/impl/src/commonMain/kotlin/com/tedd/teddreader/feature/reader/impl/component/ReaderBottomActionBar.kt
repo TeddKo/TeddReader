@@ -12,6 +12,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,10 +59,16 @@ fun ReaderBottomActionBar(
     val sliderRange = if (lastPage > 0) 0f..lastPage.toFloat() else 0f..1f
     val displayedSliderValue = sliderValue.coerceIn(sliderRange.start, sliderRange.endInclusive)
     val selectedPage = displayedSliderValue.roundToInt().coerceIn(0, lastPage)
+    var latestSelectedPage by remember(lastPage) { mutableIntStateOf(selectedPage) }
+
+    LaunchedEffect(selectedPage) {
+        latestSelectedPage = selectedPage
+    }
+
     val pageLabel = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
     } else {
-        "${selectedPage + 1} / ${pageIndex.total}"
+        "${latestSelectedPage + 1} / ${pageIndex.total}"
     }
 
     AnimatedContent(
@@ -88,9 +99,11 @@ fun ReaderBottomActionBar(
                         TeddSlider(
                             value = displayedSliderValue,
                             onValueChange = { value ->
-                                onSliderValueChange(value.coerceIn(sliderRange.start, sliderRange.endInclusive))
+                                val boundedValue = value.coerceIn(sliderRange.start, sliderRange.endInclusive)
+                                latestSelectedPage = boundedValue.roundToInt().coerceIn(0, lastPage)
+                                onSliderValueChange(boundedValue)
                             },
-                            onValueChangeFinished = { onPageSelected(selectedPage) },
+                            onValueChangeFinished = { onPageSelected(latestSelectedPage) },
                             valueRange = sliderRange,
                             enabled = pageIndex.total > 1 && !isAutoScrollEnabled,
                             modifier = Modifier.weight(1f),

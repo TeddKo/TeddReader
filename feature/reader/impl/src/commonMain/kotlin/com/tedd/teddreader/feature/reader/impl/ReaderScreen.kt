@@ -137,7 +137,7 @@ fun ReaderRouteScreen(
     var autoScrollSpeedDraft by rememberSaveable(documentId, committedAutoScrollSpeed) {
         mutableStateOf(committedAutoScrollSpeed)
     }
-    var bottomSliderValue by rememberSaveable(documentId, uiState.pageIndex.current, uiState.pageIndex.total) {
+    var bottomSliderValue by rememberSaveable(documentId) {
         mutableStateOf(uiState.pageIndex.current.toFloat())
     }
     var isActionMenuExpanded by rememberSaveable(documentId) { mutableStateOf(false) }
@@ -431,16 +431,10 @@ private fun ReaderContent(
                 totalPages = uiState.pageIndex.total,
                 paneCount = paneCount,
             )
-            var hasBottomSliderDraft by remember(
-                uiState.pageIndex.current,
-                uiState.pageIndex.total,
-                paneCount,
-            ) { mutableStateOf(false) }
-            val actionBarSliderValue = if (hasBottomSliderDraft) {
-                bottomSliderValue
-            } else {
-                actionBarPageIndex.current.toFloat()
+            LaunchedEffect(actionBarPageIndex.current, actionBarPageIndex.total) {
+                onBottomSliderValueChange(actionBarPageIndex.current.toFloat())
             }
+            val actionBarSliderValue = bottomSliderValue
             var pageMoveRequest by remember { mutableStateOf<ReaderPageMoveRequest?>(null) }
             var pageMoveRequestId by remember { mutableIntStateOf(0) }
             val requestPageMove: (ReaderPageMovement) -> Unit = { movement ->
@@ -658,10 +652,7 @@ private fun ReaderContent(
                                     requestPageMove(ReaderPageMovement.Next)
                                 },
                                 sliderValue = actionBarSliderValue,
-                                onSliderValueChange = {
-                                    hasBottomSliderDraft = true
-                                    onBottomSliderValueChange(it)
-                                },
+                                onSliderValueChange = onBottomSliderValueChange,
                                 canGoPrevious = uiState.pageIndex.current > 0,
                                 canGoNext = readerNextPage(
                                     currentPage = uiState.pageIndex.current,
@@ -1012,18 +1003,24 @@ private fun GoToPageSheet(
         modifier = modifier,
         description = stringResource(Res.string.go_to_page_description, totalPages),
     ) {
-        TeddTextField(
-            value = pageText,
-            onValueChange = onPageTextChange,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            label = stringResource(Res.string.page),
-            maxLines = 1,
-        )
-        TeddButton(
-            text = stringResource(Res.string.go),
-            enabled = targetPage != null,
-            onClick = { targetPage?.let { onGoToPage(it - 1) } },
-        )
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TeddTextField(
+                value = pageText,
+                onValueChange = onPageTextChange,
+                modifier = Modifier.weight(1f),
+                label = stringResource(Res.string.page),
+                maxLines = 1,
+            )
+            TeddButton(
+                text = stringResource(Res.string.go),
+                enabled = targetPage != null,
+                onClick = { targetPage?.let { onGoToPage(it - 1) } },
+            )
+        }
     }
 }
 

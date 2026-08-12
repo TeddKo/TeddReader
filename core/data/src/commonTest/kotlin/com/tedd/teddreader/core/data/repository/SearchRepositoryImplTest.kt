@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.data.repository
 
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
@@ -24,13 +25,13 @@ class SearchRepositoryImplTest {
                     index = 0,
                     title = "Chapter 1",
                     text = "Hello reader service",
-                    range = TextRange(0, 20),
+                    range = TextRange(20, 40),
                 ),
                 ReaderSection(
                     index = 1,
                     title = "Chapter 2",
                     text = "No match",
-                    range = TextRange(21, 29),
+                    range = TextRange(41, 49),
                 ),
             ),
         )
@@ -41,6 +42,9 @@ class SearchRepositoryImplTest {
         assertEquals(2, dao.entries.size)
         assertEquals(1, results.size)
         assertEquals("Chapter 1", results.single().sectionTitle)
+        assertEquals(ReaderLocation.TextOffset(26), results.single().location)
+        assertEquals(TextRange(26, 32), results.single().range)
+        assertEquals("reader", results.single().query)
     }
 }
 
