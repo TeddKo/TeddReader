@@ -13,13 +13,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 @Composable
 fun TeddOptionGroup(
-    title: String,
+    title: String?,
     modifier: Modifier = Modifier,
     description: String? = null,
     headerPadding: PaddingValues = PaddingValues(
@@ -42,22 +43,26 @@ fun TeddOptionGroup(
             .background(MaterialTheme.colorScheme.surface),
     ) {
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(headerPadding),
-            ) {
-                Text(
-                    text = title,
-                    style = typography.titleMedium,
-                )
-                if (description != null) {
-                    Text(
-                        text = description,
-                        modifier = Modifier.padding(top = spacing.xxSmall),
-                        style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (title != null || description != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(headerPadding),
+                ) {
+                    title?.let {
+                        Text(
+                            text = it,
+                            style = typography.titleMedium,
+                        )
+                    }
+                    if (description != null) {
+                        Text(
+                            text = description,
+                            modifier = Modifier.padding(top = if (title != null) spacing.xxSmall else 0.dp),
+                            style = typography.settingDescription,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             Column(
