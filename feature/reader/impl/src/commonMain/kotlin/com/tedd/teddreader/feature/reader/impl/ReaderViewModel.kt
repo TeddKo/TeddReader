@@ -92,6 +92,10 @@ class ReaderViewModel(
                 }
                 currentPageWindows = pageWindows
                 currentSections = readerDocument?.sections.orEmpty()
+                documentRepository.markDocumentOpened(
+                    documentId = documentId,
+                    openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                )
 
                 val metadataPageCount = metadata?.pageCount
                 val totalPages = when {
