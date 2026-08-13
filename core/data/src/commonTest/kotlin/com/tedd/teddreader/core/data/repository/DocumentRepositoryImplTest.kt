@@ -8,8 +8,10 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
+import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
 import com.tedd.teddreader.core.data.parser.EpubDocumentParser
+import com.tedd.teddreader.core.data.parser.ImageDocumentParser
 import com.tedd.teddreader.core.data.parser.PdfDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtDocumentParser
 import com.tedd.teddreader.core.data.storage.DocumentFileSource
@@ -27,6 +29,35 @@ import kotlin.test.assertFailsWith
 
 class DocumentRepositoryImplTest {
     @Test
+    fun importsImageAsSingleVisualPage() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///page.jpg",
+            displayName = "page.jpg",
+            mimeType = "image/jpeg",
+        )
+        val bytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3)
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+
+        val document = repository.importDocument(
+            DocumentImportSource(location, bytes),
+            importedAtEpochMillis = 1_000,
+        )
+
+        assertEquals(DocumentFormat.IMAGE, document.format)
+        assertEquals(1, document.pageCount)
+    }
+
+    @Test
     fun getDocumentCoverReturnsNullForTxtDocuments() = runTest {
         val repository = DocumentRepositoryImpl(
             documentDao = FakeDocumentDao(),
@@ -35,6 +66,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
 
@@ -64,6 +97,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
 
@@ -94,6 +129,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
         val source = DocumentImportSource(
@@ -125,6 +162,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
 
@@ -161,6 +200,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
 
@@ -224,6 +265,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
             documentFileSource = FakeDocumentFileSource(location, byteArrayOf(
                 0xBE.toByte(), 0xC8.toByte(),
@@ -251,6 +294,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
 
@@ -285,6 +330,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
         repository.importDocument(
@@ -320,6 +367,8 @@ class DocumentRepositoryImplTest {
             txtDocumentParser = TxtDocumentParser(),
             epubDocumentParser = EpubDocumentParser(),
             pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
         )
         val source = DocumentImportSource(

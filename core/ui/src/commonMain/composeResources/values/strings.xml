@@ -63,7 +63,7 @@
     <string name="search_find_passage_description">Find a passage in the current document.</string>
     <string name="search_text_placeholder">Search text</string>
     <string name="clear_search_query">Clear search query</string>
-    <string name="search_pdf_unsupported">PDF text search is not available yet.</string>
+    <string name="search_pdf_unsupported">Text search is not available for this format.</string>
     <string name="search_loading">Searching</string>
     <string name="search_empty_title">Search this document</string>
     <string name="search_empty_description">Type a word or phrase to jump to matching passages.</string>
@@ -157,11 +157,13 @@
     <string name="pdf_renderer_not_connected">PDF page renderer is not connected yet.</string>
     <string name="pdf_page_fraction">Page %1$d / %2$d</string>
     <string name="pdf_page_content_description">PDF page %1$d</string>
-    <string name="pdf_zoom">PDF zoom</string>
+    <string name="visual_zoom">Page zoom</string>
+    <string name="visual_page_content_description">Image page %1$d</string>
+    <string name="visual_page_unavailable">This image page could not be loaded.</string>
     <string name="library">Library</string>
     <string name="home_loading_recent_documents">Loading recent documents</string>
     <string name="home_no_documents_title">No documents yet</string>
-    <string name="home_no_documents_description">Add TXT, PDF, or EPUB files or a folder from your device.</string>
+    <string name="home_no_documents_description">Add TXT, PDF, EPUB, CBZ, or image files from your device.</string>
     <string name="favorites">Favorites</string>
     <string name="favorite_documents_single">1 hand-picked document</string>
     <string name="favorite_documents_count">%1$d hand-picked documents</string>
@@ -169,7 +171,7 @@
     <string name="recent_reading_description">Continue where you left off</string>
     <string name="remove_from_library_title">Remove from library?</string>
     <string name="remove_from_library_message">&quot;%1$s&quot; and its reading data will be removed from TeddReader. The original file will stay on your device.</string>
-    <string name="masthead_description">Open local TXT, PDF, and EPUB documents.</string>
+    <string name="masthead_description">Open local documents, comics, and images.</string>
     <string name="home_no_matching_documents">No matching documents</string>
     <string name="home_no_matching_documents_description">Try another format filter or show all documents.</string>
     <string name="show_all">Show all</string>
@@ -185,7 +187,7 @@
     <string name="home_add_documents_description">Choose where to import documents from.</string>
     <string name="local_documents">On this device</string>
     <string name="select_files">Select files</string>
-    <string name="select_files_description">Choose one or more TXT, PDF, or EPUB files.</string>
+    <string name="select_files_description">Choose TXT, PDF, EPUB, CBZ, or image files.</string>
     <string name="select_folder">Select folder</string>
     <string name="select_folder_description">Import supported documents from a folder.</string>
     <string name="cloud_documents">Cloud</string>

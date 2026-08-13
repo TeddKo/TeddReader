@@ -65,6 +65,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
+import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageTurnMode
@@ -102,6 +103,7 @@ import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMovement
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPager
 import com.tedd.teddreader.feature.reader.impl.component.ReaderStatusFooter
 import com.tedd.teddreader.feature.reader.impl.component.foundationMovieCarouselDimAlpha
+import com.tedd.teddreader.feature.reader.impl.image.ImagePageSurface
 import com.tedd.teddreader.feature.reader.impl.pdf.PdfPageSurface
 import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
@@ -419,7 +421,7 @@ private fun ReaderContent(
                 .fillMaxSize()
                 .clipToBounds()
                 .graphicsLayer {
-                    if (uiState.isPdfMode) {
+                    if (uiState.isVisualMode) {
                         scaleX = pdfTransform.zoom
                         scaleY = pdfTransform.zoom
                         translationX = pdfTransform.pan.x
@@ -461,7 +463,7 @@ private fun ReaderContent(
             }
             val effectiveAutoScrollMode = readerEffectiveAutoScrollMode(
                 mode = uiState.autoScrollConfig.mode,
-                isPdfMode = uiState.isPdfMode,
+                isVisualMode = uiState.isVisualMode,
             )
             val autoScrollLineHeightPx = with(density) {
                 (uiState.style.fontSizeSp * uiState.style.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
@@ -504,6 +506,20 @@ private fun ReaderContent(
                         onNextPage = moveNext,
                         onPageSelected = onGoToPage,
                         onToggleControls = onToggleControls,
+                        onDoubleTap = if (uiState.isVisualMode) {
+                            { position ->
+                                if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
+                                val next = readerDoubleTapVisualTransform(
+                                    current = pdfTransform,
+                                    tapPosition = position,
+                                    viewportSize = viewportSize,
+                                )
+                                pdfZoom = next.zoom
+                                pdfPan = next.pan
+                            }
+                        } else {
+                            null
+                        },
                         isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                         effectiveAutoScrollMode = effectiveAutoScrollMode,
                         autoScrollSpeed = uiState.autoScrollConfig.speed,
@@ -529,7 +545,7 @@ private fun ReaderContent(
                             .readerPinchZoomGesture(
                                 enabled = uiState.pageIndex.total > 0,
                                 viewportSize = viewportSize,
-                                isPdfMode = uiState.isPdfMode,
+                                isVisualMode = uiState.isVisualMode,
                                 textStartFontSizeSp = textCommittedFontSize,
                                 pdfTransform = pdfTransform,
                                 isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
@@ -773,39 +789,49 @@ private fun ReaderPagePane(
         return
     }
 
-    if (uiState.isPdfMode) {
-        PdfPageSurface(
+    when {
+        uiState.isPdfMode -> PdfPageSurface(
             pageIndex = uiState.pageIndexFor(page),
             modifier = modifier.fillMaxSize(),
             documentUri = uiState.pageSlot(page)?.documentUri ?: uiState.documentUri,
             rotationDegrees = uiState.pdfRotationDegrees,
         )
-    } else {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(uiState.style.readerColors().background)
-                .windowInsetsPadding(windowInsets)
-                .padding(contentPadding)
-                .run {
-                    if (!reportViewportSize) {
-                        this
-                    } else {
-                        onSizeChanged { size ->
-                            onViewportSizeChanged(
-                                density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
-                                density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
-                            )
+
+        uiState.isImageMode -> ImagePageSurface(
+            page = page,
+            imageBytes = uiState.visualPageImages[page],
+            sourceUri = uiState.documentUri.takeIf { uiState.documentFormat == DocumentFormat.IMAGE },
+            isFailed = page in uiState.failedVisualPages,
+            modifier = modifier.fillMaxSize(),
+        )
+
+        else -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(uiState.style.readerColors().background)
+                    .windowInsetsPadding(windowInsets)
+                    .padding(contentPadding)
+                    .run {
+                        if (!reportViewportSize) {
+                            this
+                        } else {
+                            onSizeChanged { size ->
+                                onViewportSizeChanged(
+                                    density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
+                                    density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
+                                )
+                            }
                         }
-                    }
-                },
-        ) {
-            ReaderPageSurface(
-                text = uiState.pageTextFor(page),
-                style = uiState.style,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(0.dp),
-            )
+                    },
+            ) {
+                ReaderPageSurface(
+                    text = uiState.pageTextFor(page),
+                    style = uiState.style,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(0.dp),
+                )
+            }
         }
     }
 }
@@ -1095,9 +1121,9 @@ private fun ViewOptionsSheet(
         TeddSwitchRow(stringResource(Res.string.keep_screen_on), uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow(stringResource(Res.string.fullscreen_reader), uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
         TeddSwitchRow(stringResource(Res.string.show_progress), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
-        if (uiState.isPdfMode) {
+        if (uiState.isVisualMode) {
             TeddSliderRow(
-                title = stringResource(Res.string.pdf_zoom),
+                title = stringResource(Res.string.visual_zoom),
                 value = pdfZoom * 100f,
                 onValueChange = { onPdfZoomChange(it / 100f) },
                 onValueChangeFinished = null,
@@ -1257,7 +1283,7 @@ private fun AutoScrollOptionsSheet(
     TeddOptionGroup(title = null, modifier = modifier) {
         TeddSwitchRow(stringResource(Res.string.enabled), uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
         AutoScrollMode.entries.forEach { mode ->
-            val isModeEnabled = !uiState.isSavingSettings && !(uiState.isPdfMode && mode == AutoScrollMode.LINE)
+            val isModeEnabled = !uiState.isSavingSettings && !(uiState.isVisualMode && mode == AutoScrollMode.LINE)
             TeddRadioRow(
                 title = mode.autoScrollLabel(),
                 selected = uiState.autoScrollConfig.mode == mode,
@@ -1326,8 +1352,8 @@ private fun Float.roundToHundredths(): Float =
 internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
     (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
 
-internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isPdfMode: Boolean): AutoScrollMode =
-    if (isPdfMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
+internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isVisualMode: Boolean): AutoScrollMode =
+    if (isVisualMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
 
 internal fun readerAutoScrollPageMovement(
     mode: AutoScrollMode,

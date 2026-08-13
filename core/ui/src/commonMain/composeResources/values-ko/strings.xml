@@ -63,7 +63,7 @@
     <string name="search_find_passage_description">현재 문서에서 구절을 찾아보세요.</string>
     <string name="search_text_placeholder">검색어 입력</string>
     <string name="clear_search_query">검색어 지우기</string>
-    <string name="search_pdf_unsupported">PDF 텍스트 검색은 아직 지원하지 않습니다.</string>
+    <string name="search_pdf_unsupported">이 형식은 텍스트 검색을 지원하지 않습니다.</string>
     <string name="search_loading">검색 중</string>
     <string name="search_empty_title">이 문서 검색</string>
     <string name="search_empty_description">단어나 구문을 입력해 일치하는 구절로 이동하세요.</string>
@@ -157,11 +157,13 @@
     <string name="pdf_renderer_not_connected">PDF 페이지 렌더러가 아직 연결되지 않았습니다.</string>
     <string name="pdf_page_fraction">페이지 %1$d / %2$d</string>
     <string name="pdf_page_content_description">PDF %1$d페이지</string>
-    <string name="pdf_zoom">PDF 확대</string>
+    <string name="visual_zoom">페이지 확대</string>
+    <string name="visual_page_content_description">이미지 %1$d페이지</string>
+    <string name="visual_page_unavailable">이미지 페이지를 불러오지 못했습니다.</string>
     <string name="library">라이브러리</string>
     <string name="home_loading_recent_documents">최근 문서를 불러오는 중</string>
     <string name="home_no_documents_title">아직 문서가 없습니다</string>
-    <string name="home_no_documents_description">기기에서 TXT, PDF, EPUB 파일이나 폴더를 추가하세요.</string>
+    <string name="home_no_documents_description">기기에서 TXT, PDF, EPUB, CBZ 또는 이미지 파일을 추가하세요.</string>
     <string name="favorites">즐겨찾기</string>
     <string name="favorite_documents_single">엄선한 문서 1개</string>
     <string name="favorite_documents_count">엄선한 문서 %1$d개</string>
@@ -169,7 +171,7 @@
     <string name="recent_reading_description">중단한 지점부터 이어 읽기</string>
     <string name="remove_from_library_title">라이브러리에서 삭제할까요?</string>
     <string name="remove_from_library_message">&quot;%1$s&quot;와 해당 읽기 데이터가 TeddReader에서 삭제됩니다. 원본 파일은 기기에 그대로 남습니다.</string>
-    <string name="masthead_description">로컬 TXT, PDF, EPUB 문서를 열어보세요.</string>
+    <string name="masthead_description">로컬 문서와 만화책, 이미지를 열어보세요.</string>
     <string name="home_no_matching_documents">조건에 맞는 문서가 없습니다</string>
     <string name="home_no_matching_documents_description">다른 형식 필터를 선택하거나 전체 문서를 표시해 보세요.</string>
     <string name="show_all">전체 보기</string>
@@ -185,7 +187,7 @@
     <string name="home_add_documents_description">문서를 가져올 위치를 선택하세요.</string>
     <string name="local_documents">내 기기</string>
     <string name="select_files">파일 선택</string>
-    <string name="select_files_description">TXT, PDF 또는 EPUB 파일을 하나 이상 선택합니다.</string>
+    <string name="select_files_description">TXT, PDF, EPUB, CBZ 또는 이미지 파일을 선택합니다.</string>
     <string name="select_folder">폴더 선택</string>
     <string name="select_folder_description">폴더에서 지원되는 문서를 가져옵니다.</string>
     <string name="cloud_documents">클라우드</string>

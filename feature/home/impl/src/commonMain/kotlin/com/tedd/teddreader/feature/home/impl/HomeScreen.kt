@@ -1060,6 +1060,8 @@ private fun HomeFormatFilter.chipLabel(): String = when (this) {
     HomeFormatFilter.Txt -> "TXT"
     HomeFormatFilter.Pdf -> "PDF"
     HomeFormatFilter.Epub -> "EPUB"
+    HomeFormatFilter.Comic -> "CBZ"
+    HomeFormatFilter.Image -> "IMAGE"
 }
 
 private fun Set<String>.toggle(value: String): Set<String> =

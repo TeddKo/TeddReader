@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.getKoin
 
-private val AndroidPickerMimeTypes = SupportedDocumentMimeTypes.toTypedArray()
+private val AndroidPickerMimeTypes = (SupportedDocumentMimeTypes + "application/zip").toTypedArray()
 
 @Composable
 internal actual fun rememberDocumentImporter(

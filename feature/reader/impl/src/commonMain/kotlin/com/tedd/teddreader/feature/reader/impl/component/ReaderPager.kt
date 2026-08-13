@@ -55,6 +55,7 @@ internal fun ReaderPager(
     onNextPage: () -> Unit,
     onPageSelected: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
     isAutoScrollEnabled: Boolean,
     effectiveAutoScrollMode: AutoScrollMode,
     autoScrollSpeed: Float,
@@ -81,6 +82,7 @@ internal fun ReaderPager(
                 onPageMoveRequestConsumed = onPageMoveRequestConsumed,
                 onPageSelected = onPageSelected,
                 onToggleControls = onToggleControls,
+                onDoubleTap = onDoubleTap,
                 isAutoScrollEnabled = isAutoScrollEnabled,
                 autoScrollMode = effectiveAutoScrollMode,
                 autoScrollSpeed = autoScrollSpeed,
@@ -111,6 +113,7 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                onDoubleTap = onDoubleTap,
                 isAutoScrollEnabled = isAutoScrollEnabled,
                 autoScrollMode = effectiveAutoScrollMode,
                 autoScrollSpeed = autoScrollSpeed,
@@ -137,6 +140,7 @@ internal fun ReaderPager(
                 onPreviousPage = onPreviousPage,
                 onNextPage = onNextPage,
                 onToggleControls = onToggleControls,
+                onDoubleTap = onDoubleTap,
                 isAutoScrollEnabled = isAutoScrollEnabled,
                 autoScrollMode = effectiveAutoScrollMode,
                 autoScrollSpeed = autoScrollSpeed,
@@ -172,13 +176,26 @@ internal fun ReaderPager(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(pageTurnMode, isAutoScrollEnabled, onPreviousPage, onNextPage, onToggleControls) {
-                detectReaderGesture(
+            .pointerInput(pageTurnMode, isAutoScrollEnabled, onPreviousPage, onNextPage) {
+                detectReaderSwipe(
                     pageTurnMode = pageTurnMode,
                     isAutoScrollEnabled = isAutoScrollEnabled,
                     onPreviousPage = onPreviousPage,
                     onNextPage = onNextPage,
-                    onToggleControls = onToggleControls,
+                )
+            }
+            .pointerInput(isAutoScrollEnabled, onPreviousPage, onNextPage, onToggleControls, onDoubleTap) {
+                detectTapGestures(
+                    onDoubleTap = onDoubleTap,
+                    onTap = { position ->
+                        handleTap(
+                            position = position,
+                            isAutoScrollEnabled = isAutoScrollEnabled,
+                            onPreviousPage = onPreviousPage,
+                            onNextPage = onNextPage,
+                            onToggleControls = onToggleControls,
+                        )
+                    },
                 )
             },
     ) {
@@ -217,6 +234,7 @@ private fun ReaderScrollPager(
     onPageMoveRequestConsumed: (Int) -> Unit,
     onPageSelected: (Int) -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
     isAutoScrollEnabled: Boolean,
     autoScrollMode: AutoScrollMode,
     autoScrollSpeed: Float,
@@ -328,31 +346,34 @@ private fun ReaderScrollPager(
         }
     }
 
-    val tapModifier = Modifier.pointerInput(isAutoScrollEnabled, pageTurnMode, onToggleControls, anchors) {
-        detectTapGestures { position ->
-            if (isAutoScrollEnabled) {
-                onToggleControls()
-                return@detectTapGestures
-            }
-            val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
-            val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
-            val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, anchors.lastIndex.coerceAtLeast(0))
-            when {
-                primary < extent * PreviousTapZoneRatio -> {
-                    if (currentIndex > 0) {
-                        coroutineScope.launch { listState.animateScrollToItem(currentIndex - 1) }
+    val tapModifier = Modifier.pointerInput(isAutoScrollEnabled, pageTurnMode, onToggleControls, onDoubleTap, anchors) {
+        detectTapGestures(
+            onDoubleTap = onDoubleTap,
+            onTap = { position ->
+                if (isAutoScrollEnabled) {
+                    onToggleControls()
+                } else {
+                    val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
+                    val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
+                    val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, anchors.lastIndex.coerceAtLeast(0))
+                    when {
+                        primary < extent * PreviousTapZoneRatio -> {
+                            if (currentIndex > 0) {
+                                coroutineScope.launch { listState.animateScrollToItem(currentIndex - 1) }
+                            }
+                        }
+
+                        primary > extent * NextTapZoneRatio -> {
+                            if (currentIndex < anchors.lastIndex) {
+                                coroutineScope.launch { listState.animateScrollToItem(currentIndex + 1) }
+                            }
+                        }
+
+                        else -> onToggleControls()
                     }
                 }
-
-                primary > extent * NextTapZoneRatio -> {
-                    if (currentIndex < anchors.lastIndex) {
-                        coroutineScope.launch { listState.animateScrollToItem(currentIndex + 1) }
-                    }
-                }
-
-                else -> onToggleControls()
-            }
-        }
+            },
+        )
     }
 
     if (isVerticalMode(pageTurnMode)) {
@@ -384,12 +405,11 @@ private fun ReaderScrollPager(
     }
 }
 
-private suspend fun PointerInputScope.detectReaderGesture(
+private suspend fun PointerInputScope.detectReaderSwipe(
     pageTurnMode: PageTurnMode,
     isAutoScrollEnabled: Boolean,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
-    onToggleControls: () -> Unit,
 ) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
@@ -409,14 +429,6 @@ private suspend fun PointerInputScope.detectReaderGesture(
             if (!isAutoScrollEnabled) {
                 handleSwipe(pageTurnMode, drag, onPreviousPage, onNextPage)
             }
-        } else {
-            handleTap(
-                position = down.position,
-                isAutoScrollEnabled = isAutoScrollEnabled,
-                onPreviousPage = onPreviousPage,
-                onNextPage = onNextPage,
-                onToggleControls = onToggleControls,
-            )
         }
     }
 }

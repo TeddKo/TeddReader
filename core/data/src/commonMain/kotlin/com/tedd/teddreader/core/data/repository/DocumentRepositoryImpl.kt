@@ -9,12 +9,15 @@ import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.data.mapper.toDocumentEntity
 import com.tedd.teddreader.core.data.mapper.toDocumentMetadata
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
+import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
 import com.tedd.teddreader.core.data.parser.EpubDocumentParser
+import com.tedd.teddreader.core.data.parser.ImageDocumentParser
 import com.tedd.teddreader.core.data.parser.PdfDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtTextDecoder
@@ -37,6 +40,8 @@ class DocumentRepositoryImpl(
     private val txtDocumentParser: TxtDocumentParser,
     private val epubDocumentParser: EpubDocumentParser,
     private val pdfDocumentParser: PdfDocumentParser,
+    private val comicBookDocumentParser: ComicBookDocumentParser,
+    private val imageDocumentParser: ImageDocumentParser,
     private val textPageLayoutEngine: TextPageLayoutEngine,
     private val documentFileSource: DocumentFileSource? = null,
 ) : DocumentRepository {
@@ -50,18 +55,36 @@ class DocumentRepositoryImpl(
         val metadata = getDocument(documentId) ?: return@withContext null
         when (metadata.format) {
             DocumentFormat.TXT,
+            DocumentFormat.IMAGE,
             DocumentFormat.UNKNOWN -> null
             DocumentFormat.EPUB,
-            DocumentFormat.PDF -> {
+            DocumentFormat.PDF,
+            DocumentFormat.CBZ,
+                -> {
                 val fileSource = documentFileSource ?: return@withContext null
                 val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
                 when (metadata.format) {
                     DocumentFormat.EPUB -> epubDocumentParser.coverImageBytes(bytes)
                     DocumentFormat.PDF -> pdfDocumentParser.coverImageBytes(metadata.location, bytes)
+                    DocumentFormat.CBZ -> comicBookDocumentParser.coverImageBytes(bytes)
                     else -> null
                 }
             }
         }
+    }
+
+    override suspend fun getVisualPageImages(
+        documentId: DocumentId,
+        pageIndexes: Set<Int>,
+    ): Map<Int, ByteArray> = withContext(Dispatchers.Default) {
+        if (pageIndexes.isEmpty()) return@withContext emptyMap()
+        val metadata = getDocument(documentId) ?: return@withContext emptyMap()
+        if (metadata.format != DocumentFormat.CBZ) return@withContext emptyMap()
+        val fileSource = documentFileSource ?: return@withContext emptyMap()
+        comicBookDocumentParser.pageImageBytes(
+            bytes = fileSource.readBytes(metadata.location),
+            pageIndexes = pageIndexes,
+        )
     }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
@@ -79,7 +102,7 @@ class DocumentRepositoryImpl(
         viewportSize: ViewportSize,
     ): List<PageWindow> {
         val document = getReaderDocument(documentId) ?: return emptyList()
-        if (document.format == DocumentFormat.PDF) return emptyList()
+        if (document.format.isVisualPageFormat()) return emptyList()
         return textPageLayoutEngine.paginate(
             document = document,
             style = style,
@@ -112,6 +135,17 @@ class DocumentRepositoryImpl(
                 title = source.location.displayName,
                 location = source.location,
                 bytes = source.bytes,
+            )
+
+            DocumentFormat.CBZ -> comicBookDocumentParser.parse(
+                id = id,
+                title = source.location.displayName,
+                bytes = source.bytes,
+            )
+
+            DocumentFormat.IMAGE -> imageDocumentParser.parse(
+                id = id,
+                title = source.location.displayName,
             )
 
             DocumentFormat.UNKNOWN -> throw IllegalArgumentException(

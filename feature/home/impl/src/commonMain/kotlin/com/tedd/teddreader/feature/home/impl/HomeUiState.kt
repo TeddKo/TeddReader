@@ -39,6 +39,8 @@ enum class HomeFormatFilter {
     Txt,
     Pdf,
     Epub,
+    Comic,
+    Image,
 }
 
 internal enum class HomeDocumentSection {

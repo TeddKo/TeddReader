@@ -22,6 +22,10 @@ interface DocumentRepository {
     fun observeRecentDocuments(): Flow<List<DocumentMetadata>>
     suspend fun getDocument(documentId: DocumentId): DocumentMetadata?
     suspend fun getDocumentCover(documentId: DocumentId): ByteArray? = null
+    suspend fun getVisualPageImages(
+        documentId: DocumentId,
+        pageIndexes: Set<Int>,
+    ): Map<Int, ByteArray> = emptyMap()
     suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument?
     suspend fun getPageWindows(
         documentId: DocumentId,

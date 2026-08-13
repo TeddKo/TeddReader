@@ -15,6 +15,7 @@ import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.common.model.withThemeMode
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.BookmarkRepository
@@ -23,6 +24,7 @@ import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.usecase.RestoreReadingProgressUseCase
 import com.tedd.teddreader.core.domain.usecase.SaveReadingProgressUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
+import kotlin.math.abs
 import kotlin.time.Clock
 
 @KoinViewModel
@@ -55,11 +58,17 @@ class ReaderViewModel(
     private var viewportReloadJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
+    private var visualPageLoadJob: Job? = null
+    private val visualPageCache = linkedMapOf<Int, ByteArray>()
+    private val failedVisualPages = linkedSetOf<Int>()
 
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
         if (currentDocumentId == documentId) return
         currentDocumentId = documentId
+        visualPageLoadJob?.cancel()
+        visualPageCache.clear()
+        failedVisualPages.clear()
         observeSavedPlaces(documentId)
 
         viewModelScope.launch {
@@ -68,9 +77,11 @@ class ReaderViewModel(
                 val readerDocument = documentRepository.getReaderDocument(documentId)
                 val progress = restoreReadingProgress(documentId)
                 val settings = readerSettingsRepository.settings.first()
-                val isPdfMode = metadata?.format == DocumentFormat.PDF
+                val documentFormat = metadata?.format ?: DocumentFormat.UNKNOWN
+                val isPdfMode = documentFormat == DocumentFormat.PDF
+                val isVisualMode = documentFormat.isVisualPageFormat()
                 val documentUri = metadata?.location?.sourceUri
-                val pageWindows = if (isPdfMode) {
+                val pageWindows = if (isVisualMode) {
                     emptyList()
                 } else {
                     documentRepository.getPageWindows(
@@ -89,7 +100,7 @@ class ReaderViewModel(
                     progress != null -> progress.pageIndex.total
                     else -> 0
                 }
-                val restoredOffset = if (isPdfMode) null else progress?.location?.let(::absoluteOffset)
+                val restoredOffset = if (isVisualMode) null else progress?.location?.let(::absoluteOffset)
                 anchorOffset = restoredOffset
                 val currentPage = (restoredOffset?.let { pageOfOffset(it, pageWindows) } ?: progress?.pageIndex?.current)
                     ?.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
@@ -109,13 +120,14 @@ class ReaderViewModel(
                 val documentPages = documentPages(
                     pageIndex = pageIndex,
                     documentUri = documentUri,
-                    isPdfMode = isPdfMode,
+                    isVisualMode = isVisualMode,
                     pageWindows = pageWindows,
                 )
 
                 ReaderUiState(
                     documentTitle = metadata?.location?.displayName ?: documentId.value,
                     documentUri = documentUri,
+                    documentFormat = documentFormat,
                     pageText = currentPageUi.text,
                     pageIndex = pageIndex,
                     previousPage = pageUi(
@@ -148,12 +160,13 @@ class ReaderViewModel(
                     outlineItems = outlineItems,
                     isPdfMode = isPdfMode,
                     isFavorite = metadata?.isBookmarked == true,
-                    isCurrentPageSaved = isPageSaved(pageIndex, isPdfMode),
+                    isCurrentPageSaved = isPageSaved(pageIndex, isVisualMode),
                     isControlsVisible = true,
                     isLoading = false,
                 )
             }.onSuccess { state ->
                 _uiState.value = state
+                if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.pageIndex.current)
             }.onFailure { throwable ->
                 _uiState.value = ReaderUiState(
                     documentTitle = documentId.value,
@@ -314,7 +327,7 @@ class ReaderViewModel(
         sections: List<ReaderSection>,
         totalPages: Int,
     ): List<ReaderOutlineItem> {
-        if (format == DocumentFormat.PDF) {
+        if (format?.isVisualPageFormat() == true) {
             return (0 until totalPages).map { page ->
                 ReaderOutlineItem(
                     title = "Page ${page + 1}",
@@ -438,10 +451,10 @@ class ReaderViewModel(
     private fun documentPages(
         pageIndex: PageIndex,
         documentUri: String?,
-        isPdfMode: Boolean,
+        isVisualMode: Boolean,
         pageWindows: List<PageWindow> = currentPageWindows,
     ): List<ReaderPageUi> {
-        if (isPdfMode || pageIndex.total <= 0) return emptyList()
+        if (isVisualMode || pageIndex.total <= 0) return emptyList()
         return (0 until pageIndex.total).mapNotNull { page ->
             pageUi(
                 page = page,
@@ -489,15 +502,16 @@ class ReaderViewModel(
                     documentUri = it.documentUri,
                     isPdfMode = it.isPdfMode,
                 ),
-                isCurrentPageSaved = isPageSaved(nextIndex, it.isPdfMode),
+                isCurrentPageSaved = isPageSaved(nextIndex, it.isVisualMode),
             )
         }
         saveProgress(nextIndex)
+        loadVisualPagesAround(nextPage)
     }
 
     private suspend fun reloadPages(style: ReaderStyle) {
         val documentId = currentDocumentId ?: return
-        if (_uiState.value.isPdfMode) return
+        if (_uiState.value.isVisualMode) return
 
         val pageWindows = documentRepository.getPageWindows(
             documentId = documentId,
@@ -513,7 +527,7 @@ class ReaderViewModel(
         val documentPages = documentPages(
             pageIndex = pageIndex,
             documentUri = _uiState.value.documentUri,
-            isPdfMode = false,
+            isVisualMode = false,
             pageWindows = pageWindows,
         )
         _uiState.update {
@@ -581,26 +595,65 @@ class ReaderViewModel(
 
     private fun updateSavedPlaceState() {
         _uiState.update { state ->
-            state.copy(isCurrentPageSaved = isPageSaved(state.pageIndex, state.isPdfMode))
+            state.copy(isCurrentPageSaved = isPageSaved(state.pageIndex, state.isVisualMode))
         }
     }
 
-    private fun isPageSaved(pageIndex: PageIndex, isPdfMode: Boolean): Boolean =
-        savedPlaces.any { it.location == currentLocation(pageIndex, isPdfMode) }
+    private fun isPageSaved(pageIndex: PageIndex, isVisualMode: Boolean): Boolean =
+        savedPlaces.any { it.location == currentLocation(pageIndex, isVisualMode) }
 
     private fun currentLocation(
         pageIndex: PageIndex,
-        isPdfMode: Boolean = _uiState.value.isPdfMode,
+        isVisualMode: Boolean = _uiState.value.isVisualMode,
     ): ReaderLocation {
-        if (isPdfMode) {
+        if (isVisualMode) {
             return ReaderLocation.PdfPage(pageIndex.current)
         }
 
         return currentPageWindows.getOrNull(pageIndex.current)?.location
             ?: ReaderLocation.TextOffset(pageIndex.current.toLong())
     }
+
+    private fun loadVisualPagesAround(centerPage: Int) {
+        val documentId = currentDocumentId ?: return
+        val state = _uiState.value
+        if (state.documentFormat != DocumentFormat.CBZ || state.pageIndex.total <= 0) return
+        val requestedPages = (centerPage - 2..centerPage + 3)
+            .filterTo(linkedSetOf()) { it in 0 until state.pageIndex.total }
+        val missingPages = requestedPages - visualPageCache.keys - failedVisualPages
+        if (missingPages.isEmpty()) return
+
+        visualPageLoadJob?.cancel()
+        visualPageLoadJob = viewModelScope.launch {
+            try {
+                val loadedPages = documentRepository.getVisualPageImages(documentId, missingPages)
+                if (currentDocumentId != documentId) return@launch
+                visualPageCache.putAll(loadedPages)
+                failedVisualPages += missingPages - loadedPages.keys
+                val retainedPages = visualPageCache.keys
+                    .sortedBy { page -> abs(page - _uiState.value.pageIndex.current) }
+                    .take(MaxVisualPageCacheSize)
+                    .toSet()
+                visualPageCache.keys.retainAll(retainedPages)
+                _uiState.update {
+                    it.copy(
+                        visualPageImages = visualPageCache.toMap(),
+                        failedVisualPages = failedVisualPages.toSet(),
+                    )
+                }
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (_: Throwable) {
+                if (currentDocumentId == documentId) {
+                    failedVisualPages += missingPages
+                    _uiState.update { it.copy(failedVisualPages = failedVisualPages.toSet()) }
+                }
+            }
+        }
+    }
 }
 
 // The reader reports its viewport in sp, not px, so the placeholder used before the first
 // measurement is phone-sized in sp; a px-sized value paginates ~9x too coarsely.
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
+private const val MaxVisualPageCacheSize = 8

@@ -17,6 +17,7 @@ import kotlin.math.roundToInt
 
 internal val ReaderPinchFontSizeRange = 8f..80f
 internal val ReaderPdfZoomRange = 1f..4f
+private const val ReaderDoubleTapZoom = 2.5f
 
 internal data class ReaderPdfTransform(
     val zoom: Float,
@@ -83,10 +84,26 @@ internal fun readerClampedPdfTransform(
     viewportSize = viewportSize,
 )
 
+internal fun readerDoubleTapVisualTransform(
+    current: ReaderPdfTransform,
+    tapPosition: Offset,
+    viewportSize: IntSize,
+): ReaderPdfTransform = if (current.zoom > ReaderPdfZoomRange.start) {
+    ReaderPdfTransform(zoom = ReaderPdfZoomRange.start, pan = Offset.Zero)
+} else {
+    readerPdfTransform(
+        current = current,
+        zoomChange = ReaderDoubleTapZoom / current.zoom,
+        panChange = Offset.Zero,
+        centroid = tapPosition,
+        viewportSize = viewportSize,
+    )
+}
+
 internal fun Modifier.readerPinchZoomGesture(
     enabled: Boolean,
     viewportSize: IntSize,
-    isPdfMode: Boolean,
+    isVisualMode: Boolean,
     textStartFontSizeSp: Int,
     pdfTransform: ReaderPdfTransform,
     isAutoScrollEnabled: Boolean,
@@ -99,7 +116,7 @@ internal fun Modifier.readerPinchZoomGesture(
     if (!enabled) return@composed this
 
     val latestViewportSize by rememberUpdatedState(viewportSize)
-    val latestIsPdfMode by rememberUpdatedState(isPdfMode)
+    val latestIsVisualMode by rememberUpdatedState(isVisualMode)
     val latestTextStartFontSizeSp by rememberUpdatedState(textStartFontSizeSp)
     val latestPdfTransform by rememberUpdatedState(pdfTransform)
     val latestIsAutoScrollEnabled by rememberUpdatedState(isAutoScrollEnabled)
@@ -143,13 +160,13 @@ internal fun Modifier.readerPinchZoomGesture(
                     }
                 }
 
-                if (!gestureOwned && latestIsPdfMode && latestPdfTransform.zoom > 1f && pressedCount == 1 && panChange != Offset.Zero) {
+                if (!gestureOwned && latestIsVisualMode && latestPdfTransform.zoom > 1f && pressedCount == 1 && panChange != Offset.Zero) {
                     gestureOwned = true
                     startGesture()
                 }
 
                 if (gestureOwned) {
-                    if (latestIsPdfMode) {
+                    if (latestIsVisualMode) {
                         val nextTransform = if (pressedCount >= 2 || pdfGestureTransform.zoom > 1f) {
                             readerPdfTransform(
                                 current = pdfGestureTransform,
@@ -182,7 +199,7 @@ internal fun Modifier.readerPinchZoomGesture(
                 if (pressedCount == 0) break
             }
 
-            if (!latestIsPdfMode) {
+            if (!latestIsVisualMode) {
                 latestOnTextGestureScaleChange(1f)
                 if (pinchStarted) {
                     val committedFontSize = readerPinchFontSize(

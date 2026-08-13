@@ -9,22 +9,22 @@ import kotlin.test.assertNull
 
 class AutoScrollBehaviorTest {
     @Test
-    fun readerEffectiveAutoScrollModeFallsBackOnlyForPdfLineMode() {
+    fun readerEffectiveAutoScrollModeFallsBackForVisualLineMode() {
         assertEquals(
             AutoScrollMode.PAGE,
-            readerEffectiveAutoScrollMode(mode = AutoScrollMode.LINE, isPdfMode = true),
+            readerEffectiveAutoScrollMode(mode = AutoScrollMode.LINE, isVisualMode = true),
         )
         assertEquals(
             AutoScrollMode.LINE,
-            readerEffectiveAutoScrollMode(mode = AutoScrollMode.LINE, isPdfMode = false),
+            readerEffectiveAutoScrollMode(mode = AutoScrollMode.LINE, isVisualMode = false),
         )
         assertEquals(
             AutoScrollMode.PIXEL,
-            readerEffectiveAutoScrollMode(mode = AutoScrollMode.PIXEL, isPdfMode = true),
+            readerEffectiveAutoScrollMode(mode = AutoScrollMode.PIXEL, isVisualMode = true),
         )
         assertEquals(
             AutoScrollMode.PAGE,
-            readerEffectiveAutoScrollMode(mode = AutoScrollMode.PAGE, isPdfMode = true),
+            readerEffectiveAutoScrollMode(mode = AutoScrollMode.PAGE, isVisualMode = true),
         )
     }
 

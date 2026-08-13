@@ -110,6 +110,7 @@ fun DocumentCard(
     ) {
         DocumentCover(
             coverImageBytes = coverImageBytes,
+            sourceUri = document.location.sourceUri.takeIf { document.format == DocumentFormat.IMAGE },
             selected = selected,
             widthPx = DocumentCardCoverWidthPx,
             heightPx = DocumentCardCoverHeightPx,
@@ -208,16 +209,17 @@ fun DocumentCard(
 @Composable
 internal fun DocumentCover(
     coverImageBytes: ByteArray?,
+    sourceUri: String? = null,
     selected: Boolean,
     widthPx: Int,
     heightPx: Int,
     modifier: Modifier = Modifier,
 ) {
     val platformContext = LocalPlatformContext.current
-    val coverRequest = remember(coverImageBytes, platformContext, widthPx, heightPx) {
-        coverImageBytes?.let { bytes ->
+    val coverRequest = remember(coverImageBytes, sourceUri, platformContext, widthPx, heightPx) {
+        (coverImageBytes ?: sourceUri)?.let { data ->
             ImageRequest.Builder(platformContext)
-                .data(bytes)
+                .data(data)
                 .size(widthPx, heightPx)
                 .build()
         }
