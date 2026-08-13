@@ -9,27 +9,21 @@ import kotlin.test.assertEquals
 class ReaderSpreadLayoutTest {
     @Test
     fun separatingVerticalFoldOpensASpreadEvenBelowTheWidthBoundary() {
-        assertEquals(2, readerPaneCount(widthDp = 520f, fold = bookSpine(startDp = 258f, endDp = 262f)))
-    }
-
-    @Test
-    fun tabletAndPhoneKeepTheWidthRuleWhenThereIsNoFold() {
-        assertEquals(2, readerPaneCount(widthDp = 840f, fold = null))
-        assertEquals(1, readerPaneCount(widthDp = 420f, fold = null))
+        assertEquals(2, readerPaneCount(widthDp = 520f, heightDp = 700f, fold = bookSpine(startDp = 258f, endDp = 262f)))
     }
 
     @Test
     fun flatFoldDoesNotForceASpread() {
         val flat = bookSpine(startDp = 258f, endDp = 262f).copy(isSeparating = false)
 
-        assertEquals(1, readerPaneCount(widthDp = 520f, fold = flat))
+        assertEquals(1, readerPaneCount(widthDp = 520f, heightDp = 700f, fold = flat))
     }
 
     @Test
     fun horizontalFoldIsNotASpine() {
         val tabletop = bookSpine(startDp = 300f, endDp = 320f).copy(isVertical = false)
 
-        assertEquals(1, readerPaneCount(widthDp = 520f, fold = tabletop))
+        assertEquals(1, readerPaneCount(widthDp = 520f, heightDp = 700f, fold = tabletop))
     }
 
     @Test

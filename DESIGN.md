@@ -56,7 +56,7 @@
 
 ## Responsive behavior
 - Supported breakpoints/devices: compact 240-359 dp, regular 360-599 dp, medium 600-839 dp, expanded 840 dp and wider; portrait and landscape.
-- Layout adaptations: wrap filter chips; remove redundant trailing metadata; stack reader progress/actions below 360 dp; cap readable content width; use adaptive grids only where cards remain independently understandable.
+- Layout adaptations: wrap filter chips; remove redundant trailing metadata; stack reader progress/actions below 360 dp; cap readable content width; use adaptive grids only where cards remain independently understandable. Reader two-page spreads are allowed only when the device has a separating vertical fold or the shortest window side is at least 600 dp, so phone portrait and landscape both stay single-page.
 - Touch/hover differences: touch-first; pointer support uses the same actions without gesture-only requirements.
 
 ## Screen contracts

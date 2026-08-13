@@ -149,7 +149,7 @@ fun ReaderSettingsSheet(
         }
 
         TeddOptionGroup(
-            title = stringResource(Res.string.page_movement),
+            title = stringResource(Res.string.page_direction),
             description = stringResource(Res.string.page_movement_description),
         ) {
             listOf(PageTurnMode.HORIZONTAL, PageTurnMode.VERTICAL).forEach { mode ->
@@ -159,7 +159,24 @@ fun ReaderSettingsSheet(
                     onClick = { onPageTurnModeChange(mode) },
                 )
             }
-            settingsPageAnimationOptions.forEach { animation ->
+        }
+
+        TeddOptionGroup(
+            title = stringResource(Res.string.default_transition),
+        ) {
+            settingsDefaultTransitionOptions.forEach { animation ->
+                TeddRadioRow(
+                    title = animation.displayName(),
+                    selected = uiState.pageAnimation == animation,
+                    onClick = { onPageAnimationChange(animation) },
+                )
+            }
+        }
+
+        TeddOptionGroup(
+            title = stringResource(Res.string.page_effects),
+        ) {
+            settingsPageEffectOptions.forEach { animation ->
                 TeddRadioRow(
                     title = animation.displayName(),
                     selected = uiState.pageAnimation == animation,
@@ -205,11 +222,14 @@ private const val LineHeightStepPercent = 5f
 private const val LineHeightSliderSteps = 39
 private const val SpeedSliderSteps = 98
 
-private val settingsPageAnimationOptions = listOf(
+private val settingsDefaultTransitionOptions = listOf(
     PageAnimation.NONE,
     PageAnimation.SLIDE,
     PageAnimation.FADE,
     PageAnimation.SCROLL,
+)
+
+private val settingsPageEffectOptions = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
     PageAnimation.CIRCLE_REVEAL,

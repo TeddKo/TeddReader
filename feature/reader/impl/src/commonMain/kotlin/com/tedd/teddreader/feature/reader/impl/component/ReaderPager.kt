@@ -118,6 +118,7 @@ internal fun ReaderPager(
                 autoScrollDensity = autoScrollDensity,
                 onAutoScrollStop = onAutoScrollStop,
                 onMovieTransitionProgressChanged = onMovieTransitionProgressChanged,
+                paneCount = paneCount,
                 modifier = modifier,
                 content = content,
             )
