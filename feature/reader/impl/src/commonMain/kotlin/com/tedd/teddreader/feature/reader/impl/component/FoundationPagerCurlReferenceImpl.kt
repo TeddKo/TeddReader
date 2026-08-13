@@ -128,6 +128,8 @@ internal fun FoundationPagerCurlReferenceImpl(
         }
         val leftEdge = FoundationReferenceCurlEdge.left(leafSize)
         val rightEdge = FoundationReferenceCurlEdge.right(leafSize)
+        val backwardRestEdge = if (isSpread) rightEdge else leftEdge
+        val backwardEndEdge = if (isSpread) leftEdge else FoundationReferenceCurlEdge.end(leafSize)
         val forwardEdge = remember(axis, leafSize) {
             Animatable(
                 rightEdge,
@@ -137,7 +139,7 @@ internal fun FoundationPagerCurlReferenceImpl(
         }
         val backwardEdge = remember(axis, leafSize) {
             Animatable(
-                leftEdge,
+                backwardRestEdge,
                 FoundationReferenceCurlEdge.VectorConverter,
                 FoundationReferenceCurlEdge.VisibilityThreshold,
             )
@@ -146,7 +148,7 @@ internal fun FoundationPagerCurlReferenceImpl(
 
         suspend fun reset() {
             forwardEdge.snapTo(rightEdge)
-            backwardEdge.snapTo(leftEdge)
+            backwardEdge.snapTo(backwardRestEdge)
             if (pagerState.currentPage != FoundationReferenceCenterPage) {
                 pagerState.scrollToPage(FoundationReferenceCenterPage)
             }
@@ -167,11 +169,11 @@ internal fun FoundationPagerCurlReferenceImpl(
             animationJob?.cancel()
             animationJob = scope.launch {
                 val edge = if (direction == FoundationReferenceCurlDirection.Forward) forwardEdge else backwardEdge
-                val start = if (direction == FoundationReferenceCurlDirection.Forward) rightEdge else leftEdge
+                val start = if (direction == FoundationReferenceCurlDirection.Forward) rightEdge else backwardRestEdge
                 val end = if (direction == FoundationReferenceCurlDirection.Forward) {
                     leftEdge
                 } else {
-                    FoundationReferenceCurlEdge.end(leafSize)
+                    backwardEndEdge
                 }
                 var completed = false
                 try {
@@ -179,7 +181,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                     edge.animateTo(
                         targetValue = end,
                         animationSpec = foundationReferenceTapSpec(
-                            direction = direction,
+                            direction = foundationReferenceCurlGeometryDirection(direction, isSpread),
                             size = leafSize,
                             durationMillisOverride = animationDurationMillis,
                         ),
@@ -187,11 +189,14 @@ internal fun FoundationPagerCurlReferenceImpl(
                     completed = true
                 } finally {
                     withContext(NonCancellable) {
-                        edge.snapTo(start)
-                        pagerState.scrollToPage(FoundationReferenceCenterPage)
+                        if (completed) {
+                            complete(direction)
+                        } else {
+                            edge.snapTo(start)
+                            pagerState.scrollToPage(FoundationReferenceCenterPage)
+                        }
                         onFinished()
                     }
-                    if (completed) complete(direction)
                 }
             }
         }
@@ -246,6 +251,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                             isSpread = isSpread,
                             leafOriginX = leafOriginX,
                             backwardLeafScale = backwardLeafScale,
+                            leafWidth = leafSize.width.toFloat(),
                             scope = scope,
                             forwardEdge = forwardEdge,
                             backwardEdge = backwardEdge,
@@ -257,7 +263,6 @@ internal fun FoundationPagerCurlReferenceImpl(
                             },
                             onComplete = { direction ->
                                 complete(direction)
-                                scope.launch { reset() }
                             },
                         )
                     }
@@ -287,7 +292,7 @@ internal fun FoundationPagerCurlReferenceImpl(
             // only be composed while it is actually being turned back.
             val skipSpreadPage = isSpread &&
                 pageOffset == -1 &&
-                (backwardEdge.value == leftEdge || forwardEdge.value != rightEdge)
+                (backwardEdge.value == backwardRestEdge || forwardEdge.value != rightEdge)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -299,15 +304,28 @@ internal fun FoundationPagerCurlReferenceImpl(
             ) {
                 if (documentPage != null && !skipSpreadPage) {
                     if (isSpread) {
-                        FoundationReferenceSpread(
-                            leftPage = documentPage,
-                            axis = axis,
-                            leafEdge = leafEdge,
-                            gutter = spreadGutter,
-                            leftWeight = spreadLeftWeight,
-                            spreadModifier = spreadModifier,
-                            paneContent = requireNotNull(paneContent),
-                        )
+                        if (pageOffset == -1) {
+                            FoundationReferenceBackwardSpread(
+                                previousLeftPage = documentPage,
+                                currentLeftPage = pageKey,
+                                axis = axis,
+                                leafEdge = requireNotNull(leafEdge),
+                                gutter = spreadGutter,
+                                leftWeight = spreadLeftWeight,
+                                spreadModifier = spreadModifier,
+                                paneContent = requireNotNull(paneContent),
+                            )
+                        } else {
+                            FoundationReferenceSpread(
+                                leftPage = documentPage,
+                                axis = axis,
+                                leafEdge = leafEdge,
+                                gutter = spreadGutter,
+                                leftWeight = spreadLeftWeight,
+                                spreadModifier = spreadModifier,
+                                paneContent = requireNotNull(paneContent),
+                            )
+                        }
                     } else {
                         content(documentPage)
                     }
@@ -378,6 +396,40 @@ private fun FoundationReferenceSpread(
     }
 }
 
+@Composable
+private fun FoundationReferenceBackwardSpread(
+    previousLeftPage: Int,
+    currentLeftPage: Int,
+    axis: FoundationReferenceCurlAxis,
+    leafEdge: FoundationReferenceCurlEdge,
+    gutter: Dp,
+    leftWeight: Float,
+    spreadModifier: Modifier,
+    paneContent: @Composable (page: Int, modifier: Modifier) -> Unit,
+) {
+    Row(
+        modifier = spreadModifier,
+        horizontalArrangement = Arrangement.spacedBy(gutter),
+    ) {
+        Box(modifier = Modifier.weight(leftWeight).fillMaxHeight()) {
+            paneContent(previousLeftPage, Modifier.fillMaxSize())
+            paneContent(
+                currentLeftPage,
+                Modifier
+                    .fillMaxSize()
+                    .foundationReferenceDrawLeafFront(axis, leafEdge, mirrorHorizontally = true),
+            )
+            paneContent(
+                previousLeftPage + 1,
+                Modifier
+                    .fillMaxSize()
+                    .foundationReferenceDrawLeafBack(axis, leafEdge, mirrorHorizontally = true),
+            )
+        }
+        Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight())
+    }
+}
+
 internal fun foundationReferenceLeafSize(
     canonicalSize: IntSize,
     isSpread: Boolean,
@@ -417,6 +469,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     isSpread: Boolean,
     leafOriginX: Float,
     backwardLeafScale: Float,
+    leafWidth: Float,
     scope: CoroutineScope,
     forwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
     backwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
@@ -438,13 +491,15 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 canGoForward = canGoForward,
             )
             startOffset = direction?.let {
-                foundationReferenceCurlLeafOffset(start, axis, it, isSpread, leafOriginX, backwardLeafScale)
+                foundationReferenceCurlLeafOffset(start, axis, it, isSpread, leafOriginX, backwardLeafScale, leafWidth)
             } ?: Offset.Zero
             config = direction?.let {
-                if (it == FoundationReferenceCurlDirection.Forward) {
-                    FoundationReferenceDragConfig(it, forwardEdge, FoundationReferenceCurlEdge.right(canonicalSize), FoundationReferenceCurlEdge.left(canonicalSize))
+                val geometryDirection = foundationReferenceCurlGeometryDirection(it, isSpread)
+                val edge = if (it == FoundationReferenceCurlDirection.Forward) forwardEdge else backwardEdge
+                if (geometryDirection == FoundationReferenceCurlDirection.Forward) {
+                    FoundationReferenceDragConfig(it, edge, FoundationReferenceCurlEdge.right(canonicalSize), FoundationReferenceCurlEdge.left(canonicalSize))
                 } else {
-                    FoundationReferenceDragConfig(it, backwardEdge, FoundationReferenceCurlEdge.left(canonicalSize), FoundationReferenceCurlEdge.right(canonicalSize))
+                    FoundationReferenceDragConfig(it, edge, FoundationReferenceCurlEdge.left(canonicalSize), FoundationReferenceCurlEdge.right(canonicalSize))
                 }
             }
             if (config != null) onDragStart()
@@ -463,6 +518,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                     isSpread,
                     leafOriginX,
                     backwardLeafScale,
+                    leafWidth,
                 )
                 val flingEnd = decay.calculateTargetValue(
                     Offset.VectorConverter,
@@ -477,18 +533,23 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 scope.launch {
                     if (
                         complete && foundationReferenceCurlDragSucceeds(
-                            direction = dragConfig.direction,
+                            direction = foundationReferenceCurlGeometryDirection(dragConfig.direction, isSpread),
                             start = startOffset,
                             end = flingEnd,
                             size = canonicalSize,
                             axis = axis,
                         )
                     ) {
+                        var completed = false
                         try {
                             dragConfig.edge.animateTo(dragConfig.end)
+                            completed = true
                         } finally {
-                            onComplete(dragConfig.direction)
-                            dragConfig.edge.snapTo(dragConfig.start)
+                            if (completed) {
+                                onComplete(dragConfig.direction)
+                            } else {
+                                dragConfig.edge.snapTo(dragConfig.start)
+                            }
                         }
                     } else {
                         try {
@@ -509,6 +570,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 isSpread,
                 leafOriginX,
                 backwardLeafScale,
+                leafWidth,
             )
             velocityTracker.addPosition(change.uptimeMillis, current)
             scope.launch {
@@ -617,15 +679,26 @@ internal fun foundationReferenceCurlLeafOffset(
     isSpread: Boolean,
     forwardLeafOriginX: Float,
     backwardLeafScale: Float,
+    leafWidth: Float,
 ): Offset {
     val canonical = axis.toCanonical(offset)
     val x = when {
         !isSpread -> canonical.x
         direction == FoundationReferenceCurlDirection.Forward -> canonical.x - forwardLeafOriginX
-        else -> canonical.x * backwardLeafScale
-    }
+        else -> leafWidth - canonical.x * backwardLeafScale
+    }.let { if (isSpread) it.coerceIn(0f, leafWidth) else it }
     return Offset(x, canonical.y)
 }
+
+internal fun foundationReferenceCurlGeometryDirection(
+    direction: FoundationReferenceCurlDirection,
+    isSpread: Boolean,
+): FoundationReferenceCurlDirection =
+    if (isSpread && direction == FoundationReferenceCurlDirection.Backward) {
+        FoundationReferenceCurlDirection.Forward
+    } else {
+        direction
+    }
 
 internal fun foundationReferenceCurlDragSucceeds(
     direction: FoundationReferenceCurlDirection,
@@ -713,6 +786,7 @@ private fun Modifier.foundationReferenceDrawCurl(
 private fun Modifier.foundationReferenceDrawLeafFront(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
+    mirrorHorizontally: Boolean = false,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
@@ -725,8 +799,12 @@ private fun Modifier.foundationReferenceDrawLeafFront(
         ?: return@drawWithCache onDrawWithContent { drawContent() }
 
     onDrawWithContent {
-        clipPath(fold.clippedPath) {
-            this@onDrawWithContent.drawContent()
+        withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
+            clipPath(fold.clippedPath) {
+                withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
+                    this@onDrawWithContent.drawContent()
+                }
+            }
         }
     }
 }
@@ -735,6 +813,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
 private fun Modifier.foundationReferenceDrawLeafBack(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
+    mirrorHorizontally: Boolean = false,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
@@ -744,10 +823,12 @@ private fun Modifier.foundationReferenceDrawLeafBack(
         ?: return@drawWithCache onDrawWithContent { }
 
     onDrawWithContent {
-        withTransform({ fold.applyTo(this, axis) }) {
-            fold.drawShadow(this, axis)
-            clipPath(fold.polygon.toPath(axis)) {
-                this@onDrawWithContent.drawContent()
+        withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
+            withTransform({ fold.applyTo(this, axis) }) {
+                fold.drawShadow(this, axis)
+                clipPath(fold.polygon.toPath(axis)) {
+                    this@onDrawWithContent.drawContent()
+                }
             }
         }
     }
