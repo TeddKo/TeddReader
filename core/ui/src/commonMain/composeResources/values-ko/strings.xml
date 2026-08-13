@@ -202,6 +202,8 @@
     <string name="folders">폴더</string>
     <string name="library_preview_description">전체 문서 또는 직접 만든 폴더입니다.</string>
     <string name="folder_row_description">문서 %1$d개</string>
+    <string name="folder_actions">%1$s 폴더 작업</string>
+    <string name="folder_cover_more_documents">+%1$d</string>
     <string name="files_in_folder_count">%1$d개 선택됨</string>
     <string name="create_folder">폴더 만들기</string>
     <string name="move_to_folder">폴더로 이동</string>

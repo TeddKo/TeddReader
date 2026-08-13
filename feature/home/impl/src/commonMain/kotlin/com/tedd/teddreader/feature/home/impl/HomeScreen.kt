@@ -9,6 +9,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -90,6 +92,8 @@ import com.tedd.teddreader.core.ui.generated.resources.home_no_matching_document
 import com.tedd.teddreader.core.ui.generated.resources.home_no_matching_documents_description
 import com.tedd.teddreader.core.ui.generated.resources.home_selection_count
 import com.tedd.teddreader.core.ui.generated.resources.library
+import com.tedd.teddreader.core.ui.generated.resources.library_empty_folder_description
+import com.tedd.teddreader.core.ui.generated.resources.library_empty_folder_title
 import com.tedd.teddreader.core.ui.generated.resources.library_preview_description
 import com.tedd.teddreader.core.ui.generated.resources.local_documents
 import com.tedd.teddreader.core.ui.generated.resources.masthead_description
@@ -112,6 +116,7 @@ import com.tedd.teddreader.core.ui.generated.resources.title
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
+import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -182,21 +187,15 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var previewMode by rememberSaveable { mutableStateOf(LibraryCollectionMode.All) }
     val selectionBackState = rememberNavigationEventState(NavigationEventInfo.None)
-    val libraryPreviewDocuments = remember(uiState.libraryDocuments) {
-        homeLibraryPreviewDocuments(uiState.libraryDocuments, Int.MAX_VALUE)
-    }
     val visibleDocumentIds = remember(
         uiState.favoriteDocuments,
         uiState.recentDocuments,
-        libraryPreviewDocuments,
-        previewMode,
+        uiState.libraryDocuments,
     ) {
         buildSet {
             uiState.favoriteDocuments.forEach { add(it.id.value) }
             uiState.recentDocuments.forEach { add(it.id.value) }
-            if (previewMode == LibraryCollectionMode.All) {
-                libraryPreviewDocuments.forEach { add(it.id.value) }
-            }
+            uiState.libraryDocuments.forEach { add(it.id.value) }
         }
     }
 
@@ -259,10 +258,9 @@ fun HomeScreen(
                 .fillMaxWidth(),
         ) {
             val shortestDp = if (maxWidth <= maxHeight) maxWidth else maxHeight
-            val previewLimit = homeLibraryPreviewLimit(
-                isExpanded = shortestDp >= 840.dp,
-                isTablet = shortestDp >= 600.dp,
-                hasSeparatingFold = displayFold?.isVertical == true && displayFold.isSeparating,
+            val previewLimit = libraryPreviewLimit(
+                shortestSide = shortestDp,
+                displayFold = displayFold,
             )
             val previewDocuments = remember(uiState.libraryDocuments, previewLimit) {
                 homeLibraryPreviewDocuments(uiState.libraryDocuments, previewLimit)
@@ -390,9 +388,13 @@ fun HomeScreen(
                     HomeLibraryPreviewSection(
                         previewMode = previewMode,
                         onPreviewModeChange = { previewMode = it },
-                        documents = previewDocuments,
+                        previewDocuments = previewDocuments,
+                        allDocuments = uiState.libraryDocuments,
                         folders = uiState.libraryFolders,
+                        previewLimit = previewLimit,
                         selectedDocumentIds = selectedDocumentIds,
+                        actionDocumentId = actionDocumentId,
+                        documentCoverImages = uiState.documentCoverImages,
                         onDocumentClick = { documentId ->
                             if (selectedDocumentIds.isNotEmpty()) {
                                 selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
@@ -403,6 +405,16 @@ fun HomeScreen(
                         onStartSelection = { documentId ->
                             actionDocumentId = null
                             selectedDocumentIds = selectedDocumentIds + documentId.value
+                        },
+                        onShowActions = { actionDocumentId = it },
+                        onDismissActions = { actionDocumentId = null },
+                        onBookmarkClick = { document ->
+                            actionDocumentId = null
+                            onDocumentBookmarkChange(document.id, !document.isBookmarked)
+                        },
+                        onDeleteClick = { document ->
+                            actionDocumentId = null
+                            pendingDeleteDocumentIds = setOf(document.id.value)
                         },
                         onFolderClick = onOpenLibraryFolderClick,
                         onViewAllClick = onOpenLibraryClick,
@@ -569,20 +581,30 @@ private fun HomeSectionHeader(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeLibraryPreviewSection(
     previewMode: LibraryCollectionMode,
     onPreviewModeChange: (LibraryCollectionMode) -> Unit,
-    documents: List<DocumentMetadata>,
+    previewDocuments: List<DocumentMetadata>,
+    allDocuments: List<DocumentMetadata>,
     folders: List<LibraryFolder>,
+    previewLimit: Int,
     selectedDocumentIds: Set<String>,
+    actionDocumentId: String?,
+    documentCoverImages: Map<String, ByteArray>,
     onDocumentClick: (DocumentId) -> Unit,
     onStartSelection: (DocumentId) -> Unit,
+    onShowActions: (String) -> Unit,
+    onDismissActions: () -> Unit,
+    onBookmarkClick: (DocumentMetadata) -> Unit,
+    onDeleteClick: (DocumentMetadata) -> Unit,
     onFolderClick: (String) -> Unit,
     onViewAllClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
+    val previewFolders = remember(folders, previewLimit) { folders.take(previewLimit) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -617,44 +639,72 @@ private fun HomeLibraryPreviewSection(
                 onClick = { onPreviewModeChange(LibraryCollectionMode.Folders) },
             )
         }
-        when (previewMode) {
-            LibraryCollectionMode.All -> Column(modifier = Modifier.fillMaxWidth()) {
-                documents.forEachIndexed { index, document ->
-                    TeddListItem(
-                        title = document.location.displayName,
-                        supportingText = document.supportingText(),
-                        onClick = { onDocumentClick(document.id) },
-                        onLongClick = { onStartSelection(document.id) },
-                        showDivider = index != documents.lastIndex,
-                        contentPadding = PaddingValues(
-                            horizontal = DefaultTeddReaderSpacing.screenPadding,
-                            vertical = DefaultTeddReaderSpacing.small,
-                        ),
-                        trailingContent = {
-                            if (document.id.value in selectedDocumentIds) {
-                                Text(
-                                    text = stringResource(Res.string.select_document),
-                                    style = teddReaderTypography().documentMeta,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            }
-                        },
-                    )
-                }
-            }
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+        ) {
+            val columns = if (previewLimit > 4) 4 else 2
+            val itemWidth = ((maxWidth - (spacing.small * (columns - 1))) / columns).coerceAtLeast(0.dp)
 
-            LibraryCollectionMode.Folders -> Column(modifier = Modifier.fillMaxWidth()) {
-                folders.forEachIndexed { index, folder ->
-                    TeddListItem(
-                        title = folder.name,
-                        supportingText = stringResource(Res.string.folder_row_description, folder.documentCount),
-                        onClick = { onFolderClick(folder.id) },
-                        showDivider = index != folders.lastIndex,
-                        contentPadding = PaddingValues(
-                            horizontal = DefaultTeddReaderSpacing.screenPadding,
-                            vertical = DefaultTeddReaderSpacing.small,
-                        ),
+            when (previewMode) {
+                LibraryCollectionMode.All -> FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    maxItemsInEachRow = columns,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                    verticalArrangement = Arrangement.spacedBy(spacing.small),
+                ) {
+                    previewDocuments.forEach { document ->
+                        DocumentCard(
+                            document = document,
+                            coverImageBytes = documentCoverImages[document.id.value],
+                            selected = document.id.value in selectedDocumentIds,
+                            actionsExpanded = actionDocumentId == document.id.value,
+                            onClick = { onDocumentClick(document.id) },
+                            onLongClick = { onStartSelection(document.id) },
+                            onShowActions = { onShowActions(document.id.value) },
+                            onDismissActions = onDismissActions,
+                            onBookmarkClick = { onBookmarkClick(document) },
+                            onDeleteClick = { onDeleteClick(document) },
+                            modifier = Modifier
+                                .width(itemWidth)
+                                .aspectRatio(3f / 4f),
+                        )
+                    }
+                }
+
+                LibraryCollectionMode.Folders -> if (previewFolders.isEmpty()) {
+                    TeddEmptyState(
+                        title = stringResource(Res.string.library_empty_folder_title),
+                        description = stringResource(Res.string.library_empty_folder_description),
+                        modifier = Modifier.fillMaxWidth(),
                     )
+                } else {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        maxItemsInEachRow = columns,
+                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                        verticalArrangement = Arrangement.spacedBy(spacing.small),
+                    ) {
+                        previewFolders.forEach { folder ->
+                            val folderPreviewDocuments = libraryFolderPreviewDocuments(
+                                documents = allDocuments,
+                                folderId = folder.id,
+                                previewLimit = previewLimit,
+                            )
+                            FolderCoverCard(
+                                folder = folder,
+                                previewDocuments = folderPreviewDocuments,
+                                remainingDocumentCount = libraryFolderRemainingDocumentCount(
+                                    totalCount = folder.documentCount,
+                                    previewCount = folderPreviewDocuments.size,
+                                ),
+                                documentCoverImages = documentCoverImages,
+                                onClick = { onFolderClick(folder.id) },
+                                modifier = Modifier.width(itemWidth),
+                            )
+                        }
+                    }
                 }
             }
         }

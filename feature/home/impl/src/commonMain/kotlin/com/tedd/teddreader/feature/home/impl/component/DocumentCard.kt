@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -59,6 +60,11 @@ import com.tedd.teddreader.core.ui.generated.resources.select_document
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.jetbrains.compose.resources.stringResource
 
+internal const val DocumentCardCoverWidthPx = 360
+internal const val DocumentCardCoverHeightPx = 480
+internal const val DocumentMosaicCoverWidthPx = 120
+internal const val DocumentMosaicCoverHeightPx = 160
+
 @Composable
 fun DocumentCard(
     document: DocumentMetadata,
@@ -83,15 +89,6 @@ fun DocumentCard(
     }
     val interactionSource = remember { MutableInteractionSource() }
     val actionsDescription = stringResource(Res.string.document_actions)
-    val platformContext = LocalPlatformContext.current
-    val coverRequest = remember(coverImageBytes, platformContext) {
-        coverImageBytes?.let { bytes ->
-            ImageRequest.Builder(platformContext)
-                .data(bytes)
-                .size(360, 480)
-                .build()
-        }
-    }
 
     Box(
         modifier = modifier
@@ -111,18 +108,13 @@ fun DocumentCard(
                 onLongClick = onLongClick,
             ),
     ) {
-        BookCoverFallback(
+        DocumentCover(
+            coverImageBytes = coverImageBytes,
             selected = selected,
+            widthPx = DocumentCardCoverWidthPx,
+            heightPx = DocumentCardCoverHeightPx,
             modifier = Modifier.fillMaxSize(),
         )
-        if (coverRequest != null) {
-            AsyncImage(
-                model = coverRequest,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
 
         Box(
             modifier = Modifier
@@ -210,12 +202,45 @@ fun DocumentCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-
     }
 }
 
 @Composable
-private fun BookCoverFallback(
+internal fun DocumentCover(
+    coverImageBytes: ByteArray?,
+    selected: Boolean,
+    widthPx: Int,
+    heightPx: Int,
+    modifier: Modifier = Modifier,
+) {
+    val platformContext = LocalPlatformContext.current
+    val coverRequest = remember(coverImageBytes, platformContext, widthPx, heightPx) {
+        coverImageBytes?.let { bytes ->
+            ImageRequest.Builder(platformContext)
+                .data(bytes)
+                .size(widthPx, heightPx)
+                .build()
+        }
+    }
+
+    Box(modifier = modifier) {
+        BookCoverFallback(
+            selected = selected,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (coverRequest != null) {
+            AsyncImage(
+                model = coverRequest,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun BookCoverFallback(
     selected: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -288,7 +313,7 @@ private fun DocumentCardPreview() {
             onDismissActions = {},
             onBookmarkClick = {},
             onDeleteClick = {},
-            modifier = Modifier,
+            modifier = Modifier.aspectRatio(3f / 4f),
         )
     }
 }

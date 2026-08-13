@@ -1,7 +1,10 @@
 package com.tedd.teddreader.feature.home.impl
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.DocumentMetadata
+import com.tedd.teddreader.core.ui.system.DisplayFold
 
 @Immutable
 data class HomeUiState(
@@ -49,10 +52,30 @@ internal fun homeLibraryPreviewLimit(
     hasSeparatingFold: Boolean,
 ): Int = if (isExpanded || isTablet || hasSeparatingFold) 8 else 4
 
+internal fun libraryPreviewLimit(
+    shortestSide: Dp,
+    displayFold: DisplayFold?,
+): Int = homeLibraryPreviewLimit(
+    isExpanded = false,
+    isTablet = shortestSide >= 600.dp,
+    hasSeparatingFold = displayFold?.isVertical == true && displayFold.isSeparating,
+)
+
 internal fun homeLibraryPreviewDocuments(
     documents: List<DocumentMetadata>,
     previewLimit: Int,
 ): List<DocumentMetadata> = documents.take(previewLimit)
+
+internal fun libraryFolderPreviewDocuments(
+    documents: List<DocumentMetadata>,
+    folderId: String,
+    previewLimit: Int,
+): List<DocumentMetadata> = documents.filter { it.folderId == folderId }.take(previewLimit)
+
+internal fun libraryFolderRemainingDocumentCount(
+    totalCount: Int,
+    previewCount: Int,
+): Int = (totalCount - previewCount).coerceAtLeast(0)
 
 internal fun buildLibraryFolders(documents: List<DocumentMetadata>): List<LibraryFolder> =
     documents
