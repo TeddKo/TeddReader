@@ -13,8 +13,11 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
@@ -28,12 +31,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.DrawTransform
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotateRad
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -42,6 +47,8 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -62,6 +69,9 @@ import kotlin.math.sin
 
 /**
  * Compose Foundation pager host with the pagecurl 1.5.1 interaction and rendering state machine.
+ *
+ * On a two-pane spread the curl runs on the outer leaf only: the leaf folds about the spine and
+ * lands on the facing page, the way a real book turns. Single pane keeps the reference behavior.
  */
 @Composable
 internal fun FoundationPagerCurlReferenceImpl(
@@ -79,6 +89,11 @@ internal fun FoundationPagerCurlReferenceImpl(
     autoScrollSpeed: Float,
     onAutoScrollStop: () -> Unit,
     modifier: Modifier = Modifier,
+    paneCount: Int = 1,
+    spreadGutter: Dp = 0.dp,
+    spreadLeftWeight: Float = 0.5f,
+    spreadModifier: Modifier = Modifier,
+    paneContent: (@Composable (page: Int, modifier: Modifier) -> Unit)? = null,
     content: @Composable (page: Int) -> Unit,
 ) {
     val axis = if (pageTurnMode == PageTurnMode.HORIZONTAL) {
@@ -94,27 +109,34 @@ internal fun FoundationPagerCurlReferenceImpl(
     val latestOnPreviousPage by rememberUpdatedState(onPreviousPage)
     val latestOnNextPage by rememberUpdatedState(onNextPage)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
+    val density = LocalDensity.current
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val viewportSize = IntSize(constraints.maxWidth, constraints.maxHeight)
         val canonicalSize = axis.canonicalSize(viewportSize)
-        val leftEdge = FoundationReferenceCurlEdge.left(canonicalSize)
-        val rightEdge = FoundationReferenceCurlEdge.right(canonicalSize)
-        val forwardEdge = remember(axis, canonicalSize) {
+        val isSpread = paneContent != null &&
+            axis == FoundationReferenceCurlAxis.Horizontal &&
+            paneCount >= 2
+        val gutterPx = with(density) { spreadGutter.toPx() }
+        val leafSize = foundationReferenceLeafSize(canonicalSize, isSpread, gutterPx, spreadLeftWeight)
+        val leafOriginX = (canonicalSize.width - leafSize.width).toFloat()
+        val leftEdge = FoundationReferenceCurlEdge.left(leafSize)
+        val rightEdge = FoundationReferenceCurlEdge.right(leafSize)
+        val forwardEdge = remember(axis, leafSize) {
             Animatable(
                 rightEdge,
                 FoundationReferenceCurlEdge.VectorConverter,
                 FoundationReferenceCurlEdge.VisibilityThreshold,
             )
         }
-        val backwardEdge = remember(axis, canonicalSize) {
+        val backwardEdge = remember(axis, leafSize) {
             Animatable(
                 leftEdge,
                 FoundationReferenceCurlEdge.VectorConverter,
                 FoundationReferenceCurlEdge.VisibilityThreshold,
             )
         }
-        var animationJob by remember(axis, canonicalSize) { mutableStateOf<Job?>(null) }
+        var animationJob by remember(axis, leafSize) { mutableStateOf<Job?>(null) }
 
         suspend fun reset() {
             forwardEdge.snapTo(rightEdge)
@@ -143,7 +165,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                 val end = if (direction == FoundationReferenceCurlDirection.Forward) {
                     leftEdge
                 } else {
-                    FoundationReferenceCurlEdge.end(canonicalSize)
+                    FoundationReferenceCurlEdge.end(leafSize)
                 }
                 var completed = false
                 try {
@@ -152,7 +174,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                         targetValue = end,
                         animationSpec = foundationReferenceTapSpec(
                             direction = direction,
-                            size = canonicalSize,
+                            size = leafSize,
                             durationMillisOverride = animationDurationMillis,
                         ),
                     )
@@ -168,7 +190,7 @@ internal fun FoundationPagerCurlReferenceImpl(
             }
         }
 
-        LaunchedEffect(pageKey, pageCount, pageStep, axis, canonicalSize) {
+        LaunchedEffect(pageKey, pageCount, pageStep, axis, leafSize) {
             reset()
         }
 
@@ -205,66 +227,81 @@ internal fun FoundationPagerCurlReferenceImpl(
             animationJob?.cancel()
             reset()
         }
-        val dragModifier = if (isAutoScrollEnabled) {
-            Modifier
-        } else {
-            Modifier.pointerInput(
-                forwardEdge,
-                backwardEdge,
-                canGoForward,
-                canGoBackward,
-            ) {
-                detectFoundationReferenceCurlGestures(
-                    axis = axis,
-                    canonicalSize = canonicalSize,
-                    scope = scope,
-                    forwardEdge = forwardEdge,
-                    backwardEdge = backwardEdge,
-                    canGoForward = canGoForward,
-                    canGoBackward = canGoBackward,
-                    onDragStart = {
-                        animationJob?.cancel()
-                        scope.launch { reset() }
-                    },
-                    onComplete = { direction ->
-                        complete(direction)
-                        scope.launch { reset() }
-                    },
-                )
-            }
-        }
-        val tapModifier = Modifier.pointerInput(canGoForward, canGoBackward, axis, isAutoScrollEnabled) {
-            detectFoundationReferenceCurlTaps(
-                axis = axis,
-                canGoForward = canGoForward,
-                canGoBackward = canGoBackward,
-                isAutoScrollEnabled = isAutoScrollEnabled,
-                onPageTap = ::animateTap,
-                onToggleControls = { latestOnToggleControls() },
-            )
-        }
         val pagerModifier = Modifier
             .fillMaxSize()
-            .then(dragModifier)
-            .then(tapModifier)
+            .run {
+                if (isAutoScrollEnabled) {
+                    this
+                } else {
+                    pointerInput(forwardEdge, backwardEdge, canGoForward, canGoBackward) {
+                        detectFoundationReferenceCurlGestures(
+                            axis = axis,
+                            canonicalSize = leafSize,
+                            leafOriginX = leafOriginX,
+                            scope = scope,
+                            forwardEdge = forwardEdge,
+                            backwardEdge = backwardEdge,
+                            canGoForward = canGoForward,
+                            canGoBackward = canGoBackward,
+                            onDragStart = {
+                                animationJob?.cancel()
+                                scope.launch { reset() }
+                            },
+                            onComplete = { direction ->
+                                complete(direction)
+                                scope.launch { reset() }
+                            },
+                        )
+                    }
+                }
+            }
+            .pointerInput(canGoForward, canGoBackward, axis, isAutoScrollEnabled) {
+                detectFoundationReferenceCurlTaps(
+                    axis = axis,
+                    canGoForward = canGoForward,
+                    canGoBackward = canGoBackward,
+                    isAutoScrollEnabled = isAutoScrollEnabled,
+                    onPageTap = ::animateTap,
+                    onToggleControls = { latestOnToggleControls() },
+                )
+            }
 
         val pageContent: @Composable (Int) -> Unit = { pagerPage ->
             val pageOffset = pagerPage - FoundationReferenceCenterPage
             val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
-            val edgeModifier = when (pageOffset) {
-                -1 -> Modifier.foundationReferenceDrawCurl(axis, backwardEdge.value)
-                0 -> Modifier.foundationReferenceDrawCurl(axis, forwardEdge.value)
-                else -> Modifier
+            val leafEdge = when (pageOffset) {
+                -1 -> backwardEdge.value
+                0 -> forwardEdge.value
+                else -> null
             }
+            // In a spread the previous leaf paints its back face over the facing page, so it may
+            // only be composed while it is actually being turned back.
+            val skipSpreadPage = isSpread &&
+                pageOffset == -1 &&
+                (backwardEdge.value == leftEdge || forwardEdge.value != rightEdge)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .foundationCancelPagerPlacement(axis, pageOffset)
                     .zIndex(foundationReferenceCurlZIndex(pageOffset))
-                    .then(edgeModifier),
+                    .run {
+                        if (isSpread || leafEdge == null) this else foundationReferenceDrawCurl(axis, leafEdge)
+                    },
             ) {
-                if (documentPage != null) {
-                    content(documentPage)
+                if (documentPage != null && !skipSpreadPage) {
+                    if (isSpread) {
+                        FoundationReferenceSpread(
+                            leftPage = documentPage,
+                            axis = axis,
+                            leafEdge = leafEdge,
+                            gutter = spreadGutter,
+                            leftWeight = spreadLeftWeight,
+                            spreadModifier = spreadModifier,
+                            paneContent = requireNotNull(paneContent),
+                        )
+                    } else {
+                        content(documentPage)
+                    }
                 }
             }
         }
@@ -287,6 +324,61 @@ internal fun FoundationPagerCurlReferenceImpl(
             )
         }
     }
+}
+
+/**
+ * Two-pane spread: the static facing page plus the outer leaf that folds about the spine.
+ *
+ * The leaf carries both of its faces. [leftPage] + 1 is printed on the front, [leftPage] + 2 on the
+ * back, so a forward fold lands the next page on the facing side exactly where the pager will place
+ * it once the turn completes.
+ */
+@Composable
+private fun FoundationReferenceSpread(
+    leftPage: Int,
+    axis: FoundationReferenceCurlAxis,
+    leafEdge: FoundationReferenceCurlEdge?,
+    gutter: Dp,
+    leftWeight: Float,
+    spreadModifier: Modifier,
+    paneContent: @Composable (page: Int, modifier: Modifier) -> Unit,
+) {
+    Row(
+        modifier = spreadModifier,
+        horizontalArrangement = Arrangement.spacedBy(gutter),
+    ) {
+        paneContent(leftPage, Modifier.weight(leftWeight).fillMaxHeight())
+        Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight()) {
+            paneContent(
+                leftPage + 1,
+                Modifier.fillMaxSize().run {
+                    if (leafEdge == null) this else foundationReferenceDrawLeafFront(axis, leafEdge)
+                },
+            )
+            if (leafEdge != null) {
+                paneContent(
+                    leftPage + 2,
+                    Modifier
+                        .fillMaxSize()
+                        .foundationReferenceDrawLeafBack(axis, leafEdge)
+                        // Pre-mirrored so the fold reflection lands the back face right-reading.
+                        .graphicsLayer { scaleX = -1f },
+                )
+            }
+        }
+    }
+}
+
+internal fun foundationReferenceLeafSize(
+    canonicalSize: IntSize,
+    isSpread: Boolean,
+    gutterPx: Float,
+    leftWeight: Float,
+): IntSize {
+    if (!isSpread) return canonicalSize
+    val pagesWidth = (canonicalSize.width - gutterPx).coerceAtLeast(0f)
+    val leafWidth = (pagesWidth * (1f - leftWeight.coerceIn(0f, 1f))).toInt().coerceAtLeast(1)
+    return IntSize(leafWidth, canonicalSize.height)
 }
 
 private fun Modifier.foundationCancelPagerPlacement(
@@ -313,6 +405,7 @@ private data class FoundationReferenceDragConfig(
 private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     axis: FoundationReferenceCurlAxis,
     canonicalSize: IntSize,
+    leafOriginX: Float,
     scope: CoroutineScope,
     forwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
     backwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
@@ -324,13 +417,15 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     val velocityTracker = VelocityTracker()
     var config: FoundationReferenceDragConfig? = null
     var startOffset = Offset.Zero
+    // Pointer positions are spread-wide; the fold geometry lives in the leaf's own space.
+    fun toLeaf(offset: Offset): Offset = axis.toCanonical(offset).let { Offset(it.x - leafOriginX, it.y) }
 
     detectFoundationReferenceCustomDragGestures(
         onDragStart = { start, current ->
-            startOffset = axis.toCanonical(start)
+            startOffset = toLeaf(start)
             val direction = foundationReferenceCurlDirection(
                 start = startOffset,
-                current = axis.toCanonical(current),
+                current = toLeaf(current),
                 canGoBackward = canGoBackward,
                 canGoForward = canGoForward,
             )
@@ -350,7 +445,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                     axis.toCanonical(Offset(it.x, it.y))
                 }
                 val decay = splineBasedDecay<Offset>(this@detectFoundationReferenceCurlGestures)
-                val canonicalEnd = axis.toCanonical(endOffset)
+                val canonicalEnd = toLeaf(endOffset)
                 val flingEnd = decay.calculateTargetValue(
                     Offset.VectorConverter,
                     canonicalEnd,
@@ -389,7 +484,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
         },
         onDrag = { change, _ ->
             val dragConfig = config ?: return@detectFoundationReferenceCustomDragGestures
-            val current = axis.toCanonical(change.position)
+            val current = toLeaf(change.position)
             velocityTracker.addPosition(change.uptimeMillis, current)
             scope.launch {
                 dragConfig.edge.animateTo(
@@ -555,7 +650,101 @@ private fun Modifier.foundationReferenceDrawCurl(
     if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
+    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
+        ?: return@drawWithCache onDrawWithContent { drawContent() }
 
+    onDrawWithContent {
+        clipPath(fold.clippedPath) {
+            this@onDrawWithContent.drawContent()
+        }
+        withTransform({ fold.applyTo(this, axis) }) {
+            fold.drawShadow(this, axis)
+            clipPath(fold.polygon.toPath(axis)) {
+                this@onDrawWithContent.drawContent()
+                drawRect(Color.White.copy(alpha = FoundationReferenceBackOverlayAlpha))
+            }
+        }
+    }
+}
+
+/** Leaf front face: everything on the spine side of the fold line stays flat. */
+private fun Modifier.foundationReferenceDrawLeafFront(
+    axis: FoundationReferenceCurlAxis,
+    edge: FoundationReferenceCurlEdge,
+): Modifier = drawWithCache {
+    val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
+    if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
+        return@drawWithCache onDrawWithContent { }
+    }
+    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+        return@drawWithCache onDrawWithContent { drawContent() }
+    }
+    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
+        ?: return@drawWithCache onDrawWithContent { drawContent() }
+
+    onDrawWithContent {
+        clipPath(fold.clippedPath) {
+            this@onDrawWithContent.drawContent()
+        }
+    }
+}
+
+/** Leaf back face: the folded-over part, reflected across the fold line onto the facing page. */
+private fun Modifier.foundationReferenceDrawLeafBack(
+    axis: FoundationReferenceCurlAxis,
+    edge: FoundationReferenceCurlEdge,
+): Modifier = drawWithCache {
+    val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
+    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+        return@drawWithCache onDrawWithContent { }
+    }
+    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
+        ?: return@drawWithCache onDrawWithContent { }
+
+    onDrawWithContent {
+        withTransform({ fold.applyTo(this, axis) }) {
+            fold.drawShadow(this, axis)
+            clipPath(fold.polygon.toPath(axis)) {
+                this@onDrawWithContent.drawContent()
+            }
+        }
+    }
+}
+
+private class FoundationReferenceCurlFold(
+    val clippedPath: Path,
+    val polygon: FoundationPagerCurlPolygon,
+    val angle: Float,
+    val pivot: Offset,
+    val shadowOffset: Offset,
+    val shadowRadius: Float,
+) {
+    fun applyTo(scope: DrawTransform, axis: FoundationReferenceCurlAxis) {
+        if (axis == FoundationReferenceCurlAxis.Horizontal) {
+            scope.scale(-1f, 1f, pivot = pivot)
+            scope.rotateRad(angle, pivot = pivot)
+        } else {
+            scope.scale(1f, -1f, pivot = pivot)
+            scope.rotateRad(-angle, pivot = pivot)
+        }
+    }
+
+    fun drawShadow(scope: DrawScope, axis: FoundationReferenceCurlAxis) {
+        scope.drawFoundationPagerCurlShadow(
+            polygon = polygon,
+            axis = axis,
+            radius = shadowRadius,
+            shadowOffset = shadowOffset,
+            color = Color.Black.copy(alpha = FoundationReferenceShadowAlpha),
+        )
+    }
+}
+
+private fun CacheDrawScope.foundationReferenceCurlFold(
+    axis: FoundationReferenceCurlAxis,
+    edge: FoundationReferenceCurlEdge,
+    canonicalSize: IntSize,
+): FoundationReferenceCurlFold? {
     val width = canonicalSize.width.toFloat()
     val height = canonicalSize.height.toFloat()
     val topIntersection = foundationReferenceLineIntersection(
@@ -563,61 +752,34 @@ private fun Modifier.foundationReferenceDrawCurl(
         Offset(width, 0f),
         edge.top,
         edge.bottom,
-    )
+    ) ?: return null
     val bottomIntersection = foundationReferenceLineIntersection(
         Offset(0f, height),
         Offset(width, height),
         edge.top,
         edge.bottom,
-    )
-    if (topIntersection == null || bottomIntersection == null) {
-        return@drawWithCache onDrawWithContent { drawContent() }
-    }
+    ) ?: return null
 
     val topCurlOffset = Offset(max(0f, topIntersection.x), topIntersection.y)
     val bottomCurlOffset = Offset(max(0f, bottomIntersection.x), bottomIntersection.y)
-    val clippedPath = listOf(
-        Offset.Zero,
-        topCurlOffset,
-        bottomCurlOffset,
-        Offset(0f, height),
-    ).foundationReferencePath(axis)
-    val polygon = foundationReferenceCurlPolygon(width, height, topCurlOffset, bottomCurlOffset)
     val lineVector = topCurlOffset - bottomCurlOffset
     val angle = PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2f
-    val actualBottom = axis.fromCanonical(bottomCurlOffset)
-    val shadowOffset = axis.fromCanonical(
-        Offset(-FoundationReferenceShadowOffsetX.toPx(), 0f)
-            .foundationReferenceRotate(2f * PI.toFloat() - angle),
+    return FoundationReferenceCurlFold(
+        clippedPath = listOf(
+            Offset.Zero,
+            topCurlOffset,
+            bottomCurlOffset,
+            Offset(0f, height),
+        ).foundationReferencePath(axis),
+        polygon = foundationReferenceCurlPolygon(width, height, topCurlOffset, bottomCurlOffset),
+        angle = angle,
+        pivot = axis.fromCanonical(bottomCurlOffset),
+        shadowOffset = axis.fromCanonical(
+            Offset(-FoundationReferenceShadowOffsetX.toPx(), 0f)
+                .foundationReferenceRotate(2f * PI.toFloat() - angle),
+        ),
+        shadowRadius = FoundationReferenceShadowRadius.toPx(),
     )
-    val radius = FoundationReferenceShadowRadius.toPx()
-
-    onDrawWithContent {
-        clipPath(clippedPath) {
-            this@onDrawWithContent.drawContent()
-        }
-        withTransform({
-            if (axis == FoundationReferenceCurlAxis.Horizontal) {
-                scale(-1f, 1f, pivot = actualBottom)
-                rotateRad(angle, pivot = actualBottom)
-            } else {
-                scale(1f, -1f, pivot = actualBottom)
-                rotateRad(-angle, pivot = actualBottom)
-            }
-        }) {
-            drawFoundationPagerCurlShadow(
-                polygon = polygon,
-                axis = axis,
-                radius = radius,
-                shadowOffset = shadowOffset,
-                color = Color.Black.copy(alpha = FoundationReferenceShadowAlpha),
-            )
-            clipPath(polygon.toPath(axis)) {
-                this@onDrawWithContent.drawContent()
-                drawRect(Color.White.copy(alpha = FoundationReferenceBackOverlayAlpha))
-            }
-        }
-    }
 }
 
 private fun foundationReferenceCurlPolygon(

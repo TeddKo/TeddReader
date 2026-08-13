@@ -42,7 +42,9 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
@@ -473,6 +475,11 @@ internal fun FoundationCurlPager(
     autoScrollSpeed: Float,
     onAutoScrollStop: () -> Unit,
     modifier: Modifier = Modifier,
+    paneCount: Int = 1,
+    spreadGutter: Dp = 0.dp,
+    spreadLeftWeight: Float = 0.5f,
+    spreadModifier: Modifier = Modifier,
+    paneContent: (@Composable (page: Int, modifier: Modifier) -> Unit)? = null,
     content: @Composable (page: Int) -> Unit,
 ) {
     FoundationPagerCurlReferenceImpl(
@@ -490,6 +497,11 @@ internal fun FoundationCurlPager(
         autoScrollSpeed = autoScrollSpeed,
         onAutoScrollStop = onAutoScrollStop,
         modifier = modifier,
+        paneCount = paneCount,
+        spreadGutter = spreadGutter,
+        spreadLeftWeight = spreadLeftWeight,
+        spreadModifier = spreadModifier,
+        paneContent = paneContent,
         content = content,
     )
 }
@@ -696,13 +708,9 @@ private fun Modifier.foundationEffectPageModifier(
 
         PageAnimation.PAGE_FLIP -> cancelTranslation
             .zIndex(foundationPageFlipZIndex(pageOffset))
-            .then(
-                if (page == FoundationPagerPage.Current) {
-                    Modifier.foundationPageFlipPageShadow(axis, pageOffset)
-                } else {
-                    Modifier
-                },
-            )
+            .run {
+                if (page == FoundationPagerPage.Current) foundationPageFlipPageShadow(axis, pageOffset) else this
+            }
 
         else -> Modifier
     }
