@@ -45,6 +45,29 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     @Test
+    fun spreadPreviousSwipeUsesTheLeftLeafCoordinateSpace() {
+        val previous = foundationReferenceCurlLeafOffset(
+            offset = Offset(120f, 80f),
+            axis = FoundationReferenceCurlAxis.Horizontal,
+            direction = FoundationReferenceCurlDirection.Backward,
+            isSpread = true,
+            forwardLeafOriginX = 500f,
+            backwardLeafScale = 1.5f,
+        )
+        val next = foundationReferenceCurlLeafOffset(
+            offset = Offset(680f, 80f),
+            axis = FoundationReferenceCurlAxis.Horizontal,
+            direction = FoundationReferenceCurlDirection.Forward,
+            isSpread = true,
+            forwardLeafOriginX = 500f,
+            backwardLeafScale = 1.5f,
+        )
+
+        assertEquals(Offset(180f, 80f), previous)
+        assertEquals(Offset(180f, 80f), next)
+    }
+
+    @Test
     fun horizontalDragCompletesAtTwentyPercentDirectionalTravel() {
         val size = IntSize(100, 200)
 
