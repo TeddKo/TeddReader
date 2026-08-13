@@ -53,6 +53,7 @@ class FoundationPagerCurlReferenceImplTest {
             isSpread = true,
             forwardLeafOriginX = 500f,
             backwardLeafScale = 1.5f,
+            leafWidth = 500f,
         )
         val next = foundationReferenceCurlLeafOffset(
             offset = Offset(680f, 80f),
@@ -61,10 +62,29 @@ class FoundationPagerCurlReferenceImplTest {
             isSpread = true,
             forwardLeafOriginX = 500f,
             backwardLeafScale = 1.5f,
+            leafWidth = 500f,
         )
 
-        assertEquals(Offset(180f, 80f), previous)
+        assertEquals(Offset(320f, 80f), previous)
         assertEquals(Offset(180f, 80f), next)
+    }
+
+    @Test
+    fun spreadPreviousSwipeReusesForwardCurlGeometry() {
+        assertEquals(
+            FoundationReferenceCurlDirection.Forward,
+            foundationReferenceCurlGeometryDirection(
+                FoundationReferenceCurlDirection.Backward,
+                isSpread = true,
+            ),
+        )
+        assertEquals(
+            FoundationReferenceCurlDirection.Backward,
+            foundationReferenceCurlGeometryDirection(
+                FoundationReferenceCurlDirection.Backward,
+                isSpread = false,
+            ),
+        )
     }
 
     @Test
