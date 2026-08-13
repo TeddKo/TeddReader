@@ -1,7 +1,6 @@
 package com.tedd.teddreader.feature.home.impl.component
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -37,6 +36,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -55,7 +57,6 @@ import com.tedd.teddreader.core.ui.generated.resources.document_pages
 import com.tedd.teddreader.core.ui.generated.resources.remove_from_favorites
 import com.tedd.teddreader.core.ui.generated.resources.select_document
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -82,8 +83,14 @@ fun DocumentCard(
     }
     val interactionSource = remember { MutableInteractionSource() }
     val actionsDescription = stringResource(Res.string.document_actions)
-    val coverImage = remember(coverImageBytes) {
-        coverImageBytes?.let { bytes -> runCatching { bytes.decodeToImageBitmap() }.getOrNull() }
+    val platformContext = LocalPlatformContext.current
+    val coverRequest = remember(coverImageBytes, platformContext) {
+        coverImageBytes?.let { bytes ->
+            ImageRequest.Builder(platformContext)
+                .data(bytes)
+                .size(360, 480)
+                .build()
+        }
     }
 
     Box(
@@ -104,17 +111,16 @@ fun DocumentCard(
                 onLongClick = onLongClick,
             ),
     ) {
-        if (coverImage != null) {
-            Image(
-                bitmap = coverImage,
+        BookCoverFallback(
+            selected = selected,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (coverRequest != null) {
+            AsyncImage(
+                model = coverRequest,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-            )
-        } else {
-            BookCoverFallback(
-                selected = selected,
-                modifier = Modifier.fillMaxSize(),
             )
         }
 

@@ -10,6 +10,7 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +77,61 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun bookmarkSelectionTargetReturnsFalseOnlyWhenEverySelectedDocumentIsAlreadyBookmarked() {
+        assertFalse(
+            homeSelectionBookmarkTarget(
+                listOf(
+                    bookmarkedDocument("bookmarked-1"),
+                    bookmarkedDocument("bookmarked-2"),
+                ),
+            ),
+        )
+        assertTrue(
+            homeSelectionBookmarkTarget(
+                listOf(
+                    bookmarkedDocument("bookmarked-1"),
+                    recentDocument("recent-1"),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun unbookmarkDocumentsMovesAllSelectedDocumentsToRecents() = runTest {
+        val repository = FakeDocumentRepository(
+            includeSecondDocument = true,
+            secondDocumentFormat = DocumentFormat.PDF,
+            initiallyBookmarkedIds = setOf("document-1", "document-2"),
+        )
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.setDocumentsBookmarked(
+            listOf(repository.documentId, repository.secondDocumentId),
+            false,
+        )
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), viewModel.uiState.value.favoriteDocuments)
+        assertEquals(2, viewModel.uiState.value.recentDocuments.size)
+        assertTrue(viewModel.uiState.value.recentDocuments.none(DocumentMetadata::isBookmarked))
+    }
+
+    @Test
+    fun bulkImportedPdfCoversRequestAtMostOneCoverAtATime() = runTest {
+        val repository = SuspendingCoverDocumentRepository()
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        repository.emitBulkPdfDocuments(count = 3)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.maxConcurrentCoverRequests)
+    }
+
+    @Test
     fun deleteRemovesRecentDocument() = runTest {
         val repository = FakeDocumentRepository()
         val viewModel = HomeViewModel(repository)
@@ -130,6 +186,8 @@ class HomeViewModelTest {
 
 private class FakeDocumentRepository(
     includeSecondDocument: Boolean = false,
+    secondDocumentFormat: DocumentFormat = DocumentFormat.TXT,
+    initiallyBookmarkedIds: Set<String> = emptySet(),
 ) : DocumentRepository {
     val documentId = DocumentId("document-1")
     val secondDocumentId = DocumentId("document-2")
@@ -146,6 +204,7 @@ private class FakeDocumentRepository(
                     ),
                     format = DocumentFormat.PDF,
                     addedAtEpochMillis = 1_000L,
+                    isBookmarked = documentId.value in initiallyBookmarkedIds,
                 ),
             )
             if (includeSecondDocument) {
@@ -156,8 +215,9 @@ private class FakeDocumentRepository(
                             sourceUri = "file:///document-2.txt",
                             displayName = "document-2.txt",
                         ),
-                        format = DocumentFormat.TXT,
+                        format = secondDocumentFormat,
                         addedAtEpochMillis = 2_000L,
+                        isBookmarked = secondDocumentId.value in initiallyBookmarkedIds,
                     ),
                 )
             }
@@ -198,3 +258,79 @@ private class FakeDocumentRepository(
         documents.value = documents.value.filterNot { it.id == documentId }
     }
 }
+
+private class SuspendingCoverDocumentRepository : DocumentRepository {
+    private val coverGate = CompletableDeferred<Unit>()
+    private val documents = MutableStateFlow<List<DocumentMetadata>>(emptyList())
+    var activeCoverRequests = 0
+        private set
+    var maxConcurrentCoverRequests = 0
+        private set
+
+    fun emitBulkPdfDocuments(count: Int) {
+        documents.value = List(count) { index ->
+            DocumentMetadata(
+                id = DocumentId("bulk-$index"),
+                location = DocumentLocation(
+                    sourceUri = "file:///bulk-$index.pdf",
+                    displayName = "bulk-$index.pdf",
+                ),
+                format = DocumentFormat.PDF,
+                addedAtEpochMillis = index.toLong(),
+            )
+        }
+    }
+
+    override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = documents
+
+    override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
+        documents.value.firstOrNull { it.id == documentId }
+
+    override suspend fun getDocumentCover(documentId: DocumentId): ByteArray? {
+        activeCoverRequests += 1
+        maxConcurrentCoverRequests = maxOf(maxConcurrentCoverRequests, activeCoverRequests)
+        try {
+            coverGate.await()
+            return byteArrayOf(documentId.value.length.toByte())
+        } finally {
+            activeCoverRequests -= 1
+        }
+    }
+
+    override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
+
+    override suspend fun getPageWindows(
+        documentId: DocumentId,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+    ): List<PageWindow> = emptyList()
+
+    override suspend fun importDocument(
+        source: DocumentImportSource,
+        importedAtEpochMillis: Long,
+    ): ReaderDocument = error("not used")
+
+    override suspend fun upsertDocument(document: DocumentMetadata) = Unit
+
+    override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit
+
+    override suspend fun deleteDocument(documentId: DocumentId) = Unit
+}
+
+private fun bookmarkedDocument(id: String): DocumentMetadata = testDocument(id = id, isBookmarked = true)
+
+private fun recentDocument(id: String): DocumentMetadata = testDocument(id = id, isBookmarked = false)
+
+private fun testDocument(
+    id: String,
+    isBookmarked: Boolean,
+): DocumentMetadata = DocumentMetadata(
+    id = DocumentId(id),
+    location = DocumentLocation(
+        sourceUri = "file:///$id.pdf",
+        displayName = "$id.pdf",
+    ),
+    format = DocumentFormat.PDF,
+    addedAtEpochMillis = 1_000L,
+    isBookmarked = isBookmarked,
+)

@@ -1,28 +1,41 @@
 package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.ui.system.DisplayFold
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ReaderAdaptiveLayoutTest {
     @Test
-    fun compactWidthUsesOnePane() {
-        assertEquals(1, readerPaneCount(widthDp = 575f))
+    fun phoneLandscapeUsesOnePane() {
+        assertEquals(1, readerPaneCount(widthDp = 840f, heightDp = 360f))
     }
 
     @Test
-    fun exactTwoPaneBoundaryUsesTwoPanes() {
-        assertEquals(2, readerPaneCount(widthDp = 576f))
+    fun tabletPortraitUsesTwoPanes() {
+        assertEquals(2, readerPaneCount(widthDp = 600f, heightDp = 960f))
     }
 
     @Test
-    fun landscapeBelowBoundaryStillUsesOnePane() {
-        assertEquals(1, readerPaneCount(widthDp = 560f))
+    fun tabletLandscapeUsesTwoPanes() {
+        assertEquals(2, readerPaneCount(widthDp = 960f, heightDp = 600f))
     }
 
     @Test
-    fun tabletWidthKeepsTwoPanes() {
-        assertEquals(2, readerPaneCount(widthDp = 840f))
+    fun separatingVerticalFoldUsesTwoPanesBelowTabletClass() {
+        assertEquals(
+            2,
+            readerPaneCount(
+                widthDp = 520f,
+                heightDp = 700f,
+                fold = DisplayFold(
+                    startDp = 258f,
+                    endDp = 262f,
+                    isVertical = true,
+                    isSeparating = true,
+                ),
+            ),
+        )
     }
 
     @Test

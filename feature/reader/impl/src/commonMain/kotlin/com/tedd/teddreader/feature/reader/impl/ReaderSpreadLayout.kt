@@ -2,10 +2,11 @@ package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.ui.system.DisplayFold
 import kotlin.math.max
+import kotlin.math.min
 
-internal fun readerPaneCount(widthDp: Float, fold: DisplayFold? = null): Int = when {
+internal fun readerPaneCount(widthDp: Float, heightDp: Float, fold: DisplayFold? = null): Int = when {
     fold != null && fold.isBookSpine() -> 2
-    widthDp >= TwoPaneMinWidthDp -> 2
+    min(widthDp, heightDp) >= TwoPaneMinShortestSideDp -> 2
     else -> 1
 }
 
@@ -27,6 +28,5 @@ private fun DisplayFold.isBookSpine(): Boolean = isVertical && isSeparating
 private const val BalancedSpreadWeight = 0.5f
 private const val MinSpreadWeight = 0.2f
 private const val MaxSpreadWeight = 0.8f
-private const val ReaderPaneMinWidthDp = 280f
 internal const val ReaderPaneGutterDp = 16f
-private const val TwoPaneMinWidthDp = ReaderPaneMinWidthDp * 2f + ReaderPaneGutterDp
+private const val TwoPaneMinShortestSideDp = 600f

@@ -92,8 +92,8 @@ fun HomeRouteScreen(
         onSettingsClick = onSettingsClick,
         onDocumentClick = onDocumentClick,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
-        onAddDocumentsToFavorites = { documentIds ->
-            viewModel.setDocumentsBookmarked(documentIds, true)
+        onSelectionBookmarkChange = { documentIds, target ->
+            viewModel.setDocumentsBookmarked(documentIds, target)
         },
         onDeleteDocuments = viewModel::deleteDocuments,
         onSortChange = viewModel::updateSort,
@@ -113,7 +113,7 @@ fun HomeScreen(
     onDocumentClick: (DocumentId) -> Unit,
     scrollState: ScrollState,
     onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit = { _, _ -> },
-    onAddDocumentsToFavorites: (Collection<DocumentId>) -> Unit = {},
+    onSelectionBookmarkChange: (Collection<DocumentId>, Boolean) -> Unit = { _, _ -> },
     onDeleteDocuments: (Collection<DocumentId>) -> Unit = {},
     onSortChange: (HomeSort) -> Unit = {},
     onFormatFilterChange: (HomeFormatFilter) -> Unit = {},
@@ -164,17 +164,17 @@ fun HomeScreen(
             exit = fadeOut(tween(motion.shortDurationMs)) +
                 slideOutVertically(tween(motion.shortDurationMs)) { -it },
         ) {
+            val selectedDocuments = allDocuments.filter { it.id.value in selectedDocumentIds }
+            val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
             SelectionTopBar(
                 selectedCount = selectedDocumentIds.size,
-                canAddToFavorites = allDocuments.any { document ->
-                    document.id.value in selectedDocumentIds && !document.isBookmarked
-                },
+                bookmarkTarget = bookmarkTarget,
                 onCancelClick = { selectedDocumentIds = emptySet() },
-                onAddToFavoritesClick = {
+                onBookmarkClick = {
                     val documentIds = selectedDocumentIds.map(::DocumentId)
                     actionDocumentId = null
                     selectedDocumentIds = emptySet()
-                    onAddDocumentsToFavorites(documentIds)
+                    onSelectionBookmarkChange(documentIds, bookmarkTarget)
                 },
                 onDeleteClick = {
                     actionDocumentId = null
@@ -395,15 +395,23 @@ fun HomeScreen(
     }
 }
 
+internal fun homeSelectionBookmarkTarget(selectedDocuments: Collection<DocumentMetadata>): Boolean =
+    selectedDocuments.any { !it.isBookmarked }
+
 @Composable
 private fun SelectionTopBar(
     selectedCount: Int,
-    canAddToFavorites: Boolean,
+    bookmarkTarget: Boolean,
     onCancelClick: () -> Unit,
-    onAddToFavoritesClick: () -> Unit,
+    onBookmarkClick: () -> Unit,
     onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val bookmarkDescription = if (bookmarkTarget) {
+        stringResource(Res.string.add_to_favorites)
+    } else {
+        stringResource(Res.string.remove_from_favorites)
+    }
     TeddTopBar(
         title = stringResource(Res.string.home_selection_count, selectedCount),
         modifier = modifier,
@@ -417,12 +425,11 @@ private fun SelectionTopBar(
         },
         actions = {
             TeddIconButton(
-                onClick = onAddToFavoritesClick,
-                enabled = canAddToFavorites,
-                contentDescription = stringResource(Res.string.add_to_favorites),
+                onClick = onBookmarkClick,
+                contentDescription = bookmarkDescription,
             ) {
                 Icon(
-                    imageVector = TeddIcons.BookmarkFilled,
+                    imageVector = if (bookmarkTarget) TeddIcons.BookmarkFilled else TeddIcons.BookmarkOutline,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -447,9 +454,9 @@ private fun SelectionTopBarPreview() {
     TeddReaderTheme {
         SelectionTopBar(
             selectedCount = 3,
-            canAddToFavorites = true,
+            bookmarkTarget = true,
             onCancelClick = {},
-            onAddToFavoritesClick = {},
+            onBookmarkClick = {},
             onDeleteClick = {},
         )
     }

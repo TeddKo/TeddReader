@@ -35,6 +35,9 @@
     <string name="font_family_mono">고정폭</string>
     <string name="page_movement">페이지 이동</string>
     <string name="page_movement_description">읽고 이동할 때 페이지가 움직이는 방식을 설정합니다.</string>
+    <string name="page_direction">방향</string>
+    <string name="default_transition">기본 전환</string>
+    <string name="page_effects">페이지 효과</string>
     <string name="hands_free_reading">핸즈프리 읽기</string>
     <string name="hands_free_reading_description">문서를 자동으로 계속 읽고 싶을 때의 이동 설정입니다.</string>
     <string name="system_default">시스템 기본</string>

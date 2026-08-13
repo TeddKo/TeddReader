@@ -6,10 +6,12 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -42,7 +44,7 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            recentDocuments.filterNotNull().collect { documents ->
+            recentDocuments.filterNotNull().collectLatest { documents ->
                 val documentIds = documents.mapTo(linkedSetOf()) { it.id.value }
                 currentDocumentIds = documentIds
                 documentCoverImages.update { current -> current.filterKeys { it in documentIds } }
@@ -53,14 +55,16 @@ class HomeViewModel(
                     .map { it.id.value }
                     .filterNot { id -> id in documentCoverImages.value || id in attemptedCoverIds }
                     .forEach { documentIdValue ->
+                        val coverBytes = try {
+                            documentRepository.getDocumentCover(DocumentId(documentIdValue))
+                        } catch (cancellationException: CancellationException) {
+                            throw cancellationException
+                        } catch (_: Throwable) {
+                            null
+                        }
                         attemptedCoverIds = attemptedCoverIds + documentIdValue
-                        viewModelScope.launch {
-                            val coverBytes = runCatching {
-                                documentRepository.getDocumentCover(DocumentId(documentIdValue))
-                            }.getOrNull()
-                            if (coverBytes != null && documentIdValue in currentDocumentIds) {
-                                documentCoverImages.update { current -> current + (documentIdValue to coverBytes) }
-                            }
+                        if (coverBytes != null && documentIdValue in currentDocumentIds) {
+                            documentCoverImages.update { current -> current + (documentIdValue to coverBytes) }
                         }
                     }
             }

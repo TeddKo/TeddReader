@@ -25,7 +25,9 @@ import com.tedd.teddreader.core.common.model.SupportedDocumentMimeTypes
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.usecase.OpenDocumentUseCase
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.compose.getKoin
 
 private val AndroidPickerMimeTypes = SupportedDocumentMimeTypes.toTypedArray()
@@ -110,7 +112,9 @@ internal actual fun rememberDocumentImporter(
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                val documentUris = resolveSupportedTreeDocumentUris(context, uri)
+                val documentUris = withContext(Dispatchers.IO) {
+                    resolveSupportedTreeDocumentUris(context, uri)
+                }
                 val result = importDocuments(documentUris) { documentUri ->
                     importUri(
                         context = context,
@@ -231,25 +235,27 @@ private suspend fun importUri(
     overrideMimeType: String? = null,
     overrideSizeBytes: Long? = null,
 ): DocumentId {
-    val resolver = context.contentResolver
-    if ((grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-        runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-    }
+    return withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        if ((grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
+            runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
 
-    val metadata = resolver.queryDocumentMetadata(uri)
-    val location = DocumentLocation(
-        sourceUri = uri.toString(),
-        displayName = overrideDisplayName ?: metadata.displayName ?: uri.lastPathSegment ?: uri.toString(),
-        mimeType = overrideMimeType ?: resolver.getType(uri),
-        sizeBytes = overrideSizeBytes ?: metadata.sizeBytes ?: 0L,
-    )
-    val bytes = resolver.openInputStream(uri)?.use { input -> input.readBytes() }
-        ?: error("Cannot open document: $uri")
-    val document = openDocumentUseCase(
-        source = DocumentImportSource(location = location, bytes = bytes),
-        openedAtEpochMillis = System.currentTimeMillis(),
-    )
-    return document.id
+        val metadata = resolver.queryDocumentMetadata(uri)
+        val location = DocumentLocation(
+            sourceUri = uri.toString(),
+            displayName = overrideDisplayName ?: metadata.displayName ?: uri.lastPathSegment ?: uri.toString(),
+            mimeType = overrideMimeType ?: resolver.getType(uri),
+            sizeBytes = overrideSizeBytes ?: metadata.sizeBytes ?: 0L,
+        )
+        val bytes = resolver.openInputStream(uri)?.use { input -> input.readBytes() }
+            ?: error("Cannot open document: $uri")
+        val document = openDocumentUseCase(
+            source = DocumentImportSource(location = location, bytes = bytes),
+            openedAtEpochMillis = System.currentTimeMillis(),
+        )
+        document.id
+    }
 }
 
 private data class AndroidTreeDocument(

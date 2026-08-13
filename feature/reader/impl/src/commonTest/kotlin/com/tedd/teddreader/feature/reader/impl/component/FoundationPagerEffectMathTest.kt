@@ -370,6 +370,40 @@ class FoundationPagerEffectMathTest {
         assertTrue(bottomPrevious.rotationX > 0f)
     }
 
+    @Test
+    fun `page flip chooses whole page for single pane and split fold for spreads`() {
+        assertEquals(
+            FoundationPageFlipLayout.WholePage,
+            foundationPageFlipLayout(pageStep = 1, paneCount = 1),
+        )
+        assertEquals(
+            FoundationPageFlipLayout.SplitHalfFold,
+            foundationPageFlipLayout(pageStep = 2, paneCount = 2),
+        )
+    }
+
+    @Test
+    fun `whole page flip rotates one full page around the outer edge up to ninety degrees`() {
+        val horizontal = foundationWholePageFlipSpec(
+            axis = FoundationPagerAxis.Horizontal,
+            pageOffset = -1f,
+        )
+        val vertical = foundationWholePageFlipSpec(
+            axis = FoundationPagerAxis.Vertical,
+            pageOffset = 1f,
+        )
+
+        assertEquals(0f, horizontal.rotationX, tolerance)
+        assertEquals(90f, horizontal.rotationY, tolerance)
+        assertEquals(0f, horizontal.transformOriginX, tolerance)
+        assertEquals(0.5f, horizontal.transformOriginY, tolerance)
+
+        assertEquals(90f, vertical.rotationX, tolerance)
+        assertEquals(0f, vertical.rotationY, tolerance)
+        assertEquals(0.5f, vertical.transformOriginX, tolerance)
+        assertEquals(1f, vertical.transformOriginY, tolerance)
+    }
+
     private fun maxXPoint(points: List<FoundationPagerPoint>): FoundationPagerPoint =
         points.maxBy { it.x }
 

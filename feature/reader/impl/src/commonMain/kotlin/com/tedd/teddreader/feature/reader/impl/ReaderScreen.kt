@@ -411,7 +411,7 @@ private fun ReaderContent(
             val density = LocalDensity.current
             val systemBarsInsets = readerSystemBarsInsets()
             val displayFold = rememberDisplayFold()
-            val paneCount = readerPaneCount(maxWidth.value, displayFold)
+            val paneCount = readerPaneCount(maxWidth.value, maxHeight.value, displayFold)
             val spreadLeftWeight = readerSpreadLeftWeight(maxWidth.value, displayFold)
             val spreadGutter = readerSpreadGutterDp(displayFold, ReaderPaneGutterDp).dp
             val pdfTransform = ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan)
@@ -1211,7 +1211,7 @@ private fun PageTurnOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        TeddOptionGroup(title = stringResource(Res.string.page_mode)) {
+        TeddOptionGroup(title = stringResource(Res.string.page_direction)) {
             readerPageTurnModeOptions.forEach { mode ->
                 TeddRadioRow(
                     title = mode.pageTurnLabel(),
@@ -1221,8 +1221,18 @@ private fun PageTurnOptionsSheet(
                 )
             }
         }
-        TeddOptionGroup(title = stringResource(Res.string.animation)) {
-            readerPageAnimationOptions.forEach { animation ->
+        TeddOptionGroup(title = stringResource(Res.string.default_transition)) {
+            readerDefaultTransitionOptions.forEach { animation ->
+                TeddRadioRow(
+                    title = animation.pageAnimationLabel(),
+                    selected = uiState.pageAnimation == animation,
+                    onClick = { onPageAnimationChange(animation) },
+                    enabled = !uiState.isSavingSettings,
+                )
+            }
+        }
+        TeddOptionGroup(title = stringResource(Res.string.page_effects)) {
+            readerPageEffectOptions.forEach { animation ->
                 TeddRadioRow(
                     title = animation.pageAnimationLabel(),
                     selected = uiState.pageAnimation == animation,
@@ -1292,17 +1302,23 @@ internal val readerPageTurnModeOptions: List<PageTurnMode> = listOf(
     PageTurnMode.VERTICAL,
 )
 
-internal val readerPageAnimationOptions: List<PageAnimation> = listOf(
+internal val readerDefaultTransitionOptions: List<PageAnimation> = listOf(
     PageAnimation.NONE,
     PageAnimation.SLIDE,
     PageAnimation.FADE,
     PageAnimation.SCROLL,
+)
+
+internal val readerPageEffectOptions: List<PageAnimation> = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
     PageAnimation.CIRCLE_REVEAL,
     PageAnimation.MOVIE_CAROUSEL,
     PageAnimation.PAGE_FLIP,
 )
+
+internal val readerPageAnimationOptions: List<PageAnimation> =
+    readerDefaultTransitionOptions + readerPageEffectOptions
 
 private fun Float.roundToHundredths(): Float =
     (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
