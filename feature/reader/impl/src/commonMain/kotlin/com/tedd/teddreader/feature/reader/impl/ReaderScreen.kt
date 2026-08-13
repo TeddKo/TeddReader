@@ -94,6 +94,7 @@ import com.tedd.teddreader.core.ui.reader.ReaderTopControls
 import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.core.ui.system.ReaderSystemBarsEffect
+import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.reader.impl.component.ReaderActionMenu
 import com.tedd.teddreader.feature.reader.impl.component.ReaderBottomActionBar
 import com.tedd.teddreader.feature.reader.impl.component.ReaderPageMoveRequest
@@ -409,7 +410,10 @@ private fun ReaderContent(
         ) {
             val density = LocalDensity.current
             val systemBarsInsets = readerSystemBarsInsets()
-            val paneCount = readerPaneCount(maxWidth.value)
+            val displayFold = rememberDisplayFold()
+            val paneCount = readerPaneCount(maxWidth.value, displayFold)
+            val spreadLeftWeight = readerSpreadLeftWeight(maxWidth.value, displayFold)
+            val spreadGutter = readerSpreadGutterDp(displayFold, ReaderPaneGutterDp).dp
             val pdfTransform = ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan)
             val contentTransformModifier = Modifier
                 .fillMaxSize()
@@ -507,6 +511,20 @@ private fun ReaderContent(
                         autoScrollDensity = density.density,
                         onAutoScrollStop = { onAutoScrollEnabledChange(false) },
                         onMovieTransitionProgressChanged = { movieTransitionProgress.floatValue = it },
+                        paneCount = paneCount,
+                        spreadGutter = spreadGutter,
+                        spreadLeftWeight = spreadLeftWeight,
+                        spreadModifier = contentTransformModifier,
+                        paneContent = { page, paneModifier ->
+                            ReaderPagePane(
+                                uiState = uiState,
+                                page = page,
+                                onViewportSizeChanged = onViewportSizeChanged,
+                                reportViewportSize = page == uiState.pageIndex.current,
+                                windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
+                                modifier = paneModifier,
+                            )
+                        },
                         modifier = Modifier
                             .readerPinchZoomGesture(
                                 enabled = uiState.pageIndex.total > 0,
@@ -542,14 +560,14 @@ private fun ReaderContent(
                             Row(
                                 modifier = contentTransformModifier
                                     .background(uiState.style.readerColors().background),
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.medium),
+                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(spreadGutter),
                             ) {
                                 ReaderPagePane(
                                     uiState = uiState,
                                     page = page,
                                     onViewportSizeChanged = onViewportSizeChanged,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                    modifier = Modifier.weight(spreadLeftWeight).fillMaxHeight(),
                                 )
                                 ReaderPagePane(
                                     uiState = uiState,
@@ -557,7 +575,7 @@ private fun ReaderContent(
                                     onViewportSizeChanged = onViewportSizeChanged,
                                     reportViewportSize = false,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                    modifier = Modifier.weight(1f - spreadLeftWeight).fillMaxHeight(),
                                 )
                             }
                         }
@@ -763,23 +781,24 @@ private fun ReaderPagePane(
             rotationDegrees = uiState.pdfRotationDegrees,
         )
     } else {
-        val viewportModifier = if (reportViewportSize) {
-            Modifier.onSizeChanged { size ->
-                onViewportSizeChanged(
-                    density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
-                    density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
-                )
-            }
-        } else {
-            Modifier
-        }
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(uiState.style.readerColors().background)
                 .windowInsetsPadding(windowInsets)
                 .padding(contentPadding)
-                .then(viewportModifier),
+                .run {
+                    if (!reportViewportSize) {
+                        this
+                    } else {
+                        onSizeChanged { size ->
+                            onViewportSizeChanged(
+                                density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
+                                density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
+                            )
+                        }
+                    }
+                },
         ) {
             ReaderPageSurface(
                 text = uiState.pageTextFor(page),
@@ -1288,9 +1307,6 @@ internal val readerPageAnimationOptions: List<PageAnimation> = listOf(
 private fun Float.roundToHundredths(): Float =
     (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
-internal fun readerPaneCount(widthDp: Float): Int =
-    if (widthDp >= TwoPaneMinWidthDp) 2 else 1
-
 internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
     (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
 
@@ -1359,9 +1375,6 @@ internal fun readerReadProgressPercent(pageIndex: PageIndex): Int =
         (((pageIndex.current + 1f) / pageIndex.total) * 100f).roundToInt().coerceIn(0, 100)
     }
 
-private const val ReaderPaneMinWidthDp = 280f
-private const val ReaderPaneGutterDp = 16f
-private const val TwoPaneMinWidthDp = ReaderPaneMinWidthDp * 2f + ReaderPaneGutterDp
 
 internal fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? =
     pageSlots.firstOrNull { it.page == page }

@@ -7,6 +7,7 @@ androidx-activity = "1.13.0"
 androidx-datastore = "1.2.1"
 androidx-room3 = "3.0.0"
 androidx-sqlite = "2.7.0"
+androidx-window = "1.5.1"
 coil = "3.5.0"
 composeMultiplatform = "1.11.1"
 junit = "4.13.2"
@@ -45,6 +46,7 @@ androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref 
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidx-sqlite" }
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "androidx-sqlite" }
 androidx-sqlite-framework = { module = "androidx.sqlite:sqlite-framework", version.ref = "androidx-sqlite" }
+androidx-window = { module = "androidx.window:window", version.ref = "androidx-window" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }

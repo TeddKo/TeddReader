@@ -27,6 +27,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
@@ -61,6 +63,11 @@ internal fun ReaderPager(
     onAutoScrollStop: () -> Unit,
     onMovieTransitionProgressChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    paneCount: Int = 1,
+    spreadGutter: Dp = 0.dp,
+    spreadLeftWeight: Float = 0.5f,
+    spreadModifier: Modifier = Modifier,
+    paneContent: (@Composable (page: Int, modifier: Modifier) -> Unit)? = null,
     content: @Composable (page: Int) -> Unit,
 ) {
     when (pageAnimation) {
@@ -134,6 +141,11 @@ internal fun ReaderPager(
                 autoScrollSpeed = autoScrollSpeed,
                 onAutoScrollStop = onAutoScrollStop,
                 modifier = modifier,
+                paneCount = paneCount,
+                spreadGutter = spreadGutter,
+                spreadLeftWeight = spreadLeftWeight,
+                spreadModifier = spreadModifier,
+                paneContent = paneContent,
                 content = content,
             )
             return
