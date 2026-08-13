@@ -343,10 +343,43 @@ class FoundationPagerEffectMathTest {
     }
 
     @Test
-    fun `page flip page shadow stays on folded half`() {
-        assertEquals(FoundationFluidSide.Start, foundationPageFlipShadowSide(-0.5f))
-        assertEquals(FoundationFluidSide.End, foundationPageFlipShadowSide(0.5f))
-        assertEquals(null, foundationPageFlipShadowSide(0f))
+    fun `page flip page shadow hinge follows outgoing whole page edge`() {
+        val next = foundationWholePageFlipShadowSpec(0.5f)
+        val previous = foundationWholePageFlipShadowSpec(-0.5f)
+
+        assertEquals(FoundationFluidSide.Start, next?.side)
+        assertEquals(FoundationFluidSide.End, previous?.side)
+        assertEquals(null, foundationWholePageFlipShadowSpec(0f))
+    }
+
+    @Test
+    fun `single pane page flip keeps current sheet above neighbors for whole drag`() {
+        assertEquals(3f, foundationPageFlipZIndex(FoundationPagerPage.Current))
+        assertEquals(2f, foundationPageFlipZIndex(FoundationPagerPage.Previous))
+        assertEquals(2f, foundationPageFlipZIndex(FoundationPagerPage.Next))
+    }
+
+    @Test
+    fun `whole page shadow contact alpha grows monotonically toward edge on`() {
+        val quarter = foundationWholePageFlipShadowSpec(0.25f)
+        val half = foundationWholePageFlipShadowSpec(0.5f)
+        val full = foundationWholePageFlipShadowSpec(1f)
+
+        assertTrue(quarter != null)
+        assertTrue(half != null)
+        assertTrue(full != null)
+        assertTrue(quarter.contactAlpha > 0f)
+        assertTrue(quarter.contactAlpha < half.contactAlpha)
+        assertTrue(half.contactAlpha < full.contactAlpha)
+    }
+
+    @Test
+    fun `whole page shadow keeps ambient shade below hinge contact shade`() {
+        val shadow = foundationWholePageFlipShadowSpec(0.5f)
+
+        assertTrue(shadow != null)
+        assertTrue(shadow.ambientAlpha > 0f)
+        assertTrue(shadow.ambientAlpha < shadow.contactAlpha)
     }
 
     @Test

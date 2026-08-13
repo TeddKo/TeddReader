@@ -748,7 +748,7 @@ private fun Modifier.foundationEffectPageModifier(
             .foundationMovieCarouselShadow(axis, page, pageOffset)
 
         PageAnimation.PAGE_FLIP -> cancelTranslation
-            .zIndex(foundationPageFlipZIndex(pageOffset))
+            .zIndex(foundationPageFlipZIndex(page))
             .run {
                 if (page == FoundationPagerPage.Current) {
                     foundationPageFlipPageShadow(
@@ -929,95 +929,143 @@ private fun Modifier.foundationPageFlipPageShadow(
     pageOffset: Float,
     layout: FoundationPageFlipLayout,
 ): Modifier = drawWithCache {
+    val wholePageShadowSpec = foundationWholePageFlipShadowSpec(pageOffset)
     val shadowSide = foundationPageFlipShadowSide(pageOffset)
     val progress = abs(pageOffset).coerceIn(0f, 1f)
     val alpha = FoundationPageFlipPageShadowAlpha * sin(progress * PI.toFloat())
-    if (shadowSide == null || alpha <= 0f) {
+    if (layout == FoundationPageFlipLayout.WholePage && wholePageShadowSpec == null) {
+        return@drawWithCache onDrawWithContent { drawContent() }
+    }
+    if (layout == FoundationPageFlipLayout.SplitHalfFold && (shadowSide == null || alpha <= 0f)) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
 
     onDrawWithContent {
         drawContent()
-        if (axis == FoundationPagerAxis.Horizontal) {
-            val centerX = size.width / 2f
-            if (shadowSide == FoundationFluidSide.Start) {
-                val left = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> 0f
-                    FoundationPageFlipLayout.SplitHalfFold -> (centerX - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
+        when (layout) {
+            FoundationPageFlipLayout.WholePage -> {
+                val spec = wholePageShadowSpec ?: return@onDrawWithContent
+                drawRect(Color.Black.copy(alpha = spec.ambientAlpha))
+                if (axis == FoundationPagerAxis.Horizontal) {
+                    val bandWidth = FoundationPageFlipPageShadowWidth.coerceAtMost(size.width)
+                    if (spec.side == FoundationFluidSide.Start) {
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Black.copy(alpha = spec.contactAlpha), Color.Transparent),
+                                startX = 0f,
+                                endX = bandWidth,
+                            ),
+                            topLeft = Offset.Zero,
+                            size = Size(bandWidth, size.height),
+                        )
+                    } else {
+                        val left = (size.width - bandWidth).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = spec.contactAlpha)),
+                                startX = left,
+                                endX = size.width,
+                            ),
+                            topLeft = Offset(left, 0f),
+                            size = Size((size.width - left).coerceAtLeast(0f), size.height),
+                        )
+                    }
+                } else {
+                    val bandHeight = FoundationPageFlipPageShadowWidth.coerceAtMost(size.height)
+                    if (spec.side == FoundationFluidSide.Start) {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black.copy(alpha = spec.contactAlpha), Color.Transparent),
+                                startY = 0f,
+                                endY = bandHeight,
+                            ),
+                            topLeft = Offset.Zero,
+                            size = Size(size.width, bandHeight),
+                        )
+                    } else {
+                        val top = (size.height - bandHeight).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = spec.contactAlpha)),
+                                startY = top,
+                                endY = size.height,
+                            ),
+                            topLeft = Offset(0f, top),
+                            size = Size(size.width, (size.height - top).coerceAtLeast(0f)),
+                        )
+                    }
                 }
-                val right = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> FoundationPageFlipPageShadowWidth.coerceAtMost(size.width)
-                    FoundationPageFlipLayout.SplitHalfFold -> centerX.coerceAtMost(size.width)
-                }
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = alpha)),
-                        startX = left,
-                        endX = right,
-                    ),
-                    topLeft = Offset(left, 0f),
-                    size = Size((right - left).coerceAtLeast(0f), size.height),
-                )
-            } else {
-                val left = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> (size.width - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
-                    FoundationPageFlipLayout.SplitHalfFold -> centerX
-                }
-                val right = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> size.width
-                    FoundationPageFlipLayout.SplitHalfFold -> (centerX + FoundationPageFlipPageShadowWidth).coerceAtMost(size.width)
-                }
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(Color.Black.copy(alpha = alpha), Color.Transparent),
-                        startX = left,
-                        endX = right,
-                    ),
-                    topLeft = Offset(left, 0f),
-                    size = Size((right - left).coerceAtLeast(0f), size.height),
-                )
             }
-        } else {
-            val centerY = size.height / 2f
-            if (shadowSide == FoundationFluidSide.Start) {
-                val top = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> 0f
-                    FoundationPageFlipLayout.SplitHalfFold -> (centerY - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
+
+            FoundationPageFlipLayout.SplitHalfFold -> if (axis == FoundationPagerAxis.Horizontal) {
+                val centerX = size.width / 2f
+                if (shadowSide == FoundationFluidSide.Start) {
+                    val left = (centerX - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
+                    val right = centerX.coerceAtMost(size.width)
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = alpha)),
+                            startX = left,
+                            endX = right,
+                        ),
+                        topLeft = Offset(left, 0f),
+                        size = Size((right - left).coerceAtLeast(0f), size.height),
+                    )
+                } else {
+                    val left = centerX
+                    val right = (centerX + FoundationPageFlipPageShadowWidth).coerceAtMost(size.width)
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(Color.Black.copy(alpha = alpha), Color.Transparent),
+                            startX = left,
+                            endX = right,
+                        ),
+                        topLeft = Offset(left, 0f),
+                        size = Size((right - left).coerceAtLeast(0f), size.height),
+                    )
                 }
-                val bottom = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> FoundationPageFlipPageShadowWidth.coerceAtMost(size.height)
-                    FoundationPageFlipLayout.SplitHalfFold -> centerY.coerceAtMost(size.height)
-                }
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = alpha)),
-                        startY = top,
-                        endY = bottom,
-                    ),
-                    topLeft = Offset(0f, top),
-                    size = Size(size.width, (bottom - top).coerceAtLeast(0f)),
-                )
             } else {
-                val top = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> (size.height - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
-                    FoundationPageFlipLayout.SplitHalfFold -> centerY
+                val centerY = size.height / 2f
+                if (shadowSide == FoundationFluidSide.Start) {
+                    val top = (centerY - FoundationPageFlipPageShadowWidth).coerceAtLeast(0f)
+                    val bottom = centerY.coerceAtMost(size.height)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = alpha)),
+                            startY = top,
+                            endY = bottom,
+                        ),
+                        topLeft = Offset(0f, top),
+                        size = Size(size.width, (bottom - top).coerceAtLeast(0f)),
+                    )
+                } else {
+                    val top = centerY
+                    val bottom = (centerY + FoundationPageFlipPageShadowWidth).coerceAtMost(size.height)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.Black.copy(alpha = alpha), Color.Transparent),
+                            startY = top,
+                            endY = bottom,
+                        ),
+                        topLeft = Offset(0f, top),
+                        size = Size(size.width, (bottom - top).coerceAtLeast(0f)),
+                    )
                 }
-                val bottom = when (layout) {
-                    FoundationPageFlipLayout.WholePage -> size.height
-                    FoundationPageFlipLayout.SplitHalfFold -> (centerY + FoundationPageFlipPageShadowWidth).coerceAtMost(size.height)
-                }
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Black.copy(alpha = alpha), Color.Transparent),
-                        startY = top,
-                        endY = bottom,
-                    ),
-                    topLeft = Offset(0f, top),
-                    size = Size(size.width, (bottom - top).coerceAtLeast(0f)),
-                )
             }
         }
     }
+}
+
+internal fun foundationWholePageFlipShadowSpec(pageOffset: Float): FoundationWholePageFlipShadowSpec? {
+    val progress = abs(pageOffset).coerceIn(0f, 1f)
+    if (progress <= 0f) return null
+    val intensity = sin(progress * (PI.toFloat() / 2f))
+    if (intensity <= 0f) return null
+    return FoundationWholePageFlipShadowSpec(
+        side = if (pageOffset > 0f) FoundationFluidSide.Start else FoundationFluidSide.End,
+        contactAlpha = 0.14f * intensity,
+        ambientAlpha = 0.035f * intensity,
+    )
 }
 
 internal fun foundationPageFlipShadowSide(pageOffset: Float): FoundationFluidSide? = when {
@@ -1303,13 +1351,9 @@ private fun foundationMovieZIndex(
     else -> 0f
 }
 
-private fun foundationPageFlipZIndex(pageOffset: Float): Float {
-    val distance = abs(pageOffset)
-    return when {
-        distance <= 0.5f -> 3f
-        distance <= 1f -> 2f
-        else -> 1f
-    }
+internal fun foundationPageFlipZIndex(page: FoundationPagerPage): Float = when (page) {
+    FoundationPagerPage.Current -> 3f
+    FoundationPagerPage.Previous, FoundationPagerPage.Next -> 2f
 }
 
 internal enum class FoundationPageFlipHalf {
@@ -1329,6 +1373,12 @@ internal data class FoundationWholePageFlipSpec(
     val rotationY: Float,
     val transformOriginX: Float,
     val transformOriginY: Float,
+)
+
+internal data class FoundationWholePageFlipShadowSpec(
+    val side: FoundationFluidSide,
+    val contactAlpha: Float,
+    val ambientAlpha: Float,
 )
 
 internal data class FoundationPageFlipHalfSpec(
