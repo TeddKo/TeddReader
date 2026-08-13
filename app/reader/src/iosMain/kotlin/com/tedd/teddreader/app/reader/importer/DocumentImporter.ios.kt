@@ -46,6 +46,12 @@ private val IosPickerTypeIdentifiers = listOf(
     "public.plain-text",
     "com.adobe.pdf",
     "org.idpf.epub-container",
+    "public.zip-archive",
+    "public.jpeg",
+    "public.png",
+    "org.webmproject.webp",
+    "com.compuserve.gif",
+    "com.microsoft.bmp",
 )
 
 @Composable
@@ -371,6 +377,12 @@ private fun mimeTypeForExtension(extension: String): String? = when (extension) 
     "txt" -> "text/plain"
     "pdf" -> "application/pdf"
     "epub" -> "application/epub+zip"
+    "cbz" -> "application/vnd.comicbook+zip"
+    "jpg", "jpeg" -> "image/jpeg"
+    "png" -> "image/png"
+    "webp" -> "image/webp"
+    "gif" -> "image/gif"
+    "bmp" -> "image/bmp"
     else -> null
 }
 

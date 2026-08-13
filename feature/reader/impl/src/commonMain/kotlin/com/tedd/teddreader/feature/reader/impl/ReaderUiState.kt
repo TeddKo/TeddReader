@@ -2,10 +2,13 @@ package com.tedd.teddreader.feature.reader.impl
 
 import androidx.compose.runtime.Immutable
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
+import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.isImagePageFormat
+import com.tedd.teddreader.core.common.model.isVisualPageFormat
 
 @Immutable
 data class ReaderPageUi(
@@ -19,6 +22,7 @@ data class ReaderPageUi(
 data class ReaderUiState(
     val documentTitle: String = "Reader",
     val documentUri: String? = null,
+    val documentFormat: DocumentFormat = DocumentFormat.UNKNOWN,
     val pageText: String = "",
     val pageIndex: PageIndex = PageIndex(current = 0, total = 0),
     val previousPage: ReaderPageUi? = null,
@@ -42,7 +46,12 @@ data class ReaderUiState(
     val fullscreen: Boolean = false,
     val showProgress: Boolean = true,
     val isPdfMode: Boolean = false,
+    val visualPageImages: Map<Int, ByteArray> = emptyMap(),
+    val failedVisualPages: Set<Int> = emptySet(),
     val isFavorite: Boolean = false,
     val isCurrentPageSaved: Boolean = false,
     val isSavingSettings: Boolean = false,
-)
+) {
+    val isVisualMode: Boolean get() = isPdfMode || documentFormat.isVisualPageFormat()
+    val isImageMode: Boolean get() = documentFormat.isImagePageFormat()
+}

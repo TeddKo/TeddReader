@@ -298,6 +298,8 @@ private fun DocumentFormat.displayName(unknown: String = "Unknown format"): Stri
     DocumentFormat.TXT -> "TXT"
     DocumentFormat.PDF -> "PDF"
     DocumentFormat.EPUB -> "EPUB"
+    DocumentFormat.CBZ -> "CBZ"
+    DocumentFormat.IMAGE -> "Image"
     DocumentFormat.UNKNOWN -> unknown
 }
 

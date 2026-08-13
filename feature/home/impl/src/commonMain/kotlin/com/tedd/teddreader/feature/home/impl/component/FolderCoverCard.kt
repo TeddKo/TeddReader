@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
@@ -196,6 +197,9 @@ private fun FolderCoverMosaic(
                         ) {
                             DocumentCover(
                                 coverImageBytes = documentCoverImages[document.id.value],
+                                sourceUri = document.location.sourceUri.takeIf {
+                                    document.format == DocumentFormat.IMAGE
+                                },
                                 selected = false,
                                 widthPx = DocumentMosaicCoverWidthPx,
                                 heightPx = DocumentMosaicCoverHeightPx,

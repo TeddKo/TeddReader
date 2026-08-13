@@ -52,7 +52,11 @@ class HomeViewModel(
                 attemptedCoverIds = attemptedCoverIds.filter { it in documentIds }.toSet()
 
                 documents.asSequence()
-                    .filter { it.format == DocumentFormat.PDF || it.format == DocumentFormat.EPUB }
+                    .filter {
+                        it.format == DocumentFormat.PDF ||
+                            it.format == DocumentFormat.EPUB ||
+                            it.format == DocumentFormat.CBZ
+                    }
                     .map { it.id.value }
                     .filterNot { id -> id in documentCoverImages.value || id in attemptedCoverIds }
                     .forEach { documentIdValue ->
@@ -229,6 +233,8 @@ private fun List<DocumentMetadata>.filterBy(filter: HomeFormatFilter): List<Docu
     HomeFormatFilter.Txt -> filter { it.format == DocumentFormat.TXT }
     HomeFormatFilter.Pdf -> filter { it.format == DocumentFormat.PDF }
     HomeFormatFilter.Epub -> filter { it.format == DocumentFormat.EPUB }
+    HomeFormatFilter.Comic -> filter { it.format == DocumentFormat.CBZ }
+    HomeFormatFilter.Image -> filter { it.format == DocumentFormat.IMAGE }
 }
 
 private fun List<DocumentMetadata>.sortBy(sort: HomeSort): List<DocumentMetadata> = when (sort) {

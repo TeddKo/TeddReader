@@ -11,8 +11,8 @@ import androidx.compose.animation.splineBasedDecay
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -84,6 +84,7 @@ internal fun FoundationPagerCurlReferenceImpl(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
     isAutoScrollEnabled: Boolean,
     autoScrollMode: AutoScrollMode,
     autoScrollSpeed: Float,
@@ -255,7 +256,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                     }
                 }
             }
-            .pointerInput(canGoForward, canGoBackward, axis, isAutoScrollEnabled) {
+            .pointerInput(canGoForward, canGoBackward, axis, isAutoScrollEnabled, onDoubleTap) {
                 detectFoundationReferenceCurlTaps(
                     axis = axis,
                     canGoForward = canGoForward,
@@ -263,6 +264,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                     isAutoScrollEnabled = isAutoScrollEnabled,
                     onPageTap = ::animateTap,
                     onToggleControls = { latestOnToggleControls() },
+                    onDoubleTap = onDoubleTap,
                 )
             }
 
@@ -530,28 +532,28 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
     isAutoScrollEnabled: Boolean,
     onPageTap: (FoundationReferenceCurlDirection) -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
 ) {
-    awaitEachGesture {
-        val down = awaitFirstDown().also { it.consume() }
-        val up = waitForUpOrCancellation() ?: return@awaitEachGesture
-        if ((down.position - up.position).getDistance() > viewConfiguration.touchSlop) return@awaitEachGesture
-
-        when (
-            foundationReferenceCurlTapAction(
-                position = up.position,
-                size = size,
-                axis = axis,
-                canGoBackward = canGoBackward,
-                canGoForward = canGoForward,
-                isAutoScrollEnabled = isAutoScrollEnabled,
-            )
-        ) {
-            FoundationReferenceCurlTapAction.Backward -> onPageTap(FoundationReferenceCurlDirection.Backward)
-            FoundationReferenceCurlTapAction.ToggleControls -> onToggleControls()
-            FoundationReferenceCurlTapAction.Forward -> onPageTap(FoundationReferenceCurlDirection.Forward)
-            null -> Unit
-        }
-    }
+    detectTapGestures(
+        onDoubleTap = onDoubleTap,
+        onTap = { position ->
+            when (
+                foundationReferenceCurlTapAction(
+                    position = position,
+                    size = size,
+                    axis = axis,
+                    canGoBackward = canGoBackward,
+                    canGoForward = canGoForward,
+                    isAutoScrollEnabled = isAutoScrollEnabled,
+                )
+            ) {
+                FoundationReferenceCurlTapAction.Backward -> onPageTap(FoundationReferenceCurlDirection.Backward)
+                FoundationReferenceCurlTapAction.ToggleControls -> onToggleControls()
+                FoundationReferenceCurlTapAction.Forward -> onPageTap(FoundationReferenceCurlDirection.Forward)
+                null -> Unit
+            }
+        },
+    )
 }
 
 internal fun foundationReferenceCurlTapAction(

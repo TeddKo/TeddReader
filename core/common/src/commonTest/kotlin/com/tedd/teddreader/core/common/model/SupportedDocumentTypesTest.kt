@@ -7,16 +7,28 @@ import kotlin.test.assertTrue
 
 class SupportedDocumentTypesTest {
     @Test
-    fun supportedDocumentTypesExposeOnlyTxtPdfAndEpub() {
+    fun supportedDocumentTypesExposeTextFixedPageComicAndRasterImages() {
         assertEquals(
-            setOf(DocumentFormat.TXT, DocumentFormat.PDF, DocumentFormat.EPUB),
+            setOf(
+                DocumentFormat.TXT,
+                DocumentFormat.PDF,
+                DocumentFormat.EPUB,
+                DocumentFormat.CBZ,
+                DocumentFormat.IMAGE,
+            ),
             SupportedDocumentFormats,
         )
         assertTrue(SupportedDocumentMimeTypes.contains("text/plain"))
         assertTrue(SupportedDocumentMimeTypes.contains("application/pdf"))
         assertTrue(SupportedDocumentMimeTypes.contains("application/epub"))
         assertTrue(SupportedDocumentMimeTypes.contains("application/epub+zip"))
-        assertEquals(setOf("txt", "pdf", "epub"), SupportedDocumentExtensions)
+        assertTrue(SupportedDocumentMimeTypes.contains("application/vnd.comicbook+zip"))
+        assertTrue(SupportedDocumentMimeTypes.contains("image/jpeg"))
+        assertTrue(SupportedDocumentMimeTypes.contains("image/png"))
+        assertEquals(
+            setOf("txt", "pdf", "epub", "cbz", "jpg", "jpeg", "png", "webp", "gif", "bmp"),
+            SupportedDocumentExtensions,
+        )
         assertFalse(SupportedDocumentFormats.contains(DocumentFormat.UNKNOWN))
     }
 }

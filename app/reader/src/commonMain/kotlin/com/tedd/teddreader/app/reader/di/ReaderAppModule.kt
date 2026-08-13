@@ -2,8 +2,10 @@ package com.tedd.teddreader.app.reader.di
 
 import androidx.compose.runtime.Composable
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
+import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
 import com.tedd.teddreader.core.data.parser.EpubDocumentParser
+import com.tedd.teddreader.core.data.parser.ImageDocumentParser
 import com.tedd.teddreader.core.data.parser.PdfDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtDocumentParser
 import com.tedd.teddreader.core.data.repository.BookmarkRepositoryImpl
@@ -50,6 +52,8 @@ internal fun readerAppModule(): Module = module {
     single { TxtDocumentParser() }
     single { EpubDocumentParser() }
     single { PdfDocumentParser() }
+    single { ComicBookDocumentParser() }
+    single { ImageDocumentParser() }
     single { TextPageLayoutEngine() }
 
     single<DocumentRepository> {
@@ -60,6 +64,8 @@ internal fun readerAppModule(): Module = module {
             txtDocumentParser = get(),
             epubDocumentParser = get(),
             pdfDocumentParser = get(),
+            comicBookDocumentParser = get(),
+            imageDocumentParser = get(),
             textPageLayoutEngine = get(),
             documentFileSource = get(),
         )

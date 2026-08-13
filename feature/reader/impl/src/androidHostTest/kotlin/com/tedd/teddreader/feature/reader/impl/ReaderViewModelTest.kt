@@ -36,6 +36,7 @@ import kotlinx.coroutines.test.setMain
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -150,6 +151,26 @@ class ReaderViewModelTest {
         advanceUntilIdle()
 
         assertEquals(PageIndex(current = 7, total = 10), viewModel.uiState.value.pageIndex)
+    }
+
+    @Test
+    fun openComicDocumentLoadsItsVisualPage() = runTest(dispatcher) {
+        val documentId = DocumentId("comic-1")
+        val imageBytes = byteArrayOf(1, 2, 3)
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.CBZ,
+                pageCount = 1,
+                visualPageImages = mapOf(0 to imageBytes),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(DocumentFormat.CBZ, viewModel.uiState.value.documentFormat)
+        assertContentEquals(imageBytes, viewModel.uiState.value.visualPageImages[0])
     }
 
     @Test
@@ -316,6 +337,7 @@ private class FakeDocumentRepository(
     private val format: DocumentFormat = DocumentFormat.TXT,
     pageCount: Int = 2,
     private val paginatedText: String? = null,
+    private val visualPageImages: Map<Int, ByteArray> = emptyMap(),
 ) : DocumentRepository {
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -346,6 +368,11 @@ private class FakeDocumentRepository(
             sections = emptyList(),
             pageCount = metadata.pageCount ?: 0,
         ).takeIf { documentId == this.documentId }
+
+    override suspend fun getVisualPageImages(
+        documentId: DocumentId,
+        pageIndexes: Set<Int>,
+    ): Map<Int, ByteArray> = visualPageImages.filterKeys(pageIndexes::contains)
 
     override suspend fun getPageWindows(
         documentId: DocumentId,

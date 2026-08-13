@@ -2,8 +2,8 @@ package com.tedd.teddreader.feature.search.impl
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.usecase.FindInDocumentUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +34,7 @@ class SearchViewModel(
                 .onSuccess { metadata ->
                     _uiState.update {
                         it.copy(
-                            isSearchUnsupported = metadata?.format == DocumentFormat.PDF,
+                            isSearchUnsupported = metadata?.format?.isVisualPageFormat() == true,
                         )
                     }
                 }
@@ -79,7 +79,7 @@ class SearchViewModel(
                     }
                     return@launch
                 }
-            if (metadata?.format == DocumentFormat.PDF) {
+            if (metadata?.format?.isVisualPageFormat() == true) {
                 _uiState.update {
                     it.copy(
                         results = emptyList(),

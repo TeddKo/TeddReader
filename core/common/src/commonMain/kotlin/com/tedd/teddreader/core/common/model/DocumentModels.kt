@@ -19,8 +19,24 @@ enum class DocumentFormat {
     TXT,
     PDF,
     EPUB,
+    CBZ,
+    IMAGE,
     UNKNOWN,
 }
+
+fun DocumentFormat.isVisualPageFormat(): Boolean = when (this) {
+    DocumentFormat.PDF,
+    DocumentFormat.CBZ,
+    DocumentFormat.IMAGE,
+        -> true
+    DocumentFormat.TXT,
+    DocumentFormat.EPUB,
+    DocumentFormat.UNKNOWN,
+        -> false
+}
+
+fun DocumentFormat.isImagePageFormat(): Boolean =
+    this == DocumentFormat.CBZ || this == DocumentFormat.IMAGE
 
 @Serializable
 data class DocumentLocation(
@@ -117,7 +133,7 @@ data class SearchResult(
 )
 
 fun ReaderDocument.isTextSearchSupported(): Boolean =
-    format != DocumentFormat.PDF && sections.any { section -> section.text.isNotBlank() }
+    !format.isVisualPageFormat() && sections.any { section -> section.text.isNotBlank() }
 
 @Serializable
 data class ReadingHistoryEntry(

@@ -78,6 +78,7 @@ internal fun FoundationEffectPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
     isAutoScrollEnabled: Boolean,
     autoScrollMode: AutoScrollMode,
     autoScrollSpeed: Float,
@@ -354,38 +355,43 @@ internal fun FoundationEffectPager(
         )
     }
 
-    val tapModifier = Modifier.pointerInput(axis, pagerState, isAutoScrollEnabled, onToggleControls, previousPage, nextPage) {
-        detectTapGestures { position ->
-            if (isAutoScrollEnabled) {
-                onToggleControls()
-                return@detectTapGestures
-            }
-            val primary = if (axis == FoundationPagerAxis.Horizontal) position.x else position.y
-            val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
-            when {
-                primary < extent * FoundationPreviousTapZoneRatio -> {
-                    if (previousPage != null) {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(
-                                page = FoundationPreviousPage,
-                                animationSpec = settleAnimationSpec,
-                            )
+    val tapModifier = Modifier.pointerInput(axis, pagerState, isAutoScrollEnabled, onToggleControls, onDoubleTap, previousPage, nextPage) {
+        detectTapGestures(
+            onDoubleTap = onDoubleTap,
+            onTap = { position ->
+                if (isAutoScrollEnabled) {
+                    onToggleControls()
+                } else {
+                    val primary = if (axis == FoundationPagerAxis.Horizontal) position.x else position.y
+                    val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
+                    when {
+                        primary < extent * FoundationPreviousTapZoneRatio -> {
+                            if (previousPage != null) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(
+                                        page = FoundationPreviousPage,
+                                        animationSpec = settleAnimationSpec,
+                                    )
+                                }
+                            }
                         }
+
+                        primary > extent * FoundationNextTapZoneRatio -> {
+                            if (nextPage != null) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(
+                                        page = FoundationNextPage,
+                                        animationSpec = settleAnimationSpec,
+                                    )
+                                }
+                            }
+                        }
+
+                        else -> onToggleControls()
                     }
                 }
-                primary > extent * FoundationNextTapZoneRatio -> {
-                    if (nextPage != null) {
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(
-                                page = FoundationNextPage,
-                                animationSpec = settleAnimationSpec,
-                            )
-                        }
-                    }
-                }
-                else -> onToggleControls()
-            }
-        }
+            },
+        )
     }
 
     fun pageModifier(pagerPage: Int): Modifier {
@@ -475,6 +481,7 @@ internal fun FoundationCurlPager(
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
     onToggleControls: () -> Unit,
+    onDoubleTap: ((Offset) -> Unit)?,
     isAutoScrollEnabled: Boolean,
     autoScrollMode: AutoScrollMode,
     autoScrollSpeed: Float,
@@ -497,6 +504,7 @@ internal fun FoundationCurlPager(
         onPreviousPage = onPreviousPage,
         onNextPage = onNextPage,
         onToggleControls = onToggleControls,
+        onDoubleTap = onDoubleTap,
         isAutoScrollEnabled = isAutoScrollEnabled,
         autoScrollMode = autoScrollMode,
         autoScrollSpeed = autoScrollSpeed,

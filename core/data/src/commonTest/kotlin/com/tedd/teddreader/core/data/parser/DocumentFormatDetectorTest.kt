@@ -53,6 +53,45 @@ class DocumentFormatDetectorTest {
     }
 
     @Test
+    fun detectsCbzByComicMimeAndExtensionWithoutAcceptingGenericZip() {
+        assertEquals(
+            DocumentFormat.CBZ,
+            detector.detect(location("comic.bin", mimeType = "application/vnd.comicbook+zip"), byteArrayOf(1)),
+        )
+        assertEquals(
+            DocumentFormat.CBZ,
+            detector.detect(location("comic.CBZ", mimeType = "application/zip"), byteArrayOf(1)),
+        )
+        assertEquals(
+            DocumentFormat.UNKNOWN,
+            detector.detect(location("archive.zip", mimeType = "application/zip"), byteArrayOf(1)),
+        )
+    }
+
+    @Test
+    fun detectsSupportedRasterImagesByMimeExtensionAndSignature() {
+        assertEquals(
+            DocumentFormat.IMAGE,
+            detector.detect(location("page.bin", mimeType = "image/jpeg"), byteArrayOf(1)),
+        )
+        assertEquals(
+            DocumentFormat.IMAGE,
+            detector.detect(location("page.WEBP"), byteArrayOf(1)),
+        )
+        assertEquals(
+            DocumentFormat.IMAGE,
+            detector.detect(
+                location("page.bin"),
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+            ),
+        )
+        assertEquals(
+            DocumentFormat.UNKNOWN,
+            detector.detect(location("vector.svg", mimeType = "image/svg+xml"), "<svg".encodeToByteArray()),
+        )
+    }
+
+    @Test
     fun rejectsUnsupportedZipDocxAndMobi() {
         assertEquals(
             DocumentFormat.UNKNOWN,

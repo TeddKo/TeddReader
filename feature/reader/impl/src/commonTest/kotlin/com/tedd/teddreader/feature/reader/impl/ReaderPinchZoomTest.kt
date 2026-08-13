@@ -72,4 +72,25 @@ class ReaderPinchZoomTest {
         assertTrue(transform.pan.x.isFinite())
         assertTrue(transform.pan.y.isFinite())
     }
+
+    @Test
+    fun `visual page double tap zooms around tap then resets`() {
+        val viewport = IntSize(width = 1000, height = 800)
+        val zoomed = readerDoubleTapVisualTransform(
+            current = ReaderPdfTransform(zoom = 1f, pan = Offset.Zero),
+            tapPosition = Offset(x = 750f, y = 600f),
+            viewportSize = viewport,
+        )
+
+        assertEquals(2.5f, zoomed.zoom)
+        assertEquals(Offset(x = -375f, y = -300f), zoomed.pan)
+        assertEquals(
+            ReaderPdfTransform(zoom = 1f, pan = Offset.Zero),
+            readerDoubleTapVisualTransform(
+                current = zoomed,
+                tapPosition = Offset(x = 750f, y = 600f),
+                viewportSize = viewport,
+            ),
+        )
+    }
 }
