@@ -383,25 +383,43 @@ class FoundationPagerEffectMathTest {
     }
 
     @Test
-    fun `whole page flip rotates one full page around the outer edge up to ninety degrees`() {
-        val horizontal = foundationWholePageFlipSpec(
+    fun `whole page flip keeps rotation sign while swapping pivot by swipe direction`() {
+        val horizontalNext = foundationWholePageFlipSpec(
+            axis = FoundationPagerAxis.Horizontal,
+            pageOffset = 1f,
+        )
+        val horizontalPrevious = foundationWholePageFlipSpec(
             axis = FoundationPagerAxis.Horizontal,
             pageOffset = -1f,
         )
-        val vertical = foundationWholePageFlipSpec(
+        val verticalNext = foundationWholePageFlipSpec(
             axis = FoundationPagerAxis.Vertical,
             pageOffset = 1f,
         )
+        val verticalPrevious = foundationWholePageFlipSpec(
+            axis = FoundationPagerAxis.Vertical,
+            pageOffset = -1f,
+        )
 
-        assertEquals(0f, horizontal.rotationX, tolerance)
-        assertEquals(90f, horizontal.rotationY, tolerance)
-        assertEquals(0f, horizontal.transformOriginX, tolerance)
-        assertEquals(0.5f, horizontal.transformOriginY, tolerance)
+        assertEquals(0f, horizontalNext.rotationX, tolerance)
+        assertEquals(-90f, horizontalNext.rotationY, tolerance)
+        assertEquals(0f, horizontalNext.transformOriginX, tolerance)
+        assertEquals(0.5f, horizontalNext.transformOriginY, tolerance)
 
-        assertEquals(90f, vertical.rotationX, tolerance)
-        assertEquals(0f, vertical.rotationY, tolerance)
-        assertEquals(0.5f, vertical.transformOriginX, tolerance)
-        assertEquals(1f, vertical.transformOriginY, tolerance)
+        assertEquals(0f, horizontalPrevious.rotationX, tolerance)
+        assertEquals(90f, horizontalPrevious.rotationY, tolerance)
+        assertEquals(1f, horizontalPrevious.transformOriginX, tolerance)
+        assertEquals(0.5f, horizontalPrevious.transformOriginY, tolerance)
+
+        assertEquals(90f, verticalNext.rotationX, tolerance)
+        assertEquals(0f, verticalNext.rotationY, tolerance)
+        assertEquals(0.5f, verticalNext.transformOriginX, tolerance)
+        assertEquals(0f, verticalNext.transformOriginY, tolerance)
+
+        assertEquals(-90f, verticalPrevious.rotationX, tolerance)
+        assertEquals(0f, verticalPrevious.rotationY, tolerance)
+        assertEquals(0.5f, verticalPrevious.transformOriginX, tolerance)
+        assertEquals(1f, verticalPrevious.transformOriginY, tolerance)
     }
 
     private fun maxXPoint(points: List<FoundationPagerPoint>): FoundationPagerPoint =

@@ -1353,14 +1353,14 @@ internal fun foundationWholePageFlipSpec(
             FoundationWholePageFlipSpec(
                 rotationX = 0f,
                 rotationY = -offset * FoundationWholePageFlipRotationDegrees,
-                transformOriginX = 0f,
+                transformOriginX = 1f,
                 transformOriginY = 0.5f,
             )
         } else {
             FoundationWholePageFlipSpec(
                 rotationX = 0f,
                 rotationY = -offset * FoundationWholePageFlipRotationDegrees,
-                transformOriginX = 1f,
+                transformOriginX = 0f,
                 transformOriginY = 0.5f,
             )
         }
@@ -1370,14 +1370,14 @@ internal fun foundationWholePageFlipSpec(
                 rotationX = offset * FoundationWholePageFlipRotationDegrees,
                 rotationY = 0f,
                 transformOriginX = 0.5f,
-                transformOriginY = 0f,
+                transformOriginY = 1f,
             )
         } else {
             FoundationWholePageFlipSpec(
                 rotationX = offset * FoundationWholePageFlipRotationDegrees,
                 rotationY = 0f,
                 transformOriginX = 0.5f,
-                transformOriginY = 1f,
+                transformOriginY = 0f,
             )
         }
     }
