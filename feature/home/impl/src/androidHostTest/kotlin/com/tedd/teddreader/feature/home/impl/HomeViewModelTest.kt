@@ -259,6 +259,65 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun libraryFolderPreviewDocumentsReturnsOnlyRequestedFolderInSourceOrderAndLimit() {
+        val documents = buildList {
+            repeat(10) { index ->
+                add(
+                    testDocument(
+                        id = "folder-doc-$index",
+                        isBookmarked = false,
+                        addedAtEpochMillis = index.toLong(),
+                        folderId = "folder-1",
+                        folderName = "Folder 1",
+                    ),
+                )
+            }
+            add(
+                testDocument(
+                    id = "other-folder-doc",
+                    isBookmarked = false,
+                    addedAtEpochMillis = 100L,
+                    folderId = "folder-2",
+                    folderName = "Folder 2",
+                ),
+            )
+        }
+
+        assertEquals(
+            listOf("folder-doc-0", "folder-doc-1", "folder-doc-2", "folder-doc-3"),
+            libraryFolderPreviewDocuments(
+                documents = documents,
+                folderId = "folder-1",
+                previewLimit = 4,
+            ).map { it.id.value },
+        )
+        assertEquals(
+            listOf(
+                "folder-doc-0",
+                "folder-doc-1",
+                "folder-doc-2",
+                "folder-doc-3",
+                "folder-doc-4",
+                "folder-doc-5",
+                "folder-doc-6",
+                "folder-doc-7",
+            ),
+            libraryFolderPreviewDocuments(
+                documents = documents,
+                folderId = "folder-1",
+                previewLimit = 8,
+            ).map { it.id.value },
+        )
+    }
+
+    @Test
+    fun libraryFolderRemainingDocumentCountNeverDropsBelowZero() {
+        assertEquals(6, libraryFolderRemainingDocumentCount(totalCount = 10, previewCount = 4))
+        assertEquals(0, libraryFolderRemainingDocumentCount(totalCount = 4, previewCount = 4))
+        assertEquals(0, libraryFolderRemainingDocumentCount(totalCount = 3, previewCount = 4))
+    }
+
+    @Test
     fun createMoveRenameAndDeleteFolderOnlyMutateMembership() = runTest {
         val repository = FakeDocumentRepository(
             documents = listOf(

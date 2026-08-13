@@ -2,23 +2,24 @@ package com.tedd.teddreader.feature.home.impl
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,7 +56,6 @@ import com.tedd.teddreader.core.ui.generated.resources.cancel
 import com.tedd.teddreader.core.ui.generated.resources.create_folder
 import com.tedd.teddreader.core.ui.generated.resources.create_folder_dialog_title
 import com.tedd.teddreader.core.ui.generated.resources.delete
-import com.tedd.teddreader.core.ui.generated.resources.document_pages
 import com.tedd.teddreader.core.ui.generated.resources.delete_folder_message
 import com.tedd.teddreader.core.ui.generated.resources.delete_folder_title
 import com.tedd.teddreader.core.ui.generated.resources.files_in_folder_count
@@ -69,10 +69,15 @@ import com.tedd.teddreader.core.ui.generated.resources.library_empty_folder_desc
 import com.tedd.teddreader.core.ui.generated.resources.library_empty_folder_title
 import com.tedd.teddreader.core.ui.generated.resources.move_to_folder
 import com.tedd.teddreader.core.ui.generated.resources.no_folders_available
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_message
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_multiple_message
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_title
 import com.tedd.teddreader.core.ui.generated.resources.rename_folder
 import com.tedd.teddreader.core.ui.generated.resources.rename_folder_dialog_title
-import com.tedd.teddreader.core.ui.generated.resources.select_document
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.system.rememberDisplayFold
+import com.tedd.teddreader.feature.home.impl.component.DocumentCard
+import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -88,7 +93,7 @@ fun LibraryRouteScreen(
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
 
     LibraryScreen(
         uiState = uiState,
@@ -100,7 +105,9 @@ fun LibraryRouteScreen(
         onMoveDocumentsToFolder = viewModel::moveDocumentsToFolder,
         onRenameFolder = viewModel::renameFolder,
         onDeleteFolder = viewModel::deleteFolder,
-        listState = listState,
+        onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
+        onDeleteDocuments = viewModel::deleteDocuments,
+        gridState = gridState,
         modifier = modifier,
     )
 }
@@ -116,21 +123,24 @@ fun LibraryScreen(
     onMoveDocumentsToFolder: (Collection<DocumentId>, String) -> Unit,
     onRenameFolder: (String, String) -> Unit,
     onDeleteFolder: (String) -> Unit,
-    listState: LazyListState,
+    onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit,
+    onDeleteDocuments: (Collection<DocumentId>) -> Unit,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
 ) {
     val spacing = teddReaderSpacing()
+    val displayFold = rememberDisplayFold()
     val currentFolder = remember(uiState.libraryFolders, folderId) {
         uiState.libraryFolders.firstOrNull { it.id == folderId }
     }
     val documents = remember(uiState.libraryDocuments, folderId) {
         if (folderId == null) uiState.libraryDocuments else uiState.libraryDocuments.filter { it.folderId == folderId }
     }
-    var mode by rememberSaveable(folderId) {
-        mutableStateOf(if (folderId == null) LibraryCollectionMode.All else LibraryCollectionMode.All)
-    }
+    var mode by rememberSaveable(folderId) { mutableStateOf(LibraryCollectionMode.All) }
     var selectedDocumentIds by rememberSaveable(folderId) { mutableStateOf<Set<String>>(emptySet()) }
+    var actionDocumentId by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var menuExpanded by remember { mutableStateOf(false) }
     var createDialogOpen by remember { mutableStateOf(false) }
     var moveDialogOpen by remember { mutableStateOf(false) }
@@ -142,16 +152,26 @@ fun LibraryScreen(
     NavigationBackHandler(
         state = selectionBackState,
         isBackEnabled = selectedDocumentIds.isNotEmpty(),
-        onBackCompleted = { selectedDocumentIds = emptySet() },
+        onBackCompleted = {
+            selectedDocumentIds = emptySet()
+            actionDocumentId = null
+        },
     )
 
-    LaunchedEffect(documents) {
+    LaunchedEffect(documents, uiState.libraryDocuments) {
         val currentIds = documents.mapTo(hashSetOf()) { it.id.value }
         selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in currentIds }
+        pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in currentIds }
+        if (actionDocumentId !in currentIds) {
+            actionDocumentId = null
+        }
     }
 
     val selectedDocuments = remember(documents, selectedDocumentIds) {
         documents.filter { it.id.value in selectedDocumentIds }
+    }
+    val pendingDeleteDocuments = remember(documents, pendingDeleteDocumentIds) {
+        documents.filter { it.id.value in pendingDeleteDocumentIds }
     }
 
     TeddScaffold(
@@ -163,7 +183,10 @@ fun LibraryScreen(
                 LibrarySelectionTopBar(
                     selectedCount = selectedDocumentIds.size,
                     hasFolders = uiState.libraryFolders.isNotEmpty(),
-                    onBack = { selectedDocumentIds = emptySet() },
+                    onBack = {
+                        selectedDocumentIds = emptySet()
+                        actionDocumentId = null
+                    },
                     onCreateFolder = {
                         folderNameDraft = ""
                         createDialogOpen = true
@@ -188,100 +211,132 @@ fun LibraryScreen(
             }
         },
     ) { scaffoldPadding ->
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding),
-            contentAlignment = Alignment.TopCenter,
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .widthIn(max = ScreenMaxWidth)
-                    .fillMaxSize(),
-                contentPadding = contentPadding,
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
+            val shortestSide = if (maxWidth <= maxHeight) maxWidth else maxHeight
+            val previewLimit = libraryPreviewLimit(
+                shortestSide = shortestSide,
+                displayFold = displayFold,
+            )
+            val useAdaptiveGrid = shortestSide >= 600.dp || (displayFold?.isVertical == true && displayFold.isSeparating)
+
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter,
             ) {
-                if (folderId == null) {
-                    item {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(spacing.small),
-                        ) {
-                            TeddChip(
-                                text = stringResource(Res.string.all),
-                                selected = mode == LibraryCollectionMode.All,
-                                onClick = { mode = LibraryCollectionMode.All },
-                            )
-                            TeddChip(
-                                text = stringResource(Res.string.folders),
-                                selected = mode == LibraryCollectionMode.Folders,
-                                onClick = { mode = LibraryCollectionMode.Folders },
-                            )
-                        }
-                    }
-                }
-
-                when {
-                    folderId == null && mode == LibraryCollectionMode.Folders -> {
-                        if (uiState.libraryFolders.isEmpty()) {
-                            item {
-                                TeddEmptyState(
-                                    title = stringResource(Res.string.library_empty_folder_title),
-                                    description = stringResource(Res.string.library_empty_folder_description),
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = if (useAdaptiveGrid) GridCells.Adaptive(140.dp) else GridCells.Fixed(2),
+                    modifier = Modifier
+                        .widthIn(max = ScreenMaxWidth)
+                        .fillMaxSize(),
+                    contentPadding = contentPadding,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.medium),
+                    verticalArrangement = Arrangement.spacedBy(spacing.medium),
+                ) {
+                    if (folderId == null) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                            ) {
+                                TeddChip(
+                                    text = stringResource(Res.string.all),
+                                    selected = mode == LibraryCollectionMode.All,
+                                    onClick = { mode = LibraryCollectionMode.All },
                                 )
-                            }
-                        } else {
-                            items(uiState.libraryFolders, key = { it.id }) { folder ->
-                                FolderRow(
-                                    folder = folder,
-                                    onClick = { onFolderClick(folder.id) },
-                                    onRenameClick = {
-                                        folderNameDraft = folder.name
-                                        editingFolder = folder
-                                    },
-                                    onDeleteClick = { deletingFolder = folder },
+                                TeddChip(
+                                    text = stringResource(Res.string.folders),
+                                    selected = mode == LibraryCollectionMode.Folders,
+                                    onClick = { mode = LibraryCollectionMode.Folders },
                                 )
                             }
                         }
                     }
 
-                    documents.isEmpty() -> {
-                        item {
-                            TeddEmptyState(
-                                title = stringResource(
-                                    if (folderId == null) Res.string.library_empty_all_title else Res.string.library_empty_folder_title,
-                                ),
-                                description = stringResource(
-                                    if (folderId == null) Res.string.library_empty_all_description else Res.string.library_empty_folder_description,
-                                ),
-                            )
-                        }
-                    }
-
-                    else -> items(documents, key = { it.id.value }) { document ->
-                        TeddListItem(
-                            title = document.location.displayName,
-                            supportingText = document.supportingText(),
-                            onClick = {
-                                if (selectedDocumentIds.isNotEmpty()) {
-                                    selectedDocumentIds = selectedDocumentIds.toggle(document.id.value)
-                                } else {
-                                    onDocumentClick(document.id)
-                                }
-                            },
-                            onLongClick = {
-                                selectedDocumentIds = selectedDocumentIds.toggle(document.id.value)
-                            },
-                            trailingContent = {
-                                if (document.id.value in selectedDocumentIds) {
-                                    Text(
-                                        text = stringResource(Res.string.select_document),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = com.tedd.teddreader.core.designsystem.teddReaderTypography().documentMeta,
+                    when {
+                        folderId == null && mode == LibraryCollectionMode.Folders -> {
+                            if (uiState.libraryFolders.isEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    TeddEmptyState(
+                                        title = stringResource(Res.string.library_empty_folder_title),
+                                        description = stringResource(Res.string.library_empty_folder_description),
                                     )
                                 }
-                            },
-                        )
+                            } else {
+                                items(uiState.libraryFolders, key = { it.id }) { folder ->
+                                    val folderPreviewDocuments = libraryFolderPreviewDocuments(
+                                        documents = uiState.libraryDocuments,
+                                        folderId = folder.id,
+                                        previewLimit = previewLimit,
+                                    )
+                                    FolderCoverCard(
+                                        folder = folder,
+                                        previewDocuments = folderPreviewDocuments,
+                                        remainingDocumentCount = libraryFolderRemainingDocumentCount(
+                                            totalCount = folder.documentCount,
+                                            previewCount = folderPreviewDocuments.size,
+                                        ),
+                                        documentCoverImages = uiState.documentCoverImages,
+                                        onClick = { onFolderClick(folder.id) },
+                                        onRenameClick = {
+                                            folderNameDraft = folder.name
+                                            editingFolder = folder
+                                        },
+                                        onDeleteClick = { deletingFolder = folder },
+                                    )
+                                }
+                            }
+                        }
+
+                        documents.isEmpty() -> {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                TeddEmptyState(
+                                    title = stringResource(
+                                        if (folderId == null) Res.string.library_empty_all_title else Res.string.library_empty_folder_title,
+                                    ),
+                                    description = stringResource(
+                                        if (folderId == null) Res.string.library_empty_all_description else Res.string.library_empty_folder_description,
+                                    ),
+                                )
+                            }
+                        }
+
+                        else -> items(documents, key = { it.id.value }) { document ->
+                            DocumentCard(
+                                document = document,
+                                coverImageBytes = uiState.documentCoverImages[document.id.value],
+                                selected = document.id.value in selectedDocumentIds,
+                                onClick = {
+                                    if (selectedDocumentIds.isNotEmpty()) {
+                                        actionDocumentId = null
+                                        selectedDocumentIds = selectedDocumentIds.toggle(document.id.value)
+                                    } else {
+                                        onDocumentClick(document.id)
+                                    }
+                                },
+                                onLongClick = {
+                                    actionDocumentId = null
+                                    selectedDocumentIds = selectedDocumentIds.toggle(document.id.value)
+                                },
+                                actionsExpanded = actionDocumentId == document.id.value,
+                                onShowActions = { actionDocumentId = document.id.value },
+                                onDismissActions = { actionDocumentId = null },
+                                onBookmarkClick = {
+                                    actionDocumentId = null
+                                    onDocumentBookmarkChange(document.id, !document.isBookmarked)
+                                },
+                                onDeleteClick = {
+                                    actionDocumentId = null
+                                    pendingDeleteDocumentIds = setOf(document.id.value)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(3f / 4f),
+                            )
+                        }
                     }
                 }
             }
@@ -300,6 +355,7 @@ fun LibraryScreen(
                 onCreateFolder(folderNameDraft, selectedDocuments.map(DocumentMetadata::id))
                 createDialogOpen = false
                 selectedDocumentIds = emptySet()
+                actionDocumentId = null
             },
         )
     }
@@ -312,6 +368,7 @@ fun LibraryScreen(
                 onMoveDocumentsToFolder(selectedDocuments.map(DocumentMetadata::id), targetFolderId)
                 moveDialogOpen = false
                 selectedDocumentIds = emptySet()
+                actionDocumentId = null
             },
         )
     }
@@ -355,7 +412,51 @@ fun LibraryScreen(
             },
         )
     }
+
+    if (pendingDeleteDocuments.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteDocumentIds = emptySet() },
+            title = { Text(stringResource(Res.string.remove_from_library_title)) },
+            text = {
+                Text(
+                    if (pendingDeleteDocuments.size == 1) {
+                        stringResource(
+                            Res.string.remove_from_library_message,
+                            pendingDeleteDocuments.single().location.displayName,
+                        )
+                    } else {
+                        stringResource(
+                            Res.string.remove_from_library_multiple_message,
+                            pendingDeleteDocuments.size,
+                        )
+                    },
+                )
+            },
+            confirmButton = {
+                TeddButton(
+                    text = stringResource(Res.string.delete),
+                    onClick = {
+                        val documentIds = pendingDeleteDocuments.map(DocumentMetadata::id)
+                        pendingDeleteDocumentIds = emptySet()
+                        selectedDocumentIds = selectedDocumentIds - documentIds.map(DocumentId::value).toSet()
+                        onDeleteDocuments(documentIds)
+                    },
+                    emphasis = TeddButtonEmphasis.Destructive,
+                )
+            },
+            dismissButton = {
+                TeddButton(
+                    text = stringResource(Res.string.cancel),
+                    onClick = { pendingDeleteDocumentIds = emptySet() },
+                    emphasis = TeddButtonEmphasis.Secondary,
+                )
+            },
+        )
+    }
 }
+
+private fun Set<String>.toggle(value: String): Set<String> =
+    if (value in this) this - value else this + value
 
 @Composable
 private fun LibrarySelectionTopBar(
@@ -394,51 +495,6 @@ private fun LibrarySelectionTopBar(
                         text = stringResource(Res.string.move_to_folder),
                         onClick = onMoveToFolder,
                         enabled = hasFolders,
-                    )
-                }
-            }
-        },
-    )
-}
-
-@Composable
-private fun FolderRow(
-    folder: LibraryFolder,
-    onClick: () -> Unit,
-    onRenameClick: () -> Unit,
-    onDeleteClick: () -> Unit,
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
-    TeddListItem(
-        title = folder.name,
-        supportingText = stringResource(Res.string.folder_row_description, folder.documentCount),
-        onClick = onClick,
-        trailingContent = {
-            Box {
-                TeddIconButton(
-                    onClick = { menuExpanded = true },
-                    contentDescription = folder.name,
-                ) {
-                    Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    TeddDropdownMenuItem(
-                        text = stringResource(Res.string.rename_folder),
-                        onClick = {
-                            menuExpanded = false
-                            onRenameClick()
-                        },
-                    )
-                    TeddDropdownMenuItem(
-                        text = stringResource(Res.string.delete),
-                        onClick = {
-                            menuExpanded = false
-                            onDeleteClick()
-                        },
                     )
                 }
             }
@@ -496,7 +552,7 @@ private fun MoveToFolderDialog(
             if (folders.isEmpty()) {
                 Text(stringResource(Res.string.no_folders_available))
             } else {
-                Column {
+                androidx.compose.foundation.layout.Column {
                     folders.forEachIndexed { index, folder ->
                         TeddListItem(
                             title = folder.name,
@@ -518,9 +574,3 @@ private fun MoveToFolderDialog(
         },
     )
 }
-
-
-private fun Set<String>.toggle(value: String): Set<String> = if (value in this) this - value else this + value
-
-@Composable
-private fun DocumentMetadata.supportingText(): String = pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name

@@ -202,6 +202,8 @@
     <string name="folders">Folders</string>
     <string name="library_preview_description">All documents or your own folders.</string>
     <string name="folder_row_description">%1$d documents</string>
+    <string name="folder_actions">Folder actions for %1$s</string>
+    <string name="folder_cover_more_documents">+%1$d</string>
     <string name="files_in_folder_count">%1$d selected</string>
     <string name="create_folder">Create folder</string>
     <string name="move_to_folder">Move to folder</string>
