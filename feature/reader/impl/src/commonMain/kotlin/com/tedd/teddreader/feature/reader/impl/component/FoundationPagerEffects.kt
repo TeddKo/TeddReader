@@ -425,6 +425,11 @@ internal fun FoundationEffectPager(
             beyondViewportPageCount = 1,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
+            val incomingPage = when {
+                pageOffset > 0f -> nextPage
+                pageOffset < 0f -> previousPage
+                else -> null
+            }
             FoundationPageFlipAwareBox(
                 pageAnimation = pageAnimation,
                 axis = axis,
@@ -432,6 +437,7 @@ internal fun FoundationEffectPager(
                 pageFlipLayout = pageFlipLayout,
                 isCurrentPage = pagerPage == FoundationCenterPage,
                 modifier = pageModifier(pagerPage),
+                incomingContent = incomingPage?.let { page -> { content(page) } },
             ) {
                 val documentPage = readerPagerAdjacentPage(
                     pageKey,
@@ -450,6 +456,11 @@ internal fun FoundationEffectPager(
             beyondViewportPageCount = 1,
         ) { pagerPage ->
             val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
+            val incomingPage = when {
+                pageOffset > 0f -> nextPage
+                pageOffset < 0f -> previousPage
+                else -> null
+            }
             FoundationPageFlipAwareBox(
                 pageAnimation = pageAnimation,
                 axis = axis,
@@ -457,6 +468,7 @@ internal fun FoundationEffectPager(
                 pageFlipLayout = pageFlipLayout,
                 isCurrentPage = pagerPage == FoundationCenterPage,
                 modifier = pageModifier(pagerPage),
+                incomingContent = incomingPage?.let { page -> { content(page) } },
             ) {
                 val documentPage = readerPagerAdjacentPage(
                     pageKey,
@@ -527,6 +539,7 @@ private fun FoundationPageFlipAwareBox(
     pageFlipLayout: FoundationPageFlipLayout,
     isCurrentPage: Boolean,
     modifier: Modifier,
+    incomingContent: (@Composable () -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     if (pageAnimation == PageAnimation.PAGE_FLIP && isCurrentPage) {
@@ -540,23 +553,46 @@ private fun FoundationPageFlipAwareBox(
                 )
             }
             FoundationPageFlipLayout.SplitHalfFold -> {
-                Box(modifier = modifier) {
-                    when (axis) {
-                        FoundationPagerAxis.Horizontal -> {
-                            FoundationPageFlipHalfBox(FoundationPageFlipHalf.Left, pageOffset, content = content)
-                            FoundationPageFlipHalfBox(FoundationPageFlipHalf.Right, pageOffset, content = content)
-                        }
-                        FoundationPagerAxis.Vertical -> {
-                            FoundationPageFlipHalfBox(FoundationPageFlipHalf.Top, pageOffset, content = content)
-                            FoundationPageFlipHalfBox(FoundationPageFlipHalf.Bottom, pageOffset, content = content)
-                        }
-                    }
-                }
+                FoundationSpreadPageFlipBox(
+                    axis = axis,
+                    pageOffset = pageOffset,
+                    modifier = modifier,
+                    incomingContent = incomingContent,
+                    content = content,
+                )
             }
         }
     } else {
         Box(modifier = modifier) {
             content()
+        }
+    }
+}
+
+@Composable
+private fun FoundationSpreadPageFlipBox(
+    axis: FoundationPagerAxis,
+    pageOffset: Float,
+    modifier: Modifier = Modifier,
+    incomingContent: (@Composable () -> Unit)?,
+    content: @Composable () -> Unit,
+) {
+    if (pageOffset == 0f || incomingContent == null) {
+        Box(modifier = modifier) { content() }
+        return
+    }
+    val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
+    Box(modifier = modifier) {
+        FoundationPageFlipHalfBox(
+            half = spec.incomingHalf,
+            spec = FoundationPageFlipHalfSpec(0f, 0f),
+            content = content,
+        )
+        if (spec.showOutgoing) {
+            FoundationPageFlipHalfBox(spec.outgoingHalf, spec.outgoing, content = content)
+        }
+        if (spec.showIncoming) {
+            FoundationPageFlipHalfBox(spec.incomingHalf, spec.incoming, content = incomingContent)
         }
     }
 }
@@ -586,11 +622,10 @@ private fun FoundationWholePageFlipBox(
 @Composable
 private fun FoundationPageFlipHalfBox(
     half: FoundationPageFlipHalf,
-    pageOffset: Float,
+    spec: FoundationPageFlipHalfSpec,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val spec = foundationPageFlipHalfSpec(half, pageOffset)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -602,7 +637,7 @@ private fun FoundationPageFlipHalfBox(
                 rotationX = spec.rotationX
                 rotationY = spec.rotationY
             }
-            .foundationPageFlipHalfShadow(half, pageOffset),
+            .foundationPageFlipHalfShadow(half, spec),
     ) {
         content()
     }
@@ -610,10 +645,10 @@ private fun FoundationPageFlipHalfBox(
 
 private fun Modifier.foundationPageFlipHalfShadow(
     half: FoundationPageFlipHalf,
-    pageOffset: Float,
+    spec: FoundationPageFlipHalfSpec,
 ): Modifier = drawWithCache {
-    val spec = foundationPageFlipHalfSpec(half, pageOffset)
-    val rotationProgress = (max(abs(spec.rotationX), abs(spec.rotationY)) / 90f).coerceIn(0f, 1f)
+    val rotationDegrees = max(abs(spec.rotationX), abs(spec.rotationY))
+    val rotationProgress = abs(sin(rotationDegrees / 180f * PI.toFloat()))
     if (rotationProgress <= 0f) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
@@ -1394,6 +1429,15 @@ internal data class FoundationPageFlipHalfSpec(
     val rotationY: Float,
 )
 
+internal data class FoundationSpreadPageFlipSpec(
+    val outgoingHalf: FoundationPageFlipHalf,
+    val incomingHalf: FoundationPageFlipHalf,
+    val outgoing: FoundationPageFlipHalfSpec,
+    val incoming: FoundationPageFlipHalfSpec,
+    val showOutgoing: Boolean,
+    val showIncoming: Boolean,
+)
+
 internal fun foundationPageFlipLayout(pageStep: Int, paneCount: Int): FoundationPageFlipLayout =
     if (pageStep.coerceAtLeast(1) == 1 && paneCount.coerceAtLeast(1) == 1) {
         FoundationPageFlipLayout.WholePage
@@ -1450,22 +1494,48 @@ internal fun foundationPageFlipHalfSpec(
     val endOffset = min(offset, 0f)
     return when (half) {
         FoundationPageFlipHalf.Top -> FoundationPageFlipHalfSpec(
-            rotationX = (endOffset * FoundationPageFlipRotationDegrees).coerceIn(-90f, 0f),
+            rotationX = endOffset * FoundationPageFlipRotationDegrees,
             rotationY = 0f,
         )
         FoundationPageFlipHalf.Bottom -> FoundationPageFlipHalfSpec(
-            rotationX = (startOffset * FoundationPageFlipRotationDegrees).coerceIn(0f, 90f),
+            rotationX = startOffset * FoundationPageFlipRotationDegrees,
             rotationY = 0f,
         )
         FoundationPageFlipHalf.Left -> FoundationPageFlipHalfSpec(
             rotationX = 0f,
-            rotationY = -(endOffset * FoundationPageFlipRotationDegrees).coerceIn(-90f, 0f),
+            rotationY = -(endOffset * FoundationPageFlipRotationDegrees),
         )
         FoundationPageFlipHalf.Right -> FoundationPageFlipHalfSpec(
             rotationX = 0f,
-            rotationY = -(startOffset * FoundationPageFlipRotationDegrees).coerceIn(0f, 90f),
+            rotationY = -(startOffset * FoundationPageFlipRotationDegrees),
         )
     }
+}
+
+internal fun foundationSpreadPageFlipSpec(
+    axis: FoundationPagerAxis,
+    pageOffset: Float,
+): FoundationSpreadPageFlipSpec {
+    val offset = pageOffset.coerceIn(-1f, 1f)
+    val progress = abs(offset)
+    val isNext = offset >= 0f
+    val outgoingHalf = when (axis) {
+        FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Right else FoundationPageFlipHalf.Left
+        FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Bottom else FoundationPageFlipHalf.Top
+    }
+    val incomingHalf = when (axis) {
+        FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Left else FoundationPageFlipHalf.Right
+        FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Top else FoundationPageFlipHalf.Bottom
+    }
+    val incomingOffset = if (isNext) -(1f - progress) else 1f - progress
+    return FoundationSpreadPageFlipSpec(
+        outgoingHalf = outgoingHalf,
+        incomingHalf = incomingHalf,
+        outgoing = foundationPageFlipHalfSpec(outgoingHalf, offset),
+        incoming = foundationPageFlipHalfSpec(incomingHalf, incomingOffset),
+        showOutgoing = progress <= 0.5f,
+        showIncoming = progress >= 0.5f,
+    )
 }
 
 private fun foundationPageFlipShape(half: FoundationPageFlipHalf): Shape = when (half) {

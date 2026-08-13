@@ -4,6 +4,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FoundationPagerEffectMathTest {
@@ -401,6 +402,28 @@ class FoundationPagerEffectMathTest {
         assertEquals(0f, bottomNext.rotationX, tolerance)
         assertEquals(0f, topPrevious.rotationX, tolerance)
         assertTrue(bottomPrevious.rotationX > 0f)
+    }
+
+    @Test
+    fun `spread page flip continues beyond edge on to a complete turn`() {
+        val nextBeforeHinge = foundationSpreadPageFlipSpec(FoundationPagerAxis.Horizontal, 0.25f)
+        val nextAfterHinge = foundationSpreadPageFlipSpec(FoundationPagerAxis.Horizontal, 0.75f)
+        val nextComplete = foundationSpreadPageFlipSpec(FoundationPagerAxis.Horizontal, 1f)
+        val previousAfterHinge = foundationSpreadPageFlipSpec(FoundationPagerAxis.Horizontal, -0.75f)
+
+        assertEquals(FoundationPageFlipHalf.Right, nextBeforeHinge.outgoingHalf)
+        assertEquals(-45f, nextBeforeHinge.outgoing.rotationY, tolerance)
+        assertTrue(nextBeforeHinge.showOutgoing)
+        assertFalse(nextBeforeHinge.showIncoming)
+
+        assertEquals(FoundationPageFlipHalf.Left, nextAfterHinge.incomingHalf)
+        assertEquals(45f, nextAfterHinge.incoming.rotationY, tolerance)
+        assertFalse(nextAfterHinge.showOutgoing)
+        assertTrue(nextAfterHinge.showIncoming)
+        assertEquals(0f, nextComplete.incoming.rotationY, tolerance)
+
+        assertEquals(FoundationPageFlipHalf.Right, previousAfterHinge.incomingHalf)
+        assertEquals(-45f, previousAfterHinge.incoming.rotationY, tolerance)
     }
 
     @Test

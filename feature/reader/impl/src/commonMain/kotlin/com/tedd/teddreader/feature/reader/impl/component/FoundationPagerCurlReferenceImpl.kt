@@ -121,6 +121,11 @@ internal fun FoundationPagerCurlReferenceImpl(
         val gutterPx = with(density) { spreadGutter.toPx() }
         val leafSize = foundationReferenceLeafSize(canonicalSize, isSpread, gutterPx, spreadLeftWeight)
         val leafOriginX = (canonicalSize.width - leafSize.width).toFloat()
+        val backwardLeafScale = if (isSpread) {
+            leafSize.width / ((canonicalSize.width - gutterPx) * spreadLeftWeight).coerceAtLeast(1f)
+        } else {
+            1f
+        }
         val leftEdge = FoundationReferenceCurlEdge.left(leafSize)
         val rightEdge = FoundationReferenceCurlEdge.right(leafSize)
         val forwardEdge = remember(axis, leafSize) {
@@ -238,7 +243,9 @@ internal fun FoundationPagerCurlReferenceImpl(
                         detectFoundationReferenceCurlGestures(
                             axis = axis,
                             canonicalSize = leafSize,
+                            isSpread = isSpread,
                             leafOriginX = leafOriginX,
+                            backwardLeafScale = backwardLeafScale,
                             scope = scope,
                             forwardEdge = forwardEdge,
                             backwardEdge = backwardEdge,
@@ -407,7 +414,9 @@ private data class FoundationReferenceDragConfig(
 private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     axis: FoundationReferenceCurlAxis,
     canonicalSize: IntSize,
+    isSpread: Boolean,
     leafOriginX: Float,
+    backwardLeafScale: Float,
     scope: CoroutineScope,
     forwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
     backwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
@@ -419,18 +428,18 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     val velocityTracker = VelocityTracker()
     var config: FoundationReferenceDragConfig? = null
     var startOffset = Offset.Zero
-    // Pointer positions are spread-wide; the fold geometry lives in the leaf's own space.
-    fun toLeaf(offset: Offset): Offset = axis.toCanonical(offset).let { Offset(it.x - leafOriginX, it.y) }
 
     detectFoundationReferenceCustomDragGestures(
         onDragStart = { start, current ->
-            startOffset = toLeaf(start)
             val direction = foundationReferenceCurlDirection(
-                start = startOffset,
-                current = toLeaf(current),
+                start = axis.toCanonical(start),
+                current = axis.toCanonical(current),
                 canGoBackward = canGoBackward,
                 canGoForward = canGoForward,
             )
+            startOffset = direction?.let {
+                foundationReferenceCurlLeafOffset(start, axis, it, isSpread, leafOriginX, backwardLeafScale)
+            } ?: Offset.Zero
             config = direction?.let {
                 if (it == FoundationReferenceCurlDirection.Forward) {
                     FoundationReferenceDragConfig(it, forwardEdge, FoundationReferenceCurlEdge.right(canonicalSize), FoundationReferenceCurlEdge.left(canonicalSize))
@@ -447,7 +456,14 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                     axis.toCanonical(Offset(it.x, it.y))
                 }
                 val decay = splineBasedDecay<Offset>(this@detectFoundationReferenceCurlGestures)
-                val canonicalEnd = toLeaf(endOffset)
+                val canonicalEnd = foundationReferenceCurlLeafOffset(
+                    endOffset,
+                    axis,
+                    dragConfig.direction,
+                    isSpread,
+                    leafOriginX,
+                    backwardLeafScale,
+                )
                 val flingEnd = decay.calculateTargetValue(
                     Offset.VectorConverter,
                     canonicalEnd,
@@ -486,7 +502,14 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
         },
         onDrag = { change, _ ->
             val dragConfig = config ?: return@detectFoundationReferenceCustomDragGestures
-            val current = toLeaf(change.position)
+            val current = foundationReferenceCurlLeafOffset(
+                change.position,
+                axis,
+                dragConfig.direction,
+                isSpread,
+                leafOriginX,
+                backwardLeafScale,
+            )
             velocityTracker.addPosition(change.uptimeMillis, current)
             scope.launch {
                 dragConfig.edge.animateTo(
@@ -585,6 +608,23 @@ internal fun foundationReferenceCurlDirection(
     current.x < start.x && canGoForward -> FoundationReferenceCurlDirection.Forward
     current.x > start.x && canGoBackward -> FoundationReferenceCurlDirection.Backward
     else -> null
+}
+
+internal fun foundationReferenceCurlLeafOffset(
+    offset: Offset,
+    axis: FoundationReferenceCurlAxis,
+    direction: FoundationReferenceCurlDirection,
+    isSpread: Boolean,
+    forwardLeafOriginX: Float,
+    backwardLeafScale: Float,
+): Offset {
+    val canonical = axis.toCanonical(offset)
+    val x = when {
+        !isSpread -> canonical.x
+        direction == FoundationReferenceCurlDirection.Forward -> canonical.x - forwardLeafOriginX
+        else -> canonical.x * backwardLeafScale
+    }
+    return Offset(x, canonical.y)
 }
 
 internal fun foundationReferenceCurlDragSucceeds(
