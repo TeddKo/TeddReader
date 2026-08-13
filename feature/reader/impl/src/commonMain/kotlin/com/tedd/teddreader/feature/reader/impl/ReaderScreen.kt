@@ -762,8 +762,8 @@ private fun ReaderPagePane(
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
     contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.readerMargin,
-        vertical = DefaultTeddReaderSpacing.large,
+        horizontal = 12.dp,
+        vertical = DefaultTeddReaderSpacing.small,
     ),
     modifier: Modifier = Modifier,
 ) {
