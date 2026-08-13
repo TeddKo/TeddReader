@@ -144,6 +144,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                 FoundationReferenceCurlEdge.VisibilityThreshold,
             )
         }
+        var renderedPageKey by remember { mutableStateOf(pageKey) }
         var animationJob by remember(axis, leafSize) { mutableStateOf<Job?>(null) }
 
         suspend fun reset() {
@@ -203,6 +204,7 @@ internal fun FoundationPagerCurlReferenceImpl(
 
         LaunchedEffect(pageKey, pageCount, pageStep, axis, leafSize) {
             reset()
+            renderedPageKey = pageKey
         }
 
         val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
@@ -284,15 +286,31 @@ internal fun FoundationPagerCurlReferenceImpl(
             val pageOffset = pagerPage - FoundationReferenceCenterPage
             val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
             val leafEdge = when (pageOffset) {
-                -1 -> backwardEdge.value
-                0 -> forwardEdge.value
+                -1 -> foundationReferenceVisibleCurlEdge(
+                    pageKey,
+                    renderedPageKey,
+                    backwardEdge.value,
+                    backwardRestEdge,
+                )
+                0 -> foundationReferenceVisibleCurlEdge(
+                    pageKey,
+                    renderedPageKey,
+                    forwardEdge.value,
+                    rightEdge,
+                )
                 else -> null
             }
             // In a spread the previous leaf paints its back face over the facing page, so it may
             // only be composed while it is actually being turned back.
             val skipSpreadPage = isSpread &&
                 pageOffset == -1 &&
-                (backwardEdge.value == backwardRestEdge || forwardEdge.value != rightEdge)
+                (leafEdge == backwardRestEdge ||
+                    foundationReferenceVisibleCurlEdge(
+                        pageKey,
+                        renderedPageKey,
+                        forwardEdge.value,
+                        rightEdge,
+                    ) != rightEdge)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -699,6 +717,14 @@ internal fun foundationReferenceCurlGeometryDirection(
     } else {
         direction
     }
+
+internal fun foundationReferenceVisibleCurlEdge(
+    pageKey: Int,
+    renderedPageKey: Int,
+    animatedEdge: FoundationReferenceCurlEdge,
+    restingEdge: FoundationReferenceCurlEdge,
+): FoundationReferenceCurlEdge =
+    if (pageKey == renderedPageKey) animatedEdge else restingEdge
 
 internal fun foundationReferenceCurlDragSucceeds(
     direction: FoundationReferenceCurlDirection,

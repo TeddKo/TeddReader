@@ -88,6 +88,19 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     @Test
+    fun changedPageKeyUsesRestingEdgesBeforeTheResetEffectRuns() {
+        assertEquals(
+            FoundationReferenceCurlEdge.right(IntSize(100, 200)),
+            foundationReferenceVisibleCurlEdge(
+                pageKey = 4,
+                renderedPageKey = 2,
+                animatedEdge = FoundationReferenceCurlEdge.left(IntSize(100, 200)),
+                restingEdge = FoundationReferenceCurlEdge.right(IntSize(100, 200)),
+            ),
+        )
+    }
+
+    @Test
     fun horizontalDragCompletesAtTwentyPercentDirectionalTravel() {
         val size = IntSize(100, 200)
 
