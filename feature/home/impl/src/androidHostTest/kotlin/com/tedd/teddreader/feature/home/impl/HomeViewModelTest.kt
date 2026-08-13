@@ -182,19 +182,201 @@ class HomeViewModelTest {
         assertFalse(viewModel.uiState.value.documentCoverImages.containsKey(repository.documentId.value))
         assertFalse(viewModel.uiState.value.hasDocuments)
     }
+
+    @Test
+    fun homeStateKeepsAllLibraryDocumentsWhileRecentShowsLatestTwentyNonFavorites() = runTest {
+        val repository = FakeDocumentRepository(
+            documents = List(25) { index ->
+                testDocument(
+                    id = "recent-$index",
+                    isBookmarked = index < 3,
+                    addedAtEpochMillis = index.toLong(),
+                    lastOpenedAtEpochMillis = (1_000L + index),
+                )
+            },
+        )
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(25, viewModel.uiState.value.libraryDocuments.size)
+        assertEquals(20, viewModel.uiState.value.recentDocuments.size)
+        assertTrue(viewModel.uiState.value.recentDocuments.none(DocumentMetadata::isBookmarked))
+        assertEquals("recent-24", viewModel.uiState.value.recentDocuments.first().id.value)
+        assertEquals("recent-5", viewModel.uiState.value.recentDocuments.last().id.value)
+    }
+
+    @Test
+    fun libraryPreviewUsesFourOnPhoneAndEightOnExpandedLayoutsWithoutAutoFolderMode() {
+        val documents = List(10) { index ->
+            testDocument(id = "library-$index", isBookmarked = false, addedAtEpochMillis = index.toLong())
+        }
+
+        assertEquals(
+            4,
+            homeLibraryPreviewDocuments(
+                documents = documents,
+                previewLimit = homeLibraryPreviewLimit(
+                    isExpanded = false,
+                    isTablet = false,
+                    hasSeparatingFold = false,
+                ),
+            ).size,
+        )
+        assertEquals(
+            8,
+            homeLibraryPreviewDocuments(
+                documents = documents,
+                previewLimit = homeLibraryPreviewLimit(
+                    isExpanded = true,
+                    isTablet = false,
+                    hasSeparatingFold = false,
+                ),
+            ).size,
+        )
+        assertEquals(
+            8,
+            homeLibraryPreviewDocuments(
+                documents = documents,
+                previewLimit = homeLibraryPreviewLimit(
+                    isExpanded = false,
+                    isTablet = true,
+                    hasSeparatingFold = false,
+                ),
+            ).size,
+        )
+        assertEquals(
+            8,
+            homeLibraryPreviewDocuments(
+                documents = documents,
+                previewLimit = homeLibraryPreviewLimit(
+                    isExpanded = false,
+                    isTablet = false,
+                    hasSeparatingFold = true,
+                ),
+            ).size,
+        )
+    }
+
+    @Test
+    fun createMoveRenameAndDeleteFolderOnlyMutateMembership() = runTest {
+        val repository = FakeDocumentRepository(
+            documents = listOf(
+                testDocument(id = "doc-1", isBookmarked = false, addedAtEpochMillis = 1L),
+                testDocument(id = "doc-2", isBookmarked = false, addedAtEpochMillis = 2L),
+                testDocument(
+                    id = "doc-3",
+                    isBookmarked = false,
+                    addedAtEpochMillis = 3L,
+                    folderId = "folder-old",
+                    folderName = "Old Folder",
+                ),
+            ),
+        )
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        val createdFolderId = viewModel.createFolder(
+            name = "Weekend Reads",
+            documentIds = listOf(DocumentId("doc-1"), DocumentId("doc-2")),
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("doc-1", "doc-2"),
+            repository.documentsInFolder(createdFolderId).map { it.id.value },
+        )
+        assertEquals(
+            listOf("Weekend Reads"),
+            viewModel.uiState.value.libraryFolders.filter { it.id == createdFolderId }.map { it.name },
+        )
+
+        viewModel.moveDocumentsToFolder(
+            documentIds = listOf(DocumentId("doc-3")),
+            folderId = createdFolderId,
+        )
+        advanceUntilIdle()
+        assertEquals(
+            createdFolderId,
+            repository.requireDocument("doc-3").folderId,
+        )
+
+        viewModel.renameFolder(folderId = createdFolderId, name = "Renamed Folder")
+        advanceUntilIdle()
+        assertEquals(
+            setOf("Renamed Folder"),
+            repository.documentsInFolder(createdFolderId).mapNotNull { it.folderName }.toSet(),
+        )
+
+        viewModel.deleteFolder(createdFolderId)
+        advanceUntilIdle()
+        assertEquals(
+            listOf("doc-1", "doc-2", "doc-3"),
+            repository.documentsWithoutFolder().map { it.id.value }.sorted(),
+        )
+        assertEquals(3, viewModel.uiState.value.libraryDocuments.size)
+    }
+
+    @Test
+    fun formatFilterOnlyLimitsVisibleDocumentsWhileFolderRenameAndDeleteStillAffectWholeFolder() = runTest {
+        val repository = FakeDocumentRepository(
+            documents = listOf(
+                testDocument(
+                    id = "pdf-doc",
+                    isBookmarked = false,
+                    addedAtEpochMillis = 1L,
+                    folderId = "folder-shared",
+                    folderName = "Shared Folder",
+                    format = DocumentFormat.PDF,
+                ),
+                testDocument(
+                    id = "txt-doc",
+                    isBookmarked = false,
+                    addedAtEpochMillis = 2L,
+                    folderId = "folder-shared",
+                    folderName = "Shared Folder",
+                    format = DocumentFormat.TXT,
+                ),
+            ),
+        )
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.updateFormatFilter(HomeFormatFilter.Pdf)
+        advanceUntilIdle()
+        assertEquals(listOf("pdf-doc"), viewModel.uiState.value.libraryDocuments.map { it.id.value })
+
+        viewModel.renameFolder(folderId = "folder-shared", name = "Renamed Folder")
+        advanceUntilIdle()
+        assertEquals("Renamed Folder", repository.requireDocument("pdf-doc").folderName)
+        assertEquals("Renamed Folder", repository.requireDocument("txt-doc").folderName)
+
+        viewModel.deleteFolder("folder-shared")
+        advanceUntilIdle()
+        assertEquals(null, repository.requireDocument("pdf-doc").folderId)
+        assertEquals(null, repository.requireDocument("pdf-doc").folderName)
+        assertEquals(null, repository.requireDocument("txt-doc").folderId)
+        assertEquals(null, repository.requireDocument("txt-doc").folderName)
+        assertEquals(2, repository.documentsWithoutFolder().size)
+        assertEquals(listOf("pdf-doc"), viewModel.uiState.value.libraryDocuments.map { it.id.value })
+    }
+
 }
 
 private class FakeDocumentRepository(
     includeSecondDocument: Boolean = false,
     secondDocumentFormat: DocumentFormat = DocumentFormat.TXT,
     initiallyBookmarkedIds: Set<String> = emptySet(),
+    documents: List<DocumentMetadata>? = null,
 ) : DocumentRepository {
     val documentId = DocumentId("document-1")
     val secondDocumentId = DocumentId("document-2")
     val pdfCoverBytes = byteArrayOf(1, 3, 3, 7)
     val coverRequestIds = mutableListOf<String>()
     private val documents = MutableStateFlow(
-        buildList {
+        documents ?: buildList {
             add(
                 DocumentMetadata(
                     id = documentId,
@@ -223,6 +405,15 @@ private class FakeDocumentRepository(
             }
         },
     )
+
+    fun requireDocument(id: String): DocumentMetadata =
+        documents.value.first { it.id.value == id }
+
+    fun documentsInFolder(folderId: String): List<DocumentMetadata> =
+        documents.value.filter { it.folderId == folderId }
+
+    fun documentsWithoutFolder(): List<DocumentMetadata> =
+        documents.value.filter { it.folderId == null }
 
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = documents
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
@@ -280,7 +471,6 @@ private class SuspendingCoverDocumentRepository : DocumentRepository {
             )
         }
     }
-
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = documents
 
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
@@ -324,13 +514,21 @@ private fun recentDocument(id: String): DocumentMetadata = testDocument(id = id,
 private fun testDocument(
     id: String,
     isBookmarked: Boolean,
+    addedAtEpochMillis: Long = 1_000L,
+    lastOpenedAtEpochMillis: Long? = null,
+    folderId: String? = null,
+    folderName: String? = null,
+    format: DocumentFormat = DocumentFormat.PDF,
 ): DocumentMetadata = DocumentMetadata(
     id = DocumentId(id),
     location = DocumentLocation(
-        sourceUri = "file:///$id.pdf",
-        displayName = "$id.pdf",
+        sourceUri = "file:///$id.${format.name.lowercase()}",
+        displayName = "$id.${format.name.lowercase()}",
     ),
-    format = DocumentFormat.PDF,
-    addedAtEpochMillis = 1_000L,
+    format = format,
+    addedAtEpochMillis = addedAtEpochMillis,
+    lastOpenedAtEpochMillis = lastOpenedAtEpochMillis,
     isBookmarked = isBookmarked,
+    folderId = folderId,
+    folderName = folderName,
 )

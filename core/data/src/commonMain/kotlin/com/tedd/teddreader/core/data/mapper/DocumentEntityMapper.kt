@@ -21,6 +21,8 @@ fun DocumentEntity.toDocumentMetadata(): DocumentMetadata = DocumentMetadata(
     characterCount = characterCount,
     wordCount = wordCount,
     isBookmarked = isBookmarked,
+    folderId = folderId,
+    folderName = folderName,
 )
 
 fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
@@ -36,4 +38,6 @@ fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
     characterCount = characterCount,
     wordCount = wordCount,
     isBookmarked = isBookmarked,
+    folderId = folderId,
+    folderName = folderName,
 )

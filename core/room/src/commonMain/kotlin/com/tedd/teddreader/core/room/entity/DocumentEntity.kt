@@ -19,4 +19,14 @@ data class DocumentEntity(
     val wordCount: Long? = null,
     @ColumnInfo(defaultValue = "0")
     val isBookmarked: Boolean = false,
-)
+    val folderId: String? = null,
+    val folderName: String? = null,
+) {
+    init {
+        require((folderId == null) == (folderName == null)) {
+            "folderId and folderName must both be null or both be non-null."
+        }
+        require(folderId == null || folderId.isNotBlank()) { "folderId must not be blank." }
+        require(folderName == null || folderName.isNotBlank()) { "folderName must not be blank." }
+    }
+}

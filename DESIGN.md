@@ -12,7 +12,7 @@
 - Avoid: generic dashboard styling, indigo-heavy “template app” color, card/pill soup, gradients, oversized empty decoration, duplicate actions, unexplained symbols
 
 ## Product goals
-- Goals: import a local or selected Google Drive document quickly; resume recent reading; keep reading controls discoverable without obstructing content
+- Goals: import a local or selected Google Drive document quickly; resume recent reading; organize a large library into user-created folders; keep reading controls discoverable without obstructing content
 - Non-goals: social/library-store features, ornamental dashboards, configuration-heavy home screens
 - Success signals: one obvious primary action per state, no horizontal clipping at 240 dp, reader gestures remain continuous while chrome hides
 
@@ -22,8 +22,8 @@
 - Key contexts of use: one-handed narrow phones, dark rooms, portrait and landscape, intermittent short sessions
 
 ## Information architecture
-- Primary navigation: Home -> Reader -> contextual Search / Bookmarks / Document info / Settings sheet
-- Core routes/screens: Home, Reader, Search, Bookmarks, Document info
+- Primary navigation: Home -> Library / Folder / Reader -> contextual Search / Bookmarks / Document info / Settings sheet
+- Core routes/screens: Home, Library, Folder, Reader, Search, Bookmarks, Document info
 - Content hierarchy: current document/content first; primary action second; secondary metadata and configuration last
 
 ## Design principles
@@ -43,7 +43,7 @@
 
 ## Components
 - Existing components to reuse after restyling: `TeddListItem`, `TeddButton`, `TeddChip`, `TeddEmptyState`, `ReaderChromeSurface`, `ReaderTopControls`, `ReaderBottomControls`.
-- New/changed components: editorial screen header, horizontal document card pager with portrait 3:4 covers, segmented sort/filter control, fixed multi-select top bar, import choice dialog, compact reader bottom chrome, persistent reader status footer, shared vector icon actions, drag observer for chrome dismissal.
+- New/changed components: editorial screen header, horizontal document card pager with portrait 3:4 covers, library All/Folders selector, folder summary row, fixed multi-select top bar, folder name/move dialogs, import choice dialog, compact reader bottom chrome, persistent reader status footer, shared vector icon actions, drag observer for chrome dismissal.
 - Variants and states: compact phone (<= 359 dp), regular phone, wide/tablet; loading, empty, error, populated, disabled.
 - Token/component ownership: colors/type/spacing/shapes stay in `core/designsystem`; reusable interaction layout stays in `core/ui`.
 
@@ -61,7 +61,8 @@
 
 ## Screen contracts
 - App shell: the root theme owns the full-window background. Destinations own their safe content insets; no global system-bar padding is allowed.
-- Home: a compact editorial masthead leads into Favorites and Recent pagers. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across both sections. Selection replaces transient in-flow actions with a fixed top bar that can add all selected documents to Favorites or request confirmed deletion; it remains outside the scroll container. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
+- Home: a compact editorial masthead leads into Favorites, the 20 most recently accessed non-favorite documents, and a Library preview. Recent is an LRU-style bounded projection only: dropping an old item from Recent never deletes its document. Library defaults to All and shows individual documents; the preview is capped at four documents on phones and eight on tablets or separating foldables, with the complete list behind View all. Switching the preview to Folders shows only user-created folders and never converts documents into folders because a count threshold was crossed. Empty and populated states each expose exactly one Add documents CTA. Its dialog groups files and folders under the local device and shows Google Drive as a separate cloud source when available; each source is one coherent row rather than a stack of equal-emphasis buttons. Document cards use a horizontal pager with portrait 3:4 covers, keep title/format/meta inside the card, prefer real PDF/EPUB cover bytes before a shaped book-cover fallback, support clipped ripple, and allow long-press multi-select across visible document sections. Selection replaces transient in-flow actions with a fixed top bar that can add all selected documents to Favorites or request confirmed deletion; it remains outside the scroll container. Overflow actions still handle bookmark and single-item delete; destructive multi-delete requires confirmation and never removes original files.
+- Library and Folder: Library defaults to an All documents list and offers an explicit Folders view. Long-pressing a document starts multi-selection; subsequent taps toggle selection. The selection bar creates a named folder from the selected documents or moves them into one existing folder. A document belongs to at most one folder but remains visible in All. Folder depth is exactly one level. Opening a folder shows all of its documents. Renaming changes the folder label for every member; deleting a folder returns its documents to the unfiled state and never deletes documents. Imported filesystem directories do not automatically become app folders.
 - Search: one top navigation action, one query field, and one search action. IME Search submits. Blank, loading, no-result, error, and result states are mutually exclusive. Result rows stay contiguous, with horizontal screen padding living in the row’s internal content padding so divider and ripple run across the full bounded width without section spacing between them.
 - Bookmarks: top navigation is never duplicated in the empty state. Tapping a bookmark opens it; edit/delete live in a separate secondary action surface. Delete requires confirmation.
 - Document info: metadata appears once. Long values wrap or stack instead of squeezing labels. Reading statistics use human-readable duration and rate units.
@@ -76,6 +77,7 @@
 - TeddChip: selected state is visual and semantic; labels never encode selection with punctuation; ripple stays clipped to the visible pill while Material handles the minimum touch target.
 - TeddListItem: modifier order is container size -> clickable/ripple -> internal content padding. Title/supporting text ellipsize predictably and the entire row is one coherent semantic target.
 - Home document card: portrait 3:4 cards use a compact 180 dp width and start-align with the screen content edge on every window size, allowing unfolded foldables to show multiple covers instead of centering one oversized card; title, format, and compact metadata stay inside the card; real cover bytes render full-bleed first, then the shaped book-cover fallback; clipped ripple, selected semantics, and long-click semantics are required; system back clears multi-selection before normal navigation, and the compact overflow control retains a 48 dp minimum touch target while staying secondary to the full-card target.
+- Folder summary row: expose folder name and document count as one coherent target. Tap opens the folder; secondary rename/delete actions stay in overflow. Deleting a folder requires confirmation and explicitly states that documents remain in the library.
 - TeddInfoRow: use a label/value row only when both remain readable; stack at compact width or for long values.
 - TeddTextField/TeddSearchField: expose keyboard type/action, error/supporting text, focus behavior, and IME-safe scrolling.
 - TeddSwitchRow/TeddCheckboxRow/TeddRadioRow: the parent row owns the single selection semantic and the visual control is non-interactive; no duplicate focus target.
@@ -89,7 +91,7 @@
 | Surface | 240-359 dp | 360-599 dp | 600-839 dp | 840+ dp |
 | --- | --- | --- | --- | --- |
 | Standard screens | single column, stacked actions | single column | centered bounded column | bounded content; adaptive card grid only where appropriate |
-| Home documents | compact horizontal pager with portrait 3:4 covers | compact horizontal pager with portrait 3:4 covers | start-aligned horizontal pager with multiple visible covers | start-aligned horizontal pager with multiple visible covers |
+| Home documents | four-item Library preview | four-item Library preview | eight-item Library preview | eight-item Library preview |
 | Search/bookmarks | one result per row | one result per row | bounded single column | optional two-column bookmarks; search remains single column |
 | Document stats | stacked label/value | two-column stat cards when space allows | two columns | up to four columns |
 | Reader page | one page | one page | two pages only when each pane remains at least 280 dp | two bounded pages |
@@ -99,7 +101,7 @@
 ## Interaction model
 - Pointer input observers never consume events unless they own the gesture outcome. Reader multi-touch owns the Initial pass ahead of page navigation, keeps ownership until every pointer lifts, and PDF one-finger pan only takes over while zoom > 1.
 - Gesture visibility state is captured at gesture start; callbacks use updated state without restarting pointer input.
-- Destructive actions require explicit confirmation and are never adjacent to the primary action with equal emphasis. Home multi-select starts on long press, tap toggles selection across Favorites and Recent, and selections that disappear from filtered/visible content are removed immediately.
+- Destructive actions require explicit confirmation and are never adjacent to the primary action with equal emphasis. Document multi-select starts on long press, tap toggles selection across visible sections, and selections that disappear from filtered/visible content are removed immediately. Creating or moving a folder changes membership only; folder deletion clears membership only.
 - Navigation and screen actions remain available to keyboard, accessibility services, and pointer input; gesture shortcuts are additive.
 - Motion uses the design-system 120/200/300 ms durations, is interruptible, and has a no-animation reader option.
 - State restoration covers navigation, query text, selected filters, sheet drafts, and current document location; transient loading/errors remain ViewModel-owned.
@@ -123,7 +125,7 @@
 
 ## Content voice
 - Tone: short, direct, calm.
-- Terminology: Open file, Recent documents, Search, Bookmarks, Document info.
+- Terminology: Open file, Recent documents, All documents, Folders, Create folder, Move to folder, Search, Bookmarks, Document info.
 - Microcopy rules: sentence case; no duplicate labels in one state; metadata uses concise units.
 
 ## Implementation constraints

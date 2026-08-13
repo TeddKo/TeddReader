@@ -27,4 +27,24 @@ class DocumentEntityMapperTest {
 
         assertEquals(metadata, metadata.toDocumentEntity().toDocumentMetadata())
     }
+
+    @Test
+    fun documentMetadataRoundTripsFolderMembershipThroughEntity() {
+        val metadata = DocumentMetadata(
+            id = DocumentId("doc-folder"),
+            location = DocumentLocation(
+                sourceUri = "file:///folder-book.epub",
+                displayName = "folder-book.epub",
+                mimeType = "application/epub+zip",
+                sizeBytes = 99L,
+            ),
+            format = DocumentFormat.EPUB,
+            addedAtEpochMillis = 2_000L,
+            folderId = "folder-42",
+            folderName = "Weekend Reads",
+        )
+
+        assertEquals(metadata, metadata.toDocumentEntity().toDocumentMetadata())
+    }
+
 }

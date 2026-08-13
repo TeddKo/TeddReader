@@ -41,7 +41,9 @@ import com.tedd.teddreader.feature.bookmarks.impl.BookmarksRouteScreen
 import com.tedd.teddreader.feature.document_info.api.DocumentInfoRoute
 import com.tedd.teddreader.feature.document_info.impl.DocumentInfoRouteScreen
 import com.tedd.teddreader.feature.home.api.HomeRoute
+import com.tedd.teddreader.feature.home.api.LibraryRoute
 import com.tedd.teddreader.feature.home.impl.HomeRouteScreen
+import com.tedd.teddreader.feature.home.impl.LibraryRouteScreen
 import com.tedd.teddreader.feature.reader.api.ReaderRoute
 import com.tedd.teddreader.feature.reader.impl.ReaderRouteScreen
 import com.tedd.teddreader.feature.search.api.SearchRoute
@@ -50,6 +52,7 @@ import com.tedd.teddreader.feature.search.impl.SearchRouteScreen
 import com.tedd.teddreader.feature.settings.impl.ReaderSettingsRouteScreen
 
 private const val HOME_ROUTE_TOKEN = "home"
+private const val LIBRARY_ROUTE_PREFIX = "library:"
 private const val READER_ROUTE_PREFIX = "reader:"
 private const val SEARCH_ROUTE_PREFIX = "search:"
 private const val BOOKMARKS_ROUTE_PREFIX = "bookmarks:"
@@ -63,6 +66,7 @@ private val navBackStackSaver = listSaver<SnapshotStateList<Any>, String>(
 
 internal fun navKeyToStorageToken(key: Any): String = when (key) {
     HomeRoute -> HOME_ROUTE_TOKEN
+    is LibraryRoute -> if (key.folderId == null) LIBRARY_ROUTE_PREFIX else LIBRARY_ROUTE_PREFIX + key.folderId
     is ReaderRoute -> READER_ROUTE_PREFIX + key.documentId
     is SearchRoute -> SEARCH_ROUTE_PREFIX + key.documentId
     is BookmarksRoute -> BOOKMARKS_ROUTE_PREFIX + key.documentId
@@ -73,6 +77,8 @@ internal fun navKeyToStorageToken(key: Any): String = when (key) {
 
 internal fun storageTokenToNavKey(token: String): Any = when {
     token == HOME_ROUTE_TOKEN -> HomeRoute
+    token == LIBRARY_ROUTE_PREFIX -> LibraryRoute()
+    token.startsWith(LIBRARY_ROUTE_PREFIX) -> LibraryRoute(token.removePrefix(LIBRARY_ROUTE_PREFIX).ifBlank { null })
     token.startsWith(READER_ROUTE_PREFIX) -> ReaderRoute(token.removePrefix(READER_ROUTE_PREFIX))
     token.startsWith(SEARCH_ROUTE_PREFIX) -> SearchRoute(token.removePrefix(SEARCH_ROUTE_PREFIX))
     token.startsWith(BOOKMARKS_ROUTE_PREFIX) -> BookmarksRoute(token.removePrefix(BOOKMARKS_ROUTE_PREFIX))
@@ -172,6 +178,17 @@ fun ReaderNavHost(
                             homeImportMessage = null
                             backStack.add(ReaderRoute(documentId.value))
                         },
+                        onOpenLibraryClick = { backStack.add(LibraryRoute()) },
+                        onOpenLibraryFolderClick = { folderId -> backStack.add(LibraryRoute(folderId)) },
+                    )
+                }
+
+                is LibraryRoute -> NavEntry(key) {
+                    LibraryRouteScreen(
+                        folderId = key.folderId,
+                        onBack = { backStack.removeLastOrNull() },
+                        onDocumentClick = { documentId -> backStack.add(ReaderRoute(documentId.value)) },
+                        onFolderClick = { folderId -> backStack.add(LibraryRoute(folderId)) },
                     )
                 }
 
