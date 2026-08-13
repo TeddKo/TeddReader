@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -181,7 +181,7 @@ fun HomeScreen(
     val spacing = teddReaderSpacing()
     val motion = teddReaderMotion()
     val displayFold = rememberDisplayFold()
-    var actionDocumentId by remember { mutableStateOf<String?>(null) }
+    var actionDocumentTarget by remember { mutableStateOf<HomeDocumentActionTarget?>(null) }
     var pendingDeleteDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -208,8 +208,8 @@ fun HomeScreen(
     LaunchedEffect(visibleDocumentIds) {
         selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
         pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
-        if (actionDocumentId !in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet()) {
-            actionDocumentId = null
+        if (actionDocumentTarget?.documentId !in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet()) {
+            actionDocumentTarget = null
         }
     }
 
@@ -241,12 +241,12 @@ fun HomeScreen(
                 onCancelClick = { selectedDocumentIds = emptySet() },
                 onBookmarkClick = {
                     val documentIds = selectedDocumentIds.map(::DocumentId)
-                    actionDocumentId = null
+                    actionDocumentTarget = null
                     selectedDocumentIds = emptySet()
                     onSelectionBookmarkChange(documentIds, bookmarkTarget)
                 },
                 onDeleteClick = {
-                    actionDocumentId = null
+                    actionDocumentTarget = null
                     pendingDeleteDocumentIds = selectedDocumentIds
                 },
             )
@@ -320,6 +320,7 @@ fun HomeScreen(
 
                 if (uiState.favoriteDocuments.isNotEmpty()) {
                     HomeDocumentSection(
+                        section = HomeDocumentSection.Favorites,
                         title = stringResource(Res.string.favorites),
                         description = if (uiState.favoriteDocuments.size == 1) {
                             stringResource(Res.string.favorite_documents_single)
@@ -327,26 +328,28 @@ fun HomeScreen(
                             stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
                         },
                         documents = uiState.favoriteDocuments,
-                        actionDocumentId = actionDocumentId,
+                        actionDocumentTarget = actionDocumentTarget,
                         selectedDocumentIds = selectedDocumentIds,
                         showFavoriteIcon = true,
                         onDocumentClick = onDocumentClick,
                         onToggleSelection = { documentId ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
                         },
                         onStartSelection = { documentId ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             selectedDocumentIds = selectedDocumentIds + documentId.value
                         },
-                        onShowActions = { actionDocumentId = it },
-                        onDismissActions = { actionDocumentId = null },
+                        onShowActions = {
+                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Favorites, it)
+                        },
+                        onDismissActions = { actionDocumentTarget = null },
                         onBookmarkClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             onDocumentBookmarkChange(document.id, false)
                         },
                         onDeleteClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             pendingDeleteDocumentIds = setOf(document.id.value)
                         },
                         documentCoverImages = uiState.documentCoverImages,
@@ -355,28 +358,31 @@ fun HomeScreen(
 
                 if (uiState.recentDocuments.isNotEmpty()) {
                     HomeDocumentSection(
+                        section = HomeDocumentSection.Recent,
                         title = stringResource(Res.string.recent_reading),
                         description = stringResource(Res.string.recent_reading_description),
                         documents = uiState.recentDocuments,
-                        actionDocumentId = actionDocumentId,
+                        actionDocumentTarget = actionDocumentTarget,
                         selectedDocumentIds = selectedDocumentIds,
                         onDocumentClick = onDocumentClick,
                         onToggleSelection = { documentId ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
                         },
                         onStartSelection = { documentId ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             selectedDocumentIds = selectedDocumentIds + documentId.value
                         },
-                        onShowActions = { actionDocumentId = it },
-                        onDismissActions = { actionDocumentId = null },
+                        onShowActions = {
+                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Recent, it)
+                        },
+                        onDismissActions = { actionDocumentTarget = null },
                         onBookmarkClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             onDocumentBookmarkChange(document.id, true)
                         },
                         onDeleteClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             pendingDeleteDocumentIds = setOf(document.id.value)
                         },
                         modifier = Modifier,
@@ -393,7 +399,7 @@ fun HomeScreen(
                         folders = uiState.libraryFolders,
                         previewLimit = previewLimit,
                         selectedDocumentIds = selectedDocumentIds,
-                        actionDocumentId = actionDocumentId,
+                        actionDocumentTarget = actionDocumentTarget,
                         documentCoverImages = uiState.documentCoverImages,
                         onDocumentClick = { documentId ->
                             if (selectedDocumentIds.isNotEmpty()) {
@@ -403,17 +409,19 @@ fun HomeScreen(
                             }
                         },
                         onStartSelection = { documentId ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             selectedDocumentIds = selectedDocumentIds + documentId.value
                         },
-                        onShowActions = { actionDocumentId = it },
-                        onDismissActions = { actionDocumentId = null },
+                        onShowActions = {
+                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Library, it)
+                        },
+                        onDismissActions = { actionDocumentTarget = null },
                         onBookmarkClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             onDocumentBookmarkChange(document.id, !document.isBookmarked)
                         },
                         onDeleteClick = { document ->
-                            actionDocumentId = null
+                            actionDocumentTarget = null
                             pendingDeleteDocumentIds = setOf(document.id.value)
                         },
                         onFolderClick = onOpenLibraryFolderClick,
@@ -581,7 +589,6 @@ private fun HomeSectionHeader(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeLibraryPreviewSection(
     previewMode: LibraryCollectionMode,
@@ -591,7 +598,7 @@ private fun HomeLibraryPreviewSection(
     folders: List<LibraryFolder>,
     previewLimit: Int,
     selectedDocumentIds: Set<String>,
-    actionDocumentId: String?,
+    actionDocumentTarget: HomeDocumentActionTarget?,
     documentCoverImages: Map<String, ByteArray>,
     onDocumentClick: (DocumentId) -> Unit,
     onStartSelection: (DocumentId) -> Unit,
@@ -639,37 +646,44 @@ private fun HomeLibraryPreviewSection(
                 onClick = { onPreviewModeChange(LibraryCollectionMode.Folders) },
             )
         }
-        BoxWithConstraints(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             val columns = if (previewLimit > 4) 4 else 2
-            val itemWidth = ((maxWidth - (spacing.small * (columns - 1))) / columns).coerceAtLeast(0.dp)
 
             when (previewMode) {
-                LibraryCollectionMode.All -> FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    maxItemsInEachRow = columns,
-                    horizontalArrangement = Arrangement.spacedBy(spacing.small),
-                    verticalArrangement = Arrangement.spacedBy(spacing.small),
-                ) {
-                    previewDocuments.forEach { document ->
-                        DocumentCard(
-                            document = document,
-                            coverImageBytes = documentCoverImages[document.id.value],
-                            selected = document.id.value in selectedDocumentIds,
-                            actionsExpanded = actionDocumentId == document.id.value,
-                            onClick = { onDocumentClick(document.id) },
-                            onLongClick = { onStartSelection(document.id) },
-                            onShowActions = { onShowActions(document.id.value) },
-                            onDismissActions = onDismissActions,
-                            onBookmarkClick = { onBookmarkClick(document) },
-                            onDeleteClick = { onDeleteClick(document) },
-                            modifier = Modifier
-                                .width(itemWidth)
-                                .aspectRatio(3f / 4f),
-                        )
+                LibraryCollectionMode.All -> homeLibraryGridRows(previewDocuments, columns).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                    ) {
+                        row.forEach { document ->
+                            if (document == null) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            } else {
+                                DocumentCard(
+                                    document = document,
+                                    coverImageBytes = documentCoverImages[document.id.value],
+                                    selected = document.id.value in selectedDocumentIds,
+                                    actionsExpanded = actionDocumentTarget == HomeDocumentActionTarget(
+                                        HomeDocumentSection.Library,
+                                        document.id.value,
+                                    ),
+                                    onClick = { onDocumentClick(document.id) },
+                                    onLongClick = { onStartSelection(document.id) },
+                                    onShowActions = { onShowActions(document.id.value) },
+                                    onDismissActions = onDismissActions,
+                                    onBookmarkClick = { onBookmarkClick(document) },
+                                    onDeleteClick = { onDeleteClick(document) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(3f / 4f),
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -680,29 +694,33 @@ private fun HomeLibraryPreviewSection(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        maxItemsInEachRow = columns,
-                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
-                        verticalArrangement = Arrangement.spacedBy(spacing.small),
-                    ) {
-                        previewFolders.forEach { folder ->
-                            val folderPreviewDocuments = libraryFolderPreviewDocuments(
-                                documents = allDocuments,
-                                folderId = folder.id,
-                                previewLimit = previewLimit,
-                            )
-                            FolderCoverCard(
-                                folder = folder,
-                                previewDocuments = folderPreviewDocuments,
-                                remainingDocumentCount = libraryFolderRemainingDocumentCount(
-                                    totalCount = folder.documentCount,
-                                    previewCount = folderPreviewDocuments.size,
-                                ),
-                                documentCoverImages = documentCoverImages,
-                                onClick = { onFolderClick(folder.id) },
-                                modifier = Modifier.width(itemWidth),
-                            )
+                    homeLibraryGridRows(previewFolders, columns).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                        ) {
+                            row.forEach { folder ->
+                                if (folder == null) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                } else {
+                                    val folderPreviewDocuments = libraryFolderPreviewDocuments(
+                                        documents = allDocuments,
+                                        folderId = folder.id,
+                                        previewLimit = previewLimit,
+                                    )
+                                    FolderCoverCard(
+                                        folder = folder,
+                                        previewDocuments = folderPreviewDocuments,
+                                        remainingDocumentCount = libraryFolderRemainingDocumentCount(
+                                            totalCount = folder.documentCount,
+                                            previewCount = folderPreviewDocuments.size,
+                                        ),
+                                        documentCoverImages = documentCoverImages,
+                                        onClick = { onFolderClick(folder.id) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -713,10 +731,11 @@ private fun HomeLibraryPreviewSection(
 
 @Composable
 private fun HomeDocumentSection(
+    section: HomeDocumentSection,
     title: String,
     description: String,
     documents: List<DocumentMetadata>,
-    actionDocumentId: String?,
+    actionDocumentTarget: HomeDocumentActionTarget?,
     selectedDocumentIds: Set<String>,
     onDocumentClick: (DocumentId) -> Unit,
     onToggleSelection: (DocumentId) -> Unit,
@@ -742,8 +761,9 @@ private fun HomeDocumentSection(
             modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
         )
         HomeDocumentPager(
+            section = section,
             documents = documents,
-            actionDocumentId = actionDocumentId,
+            actionDocumentTarget = actionDocumentTarget,
             selectedDocumentIds = selectedDocumentIds,
             onDocumentClick = onDocumentClick,
             onToggleSelection = onToggleSelection,
@@ -759,8 +779,9 @@ private fun HomeDocumentSection(
 
 @Composable
 private fun HomeDocumentPager(
+    section: HomeDocumentSection,
     documents: List<DocumentMetadata>,
-    actionDocumentId: String?,
+    actionDocumentTarget: HomeDocumentActionTarget?,
     selectedDocumentIds: Set<String>,
     onDocumentClick: (DocumentId) -> Unit,
     onToggleSelection: (DocumentId) -> Unit,
@@ -791,7 +812,7 @@ private fun HomeDocumentPager(
             document = document,
             coverImageBytes = documentCoverImages[document.id.value],
             selected = document.id.value in selectedDocumentIds,
-            actionsExpanded = actionDocumentId == document.id.value,
+            actionsExpanded = actionDocumentTarget == HomeDocumentActionTarget(section, document.id.value),
             onClick = {
                 if (selectionMode) onToggleSelection(document.id) else onDocumentClick(document.id)
             },

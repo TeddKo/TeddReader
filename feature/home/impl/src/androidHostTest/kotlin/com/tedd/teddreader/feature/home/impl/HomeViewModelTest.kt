@@ -28,10 +28,31 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
+    @Test
+    fun documentActionTargetDistinguishesSameDocumentAcrossHomeSections() {
+        val recent = HomeDocumentActionTarget(HomeDocumentSection.Recent, "document-1")
+        val library = HomeDocumentActionTarget(HomeDocumentSection.Library, "document-1")
+
+        assertNotEquals(recent, library)
+    }
+
+    @Test
+    fun homeLibraryGridRowsKeepTwoColumnsAndPadOnlyTheLastRow() {
+        assertEquals(
+            listOf(listOf(1, 2), listOf(3, 4)),
+            homeLibraryGridRows(listOf(1, 2, 3, 4), columns = 2),
+        )
+        assertEquals(
+            listOf(listOf(1, 2), listOf(3, null)),
+            homeLibraryGridRows(listOf(1, 2, 3), columns = 2),
+        )
+    }
+
     private val dispatcher = StandardTestDispatcher()
 
     @BeforeTest

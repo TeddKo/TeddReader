@@ -41,6 +41,17 @@ enum class HomeFormatFilter {
     Epub,
 }
 
+internal enum class HomeDocumentSection {
+    Favorites,
+    Recent,
+    Library,
+}
+
+internal data class HomeDocumentActionTarget(
+    val section: HomeDocumentSection,
+    val documentId: String,
+)
+
 enum class LibraryCollectionMode {
     All,
     Folders,
@@ -65,6 +76,16 @@ internal fun homeLibraryPreviewDocuments(
     documents: List<DocumentMetadata>,
     previewLimit: Int,
 ): List<DocumentMetadata> = documents.take(previewLimit)
+
+internal fun <T : Any> homeLibraryGridRows(
+    items: List<T>,
+    columns: Int,
+): List<List<T?>> {
+    require(columns > 0) { "columns must be positive." }
+    return items.chunked(columns).map { row ->
+        row.map<T, T?> { it } + List(columns - row.size) { null }
+    }
+}
 
 internal fun libraryFolderPreviewDocuments(
     documents: List<DocumentMetadata>,
