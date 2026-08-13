@@ -309,6 +309,41 @@ class DocumentRepositoryImplTest {
         assertEquals(0, pages.first().pageIndex.current)
         assertEquals(pages.size, pages.first().pageIndex.total)
     }
+
+    @Test
+    fun reimportPreservesDocumentFolderMembership() = runTest {
+        val documentDao = FakeDocumentDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+        val source = DocumentImportSource(
+            location = DocumentLocation(
+                sourceUri = "file:///book.txt",
+                displayName = "book.txt",
+                mimeType = "text/plain",
+            ),
+            bytes = "Hello reader".encodeToByteArray(),
+        )
+        repository.importDocument(source, importedAtEpochMillis = 1_000)
+        repository.upsertDocument(
+            repository.getDocument(DocumentId(source.location.sourceUri))!!.copy(
+                folderId = "folder-1",
+                folderName = "Imported",
+            ),
+        )
+
+        repository.importDocument(source, importedAtEpochMillis = 2_000)
+
+        assertEquals("folder-1", documentDao.saved?.folderId)
+        assertEquals("Imported", documentDao.saved?.folderName)
+    }
+
 }
 
 private class FakeDocumentFileSource(

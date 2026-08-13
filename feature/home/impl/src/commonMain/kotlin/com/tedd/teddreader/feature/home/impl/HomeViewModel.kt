@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
+import kotlin.random.Random
 
 @KoinViewModel
 class HomeViewModel(
@@ -76,15 +77,21 @@ class HomeViewModel(
         controls,
         documentCoverImages,
     ) { documents, controls, coverImages ->
-        val visibleDocuments = (documents ?: emptyList())
+        val filterMatchedDocuments = (documents ?: emptyList())
             .filterBy(controls.formatFilter)
+        val filteredDocuments = filterMatchedDocuments
             .sortBy(controls.sort)
         val visibleCoverImages = coverImages.filterKeys { key ->
-            visibleDocuments.any { it.id.value == key }
+            filteredDocuments.any { it.id.value == key }
         }
         HomeUiState(
-            favoriteDocuments = visibleDocuments.filter { it.isBookmarked },
-            recentDocuments = visibleDocuments.filterNot { it.isBookmarked },
+            favoriteDocuments = filteredDocuments.filter { it.isBookmarked },
+            recentDocuments = filterMatchedDocuments
+                .filterNot { it.isBookmarked }
+                .sortedByDescending { it.lastOpenedAtEpochMillis ?: it.addedAtEpochMillis }
+                .take(20),
+            libraryDocuments = filteredDocuments,
+            libraryFolders = buildLibraryFolders(documents.orEmpty()),
             documentCoverImages = visibleCoverImages,
             hasDocuments = documents?.isNotEmpty() == true,
             sort = controls.sort,
@@ -124,6 +131,59 @@ class HomeViewModel(
         }
     }
 
+    fun createFolder(name: String, documentIds: Collection<DocumentId>): String {
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank() || documentIds.isEmpty()) return ""
+        val folderId = generatedFolderId()
+        viewModelScope.launch {
+            updateDocumentsFolderMembership(
+                documentIds = documentIds,
+                folderId = folderId,
+                folderName = trimmedName,
+            )
+        }
+        return folderId
+    }
+
+    fun moveDocumentsToFolder(documentIds: Collection<DocumentId>, folderId: String) {
+        val folder = uiState.value.libraryFolders.firstOrNull { it.id == folderId } ?: return
+        viewModelScope.launch {
+            updateDocumentsFolderMembership(
+                documentIds = documentIds,
+                folderId = folder.id,
+                folderName = folder.name,
+            )
+        }
+    }
+
+    fun renameFolder(folderId: String, name: String) {
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                recentDocuments.value.orEmpty()
+                    .filter { it.folderId == folderId }
+                    .forEach { document ->
+                        documentRepository.upsertDocument(
+                            document.copy(folderName = trimmedName),
+                        )
+                    }
+            }.onFailure { controls.update { it.copy(errorMessage = "Failed to update folder.") } }
+        }
+    }
+
+    fun deleteFolder(folderId: String) {
+        viewModelScope.launch {
+            updateDocumentsFolderMembership(
+                documentIds = recentDocuments.value.orEmpty()
+                    .filter { it.folderId == folderId }
+                    .map(DocumentMetadata::id),
+                folderId = null,
+                folderName = null,
+            )
+        }
+    }
+
     fun deleteDocument(documentId: DocumentId) {
         deleteDocuments(listOf(documentId))
     }
@@ -135,6 +195,27 @@ class HomeViewModel(
             }.onFailure { controls.update { it.copy(errorMessage = "Failed to delete document.") } }
         }
     }
+
+    private suspend fun updateDocumentsFolderMembership(
+        documentIds: Collection<DocumentId>,
+        folderId: String?,
+        folderName: String?,
+    ) {
+        runCatching {
+            documentIds.forEach { documentId ->
+                val document = documentRepository.getDocument(documentId) ?: return@forEach
+                documentRepository.upsertDocument(
+                    document.copy(
+                        folderId = folderId,
+                        folderName = folderName,
+                    ),
+                )
+            }
+        }.onFailure { controls.update { it.copy(errorMessage = "Failed to update folder.") } }
+    }
+
+    private fun generatedFolderId(): String =
+        "folder-${Random.nextLong().toULong().toString(16)}-${Random.nextLong().toULong().toString(16)}"
 }
 
 private data class HomeControls(

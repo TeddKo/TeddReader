@@ -47,6 +47,8 @@ data class DocumentMetadata(
     val characterCount: Long? = null,
     val wordCount: Long? = null,
     val isBookmarked: Boolean = false,
+    val folderId: String? = null,
+    val folderName: String? = null,
 ) {
     init {
         require(addedAtEpochMillis >= 0L) { "addedAtEpochMillis must be positive." }
@@ -56,6 +58,11 @@ data class DocumentMetadata(
         require(pageCount == null || pageCount >= 0) { "pageCount must be positive." }
         require(characterCount == null || characterCount >= 0L) { "characterCount must be positive." }
         require(wordCount == null || wordCount >= 0L) { "wordCount must be positive." }
+        require((folderId == null) == (folderName == null)) {
+            "folderId and folderName must both be null or both be non-null."
+        }
+        require(folderId == null || folderId.isNotBlank()) { "folderId must not be blank." }
+        require(folderName == null || folderName.isNotBlank()) { "folderName must not be blank." }
     }
 }
 

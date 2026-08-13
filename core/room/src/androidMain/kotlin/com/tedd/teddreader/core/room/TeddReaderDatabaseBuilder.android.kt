@@ -12,5 +12,5 @@ fun createTeddReaderDatabaseBuilder(
         context = context.applicationContext,
         name = TeddReaderDatabaseName,
     )
-        .addMigrations(TeddReaderMigration1To2)
+        .addMigrations(TeddReaderMigration1To2, TeddReaderMigration2To3)
         .setDriver(BundledSQLiteDriver())

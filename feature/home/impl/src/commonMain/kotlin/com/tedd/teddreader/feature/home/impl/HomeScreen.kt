@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -34,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,8 +51,8 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
-import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
@@ -62,8 +64,53 @@ import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddTopBar
-import com.tedd.teddreader.core.ui.generated.resources.*
+import com.tedd.teddreader.core.ui.generated.resources.Res
+import com.tedd.teddreader.core.ui.generated.resources.add_documents
+import com.tedd.teddreader.core.ui.generated.resources.add_to_favorites
+import com.tedd.teddreader.core.ui.generated.resources.all
+import com.tedd.teddreader.core.ui.generated.resources.back
+import com.tedd.teddreader.core.ui.generated.resources.cancel
+import com.tedd.teddreader.core.ui.generated.resources.cloud_documents
+import com.tedd.teddreader.core.ui.generated.resources.delete
+import com.tedd.teddreader.core.ui.generated.resources.document_pages
+import com.tedd.teddreader.core.ui.generated.resources.favorite_documents_count
+import com.tedd.teddreader.core.ui.generated.resources.favorite_documents_single
+import com.tedd.teddreader.core.ui.generated.resources.favorites
+import com.tedd.teddreader.core.ui.generated.resources.files_in_folder_count
+import com.tedd.teddreader.core.ui.generated.resources.folder_row_description
+import com.tedd.teddreader.core.ui.generated.resources.folders
+import com.tedd.teddreader.core.ui.generated.resources.format
+import com.tedd.teddreader.core.ui.generated.resources.google_drive
+import com.tedd.teddreader.core.ui.generated.resources.google_drive_description
+import com.tedd.teddreader.core.ui.generated.resources.home_add_documents_description
+import com.tedd.teddreader.core.ui.generated.resources.home_loading_recent_documents
+import com.tedd.teddreader.core.ui.generated.resources.home_no_documents_description
+import com.tedd.teddreader.core.ui.generated.resources.home_no_documents_title
+import com.tedd.teddreader.core.ui.generated.resources.home_no_matching_documents
+import com.tedd.teddreader.core.ui.generated.resources.home_no_matching_documents_description
+import com.tedd.teddreader.core.ui.generated.resources.home_selection_count
+import com.tedd.teddreader.core.ui.generated.resources.library
+import com.tedd.teddreader.core.ui.generated.resources.library_preview_description
+import com.tedd.teddreader.core.ui.generated.resources.local_documents
+import com.tedd.teddreader.core.ui.generated.resources.masthead_description
+import com.tedd.teddreader.core.ui.generated.resources.recent
+import com.tedd.teddreader.core.ui.generated.resources.recent_reading
+import com.tedd.teddreader.core.ui.generated.resources.recent_reading_description
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_favorites
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_message
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_multiple_message
+import com.tedd.teddreader.core.ui.generated.resources.remove_from_library_title
+import com.tedd.teddreader.core.ui.generated.resources.select_document
+import com.tedd.teddreader.core.ui.generated.resources.select_files
+import com.tedd.teddreader.core.ui.generated.resources.select_files_description
+import com.tedd.teddreader.core.ui.generated.resources.select_folder
+import com.tedd.teddreader.core.ui.generated.resources.select_folder_description
+import com.tedd.teddreader.core.ui.generated.resources.settings
+import com.tedd.teddreader.core.ui.generated.resources.show_all
+import com.tedd.teddreader.core.ui.generated.resources.sort
+import com.tedd.teddreader.core.ui.generated.resources.title
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -77,6 +124,8 @@ fun HomeRouteScreen(
     onOpenGoogleDriveClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit = {},
     onDocumentClick: (DocumentId) -> Unit = {},
+    onOpenLibraryClick: () -> Unit = {},
+    onOpenLibraryFolderClick: (String) -> Unit = {},
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -91,6 +140,8 @@ fun HomeRouteScreen(
         onOpenGoogleDriveClick = onOpenGoogleDriveClick,
         onSettingsClick = onSettingsClick,
         onDocumentClick = onDocumentClick,
+        onOpenLibraryClick = onOpenLibraryClick,
+        onOpenLibraryFolderClick = onOpenLibraryFolderClick,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
         onSelectionBookmarkChange = { documentIds, target ->
             viewModel.setDocumentsBookmarked(documentIds, target)
@@ -112,6 +163,8 @@ fun HomeScreen(
     onSettingsClick: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
     scrollState: ScrollState,
+    onOpenLibraryClick: () -> Unit = {},
+    onOpenLibraryFolderClick: (String) -> Unit = {},
     onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit = { _, _ -> },
     onSelectionBookmarkChange: (Collection<DocumentId>, Boolean) -> Unit = { _, _ -> },
     onDeleteDocuments: (Collection<DocumentId>) -> Unit = {},
@@ -122,13 +175,30 @@ fun HomeScreen(
 ) {
     val spacing = teddReaderSpacing()
     val motion = teddReaderMotion()
-    val allDocuments = uiState.favoriteDocuments + uiState.recentDocuments
-    val visibleDocumentIds = remember(allDocuments) { allDocuments.map { it.id.value }.toSet() }
+    val displayFold = rememberDisplayFold()
     var actionDocumentId by remember { mutableStateOf<String?>(null) }
     var pendingDeleteDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedDocumentIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var previewMode by rememberSaveable { mutableStateOf(LibraryCollectionMode.All) }
     val selectionBackState = rememberNavigationEventState(NavigationEventInfo.None)
+    val libraryPreviewDocuments = remember(uiState.libraryDocuments) {
+        homeLibraryPreviewDocuments(uiState.libraryDocuments, Int.MAX_VALUE)
+    }
+    val visibleDocumentIds = remember(
+        uiState.favoriteDocuments,
+        uiState.recentDocuments,
+        libraryPreviewDocuments,
+        previewMode,
+    ) {
+        buildSet {
+            uiState.favoriteDocuments.forEach { add(it.id.value) }
+            uiState.recentDocuments.forEach { add(it.id.value) }
+            if (previewMode == LibraryCollectionMode.All) {
+                libraryPreviewDocuments.forEach { add(it.id.value) }
+            }
+        }
+    }
 
     NavigationBackHandler(
         state = selectionBackState,
@@ -137,9 +207,9 @@ fun HomeScreen(
     )
 
     LaunchedEffect(visibleDocumentIds) {
-        selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in visibleDocumentIds }
-        pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in visibleDocumentIds }
-        if (actionDocumentId !in visibleDocumentIds) {
+        selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
+        pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
+        if (actionDocumentId !in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet()) {
             actionDocumentId = null
         }
     }
@@ -164,7 +234,7 @@ fun HomeScreen(
             exit = fadeOut(tween(motion.shortDurationMs)) +
                 slideOutVertically(tween(motion.shortDurationMs)) { -it },
         ) {
-            val selectedDocuments = allDocuments.filter { it.id.value in selectedDocumentIds }
+            val selectedDocuments = uiState.libraryDocuments.filter { it.id.value in selectedDocumentIds }
             val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
             SelectionTopBar(
                 selectedCount = selectedDocumentIds.size,
@@ -183,149 +253,162 @@ fun HomeScreen(
             )
         }
 
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(spacing.large),
+                .fillMaxWidth(),
         ) {
+            val shortestDp = if (maxWidth <= maxHeight) maxWidth else maxHeight
+            val previewLimit = homeLibraryPreviewLimit(
+                isExpanded = shortestDp >= 840.dp,
+                isTablet = shortestDp >= 600.dp,
+                hasSeparatingFold = displayFold?.isVertical == true && displayFold.isSeparating,
+            )
+            val previewDocuments = remember(uiState.libraryDocuments, previewLimit) {
+                homeLibraryPreviewDocuments(uiState.libraryDocuments, previewLimit)
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(contentPadding),
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(spacing.large),
             ) {
-                HomeMasthead(
-                    showAddAction = uiState.hasDocuments,
-                    onAddDocumentsClick = { showAddDialog = true },
-                    onSettingsClick = onSettingsClick,
-                )
-
-                AnimatedVisibility(
-                    visible = uiState.errorMessage != null,
-                    enter = fadeIn(tween(motion.mediumDurationMs)),
-                    exit = fadeOut(tween(motion.shortDurationMs)),
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(contentPadding),
+                    verticalArrangement = Arrangement.spacedBy(spacing.large),
                 ) {
+                    HomeMasthead(
+                        showAddAction = uiState.hasDocuments,
+                        onAddDocumentsClick = { showAddDialog = true },
+                        onSettingsClick = onSettingsClick,
+                    )
+
                     uiState.errorMessage?.let { TeddErrorBanner(message = it) }
-                }
-                AnimatedVisibility(
-                    visible = uiState.unsupportedFormatMessage != null,
-                    enter = fadeIn(tween(motion.mediumDurationMs)),
-                    exit = fadeOut(tween(motion.shortDurationMs)),
-                ) {
                     uiState.unsupportedFormatMessage?.let { TeddErrorBanner(message = it) }
-                }
 
-                when {
-                    !uiState.hasDocuments -> {
-                        TeddEmptyState(
-                            title = stringResource(Res.string.home_no_documents_title),
-                            description = stringResource(Res.string.home_no_documents_description),
-                            modifier = Modifier.fillMaxWidth(),
-                            action = {
-                                TeddButton(
-                                    text = stringResource(Res.string.add_documents),
-                                    onClick = { showAddDialog = true },
-                                )
-                            },
-                        )
-                    }
-
-                    else -> {
-                        HomeSortFilterControls(
-                            sort = uiState.sort,
-                            formatFilter = uiState.formatFilter,
-                            onSortChange = onSortChange,
-                            onFormatFilterChange = onFormatFilterChange,
-                        )
-
-                        AnimatedVisibility(
-                            visible = uiState.favoriteDocuments.isEmpty() && uiState.recentDocuments.isEmpty(),
-                            enter = fadeIn(tween(motion.mediumDurationMs)),
-                            exit = fadeOut(tween(motion.shortDurationMs)),
-                        ) {
-                            HomeFilteredEmptyState(
-                                onShowAllClick = { onFormatFilterChange(HomeFormatFilter.All) },
+                    when {
+                        !uiState.hasDocuments -> {
+                            TeddEmptyState(
+                                title = stringResource(Res.string.home_no_documents_title),
+                                description = stringResource(Res.string.home_no_documents_description),
+                                modifier = Modifier.fillMaxWidth(),
+                                action = {
+                                    TeddButton(
+                                        text = stringResource(Res.string.add_documents),
+                                        onClick = { showAddDialog = true },
+                                    )
+                                },
                             )
+                        }
+
+                        else -> {
+                            HomeSortFilterControls(
+                                sort = uiState.sort,
+                                formatFilter = uiState.formatFilter,
+                                onSortChange = onSortChange,
+                                onFormatFilterChange = onFormatFilterChange,
+                            )
+                            if (uiState.libraryDocuments.isEmpty()) {
+                                HomeFilteredEmptyState(
+                                    onShowAllClick = { onFormatFilterChange(HomeFormatFilter.All) },
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            AnimatedVisibility(
-                visible = uiState.favoriteDocuments.isNotEmpty(),
-                enter = fadeIn(tween(motion.mediumDurationMs)),
-                exit = fadeOut(tween(motion.shortDurationMs)),
-            ) {
-                HomeDocumentSection(
-                    title = stringResource(Res.string.favorites),
-                    description = if (uiState.favoriteDocuments.size == 1) {
-                        stringResource(Res.string.favorite_documents_single)
-                    } else {
-                        stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
-                    },
-                    documents = uiState.favoriteDocuments,
-                    actionDocumentId = actionDocumentId,
-                    selectedDocumentIds = selectedDocumentIds,
-                    showFavoriteIcon = true,
-                    onDocumentClick = onDocumentClick,
-                    onToggleSelection = { documentId ->
-                        actionDocumentId = null
-                        selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
-                    },
-                    onStartSelection = { documentId ->
-                        actionDocumentId = null
-                        selectedDocumentIds = selectedDocumentIds + documentId.value
-                    },
-                    onShowActions = { actionDocumentId = it },
-                    onDismissActions = { actionDocumentId = null },
-                    onBookmarkClick = { document ->
-                        actionDocumentId = null
-                        onDocumentBookmarkChange(document.id, false)
-                    },
-                    onDeleteClick = { document ->
-                        actionDocumentId = null
-                        pendingDeleteDocumentIds = setOf(document.id.value)
-                    },
-                    modifier = Modifier,
-                    documentCoverImages = uiState.documentCoverImages,
-                )
-            }
+                if (uiState.favoriteDocuments.isNotEmpty()) {
+                    HomeDocumentSection(
+                        title = stringResource(Res.string.favorites),
+                        description = if (uiState.favoriteDocuments.size == 1) {
+                            stringResource(Res.string.favorite_documents_single)
+                        } else {
+                            stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
+                        },
+                        documents = uiState.favoriteDocuments,
+                        actionDocumentId = actionDocumentId,
+                        selectedDocumentIds = selectedDocumentIds,
+                        showFavoriteIcon = true,
+                        onDocumentClick = onDocumentClick,
+                        onToggleSelection = { documentId ->
+                            actionDocumentId = null
+                            selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
+                        },
+                        onStartSelection = { documentId ->
+                            actionDocumentId = null
+                            selectedDocumentIds = selectedDocumentIds + documentId.value
+                        },
+                        onShowActions = { actionDocumentId = it },
+                        onDismissActions = { actionDocumentId = null },
+                        onBookmarkClick = { document ->
+                            actionDocumentId = null
+                            onDocumentBookmarkChange(document.id, false)
+                        },
+                        onDeleteClick = { document ->
+                            actionDocumentId = null
+                            pendingDeleteDocumentIds = setOf(document.id.value)
+                        },
+                        documentCoverImages = uiState.documentCoverImages,
+                    )
+                }
 
-            AnimatedVisibility(
-                visible = uiState.recentDocuments.isNotEmpty(),
-                enter = fadeIn(tween(motion.mediumDurationMs)),
-                exit = fadeOut(tween(motion.shortDurationMs)),
-            ) {
-                HomeDocumentSection(
-                    title = stringResource(Res.string.recent_reading),
-                    description = stringResource(Res.string.recent_reading_description),
-                    documents = uiState.recentDocuments,
-                    actionDocumentId = actionDocumentId,
-                    selectedDocumentIds = selectedDocumentIds,
-                    onDocumentClick = onDocumentClick,
-                    onToggleSelection = { documentId ->
-                        actionDocumentId = null
-                        selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
-                    },
-                    onStartSelection = { documentId ->
-                        actionDocumentId = null
-                        selectedDocumentIds = selectedDocumentIds + documentId.value
-                    },
-                    onShowActions = { actionDocumentId = it },
-                    onDismissActions = { actionDocumentId = null },
-                    onBookmarkClick = { document ->
-                        actionDocumentId = null
-                        onDocumentBookmarkChange(document.id, true)
-                    },
-                    onDeleteClick = { document ->
-                        actionDocumentId = null
-                        pendingDeleteDocumentIds = setOf(document.id.value)
-                    },
-                    modifier = Modifier.padding(bottom = DefaultTeddReaderSpacing.large),
-                    documentCoverImages = uiState.documentCoverImages,
-                )
+                if (uiState.recentDocuments.isNotEmpty()) {
+                    HomeDocumentSection(
+                        title = stringResource(Res.string.recent_reading),
+                        description = stringResource(Res.string.recent_reading_description),
+                        documents = uiState.recentDocuments,
+                        actionDocumentId = actionDocumentId,
+                        selectedDocumentIds = selectedDocumentIds,
+                        onDocumentClick = onDocumentClick,
+                        onToggleSelection = { documentId ->
+                            actionDocumentId = null
+                            selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
+                        },
+                        onStartSelection = { documentId ->
+                            actionDocumentId = null
+                            selectedDocumentIds = selectedDocumentIds + documentId.value
+                        },
+                        onShowActions = { actionDocumentId = it },
+                        onDismissActions = { actionDocumentId = null },
+                        onBookmarkClick = { document ->
+                            actionDocumentId = null
+                            onDocumentBookmarkChange(document.id, true)
+                        },
+                        onDeleteClick = { document ->
+                            actionDocumentId = null
+                            pendingDeleteDocumentIds = setOf(document.id.value)
+                        },
+                        modifier = Modifier,
+                        documentCoverImages = uiState.documentCoverImages,
+                    )
+                }
+
+                if (uiState.libraryDocuments.isNotEmpty()) {
+                    HomeLibraryPreviewSection(
+                        previewMode = previewMode,
+                        onPreviewModeChange = { previewMode = it },
+                        documents = previewDocuments,
+                        folders = uiState.libraryFolders,
+                        selectedDocumentIds = selectedDocumentIds,
+                        onDocumentClick = { documentId ->
+                            if (selectedDocumentIds.isNotEmpty()) {
+                                selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
+                            } else {
+                                onDocumentClick(documentId)
+                            }
+                        },
+                        onStartSelection = { documentId ->
+                            actionDocumentId = null
+                            selectedDocumentIds = selectedDocumentIds + documentId.value
+                        },
+                        onFolderClick = onOpenLibraryFolderClick,
+                        onViewAllClick = onOpenLibraryClick,
+                        modifier = Modifier.padding(bottom = DefaultTeddReaderSpacing.large),
+                    )
+                }
             }
         }
     }
@@ -350,8 +433,8 @@ fun HomeScreen(
         )
     }
 
-    val pendingDeleteDocuments = remember(allDocuments, pendingDeleteDocumentIds) {
-        allDocuments.filter { it.id.value in pendingDeleteDocumentIds }
+    val pendingDeleteDocuments = remember(uiState.libraryDocuments, pendingDeleteDocumentIds) {
+        uiState.libraryDocuments.filter { it.id.value in pendingDeleteDocumentIds }
     }
     if (pendingDeleteDocuments.isNotEmpty()) {
         AlertDialog(
@@ -448,29 +531,15 @@ private fun SelectionTopBar(
     )
 }
 
-@Preview(widthDp = 280)
-@Composable
-private fun SelectionTopBarPreview() {
-    TeddReaderTheme {
-        SelectionTopBar(
-            selectedCount = 3,
-            bookmarkTarget = true,
-            onCancelClick = {},
-            onBookmarkClick = {},
-            onDeleteClick = {},
-        )
-    }
-}
-
 @Composable
 private fun HomeSectionHeader(
     title: String,
     description: String,
     modifier: Modifier = Modifier,
     showFavoriteIcon: Boolean = false,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
     val spacing = teddReaderSpacing()
-    val motion = teddReaderMotion()
     val typography = teddReaderTypography()
 
     Row(
@@ -478,24 +547,116 @@ private fun HomeSectionHeader(
         horizontalArrangement = Arrangement.spacedBy(spacing.small),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AnimatedVisibility(
-            visible = showFavoriteIcon,
-            enter = fadeIn(tween(motion.mediumDurationMs)),
-            exit = fadeOut(tween(motion.shortDurationMs)),
-        ) {
+        if (showFavoriteIcon) {
             Icon(
                 imageVector = TeddIcons.BookmarkFilled,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+        ) {
             Text(text = title, style = typography.titleMedium)
             Text(
                 text = description,
                 style = typography.documentMeta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        actions()
+    }
+}
+
+@Composable
+private fun HomeLibraryPreviewSection(
+    previewMode: LibraryCollectionMode,
+    onPreviewModeChange: (LibraryCollectionMode) -> Unit,
+    documents: List<DocumentMetadata>,
+    folders: List<LibraryFolder>,
+    selectedDocumentIds: Set<String>,
+    onDocumentClick: (DocumentId) -> Unit,
+    onStartSelection: (DocumentId) -> Unit,
+    onFolderClick: (String) -> Unit,
+    onViewAllClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val spacing = teddReaderSpacing()
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(spacing.small),
+    ) {
+        HomeSectionHeader(
+            title = stringResource(Res.string.library),
+            description = stringResource(Res.string.library_preview_description),
+            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+            actions = {
+                TeddButton(
+                    text = stringResource(Res.string.show_all),
+                    onClick = onViewAllClick,
+                    emphasis = TeddButtonEmphasis.Secondary,
+                )
+            },
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+            horizontalArrangement = Arrangement.spacedBy(spacing.small),
+        ) {
+            TeddChip(
+                text = stringResource(Res.string.all),
+                selected = previewMode == LibraryCollectionMode.All,
+                onClick = { onPreviewModeChange(LibraryCollectionMode.All) },
+            )
+            TeddChip(
+                text = stringResource(Res.string.folders),
+                selected = previewMode == LibraryCollectionMode.Folders,
+                onClick = { onPreviewModeChange(LibraryCollectionMode.Folders) },
+            )
+        }
+        when (previewMode) {
+            LibraryCollectionMode.All -> Column(modifier = Modifier.fillMaxWidth()) {
+                documents.forEachIndexed { index, document ->
+                    TeddListItem(
+                        title = document.location.displayName,
+                        supportingText = document.supportingText(),
+                        onClick = { onDocumentClick(document.id) },
+                        onLongClick = { onStartSelection(document.id) },
+                        showDivider = index != documents.lastIndex,
+                        contentPadding = PaddingValues(
+                            horizontal = DefaultTeddReaderSpacing.screenPadding,
+                            vertical = DefaultTeddReaderSpacing.small,
+                        ),
+                        trailingContent = {
+                            if (document.id.value in selectedDocumentIds) {
+                                Text(
+                                    text = stringResource(Res.string.select_document),
+                                    style = teddReaderTypography().documentMeta,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+
+            LibraryCollectionMode.Folders -> Column(modifier = Modifier.fillMaxWidth()) {
+                folders.forEachIndexed { index, folder ->
+                    TeddListItem(
+                        title = folder.name,
+                        supportingText = stringResource(Res.string.folder_row_description, folder.documentCount),
+                        onClick = { onFolderClick(folder.id) },
+                        showDivider = index != folders.lastIndex,
+                        contentPadding = PaddingValues(
+                            horizontal = DefaultTeddReaderSpacing.screenPadding,
+                            vertical = DefaultTeddReaderSpacing.small,
+                        ),
+                    )
+                }
+            }
         }
     }
 }
@@ -562,7 +723,6 @@ private fun HomeDocumentPager(
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
-
     val pagerState = rememberPagerState(pageCount = { documents.size })
 
     HorizontalPager(
@@ -583,11 +743,7 @@ private fun HomeDocumentPager(
             selected = document.id.value in selectedDocumentIds,
             actionsExpanded = actionDocumentId == document.id.value,
             onClick = {
-                if (selectionMode) {
-                    onToggleSelection(document.id)
-                } else {
-                    onDocumentClick(document.id)
-                }
+                if (selectionMode) onToggleSelection(document.id) else onDocumentClick(document.id)
             },
             onLongClick = { onStartSelection(document.id) },
             onShowActions = { onShowActions(document.id.value) },
@@ -609,7 +765,6 @@ private fun HomeMasthead(
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
-    val motion = teddReaderMotion()
     val typography = teddReaderTypography()
 
     Column(
@@ -634,11 +789,7 @@ private fun HomeMasthead(
             horizontalArrangement = Arrangement.spacedBy(spacing.small),
             verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
-            AnimatedVisibility(
-                visible = showAddAction,
-                enter = fadeIn(tween(motion.mediumDurationMs)),
-                exit = fadeOut(tween(motion.shortDurationMs)),
-            ) {
+            if (showAddAction) {
                 TeddButton(
                     text = stringResource(Res.string.add_documents),
                     onClick = onAddDocumentsClick,
@@ -843,19 +994,9 @@ private fun HomeFormatFilter.chipLabel(): String = when (this) {
 private fun Set<String>.toggle(value: String): Set<String> =
     if (value in this) this - value else this + value
 
-@Preview(widthDp = 280)
-@Preview(widthDp = 360)
 @Composable
-private fun HomeAddDocumentsDialogPreview() {
-    TeddReaderTheme {
-        HomeAddDocumentsDialog(
-            onDismissRequest = {},
-            onSelectFilesClick = {},
-            onSelectFolderClick = {},
-            onSelectGoogleDriveClick = {},
-        )
-    }
-}
+private fun DocumentMetadata.supportingText(): String =
+    pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name
 
 @Preview(widthDp = 280)
 @Composable
@@ -911,6 +1052,19 @@ private fun HomeScreenRecentPreview() {
                         addedAtEpochMillis = 0L,
                         pageCount = 48,
                     ),
+                ),
+                libraryDocuments = listOf(
+                    DocumentMetadata(
+                        id = DocumentId("preview-2"),
+                        location = DocumentLocation(
+                            sourceUri = "file:///preview.pdf",
+                            displayName = "A Very Long Korean File Name That Should Still Stay Calm On Narrow Screens.pdf",
+                            sizeBytes = 420_000L,
+                        ),
+                        format = DocumentFormat.PDF,
+                        addedAtEpochMillis = 0L,
+                        pageCount = 48,
+                    ),
                     DocumentMetadata(
                         id = DocumentId("preview-3"),
                         location = DocumentLocation(
@@ -920,8 +1074,11 @@ private fun HomeScreenRecentPreview() {
                         ),
                         format = DocumentFormat.TXT,
                         addedAtEpochMillis = 3_000L,
+                        folderId = "folder-1",
+                        folderName = "Weekend Reads",
                     ),
                 ),
+                libraryFolders = listOf(LibraryFolder("folder-1", "Weekend Reads", 1)),
             ),
             onOpenFilesClick = {},
             onOpenFolderClick = {},

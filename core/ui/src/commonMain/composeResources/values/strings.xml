@@ -198,4 +198,22 @@
     <string name="remove_from_library_multiple_message">%1$d documents and their reading data will be removed from TeddReader. The original files will stay on your device.</string>
     <string name="select_document">Select document</string>
     <string name="unsupported_destination_description">Unsupported destination.</string>
+
+    <string name="folders">Folders</string>
+    <string name="library_preview_description">All documents or your own folders.</string>
+    <string name="folder_row_description">%1$d documents</string>
+    <string name="files_in_folder_count">%1$d selected</string>
+    <string name="create_folder">Create folder</string>
+    <string name="move_to_folder">Move to folder</string>
+    <string name="folder_name">Folder name</string>
+    <string name="create_folder_dialog_title">Create folder</string>
+    <string name="rename_folder">Rename folder</string>
+    <string name="rename_folder_dialog_title">Rename folder</string>
+    <string name="delete_folder_title">Delete folder?</string>
+    <string name="delete_folder_message">Delete "%1$s"? Documents stay in your library.</string>
+    <string name="library_empty_all_title">No documents in this view</string>
+    <string name="library_empty_all_description">Try a different filter or add documents.</string>
+    <string name="library_empty_folder_title">No folders yet</string>
+    <string name="library_empty_folder_description">Create a folder from selected documents.</string>
+    <string name="no_folders_available">No folders available.</string>
 </resources>

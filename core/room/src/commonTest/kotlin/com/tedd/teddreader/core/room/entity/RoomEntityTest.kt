@@ -20,4 +20,21 @@ class RoomEntityTest {
         assertEquals("TXT", document.format)
         assertEquals(12L, document.characterCount)
     }
+
+    @Test
+    fun documentEntityStoresFolderMembership() {
+        val document = DocumentEntity(
+            id = "doc-2",
+            name = "foldered.epub",
+            sourceUri = "file:///foldered.epub",
+            format = "EPUB",
+            addedAtEpochMillis = 2_000L,
+            folderId = "folder-9",
+            folderName = "Sci-Fi",
+        )
+
+        assertEquals("folder-9", document.folderId)
+        assertEquals("Sci-Fi", document.folderName)
+    }
+
 }
