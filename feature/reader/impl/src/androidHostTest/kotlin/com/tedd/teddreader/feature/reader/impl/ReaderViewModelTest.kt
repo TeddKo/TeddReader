@@ -73,6 +73,8 @@ class ReaderViewModelTest {
 
         assertEquals("First stored page", viewModel.uiState.value.pageText)
         assertEquals(PageIndex(current = 0, total = 2), viewModel.uiState.value.pageIndex)
+        assertEquals(documentId, documentRepository.lastOpenedDocumentId)
+        assertTrue(documentRepository.lastOpenedAtEpochMillis > 0L)
     }
 
     @Test
@@ -354,6 +356,8 @@ private class FakeDocumentRepository(
         wordCount = 6,
     )
     val isFavorite: Boolean get() = metadata.isBookmarked
+    var lastOpenedDocumentId: DocumentId? = null
+    var lastOpenedAtEpochMillis: Long = 0L
 
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = flowOf(listOf(metadata))
 
@@ -421,7 +425,10 @@ private class FakeDocumentRepository(
     override suspend fun upsertDocument(document: DocumentMetadata) {
         metadata = document
     }
-    override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit
+    override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) {
+        lastOpenedDocumentId = documentId
+        lastOpenedAtEpochMillis = openedAtEpochMillis
+    }
     override suspend fun deleteDocument(documentId: DocumentId) = Unit
 }
 
