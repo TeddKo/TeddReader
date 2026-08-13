@@ -46,6 +46,11 @@ class ReaderViewModel(
 
     private var currentDocumentId: DocumentId? = null
     private var currentPageWindows: List<PageWindow> = emptyList()
+    private var currentSections: List<ReaderSection> = emptyList()
+
+    // Page numbers only mean something for one (style, viewport) pagination, so the reading
+    // position is tracked as an absolute text offset that survives re-pagination.
+    private var anchorOffset: Long? = null
     private var viewportSize: ViewportSize = DefaultViewportSize
     private var viewportReloadJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
@@ -75,6 +80,7 @@ class ReaderViewModel(
                     )
                 }
                 currentPageWindows = pageWindows
+                currentSections = readerDocument?.sections.orEmpty()
 
                 val metadataPageCount = metadata?.pageCount
                 val totalPages = when {
@@ -83,9 +89,9 @@ class ReaderViewModel(
                     progress != null -> progress.pageIndex.total
                     else -> 0
                 }
-                val currentPage = progress
-                    ?.pageIndex
-                    ?.current
+                val restoredOffset = if (isPdfMode) null else progress?.location?.let(::absoluteOffset)
+                anchorOffset = restoredOffset
+                val currentPage = (restoredOffset?.let { pageOfOffset(it, pageWindows) } ?: progress?.pageIndex?.current)
                     ?.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
                     ?: 0
                 val pageIndex = PageIndex(current = currentPage, total = totalPages)
@@ -296,8 +302,9 @@ class ReaderViewModel(
     fun moveToLocation(location: ReaderLocation) {
         val page = when (location) {
             is ReaderLocation.PdfPage -> location.pageIndex
-            is ReaderLocation.TextOffset -> pageForOffset(location.offset)
-            is ReaderLocation.EpubOffset -> pageForOffset(location.offset)
+            else -> absoluteOffset(location)
+                ?.let { offset -> pageOfOffset(offset, currentPageWindows) }
+                ?: _uiState.value.pageIndex.current
         }
         moveToPage(page)
     }
@@ -358,13 +365,26 @@ class ReaderViewModel(
         }
     }
 
-    private fun pageForOffset(offset: Long): Int = currentPageWindows
+    private fun pageOfOffset(offset: Long, pageWindows: List<PageWindow>): Int? = pageWindows
         .indexOfFirst { page ->
             val range = page.textRange ?: return@indexOfFirst false
             offset >= range.start && offset < range.end
         }
         .takeIf { index -> index >= 0 }
-        ?: _uiState.value.pageIndex.current
+
+    /** EPUB locations are section-relative; pagination works on document-absolute offsets. */
+    private fun absoluteOffset(location: ReaderLocation): Long? = when (location) {
+        is ReaderLocation.TextOffset -> location.offset
+        is ReaderLocation.EpubOffset -> {
+            val sectionStart = currentSections
+                .firstOrNull { section -> section.index == location.spineIndex }
+                ?.range
+                ?.start
+                ?: 0L
+            sectionStart + location.offset
+        }
+        is ReaderLocation.PdfPage -> null
+    }
 
     private fun currentPageUi(
         pageIndex: PageIndex,
@@ -440,6 +460,7 @@ class ReaderViewModel(
         val lastPage = (total - 1).coerceAtLeast(0)
         val nextPage = page.coerceIn(0, lastPage)
         val nextIndex = PageIndex(current = nextPage, total = total)
+        anchorOffset = currentPageWindows.getOrNull(nextPage)?.textRange?.start
         _uiState.update {
             val currentPageUi = currentPageUi(
                 pageIndex = nextIndex,
@@ -485,8 +506,9 @@ class ReaderViewModel(
         )
         if (pageWindows.isEmpty()) return
 
+        val currentPage = anchorOffset?.let { offset -> pageOfOffset(offset, pageWindows) }
+            ?: _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         currentPageWindows = pageWindows
-        val currentPage = _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         val pageIndex = PageIndex(current = currentPage, total = pageWindows.size)
         val documentPages = documentPages(
             pageIndex = pageIndex,
@@ -579,4 +601,6 @@ class ReaderViewModel(
     }
 }
 
-private val DefaultViewportSize = ViewportSize(widthPx = 1080, heightPx = 1600)
+// The reader reports its viewport in sp, not px, so the placeholder used before the first
+// measurement is phone-sized in sp; a px-sized value paginates ~9x too coarsely.
+private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)

@@ -97,6 +97,88 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun openDocumentRestoresSavedOffsetAfterViewportPagination() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val readerRepository = FakeReaderRepository()
+        readerRepository.progress = ReadingProgress(
+            documentId = documentId,
+            location = ReaderLocation.TextOffset(210),
+            pageIndex = PageIndex(current = 7, total = 10),
+            updatedAtEpochMillis = 0,
+        )
+        val viewModel = ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = FakeBookmarkRepository(),
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        advanceUntilIdle()
+
+        assertEquals(PageIndex(current = 7, total = 10), viewModel.uiState.value.pageIndex)
+    }
+
+    @Test
+    fun openDocumentRestoresSavedPdfPage() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-pdf")
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            format = DocumentFormat.PDF,
+            pageCount = 10,
+        )
+        val readerRepository = FakeReaderRepository()
+        readerRepository.progress = ReadingProgress(
+            documentId = documentId,
+            location = ReaderLocation.PdfPage(7),
+            pageIndex = PageIndex(current = 7, total = 10),
+            updatedAtEpochMillis = 0,
+        )
+        val viewModel = ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = FakeBookmarkRepository(),
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(PageIndex(current = 7, total = 10), viewModel.uiState.value.pageIndex)
+    }
+
+    @Test
+    fun repaginationKeepsCurrentReadingOffset() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val readerRepository = FakeReaderRepository()
+        val viewModel = ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = FakeBookmarkRepository(),
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        advanceUntilIdle()
+        viewModel.moveToPage(6)
+        advanceUntilIdle()
+
+        viewModel.updateViewportSize(widthPx = 600, heightPx = 900)
+        advanceUntilIdle()
+
+        assertEquals(PageIndex(current = 3, total = 5), viewModel.uiState.value.pageIndex)
+    }
+
+    @Test
     fun favoriteToggleUpdatesReaderAndDocument() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
         val documentRepository = FakeDocumentRepository(documentId)
@@ -231,6 +313,9 @@ class ReaderViewModelTest {
 
 private class FakeDocumentRepository(
     private val documentId: DocumentId,
+    private val format: DocumentFormat = DocumentFormat.TXT,
+    pageCount: Int = 2,
+    private val paginatedText: String? = null,
 ) : DocumentRepository {
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -240,9 +325,9 @@ private class FakeDocumentRepository(
             mimeType = "text/plain",
             sizeBytes = 100,
         ),
-        format = DocumentFormat.TXT,
+        format = format,
         addedAtEpochMillis = 1_000,
-        pageCount = 2,
+        pageCount = pageCount,
         characterCount = 31,
         wordCount = 6,
     )
@@ -256,17 +341,21 @@ private class FakeDocumentRepository(
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? =
         ReaderDocument(
             id = documentId,
-            format = DocumentFormat.TXT,
+            format = format,
             title = "Stored book",
             sections = emptyList(),
-            pageCount = 2,
+            pageCount = metadata.pageCount ?: 0,
         ).takeIf { documentId == this.documentId }
 
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
-    ): List<PageWindow> = if (documentId == this.documentId) {
+    ): List<PageWindow> = if (documentId != this.documentId || format == DocumentFormat.PDF) {
+        emptyList()
+    } else if (paginatedText != null) {
+        paginate(paginatedText, viewportSize)
+    } else {
         listOf(
             PageWindow(
                 pageIndex = PageIndex(current = 0, total = 2),
@@ -281,8 +370,20 @@ private class FakeDocumentRepository(
                 textRange = TextRange(18, 36),
             ),
         )
-    } else {
-        emptyList()
+    }
+
+    private fun paginate(text: String, viewportSize: ViewportSize): List<PageWindow> {
+        val charsPerPage = (viewportSize.widthPx / 10).coerceAtLeast(1)
+        val starts = (0 until text.length step charsPerPage).toList()
+        return starts.mapIndexed { index, start ->
+            val end = (start + charsPerPage).coerceAtMost(text.length)
+            PageWindow(
+                pageIndex = PageIndex(current = index, total = starts.size),
+                location = ReaderLocation.TextOffset(start.toLong()),
+                text = text.substring(start, end),
+                textRange = TextRange(start.toLong(), end.toLong()),
+            )
+        }
     }
 
     override suspend fun importDocument(
