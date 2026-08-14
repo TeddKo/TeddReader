@@ -583,14 +583,16 @@ private fun FoundationSpreadPageFlipBox(
     }
     val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
     Box(modifier = modifier) {
-        // The still half is the seat the arriving page lands on, so it has to hold that page. Drawing
-        // the current page here only lines up when turning forward; turning back it put the page
-        // being left behind where the previous page belongs, and that wrong text showed for the
-        // first half of the fold.
+        // The leaf is hinged on the spine, so the half it lands on stays covered by the page being
+        // left behind until the leaf's back face takes it over. Seating the arriving page here made
+        // that half swap the moment a drag started, which read as the far page changing before the
+        // turn instead of at the end of it. The half the leaf lifts off gets no seat on purpose:
+        // the arriving pager page lies directly underneath, and uncovering it is what a real book
+        // shows there.
         FoundationPageFlipHalfBox(
             half = spec.incomingHalf,
             spec = FoundationPageFlipHalfSpec(0f, 0f),
-            content = incomingContent,
+            content = content,
         )
         if (spec.showOutgoing) {
             FoundationPageFlipHalfBox(spec.outgoingHalf, spec.outgoing, content = content)
