@@ -234,8 +234,8 @@ fun ReaderScreen(
     uiState: ReaderUiState,
     onBack: () -> Unit,
     onToggleControls: () -> Unit,
-    onPreviousPage: () -> Unit,
-    onNextPage: () -> Unit,
+    onPreviousPage: (step: Int) -> Unit,
+    onNextPage: (step: Int) -> Unit,
     onFavoriteToggle: () -> Unit,
     onActionSelected: (ReaderMenuAction) -> Unit,
     onOptionSheetSelected: (ReaderOptionSheet) -> Unit,
@@ -342,8 +342,8 @@ private fun ReaderContent(
     uiState: ReaderUiState,
     onBack: () -> Unit,
     onToggleControls: () -> Unit,
-    onPreviousPage: () -> Unit,
-    onNextPage: () -> Unit,
+    onPreviousPage: (step: Int) -> Unit,
+    onNextPage: (step: Int) -> Unit,
     onFavoriteToggle: () -> Unit,
     onActionSelected: (ReaderMenuAction) -> Unit,
     onOptionSheetSelected: (ReaderOptionSheet) -> Unit,
@@ -450,17 +450,10 @@ private fun ReaderContent(
                     pageMoveRequest = ReaderPageMoveRequest(pageMoveRequestId, movement)
                 }
             }
-            val movePrevious: () -> Unit = {
-                val target = (uiState.pageIndex.current - paneCount).coerceAtLeast(0)
-                if (target != uiState.pageIndex.current) onGoToPage(target)
-            }
-            val moveNext: () -> Unit = {
-                readerNextPage(
-                    currentPage = uiState.pageIndex.current,
-                    totalPages = uiState.pageIndex.total,
-                    paneCount = paneCount,
-                )?.let(onGoToPage)
-            }
+            // Only the step travels; the view model resolves it against the pagination that is
+            // live when the move runs, so a repagination in between cannot misplace the target.
+            val movePrevious: () -> Unit = { onPreviousPage(paneCount) }
+            val moveNext: () -> Unit = { onNextPage(paneCount) }
             val effectiveAutoScrollMode = readerEffectiveAutoScrollMode(
                 mode = uiState.autoScrollConfig.mode,
                 isVisualMode = uiState.isVisualMode,

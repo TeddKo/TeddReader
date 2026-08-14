@@ -202,6 +202,39 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun relativeMovesResolveAgainstTheLivePaginationInsteadOfClampingToTheLastPage() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        advanceUntilIdle()
+        viewModel.moveToPage(6)
+        advanceUntilIdle()
+
+        // A font or line-height change repaginates the document shorter under the reader.
+        viewModel.updateViewportSize(widthPx = 600, heightPx = 900)
+        advanceUntilIdle()
+        val afterRepagination = viewModel.uiState.value.pageIndex
+        assertEquals(PageIndex(current = 3, total = 5), afterRepagination)
+
+        // A two-pane step that overruns the new document is dropped, not clamped onto the last page.
+        viewModel.moveNext(step = 2)
+        advanceUntilIdle()
+        assertEquals(afterRepagination, viewModel.uiState.value.pageIndex)
+
+        viewModel.moveNext(step = 1)
+        advanceUntilIdle()
+        assertEquals(4, viewModel.uiState.value.pageIndex.current)
+
+        viewModel.movePrevious(step = 2)
+        advanceUntilIdle()
+        assertEquals(2, viewModel.uiState.value.pageIndex.current)
+    }
+
+    @Test
     fun favoriteToggleUpdatesReaderAndDocument() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
         val documentRepository = FakeDocumentRepository(documentId)
