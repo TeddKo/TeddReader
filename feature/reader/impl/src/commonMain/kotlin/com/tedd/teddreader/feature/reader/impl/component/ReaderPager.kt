@@ -36,6 +36,8 @@ import com.tedd.teddreader.feature.reader.impl.autoScrollDistancePx
 import com.tedd.teddreader.feature.reader.impl.autoScrollLineDelayMillis
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -250,7 +252,10 @@ private fun ReaderScrollPager(
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(pageKey, anchors) {
-        if (anchors.isEmpty() || listState.isScrollInProgress) return@LaunchedEffect
+        if (anchors.isEmpty()) return@LaunchedEffect
+        // Wait a fling out instead of abandoning the sync. Repagination can land mid-scroll, and
+        // giving up here left the list parked on an item index belonging to the old pagination.
+        snapshotFlow { listState.isScrollInProgress }.first { scrolling -> !scrolling }
         if (listState.firstVisibleItemIndex != currentAnchorIndex) {
             listState.scrollToItem(currentAnchorIndex)
         }
@@ -271,6 +276,10 @@ private fun ReaderScrollPager(
     }
     LaunchedEffect(listState, anchors) {
         snapshotFlow { listState.firstVisibleItemIndex }
+            // The value present when this restarts is the index the previous pagination left
+            // behind; reporting it would resolve an old index against the new anchors and send the
+            // reader to whatever page happens to sit there — page one, in the worst case.
+            .drop(1)
             .distinctUntilChanged()
             .collect { index ->
                 anchors.getOrNull(index)?.let(onPageSelected)

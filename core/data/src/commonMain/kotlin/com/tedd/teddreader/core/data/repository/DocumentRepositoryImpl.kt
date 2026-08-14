@@ -102,10 +102,13 @@ class DocumentRepositoryImpl(
         style: ReaderStyle,
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker?,
-    ): List<PageWindow> {
-        val document = getReaderDocument(documentId) ?: return emptyList()
-        if (document.format.isVisualPageFormat()) return emptyList()
-        return textPageLayoutEngine.paginate(
+        // Laying the document out is the expensive half of pagination. Off the main dispatcher it no
+        // longer stalls the frame the reader is drawing, so a page turn made right after a font or
+        // line-height change still reaches the pager instead of being dropped.
+    ): List<PageWindow> = withContext(Dispatchers.Default) {
+        val document = getReaderDocument(documentId) ?: return@withContext emptyList()
+        if (document.format.isVisualPageFormat()) return@withContext emptyList()
+        textPageLayoutEngine.paginate(
             document = document,
             style = style,
             viewportSize = viewportSize,
