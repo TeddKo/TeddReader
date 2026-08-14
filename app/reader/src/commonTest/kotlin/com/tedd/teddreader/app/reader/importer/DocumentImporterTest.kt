@@ -29,6 +29,30 @@ class DocumentImporterTest {
     }
 
     @Test
+    fun importErrorMessageNamesTheFirstFailureReason() = runTest {
+        val result = importDocuments(listOf("a.txt", "b.txt")) { name ->
+            when (name) {
+                "a.txt" -> throw IllegalArgumentException("Unsupported document format: a.txt")
+                else -> throw IllegalStateException("Cannot open document: b.txt")
+            }
+        }
+
+        assertEquals(2, result.failedCount)
+        assertEquals("Unsupported document format: a.txt", result.firstFailureReason)
+        assertEquals(
+            "2 documents failed to import. Unsupported document format: a.txt",
+            result.toImportErrorMessage(),
+        )
+    }
+
+    @Test
+    fun importErrorMessageFallsBackToTheExceptionTypeWhenThereIsNoMessage() = runTest {
+        val result = importDocuments(listOf("a.txt")) { throw IllegalStateException() }
+
+        assertEquals("IllegalStateException", result.firstFailureReason)
+    }
+
+    @Test
     fun importDocumentsRethrowsCancellationException() = runTest {
         val cancellation = CancellationException("cancel import")
 
