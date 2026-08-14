@@ -331,12 +331,21 @@ class ReaderViewModel(
         _uiState.update { state -> state.copy(brightnessOverlayAlpha = alpha.coerceIn(0f, 0.8f)) }
     }
 
-    fun movePrevious() {
-        moveToPage(_uiState.value.pageIndex.current - 1)
+    // A relative move resolves against the pagination that is current when it runs. Letting the
+    // caller hand over a page index instead lets a font or line-height change repaginate in
+    // between, and moveToPage then clamps that stale index into the new, shorter document — which
+    // lands on the last page instead of the next one.
+    fun movePrevious(step: Int = 1) {
+        val pageIndex = _uiState.value.pageIndex
+        if (pageIndex.total <= 0) return
+        val target = (pageIndex.current - step.coerceAtLeast(1)).coerceAtLeast(0)
+        if (target != pageIndex.current) moveToPage(target)
     }
 
-    fun moveNext() {
-        moveToPage(_uiState.value.pageIndex.current + 1)
+    fun moveNext(step: Int = 1) {
+        val pageIndex = _uiState.value.pageIndex
+        val target = pageIndex.current + step.coerceAtLeast(1)
+        if (target in 0 until pageIndex.total) moveToPage(target)
     }
 
     fun moveToLocation(location: ReaderLocation) {
