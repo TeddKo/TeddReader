@@ -87,6 +87,7 @@ private class FakeDocumentRepository(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
+        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(

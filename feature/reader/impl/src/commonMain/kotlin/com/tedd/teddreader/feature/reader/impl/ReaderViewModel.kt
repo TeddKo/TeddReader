@@ -11,6 +11,7 @@ import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
@@ -55,6 +56,8 @@ class ReaderViewModel(
     // position is tracked as an absolute text offset that survives re-pagination.
     private var anchorOffset: Long? = null
     private var viewportSize: ViewportSize = DefaultViewportSize
+    private var pageBreaker: ReaderPageBreaker? = null
+    private var pageBreakerStyle: ReaderStyle? = null
     private var viewportReloadJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
@@ -88,6 +91,7 @@ class ReaderViewModel(
                         documentId = documentId,
                         style = settings.style,
                         viewportSize = viewportSize,
+                        pageBreaker = pageBreakerFor(settings.style),
                     )
                 }
                 currentPageWindows = pageWindows
@@ -191,6 +195,25 @@ class ReaderViewModel(
             reloadPages(style = _uiState.value.style)
         }
     }
+
+    /**
+     * The rendered text layout that pagination must agree with, together with the style it was
+     * measured for. Pagination waits for a breaker matching the current style, because repaginating
+     * a new font size against the previous measurement is exactly what clips the last line.
+     */
+    fun updatePageBreaker(style: ReaderStyle, breaker: ReaderPageBreaker) {
+        if (pageBreaker === breaker && pageBreakerStyle == style) return
+        pageBreaker = breaker
+        pageBreakerStyle = style
+        viewportReloadJob?.cancel()
+        viewportReloadJob = viewModelScope.launch {
+            reloadPages(style = _uiState.value.style)
+        }
+    }
+
+    /** Only a measurement made for [style] describes the pages that [style] will actually render. */
+    private fun pageBreakerFor(style: ReaderStyle): ReaderPageBreaker? =
+        pageBreaker.takeIf { pageBreakerStyle == style }
 
     fun toggleControls() {
         _uiState.update { state -> state.copy(isControlsVisible = !state.isControlsVisible) }
@@ -517,10 +540,15 @@ class ReaderViewModel(
         val documentId = currentDocumentId ?: return
         if (_uiState.value.isVisualMode) return
 
+        // A measurement for another style would size the pages wrong; the UI reports a matching
+        // breaker moments later and that report drives the reload.
+        if (pageBreaker != null && pageBreakerStyle != style) return
+
         val pageWindows = documentRepository.getPageWindows(
             documentId = documentId,
             style = style,
             viewportSize = viewportSize,
+            pageBreaker = pageBreakerFor(style),
         )
         if (pageWindows.isEmpty()) return
 
