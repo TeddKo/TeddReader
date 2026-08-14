@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.data.pagination
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderLineBreaker
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
@@ -104,41 +105,68 @@ class TextPageLayoutEngineTest {
         val englishPages = paginate(english)
         val koreanPages = paginate(korean)
 
-        // 24 em per line over 5 lines: a wide glyph takes one em, a narrow glyph 0.48 em. The old
+        // 24 em per line over 5 lines: a wide glyph takes one em, a narrow glyph 0.45 em. The old
         // half-em budget would have stopped at 240 narrow glyphs.
-        assertEquals(250, englishPages.first().text.length)
+        assertEquals(265, englishPages.first().text.length)
         assertEquals(120, koreanPages.first().text.length)
         assertEquals(english, englishPages.joinToString(separator = "") { page -> page.text })
         assertEquals(korean, koreanPages.joinToString(separator = "") { page -> page.text })
     }
 
     @Test
-    fun latinPageFillsTheRenderedViewportWithoutOverrunningIt() {
-        val english = "a".repeat(4000)
+    fun estimatedLinesWrapAtSpacesLikeTheRendererDoes() {
+        // "aaaa bbbb cccc ..." at 10 narrow glyphs per line: a renderer breaks after "aaaa bbbb",
+        // never mid-word, so the estimate has to leave the split word for the next line.
+        val text = List(20) { index -> ('a' + index % 26).toString().repeat(4) }.joinToString(" ")
         val document = ReaderDocument(
-            id = DocumentId("txt-latin"),
+            id = DocumentId("txt-wrap"),
             format = DocumentFormat.TXT,
             title = "Book",
             sections = listOf(
-                ReaderSection(0, text = english, range = TextRange(0, english.length.toLong())),
+                ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
             ),
         )
 
-        // Reader pane measured on a foldable spread: 393 sp of text width and 753 sp of height at
-        // 18 sp / 1.45 line height, so the pane renders 28 lines.
         val pages = engine.paginate(
             document = document,
-            style = ReaderStyle(fontSizeSp = 18f, lineHeightMultiplier = 1.45f),
-            viewportSize = ViewportSize(widthPx = 393, heightPx = 753),
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
+            viewportSize = ViewportSize(widthPx = 90, heightPx = 40),
         )
 
-        val linesPerPage = 28
-        val charactersPerLine = pages.first().text.length / linesPerPage
-        assertEquals(45, charactersPerLine)
-        // Sweeping 16 rendered panes on that device: the half-em budget of 43 left 3 lines of the
-        // pane empty, and 48 per line needed 30 rendered lines, pushing the page tail past the clip.
-        assertTrue(charactersPerLine > 43)
-        assertTrue(charactersPerLine < 48)
+        assertEquals("aaaa bbbb ", pages.first().text.take(10))
+        assertTrue(pages.all { page -> page.text.isEmpty() || !page.text.startsWith(" ") })
+        assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
+    fun measuredLineBreaksGiveEveryPageExactlyTheRenderedLineCount() {
+        val text = "abcdefghij".repeat(60)
+        val document = ReaderDocument(
+            id = DocumentId("txt-measured"),
+            format = DocumentFormat.TXT,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
+            ),
+        )
+        // Stands in for the reader's text layout: the renderer breaks every 30 characters.
+        val renderedLineLength = 30
+        val lineBreaker = ReaderLineBreaker { measured ->
+            IntArray((measured.length + renderedLineLength - 1) / renderedLineLength) { line ->
+                line * renderedLineLength
+            }
+        }
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            lineBreaker = lineBreaker,
+        )
+
+        val linesPerPage = 5
+        assertTrue(pages.dropLast(1).all { it.text.length == renderedLineLength * linesPerPage })
+        assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
     @Test
