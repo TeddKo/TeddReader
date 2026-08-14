@@ -27,7 +27,11 @@ class EpubDocumentParser {
         bytes: ByteArray,
     ): ReaderDocument {
         val fileSystem = systemFileSystem()
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "${id.value.replace('/', '_')}.epub"
+        // The id is the document's source URI. Naming the scratch file after it pushed the name past
+        // the 255-byte limit a file system allows for one path component, so importing a folder of
+        // EPUBs failed on every file with ENAMETOOLONG. Keep the id out of the name; the file is
+        // deleted below, so it only has to be unique.
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-epub-${Random.nextLong().toString(16)}.epub"
         val sink = fileSystem.sink(path).buffer()
         try {
             sink.write(bytes)
