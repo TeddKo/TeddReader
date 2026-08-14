@@ -1,31 +1,82 @@
-This is a Kotlin Multiplatform project targeting Android, iOS.
+# TeddReader
 
-* [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+A reader for the documents you already have on your device. Open a TXT, EPUB, PDF, CBZ or a folder
+of images, and it remembers where you stopped. Android and iOS share the same Kotlin and the same
+Compose UI; nothing is uploaded anywhere, and there is no account to create.
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-    folder is the appropriate location.
+## What it does
 
-### Running the apps
+**Library.** Import files from local storage or pick them from Google Drive. Sort by recent, title
+or format, filter by type, and group documents into folders you name yourself. The home screen leads
+with whatever you were last reading.
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
+**Reading.** Pages turn horizontally or vertically, or scroll continuously. On a tablet or an
+unfolded foldable the reader lays out a two-page spread and puts the gutter on the hinge, so the
+text never falls into the fold.
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- iOS app: open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+**Page turns.** Nine of them: none, slide, fade, scroll, fluid pager, curl, circle reveal, movie
+carousel and page flip. Curl and page flip follow your finger and settle where you release; in a
+spread they fold a single leaf on the spine rather than sliding the whole sheet.
 
-### Running tests
+**Comfort.** Font size, line height and family, light/dark/sepia themes, a dimming overlay for
+reading in the dark, and auto-scroll by pixel, line or page. Text is repaginated
+against real measured line boxes, so a larger font or a looser line height reflows instead of
+clipping.
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+**Finding your place.** Bookmarks, in-document search, a page jump, a progress slider, and a
+document info sheet. Reading position is stored per document as a text anchor, so it survives a
+font change that renumbers every page.
 
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- iOS tests: `./gradlew :shared:iosSimulatorArm64Test`
+## Layout of the repository
 
----
+| Path | What lives there |
+| --- | --- |
+| `androidApp/` | Android entry point and manifest |
+| `iosApp/` | Xcode project, SwiftUI entry point, Google Drive picker bridge |
+| `app/reader/` | Application composition: DI graph, navigation host, theme wiring |
+| `core/common/` | Models and pure logic with no platform or framework dependency |
+| `core/domain/` | Repository interfaces and use cases |
+| `core/data/` | Repository implementations, importers, pagination engine |
+| `core/room/`, `core/datastore/` | Room database and DataStore preferences |
+| `core/designsystem/` | Theme, colors, typography, spacing, icons |
+| `core/ui/` | Shared composables used by more than one feature |
+| `feature/<name>/api/` | The public surface a feature exposes to others |
+| `feature/<name>/impl/` | Screens, view models and components of that feature |
+| `build-logic/` | Convention plugins; module build files are one `id(...)` line |
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+Features are split `api` / `impl` so nothing depends on another feature's internals. `home`,
+`reader`, `search`, `bookmarks`, `document-info` and `settings` all follow that shape.
+
+## Building
+
+Gradle needs a JDK 17 or newer to run (the modules themselves target Java 11), plus Android SDK 37
+and Xcode for the iOS side. Put your SDK path in `local.properties` — it is not committed.
+
+```bash
+./gradlew :androidApp:assembleDebug            # Android debug APK
+./gradlew :feature:reader:impl:testAndroidHostTest   # JVM unit tests for one module
+./gradlew :core:data:iosSimulatorArm64Test           # the same tests on the iOS simulator target
+```
+
+For iOS, open `iosApp/iosApp.xcworkspace` in Xcode and run the `iosApp` scheme, or:
+
+```bash
+cd iosApp
+xcodebuild -scheme iosApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+```
+
+Google Drive import needs a client ID per platform. The iOS one goes in
+`iosApp/Configuration/Config.xcconfig`.
+
+## Tests
+
+Common logic is tested with `kotlin.test` in `commonTest` and runs on both the JVM and the iOS
+simulator. Android-only pieces live in `androidHostTest`. The reader carries most of the coverage —
+pagination, page-target math, spread geometry and the page-turn effect math are all pure functions
+on purpose, so they can be tested without a device.
+
+## Stack
+
+Kotlin 2.4 · Compose Multiplatform 1.11 · Material 3 · Koin (annotations) · Room 3 with bundled
+SQLite · DataStore over Okio · Coil 3 · Navigation 3 · kotlinx coroutines, serialization, datetime
+and immutable collections. Android minSdk 24.
