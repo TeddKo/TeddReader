@@ -38,10 +38,11 @@ class TextPageLayoutEngine {
     }
 
     private fun pageLayout(style: ReaderStyle, viewportSize: ViewportSize): PageLayout {
-        val charWidth = style.fontSizeSp.coerceAtLeast(1f)
+        val emWidth = style.fontSizeSp.coerceAtLeast(1f)
         val lineHeight = (style.fontSizeSp * style.lineHeightMultiplier).coerceAtLeast(1f)
         return PageLayout(
-            widthUnitsPerLine = (viewportSize.widthPx * 2f / charWidth).toInt().coerceAtLeast(2),
+            widthUnitsPerLine = (viewportSize.widthPx * WideGlyphUnits / emWidth).toInt()
+                .coerceAtLeast(WideGlyphUnits),
             linesPerPage = (viewportSize.heightPx / lineHeight).toInt().coerceAtLeast(1),
         )
     }
@@ -87,8 +88,7 @@ class TextPageLayoutEngine {
         return ranges
     }
 
-    // ponytail: 2:1 width units; use measured text layout only for font-accurate pagination.
-    private fun Char.widthUnits(): Int = if (isWideGlyph()) 2 else 1
+    private fun Char.widthUnits(): Int = if (isWideGlyph()) WideGlyphUnits else NarrowGlyphUnits
 
     private fun Char.isWideGlyph(): Boolean = this in '\u1100'..'\u11FF' ||
         this in '\u2E80'..'\u303F' ||
@@ -122,3 +122,13 @@ private data class PageLayout(
     val widthUnitsPerLine: Int,
     val linesPerPage: Int,
 )
+
+// Glyph advance in hundredths of an em. A wide (CJK) glyph is exactly one em. A proportional narrow
+// glyph is not half an em: measured on the rendered reader (sans-serif Latin prose, 393 sp pane,
+// 18 sp text) its advance is ~0.45 em, and word wrapping loses a further ~7% of every line because
+// this model packs characters where the renderer must break at spaces. 0.48 em covers both, so a
+// page fills the viewport instead of stopping 3 lines short as the old 0.5 em assumption did.
+// The budget must stay on the low side: overshooting hides the tail of every page behind the clip.
+// ponytail: calibrated constant; only real text measurement gives font-exact fill.
+private const val WideGlyphUnits = 100
+private const val NarrowGlyphUnits = 48

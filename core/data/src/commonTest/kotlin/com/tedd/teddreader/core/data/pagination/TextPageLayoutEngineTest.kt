@@ -82,11 +82,11 @@ class TextPageLayoutEngineTest {
     }
 
     @Test
-    fun narrowGlyphsFitTwiceAsManyCharactersAsWideGlyphs() {
-        val english = "a".repeat(100)
-        val korean = "가".repeat(100)
+    fun narrowGlyphsUseTheProportionalAdvanceInsteadOfHalfAnEm() {
+        val english = "a".repeat(400)
+        val korean = "가".repeat(400)
         val style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f)
-        val viewportSize = ViewportSize(widthPx = 100, heightPx = 100)
+        val viewportSize = ViewportSize(widthPx = 480, heightPx = 100)
 
         fun paginate(text: String) = engine.paginate(
             document = ReaderDocument(
@@ -104,10 +104,41 @@ class TextPageLayoutEngineTest {
         val englishPages = paginate(english)
         val koreanPages = paginate(korean)
 
-        assertEquals(50, englishPages.first().text.length)
-        assertEquals(25, koreanPages.first().text.length)
+        // 24 em per line over 5 lines: a wide glyph takes one em, a narrow glyph 0.48 em. The old
+        // half-em budget would have stopped at 240 narrow glyphs.
+        assertEquals(250, englishPages.first().text.length)
+        assertEquals(120, koreanPages.first().text.length)
         assertEquals(english, englishPages.joinToString(separator = "") { page -> page.text })
         assertEquals(korean, koreanPages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
+    fun latinPageFillsTheRenderedViewportWithoutOverrunningIt() {
+        val english = "a".repeat(4000)
+        val document = ReaderDocument(
+            id = DocumentId("txt-latin"),
+            format = DocumentFormat.TXT,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = english, range = TextRange(0, english.length.toLong())),
+            ),
+        )
+
+        // Reader pane measured on a foldable spread: 393 sp of text width and 753 sp of height at
+        // 18 sp / 1.45 line height, so the pane renders 28 lines.
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 18f, lineHeightMultiplier = 1.45f),
+            viewportSize = ViewportSize(widthPx = 393, heightPx = 753),
+        )
+
+        val linesPerPage = 28
+        val charactersPerLine = pages.first().text.length / linesPerPage
+        assertEquals(45, charactersPerLine)
+        // Sweeping 16 rendered panes on that device: the half-em budget of 43 left 3 lines of the
+        // pane empty, and 48 per line needed 30 rendered lines, pushing the page tail past the clip.
+        assertTrue(charactersPerLine > 43)
+        assertTrue(charactersPerLine < 48)
     }
 
     @Test
