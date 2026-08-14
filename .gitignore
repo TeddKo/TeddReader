@@ -1,24 +1,71 @@
-*.iml
-.kotlin
+# Gradle / Kotlin build output
 .gradle
+.kotlin
 **/build/
-xcuserdata
 !src/**/build/
+
+# Local machine configuration
 local.properties
+*.iml
 .idea
-.DS_Store
-captures
-.externalNativeBuild
-.cxx
+.fleet/
+.vscode/
+
+# Signing material and credentials — never commit these
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+google-services.json
+*.p12
+*.pem
+*.mobileprovision
+.env
+.env.*
+
+# Xcode
+xcuserdata
+*.xcuserstate
+*.xcuserdatad
+DerivedData/
 *.xcodeproj/*
 !*.xcodeproj/project.pbxproj
 !*.xcodeproj/xcshareddata/
 !*.xcodeproj/project.xcworkspace/
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
+.swiftpm/
+Pods/
+*.ipa
+*.dSYM.zip
+*.hmap
+
+# Android tooling leftovers
+captures
+.externalNativeBuild
+.cxx
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.log
+*.hprof
+*.tmp
+tmp/
 node_modules/
 
-# Local agent/cache state
+# Working notes and local tool state — kept on this machine, not in the project
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+DESIGN.md
+docs/
+.claude/
+.codex/
 .codegraph/
+.omc/
 .omx/
+.harness/
 .tokensave/
+.cursor/
+.cursorrules
