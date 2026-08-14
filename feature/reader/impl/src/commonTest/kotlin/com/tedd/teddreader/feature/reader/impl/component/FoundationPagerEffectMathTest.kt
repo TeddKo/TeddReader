@@ -355,9 +355,21 @@ class FoundationPagerEffectMathTest {
 
     @Test
     fun `single pane page flip keeps current sheet above neighbors for whole drag`() {
-        assertEquals(3f, foundationPageFlipZIndex(FoundationPagerPage.Current))
-        assertEquals(2f, foundationPageFlipZIndex(FoundationPagerPage.Previous))
-        assertEquals(2f, foundationPageFlipZIndex(FoundationPagerPage.Next))
+        assertEquals(3f, foundationPageFlipZIndex(FoundationPagerPage.Current, 0f))
+        // Turning back: the previous page is the one arriving, so it has to outrank the next page.
+        assertTrue(
+            foundationPageFlipZIndex(FoundationPagerPage.Previous, 0.6f) >
+                foundationPageFlipZIndex(FoundationPagerPage.Next, -1.4f),
+        )
+        // Turning forward the order flips, and neither neighbour ever reaches the current page.
+        assertTrue(
+            foundationPageFlipZIndex(FoundationPagerPage.Next, -0.6f) >
+                foundationPageFlipZIndex(FoundationPagerPage.Previous, 1.4f),
+        )
+        assertTrue(
+            foundationPageFlipZIndex(FoundationPagerPage.Next, -0.6f) <
+                foundationPageFlipZIndex(FoundationPagerPage.Current, 0f),
+        )
     }
 
     @Test
