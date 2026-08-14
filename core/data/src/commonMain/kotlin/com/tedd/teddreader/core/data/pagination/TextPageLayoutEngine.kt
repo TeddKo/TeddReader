@@ -4,8 +4,8 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
-import com.tedd.teddreader.core.common.model.ReaderLineBreaker
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
@@ -17,18 +17,17 @@ class TextPageLayoutEngine {
         document: ReaderDocument,
         style: ReaderStyle,
         viewportSize: ViewportSize,
-        lineBreaker: ReaderLineBreaker? = null,
+        pageBreaker: ReaderPageBreaker? = null,
     ): List<PageWindow> {
         val fullText = document.sections.joinToString(separator = "\n") { section -> section.text }
         if (fullText.isBlank()) return emptyList()
 
         val layout = pageLayout(style, viewportSize)
-        val measuredLineStarts = lineBreaker?.lineStarts(fullText)?.takeIf { it.isNotEmpty() }
-        val ranges = if (measuredLineStarts != null) {
+        val measuredPageStarts = pageBreaker?.pageStarts(fullText)?.takeIf { it.isNotEmpty() }
+        val ranges = if (measuredPageStarts != null) {
             measuredPageRanges(
-                lineStarts = measuredLineStarts,
+                pageStarts = measuredPageStarts,
                 textLength = fullText.length,
-                linesPerPage = layout.linesPerPage,
             )
         } else {
             splitPageRanges(
@@ -58,20 +57,12 @@ class TextPageLayoutEngine {
         )
     }
 
-    /** Every page takes exactly [linesPerPage] rendered lines, so it fills the viewport. */
-    private fun measuredPageRanges(
-        lineStarts: IntArray,
-        textLength: Int,
-        linesPerPage: Int,
-    ): List<TextRange> = buildList {
-        var line = 0
-        while (line < lineStarts.size) {
-            val nextLine = line + linesPerPage
-            val end = if (nextLine < lineStarts.size) lineStarts[nextLine] else textLength
-            add(TextRange(lineStarts[line].toLong(), end.toLong()))
-            line = nextLine
+    /** The UI measured these boundaries against the real pane, so each page fills it exactly. */
+    private fun measuredPageRanges(pageStarts: IntArray, textLength: Int): List<TextRange> =
+        pageStarts.mapIndexed { index, start ->
+            val end = pageStarts.getOrNull(index + 1) ?: textLength
+            TextRange(start.toLong(), end.toLong())
         }
-    }
 
     private fun splitPageRanges(
         text: String,

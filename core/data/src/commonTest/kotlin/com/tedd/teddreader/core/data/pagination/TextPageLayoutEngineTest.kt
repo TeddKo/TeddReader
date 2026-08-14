@@ -3,8 +3,8 @@ package com.tedd.teddreader.core.data.pagination
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderDocument
-import com.tedd.teddreader.core.common.model.ReaderLineBreaker
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
@@ -139,7 +139,7 @@ class TextPageLayoutEngineTest {
     }
 
     @Test
-    fun measuredLineBreaksGiveEveryPageExactlyTheRenderedLineCount() {
+    fun measuredPageBreaksAreUsedVerbatim() {
         val text = "abcdefghij".repeat(60)
         val document = ReaderDocument(
             id = DocumentId("txt-measured"),
@@ -149,11 +149,11 @@ class TextPageLayoutEngineTest {
                 ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
             ),
         )
-        // Stands in for the reader's text layout: the renderer breaks every 30 characters.
-        val renderedLineLength = 30
-        val lineBreaker = ReaderLineBreaker { measured ->
-            IntArray((measured.length + renderedLineLength - 1) / renderedLineLength) { line ->
-                line * renderedLineLength
+        // Stands in for the reader's own text layout: it reports a page break every 150 characters.
+        val renderedPageLength = 150
+        val pageBreaker = ReaderPageBreaker { measured ->
+            IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
+                page * renderedPageLength
             }
         }
 
@@ -161,12 +161,48 @@ class TextPageLayoutEngineTest {
             document = document,
             style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
             viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
-            lineBreaker = lineBreaker,
+            pageBreaker = pageBreaker,
         )
 
-        val linesPerPage = 5
-        assertTrue(pages.dropLast(1).all { it.text.length == renderedLineLength * linesPerPage })
+        assertTrue(pages.dropLast(1).all { it.text.length == renderedPageLength })
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
+    fun measuredPagesIgnoreTheEstimatedLineCountAcrossFontSizes() {
+        val text = "abcdefghij".repeat(60)
+        val document = ReaderDocument(
+            id = DocumentId("txt-measured-ignores-style"),
+            format = DocumentFormat.TXT,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
+            ),
+        )
+        // A real measurement's page starts do not have to line up with any arithmetic line count;
+        // this one grows farther apart than a real layout would, to prove the estimate is ignored.
+        val renderedPageLength = 137
+        val pageBreaker = ReaderPageBreaker { measured ->
+            IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
+                page * renderedPageLength
+            }
+        }
+        val viewportSize = ViewportSize(widthPx = 100, heightPx = 100)
+
+        fun paginate(style: ReaderStyle) = engine.paginate(
+            document = document,
+            style = style,
+            viewportSize = viewportSize,
+            pageBreaker = pageBreaker,
+        )
+
+        val smallFontPages = paginate(ReaderStyle(fontSizeSp = 8f, lineHeightMultiplier = 1f))
+        val largeFontPages = paginate(ReaderStyle(fontSizeSp = 40f, lineHeightMultiplier = 3f))
+
+        assertEquals(
+            smallFontPages.map { it.textRange },
+            largeFontPages.map { it.textRange },
+        )
     }
 
     @Test
