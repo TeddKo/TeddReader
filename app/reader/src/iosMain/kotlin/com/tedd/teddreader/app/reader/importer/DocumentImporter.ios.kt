@@ -188,6 +188,7 @@ private class IosDocumentImporter(
     private suspend fun importFolders(urls: List<NSURL>): DocumentImportBatchResult {
         val importedDocumentIds = mutableListOf<DocumentId>()
         var failedCount = 0
+        var firstFailureReason: String? = null
 
         urls.forEach { rootUrl ->
             val accessed = rootUrl.startAccessingSecurityScopedResource()
@@ -197,10 +198,12 @@ private class IosDocumentImporter(
                 val result = importDocuments(documentUrls) { url -> importUrl(url, manageSecurityScope = false) }
                 importedDocumentIds += result.importedDocumentIds
                 failedCount += result.failedCount
+                if (firstFailureReason == null) firstFailureReason = result.firstFailureReason
             } catch (cancellationException: CancellationException) {
                 throw cancellationException
-            } catch (_: Throwable) {
+            } catch (throwable: Throwable) {
                 failedCount += 1
+                if (firstFailureReason == null) firstFailureReason = throwable.importFailureReason()
             } finally {
                 if (accessed) rootUrl.stopAccessingSecurityScopedResource()
             }
@@ -209,6 +212,7 @@ private class IosDocumentImporter(
         return DocumentImportBatchResult(
             importedDocumentIds = importedDocumentIds,
             failedCount = failedCount,
+            firstFailureReason = firstFailureReason,
         )
     }
 
