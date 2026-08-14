@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -21,8 +22,37 @@ class EpubDocumentParserTest {
 
         assertEquals(DocumentFormat.EPUB, document.format)
         assertEquals(2, document.sections.size)
-        assertEquals("Intro Hello reader", document.sections.first().text)
+        // The heading is its own block, so it no longer runs into the paragraph that follows it.
+        assertEquals("Intro\n\nHello reader", document.sections.first().text)
         assertEquals("Second & chapter", document.sections[1].text)
+        assertEquals(
+            listOf(ReaderBlockKind.HEADING, ReaderBlockKind.PARAGRAPH, ReaderBlockKind.PARAGRAPH),
+            document.blocks.map { it.kind },
+        )
+    }
+
+    @Test
+    fun blockRangesIndexTheSectionsAsTheyAreJoinedForReading() {
+        val document = parser.parseChapters(
+            id = DocumentId("epub-2"),
+            title = "Book",
+            chapters = listOf(
+                EpubChapter("One", "<p>alpha</p>"),
+                EpubChapter("Two", "<p>beta</p>"),
+            ),
+        )
+
+        val joined = document.sections.joinToString(separator = "\n") { section -> section.text }
+        assertEquals(
+            listOf("alpha", "beta"),
+            document.blocks.map { block -> joined.substring(block.range.start.toInt(), block.range.end.toInt()) },
+        )
+        assertEquals(
+            listOf("alpha", "beta"),
+            document.sections.map { section ->
+                joined.substring(section.range.start.toInt(), section.range.end.toInt())
+            },
+        )
     }
 
     @Test
