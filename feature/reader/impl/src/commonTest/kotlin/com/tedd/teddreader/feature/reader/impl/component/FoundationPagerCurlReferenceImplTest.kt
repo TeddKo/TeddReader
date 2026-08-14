@@ -45,28 +45,57 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     @Test
-    fun spreadPreviousSwipeUsesTheLeftLeafCoordinateSpace() {
-        val previous = foundationReferenceCurlLeafOffset(
-            offset = Offset(120f, 80f),
-            axis = FoundationReferenceCurlAxis.Horizontal,
-            direction = FoundationReferenceCurlDirection.Backward,
-            isSpread = true,
-            forwardLeafOriginX = 500f,
-            backwardLeafScale = 1.5f,
-            leafWidth = 500f,
-        )
-        val next = foundationReferenceCurlLeafOffset(
-            offset = Offset(680f, 80f),
-            axis = FoundationReferenceCurlAxis.Horizontal,
+    fun spreadSwipeSpansTheWholeViewportInBothDirections() {
+        val forward = FoundationReferenceCurlDirection.Forward
+        val backward = FoundationReferenceCurlDirection.Backward
+
+        assertEquals(Offset(SpreadLeafWidth, 80f), spreadLeafOffset(SpreadViewportWidth, forward))
+        assertEquals(Offset(0f, 80f), spreadLeafOffset(0f, forward))
+        assertEquals(Offset(SpreadLeafWidth, 80f), spreadLeafOffset(0f, backward))
+        assertEquals(Offset(0f, 80f), spreadLeafOffset(SpreadViewportWidth, backward))
+    }
+
+    @Test
+    fun spreadFoldProgressMatchesTheSinglePaneCurlAtEveryPointerPosition() {
+        listOf(0f, 250f, 500f, 750f, 1000f).forEach { x ->
+            val singlePane = foundationReferenceCurlLeafOffset(
+                offset = Offset(x, 80f),
+                axis = FoundationReferenceCurlAxis.Horizontal,
+                direction = FoundationReferenceCurlDirection.Forward,
+                isSpread = false,
+                leafScale = 1f,
+                leafWidth = SpreadViewportWidth,
+            ).x / SpreadViewportWidth
+
+            assertEquals(
+                singlePane,
+                spreadLeafOffset(x, FoundationReferenceCurlDirection.Forward).x / SpreadLeafWidth,
+                0.0001f,
+            )
+            assertEquals(
+                1f - singlePane,
+                spreadLeafOffset(x, FoundationReferenceCurlDirection.Backward).x / SpreadLeafWidth,
+                0.0001f,
+            )
+        }
+    }
+
+    @Test
+    fun spreadSwipeCompletesAtTheSameViewportTravelAsTheSinglePaneCurl() {
+        val leafSize = IntSize(SpreadLeafWidth.toInt(), 200)
+        fun succeedsAfterViewportTravel(travel: Float) = foundationReferenceCurlDragSucceeds(
             direction = FoundationReferenceCurlDirection.Forward,
-            isSpread = true,
-            forwardLeafOriginX = 500f,
-            backwardLeafScale = 1.5f,
-            leafWidth = 500f,
+            start = spreadLeafOffset(SpreadViewportWidth, FoundationReferenceCurlDirection.Forward),
+            end = spreadLeafOffset(
+                SpreadViewportWidth - travel,
+                FoundationReferenceCurlDirection.Forward,
+            ),
+            size = leafSize,
+            axis = FoundationReferenceCurlAxis.Horizontal,
         )
 
-        assertEquals(Offset(320f, 80f), previous)
-        assertEquals(Offset(180f, 80f), next)
+        assertFalse(succeedsAfterViewportTravel(SpreadViewportWidth * 0.19f))
+        assertTrue(succeedsAfterViewportTravel(SpreadViewportWidth * 0.21f))
     }
 
     @Test
@@ -256,5 +285,22 @@ class FoundationPagerCurlReferenceImplTest {
         assertNull(
             foundationReferenceCurlTapAction(Offset(90f, 100f), size, FoundationReferenceCurlAxis.Horizontal, true, false),
         )
+    }
+
+    private fun spreadLeafOffset(
+        x: Float,
+        direction: FoundationReferenceCurlDirection,
+    ): Offset = foundationReferenceCurlLeafOffset(
+        offset = Offset(x, 80f),
+        axis = FoundationReferenceCurlAxis.Horizontal,
+        direction = direction,
+        isSpread = true,
+        leafScale = SpreadLeafWidth / SpreadViewportWidth,
+        leafWidth = SpreadLeafWidth,
+    )
+
+    private companion object {
+        const val SpreadViewportWidth = 1000f
+        const val SpreadLeafWidth = 500f
     }
 }

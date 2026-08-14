@@ -120,9 +120,11 @@ internal fun FoundationPagerCurlReferenceImpl(
             paneCount >= 2
         val gutterPx = with(density) { spreadGutter.toPx() }
         val leafSize = foundationReferenceLeafSize(canonicalSize, isSpread, gutterPx, spreadLeftWeight)
-        val leafOriginX = (canonicalSize.width - leafSize.width).toFloat()
-        val backwardLeafScale = if (isSpread) {
-            leafSize.width / ((canonicalSize.width - gutterPx) * spreadLeftWeight).coerceAtLeast(1f)
+        // The leaf is narrower than the viewport, so the pointer travel is scaled into leaf space
+        // instead of translated. That keeps the fold progress per swipe distance identical to the
+        // single pane curl at every pointer position and in both directions.
+        val leafScale = if (isSpread) {
+            leafSize.width / canonicalSize.width.toFloat().coerceAtLeast(1f)
         } else {
             1f
         }
@@ -251,8 +253,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                             axis = axis,
                             canonicalSize = leafSize,
                             isSpread = isSpread,
-                            leafOriginX = leafOriginX,
-                            backwardLeafScale = backwardLeafScale,
+                            leafScale = leafScale,
                             leafWidth = leafSize.width.toFloat(),
                             scope = scope,
                             forwardEdge = forwardEdge,
@@ -485,8 +486,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     axis: FoundationReferenceCurlAxis,
     canonicalSize: IntSize,
     isSpread: Boolean,
-    leafOriginX: Float,
-    backwardLeafScale: Float,
+    leafScale: Float,
     leafWidth: Float,
     scope: CoroutineScope,
     forwardEdge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
@@ -509,7 +509,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 canGoForward = canGoForward,
             )
             startOffset = direction?.let {
-                foundationReferenceCurlLeafOffset(start, axis, it, isSpread, leafOriginX, backwardLeafScale, leafWidth)
+                foundationReferenceCurlLeafOffset(start, axis, it, isSpread, leafScale, leafWidth)
             } ?: Offset.Zero
             config = direction?.let {
                 val geometryDirection = foundationReferenceCurlGeometryDirection(it, isSpread)
@@ -534,8 +534,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                     axis,
                     dragConfig.direction,
                     isSpread,
-                    leafOriginX,
-                    backwardLeafScale,
+                    leafScale,
                     leafWidth,
                 )
                 val flingEnd = decay.calculateTargetValue(
@@ -586,8 +585,7 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 axis,
                 dragConfig.direction,
                 isSpread,
-                leafOriginX,
-                backwardLeafScale,
+                leafScale,
                 leafWidth,
             )
             velocityTracker.addPosition(change.uptimeMillis, current)
@@ -690,21 +688,28 @@ internal fun foundationReferenceCurlDirection(
     else -> null
 }
 
+/**
+ * Maps a pointer position into the coordinate space of the leaf that actually folds.
+ *
+ * A spread scales the full viewport travel onto the narrower leaf rather than translating it, so a
+ * pointer at the viewport start edge always means "fully folded" and the viewport end edge always
+ * means "at rest" — the same normalized progress the single pane curl produces. Translating instead
+ * would pin the whole facing pane to the folded extreme and make the fold jump on drag start.
+ */
 internal fun foundationReferenceCurlLeafOffset(
     offset: Offset,
     axis: FoundationReferenceCurlAxis,
     direction: FoundationReferenceCurlDirection,
     isSpread: Boolean,
-    forwardLeafOriginX: Float,
-    backwardLeafScale: Float,
+    leafScale: Float,
     leafWidth: Float,
 ): Offset {
     val canonical = axis.toCanonical(offset)
     val x = when {
         !isSpread -> canonical.x
-        direction == FoundationReferenceCurlDirection.Forward -> canonical.x - forwardLeafOriginX
-        else -> leafWidth - canonical.x * backwardLeafScale
-    }.let { if (isSpread) it.coerceIn(0f, leafWidth) else it }
+        direction == FoundationReferenceCurlDirection.Forward -> canonical.x * leafScale
+        else -> leafWidth - canonical.x * leafScale
+    }
     return Offset(x, canonical.y)
 }
 
