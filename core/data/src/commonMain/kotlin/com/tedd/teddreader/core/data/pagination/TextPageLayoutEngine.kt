@@ -4,6 +4,7 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderLineBreaker
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
@@ -16,16 +17,26 @@ class TextPageLayoutEngine {
         document: ReaderDocument,
         style: ReaderStyle,
         viewportSize: ViewportSize,
+        lineBreaker: ReaderLineBreaker? = null,
     ): List<PageWindow> {
         val fullText = document.sections.joinToString(separator = "\n") { section -> section.text }
         if (fullText.isBlank()) return emptyList()
 
         val layout = pageLayout(style, viewportSize)
-        val ranges = splitPageRanges(
-            text = fullText,
-            widthUnitsPerLine = layout.widthUnitsPerLine,
-            linesPerPage = layout.linesPerPage,
-        )
+        val measuredLineStarts = lineBreaker?.lineStarts(fullText)?.takeIf { it.isNotEmpty() }
+        val ranges = if (measuredLineStarts != null) {
+            measuredPageRanges(
+                lineStarts = measuredLineStarts,
+                textLength = fullText.length,
+                linesPerPage = layout.linesPerPage,
+            )
+        } else {
+            splitPageRanges(
+                text = fullText,
+                widthUnitsPerLine = layout.widthUnitsPerLine,
+                linesPerPage = layout.linesPerPage,
+            )
+        }
 
         return ranges.mapIndexed { index, range ->
             PageWindow(
@@ -47,6 +58,21 @@ class TextPageLayoutEngine {
         )
     }
 
+    /** Every page takes exactly [linesPerPage] rendered lines, so it fills the viewport. */
+    private fun measuredPageRanges(
+        lineStarts: IntArray,
+        textLength: Int,
+        linesPerPage: Int,
+    ): List<TextRange> = buildList {
+        var line = 0
+        while (line < lineStarts.size) {
+            val nextLine = line + linesPerPage
+            val end = if (nextLine < lineStarts.size) lineStarts[nextLine] else textLength
+            add(TextRange(lineStarts[line].toLong(), end.toLong()))
+            line = nextLine
+        }
+    }
+
     private fun splitPageRanges(
         text: String,
         widthUnitsPerLine: Int,
@@ -60,21 +86,43 @@ class TextPageLayoutEngine {
             var usedWidthUnits = 0
             var end = start
 
+            // Offset just past the last space on the current line, or -1 before the first space.
+            var lastWrapOpportunity = -1
+
             while (index < text.length && usedLines < linesPerPage) {
                 val char = text[index]
                 if (char == '\n') {
                     usedLines += 1
                     usedWidthUnits = 0
+                    lastWrapOpportunity = -1
                     index += 1
                     end = index
                     continue
                 }
 
                 val widthUnits = char.widthUnits()
+                if (char == ' ') {
+                    // A trailing space hangs past the edge instead of wrapping, so it never starts
+                    // a new line; it only records where the next wrap may land.
+                    usedWidthUnits += widthUnits
+                    index += 1
+                    end = index
+                    lastWrapOpportunity = index
+                    continue
+                }
+
                 if (usedWidthUnits + widthUnits > widthUnitsPerLine) {
+                    // Break at the last space so the model wraps where the renderer wraps. Packing
+                    // mid-word instead costs the renderer an extra line per page worth of text.
+                    if (lastWrapOpportunity > start) {
+                        index = lastWrapOpportunity
+                        end = index
+                    }
                     usedLines += 1
                     usedWidthUnits = 0
+                    lastWrapOpportunity = -1
                     if (usedLines >= linesPerPage) break
+                    continue
                 }
                 usedWidthUnits += widthUnits
                 index += 1
@@ -125,10 +173,9 @@ private data class PageLayout(
 
 // Glyph advance in hundredths of an em. A wide (CJK) glyph is exactly one em. A proportional narrow
 // glyph is not half an em: measured on the rendered reader (sans-serif Latin prose, 393 sp pane,
-// 18 sp text) its advance is ~0.45 em, and word wrapping loses a further ~7% of every line because
-// this model packs characters where the renderer must break at spaces. 0.48 em covers both, so a
-// page fills the viewport instead of stopping 3 lines short as the old 0.5 em assumption did.
-// The budget must stay on the low side: overshooting hides the tail of every page behind the clip.
+// 18 sp text) its advance is ~0.44 em. Because the line model now wraps at spaces like the renderer
+// does, this is the plain advance and carries no extra allowance; it stays a shade pessimistic so
+// the model never claims a word fits where the renderer would push it to the next line.
 // ponytail: calibrated constant; only real text measurement gives font-exact fill.
 private const val WideGlyphUnits = 100
-private const val NarrowGlyphUnits = 48
+private const val NarrowGlyphUnits = 45

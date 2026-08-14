@@ -10,6 +10,7 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderLineBreaker
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
@@ -55,6 +56,7 @@ class ReaderViewModel(
     // position is tracked as an absolute text offset that survives re-pagination.
     private var anchorOffset: Long? = null
     private var viewportSize: ViewportSize = DefaultViewportSize
+    private var lineBreaker: ReaderLineBreaker? = null
     private var viewportReloadJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
@@ -88,6 +90,7 @@ class ReaderViewModel(
                         documentId = documentId,
                         style = settings.style,
                         viewportSize = viewportSize,
+                        lineBreaker = lineBreaker,
                     )
                 }
                 currentPageWindows = pageWindows
@@ -186,6 +189,16 @@ class ReaderViewModel(
         val nextViewportSize = ViewportSize(widthPx = widthPx, heightPx = heightPx)
         if (nextViewportSize == viewportSize) return
         viewportSize = nextViewportSize
+        viewportReloadJob?.cancel()
+        viewportReloadJob = viewModelScope.launch {
+            reloadPages(style = _uiState.value.style)
+        }
+    }
+
+    /** The rendered text layout that pagination must agree with; supplied by the reader UI. */
+    fun updateLineBreaker(breaker: ReaderLineBreaker) {
+        if (lineBreaker === breaker) return
+        lineBreaker = breaker
         viewportReloadJob?.cancel()
         viewportReloadJob = viewModelScope.launch {
             reloadPages(style = _uiState.value.style)
@@ -521,6 +534,7 @@ class ReaderViewModel(
             documentId = documentId,
             style = style,
             viewportSize = viewportSize,
+            lineBreaker = lineBreaker,
         )
         if (pageWindows.isEmpty()) return
 
