@@ -51,15 +51,21 @@ Use the Git Flow branch model. In this repository, “Git Flow” means the bran
 
 - `master` is the final, release-ready branch. Never implement work or commit directly on it.
 - `develop` is the integration branch. Create it from `master` once if it does not exist.
-- All task branches start from the latest `develop` and merge back into `develop`.
-- Merge `develop` into `master` only for an explicitly requested final release.
+- All task branches start from the latest `develop` and merge back into `develop` through a pull request on `origin`.
+- `develop` and `master` only ever advance through a merged pull request. Never merge a task branch into `develop` locally, and never push either integration branch directly.
+- Merge `develop` into `master` only for an explicitly requested final release, and only through a pull request.
 - Even `hotfix/*` branches flow through `develop`; this project does not merge hotfixes directly into `master`.
 
 ### Mandatory task lifecycle
 
 Every new coding, documentation, configuration, or maintenance task must use its own branch and worktree.
 
-1. Confirm the main checkout and `develop` are clean and up to date.
+1. Confirm the main checkout and `develop` are clean and up to date:
+   ```bash
+   git fetch origin
+   git switch develop
+   git pull --ff-only
+   ```
 2. Choose one task type and a short lowercase kebab-case slug.
 3. Create the task branch and sibling worktree from `develop`:
    ```bash
@@ -68,18 +74,30 @@ Every new coding, documentation, configuration, or maintenance task must use its
 4. Perform all task edits and verification only inside that worktree.
 5. Review the diff, run the smallest sufficient tests, and create the task commit.
 6. Confirm the task worktree is clean after the commit. Never discard uncommitted work to satisfy cleanup.
-7. Remove the completed task worktree:
+7. Push the task branch to `origin` from inside the worktree:
+   ```bash
+   git push -u origin <type>/<slug>
+   ```
+8. Remove the completed task worktree:
    ```bash
    git worktree remove ../TeddReader-<type>-<slug>
    ```
-8. In a clean integration checkout, merge the branch into `develop` with `--no-ff`, then delete the merged task branch:
+9. Open a pull request into `develop`. The PR title uses the same format as the merge summary, `<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>`, and the PR body carries the same detail as the task commit body:
    ```bash
-   git switch develop
-   git merge --no-ff <type>/<slug> -m "<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>"
-   git branch -d <type>/<slug>
+   gh pr create --base develop --head <type>/<slug> \
+     --title "<commit-type>: <한글 명사형 병합 요약>" --body "<한글 명사형 본문>"
    ```
+   When the `gh` CLI is unavailable, report the compare link instead and let the user open the pull request:
+   `https://github.com/TeddKo/TeddReader/compare/develop...<type>/<slug>?expand=1`
+10. Merge the pull request only after the user approves it. Always use a merge commit; never squash and never rebase-merge. Then delete the branch and sync the local integration checkout:
+    ```bash
+    gh pr merge <number> --merge --delete-branch
+    git switch develop
+    git pull --ff-only
+    git branch -d <type>/<slug>
+    ```
 
-Stop before worktree removal or merge when tests fail, conflicts remain, or the task worktree is dirty. Report the blocker instead of using `--force`, resetting, or deleting user changes.
+Stop before worktree removal, push, pull request creation, or merge when tests fail, conflicts remain, or the task worktree is dirty. Report the blocker instead of using `--force`, resetting, or deleting user changes.
 
 ### Branch and commit types
 
@@ -105,7 +123,7 @@ Do not mix unrelated work types in one branch. Split them into separate task bra
 - Subject must contain all three elements in one phrase: concrete target/scope, principal behavior/structural change, and noun-form result.
 - A noun ending alone is not specific; use `수정/개선/개편/정리/병합` only after explicit target and concrete action.
 - For non-trivial changes, body is required; include concise `-` noun-form bullets for applicable items (주요 구현 내용, 경계/호환 처리, 마이그레이션 처리, 테스트/검증). Trivial single-line changes may omit body only when fully explained by subject.
-- Merge commit message must preserve task detail and keep `<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>`.
+- Merge commit message must preserve task detail and keep `<commit-type>: <변경 대상과 핵심 동작을 담은 구체적 한글 명사형 병합 요약>`. The pull request title supplies that subject, so it follows the same rule.
 - Keep commit bullets noun-form too.
 - Before every non-trivial commit, inspect `git diff --cached --stat`, `git diff --cached`, and `git diff --cached --check`; keep only files matching the commit scope and make subject/body describe every material staged change.
 
