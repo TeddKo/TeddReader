@@ -112,6 +112,12 @@ data class ReaderDocument(
     val title: String,
     val sections: List<ReaderSection>,
     val pageCount: Int? = null,
+    /**
+     * Structure of the joined section text, for a format that carries any. Empty means the text reads
+     * as written, which is the whole story for a plain text file. Ranges address the sections joined
+     * by a single newline, the same text pagination and reading position work on.
+     */
+    val blocks: List<ReaderBlock> = emptyList(),
 ) {
     init {
         require(title.isNotBlank()) { "ReaderDocument title must not be blank." }
