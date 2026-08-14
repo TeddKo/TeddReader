@@ -70,6 +70,7 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.darkReaderStyle
@@ -91,6 +92,7 @@ import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.extension.pxToSp
 import com.tedd.teddreader.core.ui.reader.ReaderOptionPreview
 import com.tedd.teddreader.core.ui.reader.ReaderPageSurface
+import com.tedd.teddreader.core.ui.reader.rememberReaderPageBreaker
 import com.tedd.teddreader.core.ui.reader.ReaderTopControls
 import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -206,6 +208,7 @@ fun ReaderRouteScreen(
         onMoveToLocation = viewModel::moveToLocation,
         onBrightnessOverlayAlphaChange = viewModel::updateBrightnessOverlayAlpha,
         onViewportSizeChanged = viewModel::updateViewportSize,
+        onPageBreakerChanged = viewModel::updatePageBreaker,
         goToPageText = goToPageText,
         onGoToPageTextChange = { value -> goToPageText = value.filter(Char::isDigit).take(6) },
         brightnessDraft = brightnessDraft,
@@ -257,6 +260,7 @@ fun ReaderScreen(
     onMoveToLocation: (ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit = { _, _ -> },
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -314,6 +318,7 @@ fun ReaderScreen(
             onMoveToLocation = onMoveToLocation,
             onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
             onViewportSizeChanged = onViewportSizeChanged,
+            onPageBreakerChanged = onPageBreakerChanged,
             goToPageText = goToPageText,
             onGoToPageTextChange = onGoToPageTextChange,
             brightnessDraft = brightnessDraft,
@@ -365,6 +370,7 @@ private fun ReaderContent(
     onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit,
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -536,6 +542,7 @@ private fun ReaderContent(
                                 uiState = uiState,
                                 page = page,
                                 onViewportSizeChanged = onViewportSizeChanged,
+                                onPageBreakerChanged = onPageBreakerChanged,
                                 reportViewportSize = page == uiState.pageIndex.current,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                 modifier = paneModifier,
@@ -569,6 +576,7 @@ private fun ReaderContent(
                                 uiState = uiState,
                                 page = page,
                                 onViewportSizeChanged = onViewportSizeChanged,
+                                onPageBreakerChanged = onPageBreakerChanged,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                 modifier = contentTransformModifier,
                             )
@@ -582,6 +590,7 @@ private fun ReaderContent(
                                     uiState = uiState,
                                     page = page,
                                     onViewportSizeChanged = onViewportSizeChanged,
+                                    onPageBreakerChanged = onPageBreakerChanged,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                     modifier = Modifier.weight(spreadLeftWeight).fillMaxHeight(),
                                 )
@@ -589,6 +598,7 @@ private fun ReaderContent(
                                     uiState = uiState,
                                     page = page + 1,
                                     onViewportSizeChanged = onViewportSizeChanged,
+                                    onPageBreakerChanged = onPageBreakerChanged,
                                     reportViewportSize = false,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                     modifier = Modifier.weight(1f - spreadLeftWeight).fillMaxHeight(),
@@ -775,6 +785,7 @@ private fun ReaderPagePane(
     uiState: ReaderUiState,
     page: Int,
     onViewportSizeChanged: (Int, Int) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit,
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
     contentPadding: PaddingValues = PaddingValues(
@@ -806,6 +817,16 @@ private fun ReaderPagePane(
         )
 
         else -> {
+            // Size of the drawn text area, so pagination breaks pages exactly where this pane
+            // renders them instead of estimating glyph advances and line counts.
+            var textAreaPx by remember { mutableStateOf(IntSize.Zero) }
+            val pageBreaker = rememberReaderPageBreaker(uiState.style, textAreaPx.width, textAreaPx.height)
+            LaunchedEffect(pageBreaker, reportViewportSize) {
+                if (reportViewportSize && textAreaPx.width > 0 && textAreaPx.height > 0) {
+                    onPageBreakerChanged(uiState.style, pageBreaker)
+                }
+            }
+
             Box(
                 modifier = modifier
                     .fillMaxSize()
@@ -817,6 +838,7 @@ private fun ReaderPagePane(
                             this
                         } else {
                             onSizeChanged { size ->
+                                textAreaPx = size
                                 onViewportSizeChanged(
                                     density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
                                     density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),

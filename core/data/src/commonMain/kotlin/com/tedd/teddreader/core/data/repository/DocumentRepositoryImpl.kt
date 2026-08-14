@@ -5,6 +5,7 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
@@ -100,6 +101,7 @@ class DocumentRepositoryImpl(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
+        pageBreaker: ReaderPageBreaker?,
     ): List<PageWindow> {
         val document = getReaderDocument(documentId) ?: return emptyList()
         if (document.format.isVisualPageFormat()) return emptyList()
@@ -107,6 +109,7 @@ class DocumentRepositoryImpl(
             document = document,
             style = style,
             viewportSize = viewportSize,
+            pageBreaker = pageBreaker,
         )
     }
 

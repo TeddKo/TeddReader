@@ -382,6 +382,7 @@ private class FakeDocumentRepository(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
+        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = if (documentId != this.documentId || format == DocumentFormat.PDF) {
         emptyList()
     } else if (paginatedText != null) {
