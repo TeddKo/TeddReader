@@ -510,7 +510,7 @@ private class FakeDocumentRepository(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
-        lineBreaker: com.tedd.teddreader.core.common.model.ReaderLineBreaker?,
+        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(
@@ -574,7 +574,7 @@ private class SuspendingCoverDocumentRepository : DocumentRepository {
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
-        lineBreaker: com.tedd.teddreader.core.common.model.ReaderLineBreaker?,
+        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(
