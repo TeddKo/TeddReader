@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.TextRange
@@ -17,6 +18,8 @@ import org.koin.core.annotation.Single
 data class EpubChapter(
     val title: String?,
     val xhtml: String,
+    /** Where the chapter sits in the container, so its relative image references can be resolved. */
+    val path: String? = null,
 )
 
 @Single
@@ -62,13 +65,15 @@ class EpubDocumentParser {
                 val item = manifest[idRef]?.takeIf { it.isChapterItem() } ?: return@mapNotNull null
                 val chapterPath = opfPath.parent?.resolve(item.href) ?: item.href.toPath()
                 zip.readUtf8OrNull(chapterPath)?.let { xhtml ->
-                    EpubChapter(title = item.title ?: idRef, xhtml = xhtml)
+                    EpubChapter(title = item.title ?: idRef, xhtml = xhtml, path = chapterPath.toString())
                 }
             }
         } else {
             zip.listRecursively("/".toPath())
                 .filter { path -> path.name.endsWith(".xhtml") || path.name.endsWith(".html") }
-                .mapNotNull { path -> zip.readUtf8OrNull(path)?.let { EpubChapter(path.name, it) } }
+                .mapNotNull { path ->
+                    zip.readUtf8OrNull(path)?.let { EpubChapter(path.name, it, path.toString()) }
+                }
                 .toList()
         }
 
@@ -97,23 +102,34 @@ class EpubDocumentParser {
         chapters: List<EpubChapter>,
     ): ReaderDocument {
         var offset = 0L
-        val sections = chapters.mapIndexed { index, chapter ->
-            val text = chapter.xhtml.toReadableText()
-            val range = TextRange(offset, offset + text.length)
-            offset += text.length
-            ReaderSection(
+        val sections = mutableListOf<ReaderSection>()
+        val blocks = mutableListOf<ReaderBlock>()
+
+        chapters.forEachIndexed { index, chapter ->
+            val content = parseXhtmlContent(
+                xhtml = chapter.xhtml,
+                baseOffset = offset,
+                resolveImageHref = { source -> resolveContainerHref(chapter.path, source) },
+            )
+            sections += ReaderSection(
                 index = index,
                 title = chapter.title ?: "Chapter ${index + 1}",
-                text = text,
-                range = range,
+                text = content.text,
+                range = TextRange(offset, offset + content.text.length),
             )
+            blocks += content.blocks
+            // Sections are read as one document joined by a single newline, so that separator has to
+            // be part of the offsets. Leaving it out drifted every range by one per chapter, which put
+            // reading position and search hits in the wrong chapter deep into a book.
+            offset += content.text.length + SectionSeparatorLength
         }
 
         return ReaderDocument(
             id = id,
             format = DocumentFormat.EPUB,
             title = title,
-            sections = sections,
+            sections = sections.toList(),
+            blocks = blocks.toList(),
         )
     }
 
@@ -242,16 +258,38 @@ private fun parseAttributes(tag: String): Map<String, String> =
         .findAll(tag)
         .associate { match -> match.groupValues[1] to match.groupValues[2] }
 
-private fun String.toReadableText(): String = this
-    .replace(Regex("""(?s)<script\b[^>]*>.*?</script>"""), " ")
-    .replace(Regex("""(?s)<style\b[^>]*>.*?</style>"""), " ")
-    .replace(Regex("""<[^>]+>"""), " ")
-    .replace("&nbsp;", " ")
-    .replace("&amp;", "&")
-    .replace("&lt;", "<")
-    .replace("&gt;", ">")
-    .replace("&quot;", "\"")
-    .replace(Regex("""\s+"""), " ")
-    .trim()
+/** Resolve a chapter-relative reference against the chapter's own place in the container. */
+internal fun resolveContainerHref(chapterPath: String?, source: String): String? {
+    val cleaned = source.substringBefore('#').trim()
+    if (cleaned.isEmpty() || cleaned.startsWith("data:")) return null
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return null
+    val decoded = decodePercentEncoding(cleaned)
+    if (decoded.startsWith("/")) return decoded.removePrefix("/")
+    val parent = chapterPath?.toPath()?.parent ?: return decoded
+    return parent.resolve(decoded).normalized().toString().removePrefix("/")
+}
+
+private fun decodePercentEncoding(value: String): String {
+    if ('%' !in value) return value
+    val bytes = ArrayList<Byte>(value.length)
+    var index = 0
+    while (index < value.length) {
+        val char = value[index]
+        if (char == '%' && index + 2 < value.length) {
+            val code = value.substring(index + 1, index + 3).toIntOrNull(16)
+            if (code != null) {
+                bytes += code.toByte()
+                index += 3
+                continue
+            }
+        }
+        char.toString().encodeToByteArray().forEach { bytes += it }
+        index += 1
+    }
+    return bytes.toByteArray().decodeToString()
+}
+
+/** Sections are joined by a single newline when the document is read as one text. */
+private const val SectionSeparatorLength = 1L
 
 private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
