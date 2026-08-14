@@ -583,10 +583,14 @@ private fun FoundationSpreadPageFlipBox(
     }
     val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
     Box(modifier = modifier) {
+        // The still half is the seat the arriving page lands on, so it has to hold that page. Drawing
+        // the current page here only lines up when turning forward; turning back it put the page
+        // being left behind where the previous page belongs, and that wrong text showed for the
+        // first half of the fold.
         FoundationPageFlipHalfBox(
             half = spec.incomingHalf,
             spec = FoundationPageFlipHalfSpec(0f, 0f),
-            content = content,
+            content = incomingContent,
         )
         if (spec.showOutgoing) {
             FoundationPageFlipHalfBox(spec.outgoingHalf, spec.outgoing, content = content)
