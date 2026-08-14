@@ -73,6 +73,7 @@ import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
+import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -260,7 +261,7 @@ fun ReaderScreen(
     onMoveToLocation: (ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit = { _, _ -> },
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit = { _, _, _ -> },
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -370,7 +371,7 @@ private fun ReaderContent(
     onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
     onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit,
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -778,7 +779,7 @@ private fun ReaderPagePane(
     uiState: ReaderUiState,
     page: Int,
     onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ReaderPageBreaker) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit,
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
     contentPadding: PaddingValues = PaddingValues(
@@ -816,7 +817,11 @@ private fun ReaderPagePane(
             val pageBreaker = rememberReaderPageBreaker(uiState.style, textAreaPx.width, textAreaPx.height)
             LaunchedEffect(pageBreaker, reportViewportSize) {
                 if (reportViewportSize && textAreaPx.width > 0 && textAreaPx.height > 0) {
-                    onPageBreakerChanged(uiState.style, pageBreaker)
+                    onPageBreakerChanged(
+                        uiState.style,
+                        ViewportSize(widthPx = textAreaPx.width, heightPx = textAreaPx.height),
+                        pageBreaker,
+                    )
                 }
             }
 

@@ -58,6 +58,7 @@ class ReaderViewModel(
     private var viewportSize: ViewportSize = DefaultViewportSize
     private var pageBreaker: ReaderPageBreaker? = null
     private var pageBreakerStyle: ReaderStyle? = null
+    private var pageBreakerSize: ViewportSize? = null
     private var viewportReloadJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
@@ -201,10 +202,15 @@ class ReaderViewModel(
      * measured for. Pagination waits for a breaker matching the current style, because repaginating
      * a new font size against the previous measurement is exactly what clips the last line.
      */
-    fun updatePageBreaker(style: ReaderStyle, breaker: ReaderPageBreaker) {
-        if (pageBreaker === breaker && pageBreakerStyle == style) return
+    fun updatePageBreaker(style: ReaderStyle, measuredSize: ViewportSize, breaker: ReaderPageBreaker) {
+        // Compared by what the measurement describes, not by instance. The reporting pane moves to a
+        // different composition slot on every page turn, and a page effect may compose the page
+        // twice while it animates; treating those fresh instances as new measurements repaginated
+        // the whole document on every turn.
+        if (pageBreakerStyle == style && pageBreakerSize == measuredSize) return
         pageBreaker = breaker
         pageBreakerStyle = style
+        pageBreakerSize = measuredSize
         viewportReloadJob?.cancel()
         viewportReloadJob = viewModelScope.launch {
             reloadPages(style = _uiState.value.style)
