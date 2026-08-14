@@ -795,7 +795,7 @@ private fun Modifier.foundationEffectPageModifier(
             .foundationMovieCarouselShadow(axis, page, pageOffset)
 
         PageAnimation.PAGE_FLIP -> cancelTranslation
-            .zIndex(foundationPageFlipZIndex(page))
+            .zIndex(foundationPageFlipZIndex(page, pageOffset))
             .run {
                 if (page == FoundationPagerPage.Current) {
                     foundationPageFlipPageShadow(
@@ -1398,9 +1398,13 @@ private fun foundationMovieZIndex(
     else -> 0f
 }
 
-internal fun foundationPageFlipZIndex(page: FoundationPagerPage): Float = when (page) {
+internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Float): Float = when (page) {
     FoundationPagerPage.Current -> 3f
-    FoundationPagerPage.Previous, FoundationPagerPage.Next -> 2f
+    // Page flip cancels the pager translation, so all three pages sit on the same spot and only the
+    // stack order separates them. Giving both neighbours the same index let composition order decide,
+    // and the neighbour on the far side won: turning back showed the next page through the half the
+    // folding page leaves transparent. Rank them by how near they are to being the page on screen.
+    FoundationPagerPage.Previous, FoundationPagerPage.Next -> 2f - abs(pageOffset).coerceIn(0f, 1f)
 }
 
 internal enum class FoundationPageFlipHalf {
