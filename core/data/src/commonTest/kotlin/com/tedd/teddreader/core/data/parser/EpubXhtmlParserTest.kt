@@ -99,6 +99,14 @@ class EpubXhtmlParserTest {
     }
 
     @Test
+    fun anchorsCaptureNamedIdsAtAbsoluteOffsets() {
+        val content = parseXhtmlContent("""<h1 id="top">Title</h1><p><a id="scene"></a>Body</p>""", baseOffset = 10)
+
+        assertEquals(10L, content.anchors["top"])
+        assertEquals(17L, content.anchors["scene"])
+    }
+
+    @Test
     fun imageBecomesAStandaloneBlockWithAResolvedPath() {
         val content = parseXhtmlContent(
             xhtml = """<p>before</p><img src="../Images/plate.jpg" alt="Plate 1"/><p>after</p>""",
@@ -183,6 +191,14 @@ class EpubXhtmlParserTest {
         )
 
         assertEquals("visible", content.text)
+    }
+
+    @Test
+    fun selfClosingHeadDoesNotDiscardBody() {
+        val content = parseXhtmlContent("<html><head/><body><p>Body</p></body></html>")
+
+        assertEquals("Body", content.text)
+        assertEquals(listOf(ReaderBlockKind.PARAGRAPH), content.blocks.map { it.kind })
     }
 
     @Test

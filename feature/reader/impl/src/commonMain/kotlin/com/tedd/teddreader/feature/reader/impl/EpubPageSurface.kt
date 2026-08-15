@@ -34,6 +34,17 @@ internal fun EpubPageSurface(
     style: com.tedd.teddreader.core.common.model.ReaderStyle,
     modifier: Modifier = Modifier,
 ) {
+    val coverBlock = page.blocks.firstOrNull { it.kind == ReaderBlockKind.COVER_IMAGE }
+    if (coverBlock != null) {
+        EpubImageBox(
+            imageBytes = coverBlock.imageHref?.let(page.embeddedImages::get),
+            label = coverBlock.label,
+            isFailed = coverBlock.imageHref != null && coverBlock.imageHref in page.failedEmbeddedImageHrefs,
+            modifier = modifier,
+        )
+        return
+    }
+
     val semanticText = remember(page.text, page.blocks, page.textRange) {
         buildReaderSemanticText(
             text = page.text,
@@ -71,22 +82,24 @@ private fun EpubInlinePlaceholder(
 ) {
     when (placeholder.kind) {
         ReaderBlockKind.SEPARATOR -> HorizontalDivider(modifier = Modifier.fillMaxSize())
-        ReaderBlockKind.IMAGE -> EpubInlineImage(
-            placeholder = placeholder,
-            imageBytes = imageBytes,
-            isFailed = isFailed,
-        )
+        ReaderBlockKind.IMAGE,
+        ReaderBlockKind.COVER_IMAGE,
+            -> EpubImageBox(
+                imageBytes = imageBytes,
+                label = placeholder.label,
+                isFailed = isFailed,
+            )
         else -> Box(modifier = Modifier.fillMaxSize())
     }
 }
 
 @Composable
-private fun EpubInlineImage(
-    placeholder: ReaderPlaceholder,
+private fun EpubImageBox(
     imageBytes: ByteArray?,
+    label: String?,
     isFailed: Boolean,
+    modifier: Modifier = Modifier,
 ) {
-    val label = placeholder.label
     val platformContext = LocalPlatformContext.current
     val request = remember(imageBytes, platformContext) {
         imageBytes?.let { bytes ->
@@ -98,7 +111,7 @@ private fun EpubInlineImage(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),

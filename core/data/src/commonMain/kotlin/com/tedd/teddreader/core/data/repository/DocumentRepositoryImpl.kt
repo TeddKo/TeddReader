@@ -2,10 +2,11 @@ package com.tedd.teddreader.core.data.repository
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
-import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
+import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
@@ -114,9 +115,10 @@ class DocumentRepositoryImpl(
             repairTxtDocument(metadata)?.let { return it }
         }
         if (
-            metadata.format == DocumentFormat.EPUB &&
-            storedSections.sections.isNotEmpty() &&
-            storedSections.blocks.isEmpty()
+            metadata.format == DocumentFormat.EPUB && (
+                (storedSections.sections.isNotEmpty() && storedSections.blocks.isEmpty()) ||
+                    storedSections.navigationJson.isBlank()
+                )
         ) {
             repairEpubDocument(metadata)?.let { return it }
         }
@@ -228,6 +230,8 @@ class DocumentRepositoryImpl(
                 )
             },
             blocks = entries.flatMap { entry -> decodeBlocks(entry.blocksJson) },
+            title = entries.firstNotNullOfOrNull { it.documentTitle },
+            navigationJson = entries.firstOrNull()?.navigationJson.orEmpty(),
         )
     }
 
@@ -282,6 +286,8 @@ class DocumentRepositoryImpl(
                     section.toSearchIndexEntity(
                         documentId = metadata.id,
                         blocks = document.blocks.blocksIn(section.range.start, section.range.end),
+                        documentTitle = document.title.takeIf { section.index == document.sections.first().index },
+                        navigation = document.navigation.takeIf { section.index == document.sections.first().index },
                         json = json,
                     )
                 },
@@ -292,14 +298,19 @@ class DocumentRepositoryImpl(
     private fun DocumentMetadata.toReaderDocument(document: StoredReaderDocument): ReaderDocument = ReaderDocument(
         id = id,
         format = format,
-        title = location.displayName,
+        title = document.title ?: location.displayName,
         sections = document.sections,
         pageCount = pageCount,
         blocks = document.blocks,
+        navigation = decodeNavigation(document.navigationJson),
     )
 
     private fun decodeBlocks(blocksJson: String): List<ReaderBlock> =
         runCatching { json.decodeFromString<List<ReaderBlock>>(blocksJson) }.getOrDefault(emptyList())
+
+    private fun decodeNavigation(navigationJson: String): ReaderNavigation? =
+        navigationJson.takeIf(String::isNotBlank)
+            ?.let { runCatching { json.decodeFromString<ReaderNavigation>(it) }.getOrNull() }
 }
 
 private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
@@ -309,4 +320,6 @@ private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
 private data class StoredReaderDocument(
     val sections: List<ReaderSection>,
     val blocks: List<ReaderBlock>,
+    val title: String?,
+    val navigationJson: String,
 )

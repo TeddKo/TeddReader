@@ -44,6 +44,7 @@ data class ReaderUiState(
     val pageTurnMode: PageTurnMode = PageTurnMode.HORIZONTAL,
     val pageAnimation: PageAnimation = PageAnimation.SLIDE,
     val autoScrollConfig: AutoScrollConfig = AutoScrollConfig(),
+    val outlineHeading: String? = null,
     val outlineItems: List<ReaderOutlineItem> = emptyList(),
     val brightnessOverlayAlpha: Float = 0f,
     val pdfZoom: Float = 1f,

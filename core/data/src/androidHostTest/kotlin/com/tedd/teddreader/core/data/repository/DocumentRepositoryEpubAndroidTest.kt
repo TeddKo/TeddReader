@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.data.repository
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
@@ -29,6 +30,39 @@ import kotlin.test.assertTrue
 
 class DocumentRepositoryEpubAndroidTest {
     @Test
+    fun parserEpub3NavFragmentMapsToExactSectionOffset() = runTest {
+        val document = EpubDocumentParser().parse(
+            DocumentId("file:///nav.epub"),
+            "fallback.epub",
+            sampleNavFragmentEpubBytes(),
+        )
+
+        assertEquals("Package Title", document.title)
+        assertEquals(ReaderBlockKind.COVER_IMAGE, document.blocks.first().kind)
+        assertEquals("Contents", document.navigation?.heading)
+        assertEquals(listOf("Chapter One", "Scene One"), document.navigation?.items?.map { it.title })
+        assertEquals(listOf(1, 2), document.navigation?.items?.map { it.level })
+        assertEquals(listOf(1, 1), document.navigation?.items?.map { it.spineIndex })
+        assertEquals(listOf(0L, 14L), document.navigation?.items?.map { it.offset })
+    }
+
+    @Test
+    fun parserMalformedNcxCoverTargetRetargetsToFirstBodySection() = runTest {
+        val document = EpubDocumentParser().parse(
+            DocumentId("file:///malformed.epub"),
+            "fallback.epub",
+            sampleMalformedNcxEpubBytes(),
+        )
+
+        assertEquals("Real Title", document.title)
+        assertEquals(ReaderBlockKind.COVER_IMAGE, document.blocks.first().kind)
+        assertEquals(listOf("Start", "Chapter Two", "Cover"), document.navigation?.items?.map { it.title })
+        assertEquals(listOf(2, 3, 0), document.navigation?.items?.map { it.spineIndex })
+        assertEquals("Start", document.sections[2].title)
+        assertEquals("Chapter Two", document.sections[3].title)
+    }
+
+    @Test
     fun getReaderDocumentPreservesStoredEpubBlocks() = runTest {
         val epubBytes = sampleEpubBytes()
         val parser = EpubDocumentParser()
@@ -44,6 +78,8 @@ class DocumentRepositoryEpubAndroidTest {
                     section.toSearchIndexEntity(
                         documentId = document.id,
                         blocks = document.blocks.filter { it.range.start < section.range.end && it.range.end > section.range.start },
+                        documentTitle = document.title.takeIf { section.index == document.sections.first().index },
+                        navigation = document.navigation.takeIf { section.index == document.sections.first().index },
                     )
                 },
             )
@@ -66,7 +102,9 @@ class DocumentRepositoryEpubAndroidTest {
 
         val restored = repository.getReaderDocument(DocumentId(location.sourceUri))
 
+        assertEquals(document.title, restored?.title)
         assertEquals(document.blocks, restored?.blocks)
+        assertEquals(document.navigation, restored?.navigation)
         assertContentEquals(
             byteArrayOf(1, 2, 3, 4),
             repository.getEmbeddedImages(document.id, setOf("OEBPS/images/pic.png"))["OEBPS/images/pic.png"],
@@ -116,7 +154,10 @@ class DocumentRepositoryEpubAndroidTest {
         val restored = repository.getReaderDocument(DocumentId(location.sourceUri))
 
         assertTrue(restored?.blocks?.isNotEmpty() == true)
+        assertEquals("Sample EPUB Title", restored.title)
+        assertTrue(restored.navigation?.items?.isNotEmpty() == true)
         assertTrue(searchIndexDao.entries.all { it.blocksJson != "[]" })
+        assertTrue(searchIndexDao.entries.first().navigationJson.isNotBlank())
     }
 }
 
@@ -156,14 +197,28 @@ private fun sampleEpubBytes(): ByteArray {
         zip.write(
             """
                 <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:title>Sample EPUB Title</dc:title>
+                    <meta name="cover" content="image-1"/>
+                  </metadata>
                   <manifest>
+                    <item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>
                     <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
                     <item id="image-1" href="images/pic.png" media-type="image/png"/>
+                    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
                   </manifest>
                   <spine>
+                    <itemref idref="cover-page"/>
                     <itemref idref="chapter-1"/>
                   </spine>
                 </package>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/cover.xhtml"))
+        zip.write(
+            """
+                <html><body><img src="images/pic.png" alt="Cover art" /></body></html>
             """.trimIndent().encodeToByteArray(),
         )
         zip.closeEntry()
@@ -174,6 +229,18 @@ private fun sampleEpubBytes(): ByteArray {
                   <h2>Heading</h2>
                   <p><strong>Body</strong> text</p>
                   <img src="images/pic.png" alt="Cover art" />
+                </body></html>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/nav.xhtml"))
+        zip.write(
+            """
+                <html><body>
+                  <nav epub:type="toc">
+                    <h2>Contents</h2>
+                    <ol><li><a href="chapter-1.xhtml">Chapter One</a></li></ol>
+                  </nav>
                 </body></html>
             """.trimIndent().encodeToByteArray(),
         )
@@ -226,4 +293,112 @@ private class AndroidFakeSearchIndexDao : SearchIndexDao {
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { it.documentId == documentId }
     }
+}
+
+private fun sampleNavFragmentEpubBytes(): ByteArray {
+    val output = ByteArrayOutputStream()
+    ZipOutputStream(output).use { zip ->
+        zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+        zip.write(
+            """
+                <?xml version="1.0"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+        zip.write(
+            """
+                <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Package Title</dc:title></metadata>
+                  <manifest>
+                    <item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+                    <item id="cover-page" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="chapter-1" href="Text/chapter-1.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="nav" href="Text/nav.xhtml" media-type="application/xhtml+xml" properties="toc nav"/>
+                  </manifest>
+                  <spine>
+                    <itemref idref="cover-page"/>
+                    <itemref idref="chapter-1"/>
+                  </spine>
+                </package>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/Text/cover.xhtml"))
+        zip.write(
+            """<html><body><img src="../images/cover.jpg" alt="Cover"/></body></html>""".encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/Text/chapter-1.xhtml"))
+        zip.write(
+            """<html><body><h1 id="start">Body heading</h1><p><a id="scene1"></a>Scene body.</p></body></html>""".encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/Text/nav.xhtml"))
+        zip.write(
+            """<html><body><nav epub:type="toc landmarks"><h2>Contents</h2><ol><li><a href="chapter-1.xhtml#start">Chapter One</a><ol><li><a href="chapter-1.xhtml#scene1">Scene One</a></li></ol></li></ol></nav></body></html>""".encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/images/cover.jpg"))
+        zip.write(byteArrayOf(1, 2, 3))
+        zip.closeEntry()
+    }
+    return output.toByteArray()
+}
+
+private fun sampleMalformedNcxEpubBytes(): ByteArray {
+    val output = ByteArrayOutputStream()
+    ZipOutputStream(output).use { zip ->
+        zip.putNextEntry(ZipEntry("META-INF/container.xml"))
+        zip.write(
+            """
+                <?xml version="1.0"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+                </container>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
+        zip.write(
+            """
+                <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Real Title</dc:title></metadata>
+                  <manifest>
+                    <item id="cover-image" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+                    <item id="cover-page" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="chapter-1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="chapter-2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="chapter-3" href="Text/ch3.xhtml" media-type="application/xhtml+xml"/>
+                    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+                  </manifest>
+                  <spine toc="ncx">
+                    <itemref idref="cover-page"/>
+                    <itemref idref="chapter-1"/>
+                    <itemref idref="chapter-2"/>
+                    <itemref idref="chapter-3"/>
+                  </spine>
+                </package>
+            """.trimIndent().encodeToByteArray(),
+        )
+        zip.closeEntry()
+        listOf(
+            "OEBPS/Text/cover.xhtml" to """<html><head/><body><img src="../images/cover.jpg" alt="Cover"/></body></html>""",
+            "OEBPS/Text/ch1.xhtml" to """<html><body>   </body></html>""",
+            "OEBPS/Text/ch2.xhtml" to """<html><body><h1>Chapter One</h1><p>Body one.</p></body></html>""",
+            "OEBPS/Text/ch3.xhtml" to """<html><body><h1>Chapter Two</h1><p>Body two.</p></body></html>""",
+            "OEBPS/toc.ncx" to """<ncx><docTitle><text>NCX Guide</text></docTitle><navMap><navPoint id="n1"><navLabel><text>Start</text></navLabel><content src="Text/cover.xhtml"/></navPoint><navPoint id="n2"><navLabel><text>Chapter Two</text></navLabel><content src="Text/ch3.xhtml"/></navPoint><navPoint id="n3"><navLabel><text>Cover</text></navLabel><content src="Text/cover.xhtml"/></navPoint></navMap></ncx>""",
+        ).forEach { (name, content) ->
+            zip.putNextEntry(ZipEntry(name))
+            zip.write(content.encodeToByteArray())
+            zip.closeEntry()
+        }
+        zip.putNextEntry(ZipEntry("OEBPS/images/cover.jpg"))
+        zip.write(byteArrayOf(9))
+        zip.closeEntry()
+    }
+    return output.toByteArray()
 }

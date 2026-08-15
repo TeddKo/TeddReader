@@ -13,10 +13,113 @@ import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TextPageLayoutEngineTest {
     private val engine = TextPageLayoutEngine()
+
+    @Test
+    fun pageBreakerBlockShiftAlsoShiftsInlineSpanRangesAfterCover() {
+        val document = ReaderDocument(
+            id = DocumentId("epub-span-shift"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "plain bold text", range = TextRange(2, 17), title = "Body"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(
+                    kind = ReaderBlockKind.PARAGRAPH,
+                    range = TextRange(2, 17),
+                    spans = listOf(
+                        com.tedd.teddreader.core.common.model.ReaderSpan(
+                            range = TextRange(8, 12),
+                            style = com.tedd.teddreader.core.common.model.ReaderInlineStyle.BOLD,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        var measuredBlocks: List<ReaderBlock> = emptyList()
+        val breaker = ReaderPageBreaker { _, blocks ->
+            measuredBlocks = blocks
+            intArrayOf(0)
+        }
+
+        engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = breaker,
+        )
+
+        assertEquals(TextRange(0, 15), measuredBlocks.single { it.kind == ReaderBlockKind.PARAGRAPH }.range)
+        assertEquals(
+            TextRange(6, 10),
+            measuredBlocks.single { it.kind == ReaderBlockKind.PARAGRAPH }.spans.single().range,
+        )
+    }
+
+    @Test
+    fun coverSectionGetsItsOwnFirstPageWithoutPageBreaker() {
+        val document = ReaderDocument(
+            id = DocumentId("epub-cover"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "Body text", range = TextRange(2, 11), title = "Body"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(2, 11)),
+            ),
+        )
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+        )
+
+        assertEquals(ReaderBlockKind.COVER_IMAGE, pages.first().blocks.single().kind)
+        assertEquals(ReaderLocation.EpubOffset(0, 0), pages.first().location)
+        assertTrue(pages[1].text.startsWith("Body"))
+    }
+
+    @Test
+    fun coverSectionGetsItsOwnFirstPageWithPageBreaker() {
+        val document = ReaderDocument(
+            id = DocumentId("epub-cover-breaker"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "abcdef", range = TextRange(2, 8), title = "Body"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(2, 8)),
+            ),
+            navigation = null,
+        )
+        val breaker = ReaderPageBreaker { measured, _ ->
+            intArrayOf(0, 3)
+        }
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = breaker,
+        )
+
+        assertEquals(listOf(" ", "abc", "def"), pages.map { it.text })
+        assertEquals(ReaderLocation.EpubOffset(1, 0), pages[1].location)
+    }
 
     @Test
     fun paginatesTextByViewportAndStyle() {
@@ -205,6 +308,35 @@ class TextPageLayoutEngineTest {
             smallFontPages.map { it.textRange },
             largeFontPages.map { it.textRange },
         )
+    }
+
+    @Test
+    fun oversizedContentSkipsPageBreakerAndFallsBackToEstimatedRanges() {
+        val text = "a".repeat(200_001)
+        val document = ReaderDocument(
+            id = DocumentId("txt-oversized-measured"),
+            format = DocumentFormat.TXT,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
+            ),
+        )
+        var breakerCalled = false
+        val pageBreaker = ReaderPageBreaker { _, _ ->
+            breakerCalled = true
+            intArrayOf(0)
+        }
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
+            viewportSize = ViewportSize(widthPx = 2_000, heightPx = 2_000),
+            pageBreaker = pageBreaker,
+        )
+
+        assertFalse(breakerCalled)
+        assertTrue(pages.isNotEmpty())
+        assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
     @Test

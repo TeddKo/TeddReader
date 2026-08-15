@@ -10,6 +10,7 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
@@ -129,7 +130,7 @@ class ReaderViewModel(
                 )
                 val outlineItems = buildOutlineItems(
                     format = metadata?.format,
-                    sections = readerDocument?.sections.orEmpty(),
+                    readerDocument = readerDocument,
                     totalPages = totalPages,
                 )
                 val documentPages = documentPages(
@@ -140,7 +141,7 @@ class ReaderViewModel(
                 )
 
                 ReaderUiState(
-                    documentTitle = metadata?.location?.displayName ?: documentId.value,
+                    documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value,
                     documentUri = documentUri,
                     documentFormat = documentFormat,
                     pageText = currentPageUi.text,
@@ -172,6 +173,7 @@ class ReaderViewModel(
                     pageTurnMode = settings.pageTurnMode,
                     pageAnimation = settings.pageAnimation,
                     autoScrollConfig = settings.autoScrollConfig.copy(enabled = false),
+                    outlineHeading = readerDocument?.navigation?.heading,
                     outlineItems = outlineItems,
                     isPdfMode = isPdfMode,
                     isFavorite = metadata?.isBookmarked == true,
@@ -373,7 +375,7 @@ class ReaderViewModel(
 
     private fun buildOutlineItems(
         format: DocumentFormat?,
-        sections: List<ReaderSection>,
+        readerDocument: ReaderDocument?,
         totalPages: Int,
     ): List<ReaderOutlineItem> {
         if (format?.isVisualPageFormat() == true) {
@@ -384,13 +386,25 @@ class ReaderViewModel(
                 )
             }
         }
+        val navigationItems = readerDocument?.navigation?.items.orEmpty()
+        if (format == DocumentFormat.EPUB && navigationItems.isNotEmpty()) {
+            return navigationItems.map { item ->
+                ReaderOutlineItem(
+                    title = item.title,
+                    location = ReaderLocation.EpubOffset(item.spineIndex, item.offset),
+                    level = item.level,
+                )
+            }
+        }
+        val sections = readerDocument?.sections.orEmpty()
         return sections.map { section ->
             ReaderOutlineItem(
                 title = section.title ?: "Section ${section.index + 1}",
                 location = when (format) {
-                    DocumentFormat.EPUB -> ReaderLocation.EpubOffset(section.index, section.range.start)
+                    DocumentFormat.EPUB -> ReaderLocation.EpubOffset(section.index, 0)
                     else -> ReaderLocation.TextOffset(section.range.start)
                 },
+                level = 1,
             )
         }
     }
