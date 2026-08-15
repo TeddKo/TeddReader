@@ -61,7 +61,7 @@ fun buildReaderSemanticText(
     val clampedBlocks = blocks.mapNotNull { block ->
         val start = block.range.start.coerceAtLeast(range.start)
         val end = block.range.end.coerceAtMost(range.end)
-        if (start >= end && block.kind != ReaderBlockKind.IMAGE && block.kind != ReaderBlockKind.SEPARATOR) {
+        if (start >= end && block.kind != ReaderBlockKind.IMAGE && block.kind != ReaderBlockKind.COVER_IMAGE && block.kind != ReaderBlockKind.SEPARATOR) {
             null
         } else {
             val localStart = (start - range.start).toInt().coerceAtLeast(0)
@@ -71,7 +71,7 @@ fun buildReaderSemanticText(
     }
     val blocksByStart = clampedBlocks.groupBy { it.localStart }
     val standaloneByStart = clampedBlocks
-        .filter { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
+        .filter { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.COVER_IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
         .associateBy { it.localStart }
 
     var localIndex = 0
@@ -79,7 +79,7 @@ fun buildReaderSemanticText(
         val sourceAbsolute = absoluteStart + localIndex
         val sourceChar = text[localIndex]
         blocksByStart[localIndex].orEmpty()
-            .filterNot { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
+            .filterNot { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.COVER_IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
             .forEach { block ->
                 val prefix = blockPrefix(block.block).takeIf { block.includesStart }.orEmpty()
                 if (prefix.isNotEmpty()) {
@@ -127,7 +127,7 @@ fun buildReaderSemanticText(
     val paragraphs = mutableListOf<Pair<IntRange, ParagraphStyle>>()
 
     clampedBlocks.forEach { block ->
-        if (block.block.kind == ReaderBlockKind.IMAGE || block.block.kind == ReaderBlockKind.SEPARATOR) return@forEach
+        if (block.block.kind == ReaderBlockKind.IMAGE || block.block.kind == ReaderBlockKind.COVER_IMAGE || block.block.kind == ReaderBlockKind.SEPARATOR) return@forEach
         val blockStart = blockRanges.firstOrNull { it.block == block }?.displayStart ?: sourceToDisplay[block.localStart]
         val blockEnd = sourceToDisplay[block.localEnd]
         if (blockEnd <= blockStart) return@forEach
@@ -242,7 +242,9 @@ private fun inlineSpanStyle(style: ReaderInlineStyle): SpanStyle? = when (style)
 }
 
 private fun placeholderFor(kind: ReaderBlockKind): Placeholder = when (kind) {
-    ReaderBlockKind.IMAGE -> Placeholder(8.em, 6.em, PlaceholderVerticalAlign.Center)
+    ReaderBlockKind.IMAGE,
+    ReaderBlockKind.COVER_IMAGE,
+        -> Placeholder(8.em, 6.em, PlaceholderVerticalAlign.Center)
     ReaderBlockKind.SEPARATOR -> Placeholder(8.em, 1.25.em, PlaceholderVerticalAlign.Center)
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }

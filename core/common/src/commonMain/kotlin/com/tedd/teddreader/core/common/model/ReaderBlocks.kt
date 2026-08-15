@@ -15,6 +15,7 @@ enum class ReaderBlockKind {
     LIST_ITEM,
     PREFORMATTED,
     IMAGE,
+    COVER_IMAGE,
     TABLE_CELL,
     TABLE_HEADER_CELL,
     SEPARATOR,
@@ -69,7 +70,9 @@ data class ReaderBlock(
 ) {
     init {
         require(level >= 0) { "Block level must be positive." }
-        require(kind != ReaderBlockKind.IMAGE || imageHref != null) { "An image block must carry an href." }
+        require(
+            (kind != ReaderBlockKind.IMAGE && kind != ReaderBlockKind.COVER_IMAGE) || imageHref != null,
+        ) { "An image block must carry an href." }
         require(tableRow == null || tableRow >= 0) { "Table row must be positive." }
         require(tableColumn == null || tableColumn >= 0) { "Table column must be positive." }
     }
@@ -80,7 +83,7 @@ fun ReaderBlockKind.isTableCell(): Boolean =
 
 /** True when the block draws something other than text and so carries no readable characters. */
 fun ReaderBlockKind.isStandalone(): Boolean =
-    this == ReaderBlockKind.IMAGE || this == ReaderBlockKind.SEPARATOR
+    this == ReaderBlockKind.IMAGE || this == ReaderBlockKind.COVER_IMAGE || this == ReaderBlockKind.SEPARATOR
 
 /** Blocks that overlap [start, end), so a page can render only the structure it actually shows. */
 fun List<ReaderBlock>.blocksIn(start: Long, end: Long): List<ReaderBlock> = filter { block ->

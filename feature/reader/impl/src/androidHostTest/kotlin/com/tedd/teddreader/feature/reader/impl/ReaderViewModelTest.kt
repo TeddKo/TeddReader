@@ -12,6 +12,9 @@ import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderNavigation
+import com.tedd.teddreader.core.common.model.ReaderNavigationItem
+import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
@@ -216,6 +219,53 @@ class ReaderViewModelTest {
 
         assertEquals(listOf(block), viewModel.uiState.value.currentPage.blocks)
         assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/pic.png"])
+    }
+
+    @Test
+    fun epubDocumentUsesStoredTitleAndNavigationOutline() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-outline")
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Package Title",
+                    sections = listOf(
+                        ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                        ReaderSection(1, text = "Body", range = TextRange(2, 6), title = "Body"),
+                    ),
+                    navigation = ReaderNavigation(
+                        heading = "Contents",
+                        items = listOf(
+                            ReaderNavigationItem(title = "Chapter 1", level = 1, spineIndex = 1, offset = 0),
+                            ReaderNavigationItem(title = "Scene", level = 2, spineIndex = 1, offset = 3),
+                        ),
+                    ),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.EpubOffset(1, 0),
+                        text = "Body",
+                        textRange = TextRange(2, 6),
+                    ),
+                ),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals("Package Title", viewModel.uiState.value.documentTitle)
+        assertEquals("Contents", viewModel.uiState.value.outlineHeading)
+        assertEquals(listOf("Chapter 1", "Scene"), viewModel.uiState.value.outlineItems.map { it.title })
+        assertEquals(listOf(1, 2), viewModel.uiState.value.outlineItems.map { it.level })
+        assertEquals(
+            listOf(ReaderLocation.EpubOffset(1, 0), ReaderLocation.EpubOffset(1, 3)),
+            viewModel.uiState.value.outlineItems.map { it.location },
+        )
     }
 
     @Test

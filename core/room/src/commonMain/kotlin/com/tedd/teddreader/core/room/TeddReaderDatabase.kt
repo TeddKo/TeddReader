@@ -23,7 +23,7 @@ import com.tedd.teddreader.core.room.entity.SearchIndexEntity
         ReadingSessionEntity::class,
         SearchIndexEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 @ConstructedBy(TeddReaderDatabaseConstructor::class)

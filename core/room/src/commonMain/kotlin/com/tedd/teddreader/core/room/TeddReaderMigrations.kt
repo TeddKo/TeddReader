@@ -23,3 +23,12 @@ internal val TeddReaderMigration3To4 = Migration(3, 4) { connection ->
         "ALTER TABLE search_index ADD COLUMN blocksJson TEXT NOT NULL DEFAULT '[]'",
     )
 }
+
+internal val TeddReaderMigration4To5 = Migration(4, 5) { connection ->
+    connection.execSQL(
+        "ALTER TABLE search_index ADD COLUMN documentTitle TEXT",
+    )
+    connection.execSQL(
+        "ALTER TABLE search_index ADD COLUMN navigationJson TEXT NOT NULL DEFAULT ''",
+    )
+}

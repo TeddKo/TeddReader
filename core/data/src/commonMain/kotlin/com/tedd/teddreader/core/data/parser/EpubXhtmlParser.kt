@@ -17,6 +17,7 @@ import com.tedd.teddreader.core.common.model.TextRange
 internal data class XhtmlContent(
     val text: String,
     val blocks: List<ReaderBlock>,
+    val anchors: Map<String, Long> = emptyMap(),
 )
 
 /**
@@ -65,6 +66,7 @@ internal fun parseXhtmlContent(
 
         // Script, style and head hold no readable text; skipping their bodies keeps CSS and code out.
         if (!tag.isClosing && tag.name in SkippedBodyElements) {
+            if (tag.isSelfClosing) continue
             index = xhtml.skipPast(index, "</${tag.name}")
             index = xhtml.indexOf('>', index).let { if (it < 0) xhtml.length else it + 1 }
             continue
@@ -110,6 +112,7 @@ private class XhtmlContentBuilder(
 ) {
     private val text = StringBuilder()
     private val blocks = mutableListOf<ReaderBlock>()
+    private val anchors = linkedMapOf<String, Long>()
 
     private var blockStart = -1
     private var blockKind = ReaderBlockKind.PARAGRAPH
@@ -152,6 +155,7 @@ private class XhtmlContentBuilder(
     }
 
     fun openElement(tag: XhtmlTag) {
+        rememberAnchors(tag.attributes)
         when (tag.name) {
             "br" -> {
                 ensureBlockOpen()
@@ -279,7 +283,15 @@ private class XhtmlContentBuilder(
         while (text.length > minimumLength && text.isNotEmpty() && text.last() == '\n') {
             text.deleteAt(text.length - 1)
         }
-        return XhtmlContent(text = text.toString(), blocks = blocks.toList())
+        return XhtmlContent(text = text.toString(), blocks = blocks.toList(), anchors = anchors.toMap())
+    }
+
+    private fun rememberAnchors(attributes: Map<String, String>) {
+        val absoluteOffset = baseOffset + text.length
+        listOfNotNull(attributes["id"], attributes["name"], attributes["xml:id"])
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .forEach { anchor -> if (anchor !in anchors) anchors[anchor] = absoluteOffset }
     }
 
     private fun ensureBlockOpen() {
@@ -310,7 +322,7 @@ private class XhtmlContentBuilder(
             range = TextRange(baseOffset + start, baseOffset + text.length),
             imageHref = imageHref,
             label = label,
-            align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE },
+            align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE || kind == ReaderBlockKind.COVER_IMAGE },
         )
         text.append('\n')
     }

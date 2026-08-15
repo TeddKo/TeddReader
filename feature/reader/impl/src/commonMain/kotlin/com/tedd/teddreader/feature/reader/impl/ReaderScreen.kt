@@ -1020,7 +1020,10 @@ private fun TableOfContentsSheet(
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TeddOptionGroup(title = null, modifier = modifier) {
+    TeddOptionGroup(
+        title = uiState.outlineHeading?.takeIf { it.isNotBlank() },
+        modifier = modifier,
+    ) {
         if (uiState.outlineItems.isEmpty()) {
             Text(
                 text = stringResource(Res.string.no_table_of_contents),
@@ -1034,7 +1037,7 @@ private fun TableOfContentsSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = DefaultTeddReaderSpacing.medium,
+                            start = DefaultTeddReaderSpacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
                             end = DefaultTeddReaderSpacing.medium,
                             bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else DefaultTeddReaderSpacing.small,
                         ),

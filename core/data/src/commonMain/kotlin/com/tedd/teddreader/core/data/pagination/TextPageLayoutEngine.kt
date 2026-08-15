@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.data.pagination
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
@@ -20,32 +21,89 @@ class TextPageLayoutEngine {
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker? = null,
     ): List<PageWindow> {
+        val coverSection = document.sections.firstOrNull()?.takeIf { section ->
+            document.blocks.any { block ->
+                block.kind == ReaderBlockKind.COVER_IMAGE &&
+                    block.range.start >= section.range.start &&
+                    block.range.end <= (section.range.end.coerceAtLeast(section.range.start + 1))
+            }
+        }
+        val coverPage = coverSection?.let { section ->
+            val coverRange = TextRange(section.range.start, section.range.end.coerceAtLeast(section.range.start + 1))
+            PageWindow(
+                pageIndex = PageIndex(current = 0, total = 1),
+                location = ReaderLocation.EpubOffset(section.index, 0),
+                text = section.text,
+                textRange = coverRange,
+                blocks = document.blocks.blocksIn(coverRange.start, coverRange.end),
+            )
+        }
+
         val fullText = document.sections.joinToString(separator = "\n") { section -> section.text }
-        if (fullText.isBlank()) return emptyList()
+        val contentStart = document.sections.firstOrNull { coverSection == null || it.index != coverSection.index }
+            ?.range
+            ?.start
+            ?.toInt()
+            ?: 0
+        val contentText = if (coverPage != null) {
+            fullText.substring(contentStart.coerceIn(0, fullText.length))
+        } else {
+            fullText
+        }
+        if (contentText.isBlank() && coverPage == null) return emptyList()
 
         val layout = pageLayout(style, viewportSize)
-        val measuredPageStarts = pageBreaker?.pageStarts(fullText, document.blocks)?.takeIf { it.isNotEmpty() }
-        val ranges = if (measuredPageStarts != null) {
+        val contentBlocks = document.blocks.filter { it.range.end > contentStart }.map { block ->
+            block.copy(
+                range = TextRange(
+                    start = (block.range.start - contentStart).coerceAtLeast(0L),
+                    end = (block.range.end - contentStart).coerceAtLeast(0L),
+                ),
+                spans = block.spans.map { span ->
+                    span.copy(
+                        range = TextRange(
+                            start = (span.range.start - contentStart).coerceAtLeast(0L),
+                            end = (span.range.end - contentStart).coerceAtLeast(0L),
+                        ),
+                    )
+                },
+            )
+        }
+        // ponytail: guard whole-document text measurement on giant EPUBs; chunked measurement can replace this once the UI owns it.
+        val measuredPageStarts = pageBreaker
+            ?.takeIf { contentText.length <= MaxMeasuredContentLengthChars }
+            ?.pageStarts(contentText, contentBlocks)
+            ?.takeIf { it.isNotEmpty() }
+        val relativeRanges = if (contentText.isBlank()) {
+            emptyList()
+        } else if (measuredPageStarts != null) {
             measuredPageRanges(
                 pageStarts = measuredPageStarts,
-                textLength = fullText.length,
+                textLength = contentText.length,
             )
         } else {
             splitPageRanges(
-                text = fullText,
+                text = contentText,
                 widthUnitsPerLine = layout.widthUnitsPerLine,
                 linesPerPage = layout.linesPerPage,
             )
         }
-
-        return ranges.mapIndexed { index, range ->
+        val contentRanges = relativeRanges.map { range ->
+            TextRange(range.start + contentStart, range.end + contentStart)
+        }
+        val contentPages = contentRanges.mapIndexed { index, range ->
             PageWindow(
-                pageIndex = PageIndex(current = index, total = ranges.size),
+                pageIndex = PageIndex(current = index, total = contentRanges.size),
                 location = locationFor(document, range.start),
                 text = fullText.substring(range.start.toInt(), range.end.toInt()),
                 textRange = range,
                 blocks = document.blocks.blocksIn(range.start, range.end),
             )
+        }
+
+        val pages = if (coverPage != null) listOf(coverPage) + contentPages else contentPages
+        return pages.mapIndexed { index, page ->
+            page.copy(pageIndex = PageIndex(current = index, total = pages.size))
         }
     }
 
@@ -172,3 +230,5 @@ private data class PageLayout(
 // ponytail: calibrated constant; only real text measurement gives font-exact fill.
 private const val WideGlyphUnits = 100
 private const val NarrowGlyphUnits = 45
+
+private const val MaxMeasuredContentLengthChars = 200_000

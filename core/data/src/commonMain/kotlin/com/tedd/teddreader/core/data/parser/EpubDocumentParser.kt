@@ -3,7 +3,10 @@ package com.tedd.teddreader.core.data.parser
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderNavigation
+import com.tedd.teddreader.core.common.model.ReaderNavigationItem
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.TextRange
 import kotlin.random.Random
@@ -55,29 +58,115 @@ class EpubDocumentParser {
         fileSystem: FileSystem = systemFileSystem(),
     ): ReaderDocument {
         val zip = fileSystem.openZip(path)
-        val opfPath = zip.readUtf8OrNull("META-INF/container.xml".toPath())
-            ?.let(::findRootFilePath)
-
-        val chapters = if (opfPath != null) {
-            val opf = zip.readUtf8OrNull(opfPath) ?: ""
-            val manifest = parseManifest(opf)
-            parseSpine(opf).mapNotNull { idRef ->
-                val item = manifest[idRef]?.takeIf { it.isChapterItem() } ?: return@mapNotNull null
-                val chapterPath = opfPath.parent?.resolve(item.href) ?: item.href.toPath()
-                zip.readUtf8OrNull(chapterPath)?.let { xhtml ->
-                    EpubChapter(title = item.title ?: idRef, xhtml = xhtml, path = chapterPath.toString())
-                }
-            }
-        } else {
-            zip.listRecursively("/".toPath())
-                .filter { path -> path.name.endsWith(".xhtml") || path.name.endsWith(".html") }
-                .mapNotNull { path ->
-                    zip.readUtf8OrNull(path)?.let { EpubChapter(path.name, it, path.toString()) }
+        val opfPath = zip.readUtf8OrNull(ContainerPath.toPath())?.let(::findRootFilePath)
+        if (opfPath == null) {
+            val fallbackChapters = zip.listRecursively("/".toPath())
+                .filter { it.name.endsWith(".xhtml") || it.name.endsWith(".html") }
+                .mapNotNull { candidate ->
+                    zip.readUtf8OrNull(candidate)?.let { xhtml ->
+                        EpubChapter(title = candidate.name, xhtml = xhtml, path = candidate.toString())
+                    }
                 }
                 .toList()
+            return parseChapters(id, title, fallbackChapters)
         }
 
-        return parseChapters(id, title, chapters)
+        val opf = zip.readUtf8OrNull(opfPath).orEmpty()
+        val packageData = parsePackageData(opf = opf, opfPath = opfPath)
+        val documentTitle = packageData.documentTitle ?: title
+        val coverHref = packageData.coverHref
+        val coverBytes = coverHref?.let { zip.readBytesOrNull(it.toPath()) }
+        val parsedNavigation = packageData.navigationItemPath?.let { navPath ->
+            zip.readUtf8OrNull(navPath.toPath())?.let(::parseEpubNavDocument)
+        } ?: packageData.ncxPath?.let { ncxPath ->
+            zip.readUtf8OrNull(ncxPath.toPath())?.let(::parseNcxDocument)
+        } ?: ParsedNavigation()
+
+        val sections = mutableListOf<ReaderSection>()
+        val blocks = mutableListOf<ReaderBlock>()
+        val sectionStartOffsets = linkedMapOf<Int, Long>()
+        val sectionAnchorOffsets = linkedMapOf<Int, Map<String, Long>>()
+        val sectionPathByIndex = linkedMapOf<Int, String>()
+        var nextOffset = 0L
+        var nextIndex = 0
+        var coverSectionIndex: Int? = null
+
+        if (coverHref != null && coverBytes != null) {
+            val coverRange = TextRange(nextOffset, nextOffset + 1)
+            sections += ReaderSection(
+                index = nextIndex,
+                text = " ",
+                range = coverRange,
+                title = documentTitle,
+            )
+            blocks += ReaderBlock(
+                kind = ReaderBlockKind.COVER_IMAGE,
+                range = coverRange,
+                imageHref = coverHref,
+                label = documentTitle,
+            )
+            sectionStartOffsets[nextIndex] = coverRange.start
+            sectionPathByIndex[nextIndex] = coverHref
+            coverSectionIndex = nextIndex
+            nextIndex += 1
+            nextOffset = coverRange.end + SectionSeparatorLength
+        }
+
+        packageData.spineItems.filter { it.linear }.forEachIndexed { spineOrder, spineItem ->
+            val xhtml = zip.readUtf8OrNull(spineItem.path.toPath()) ?: return@forEachIndexed
+            val content = parseXhtmlContent(
+                xhtml = xhtml,
+                baseOffset = nextOffset,
+                resolveImageHref = { source -> resolveContainerHref(spineItem.path, source) },
+            )
+            if (coverHref != null && spineOrder == 0 && isPureCoverXhtml(content, coverHref)) {
+                if (coverSectionIndex != null) sectionPathByIndex[coverSectionIndex] = spineItem.path
+                return@forEachIndexed
+            }
+            val sectionTitle = firstHeadingTitle(content, nextOffset) ?: spineItem.item.title ?: spineItem.item.id
+            val range = TextRange(nextOffset, nextOffset + content.text.length)
+            val sectionIndex = nextIndex
+            sections += ReaderSection(
+                index = sectionIndex,
+                text = content.text,
+                range = range,
+                title = sectionTitle,
+            )
+            blocks += content.blocks
+            sectionStartOffsets[sectionIndex] = range.start
+            sectionAnchorOffsets[sectionIndex] = content.anchors
+            sectionPathByIndex[sectionIndex] = spineItem.path
+            nextIndex += 1
+            nextOffset = range.end + SectionSeparatorLength
+        }
+
+        val firstReadableContentSectionIndex = sections.firstOrNull { section ->
+            section.index != coverSectionIndex && section.text.isNotBlank()
+        }?.index
+        val navigation = resolveNavigation(
+            navigation = parsedNavigation,
+            sectionPathByIndex = sectionPathByIndex,
+            sectionStartOffsets = sectionStartOffsets,
+            sectionAnchorOffsets = sectionAnchorOffsets,
+            coverSpineIndex = coverSectionIndex,
+            firstReadableContentSectionIndex = firstReadableContentSectionIndex,
+            navigationBasePath = packageData.navigationItemPath ?: packageData.ncxPath ?: opfPath.toString(),
+        )
+        val navigationTitlesBySection = navigation.items
+            .filter { it.offset == 0L }
+            .associateBy({ it.spineIndex }, { it.title })
+        val retitledSections = sections.map { section ->
+            section.copy(title = navigationTitlesBySection[section.index] ?: section.title)
+        }
+
+        return ReaderDocument(
+            id = id,
+            format = DocumentFormat.EPUB,
+            title = documentTitle,
+            sections = retitledSections,
+            blocks = blocks,
+            navigation = navigation,
+        )
     }
 
     fun coverImageBytes(bytes: ByteArray): ByteArray? {
@@ -112,7 +201,11 @@ class EpubDocumentParser {
             sink.close()
         }
         return try {
-            extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs, fileSystem = fileSystem)
+            extractEmbeddedImageBytes(
+                path = path,
+                hrefs = normalizedHrefs,
+                fileSystem = fileSystem,
+            )
         } finally {
             fileSystem.delete(path)
         }
@@ -145,41 +238,34 @@ class EpubDocumentParser {
             // reading position and search hits in the wrong chapter deep into a book.
             offset += content.text.length + SectionSeparatorLength
         }
-
         return ReaderDocument(
             id = id,
             format = DocumentFormat.EPUB,
             title = title,
             sections = sections.toList(),
             blocks = blocks.toList(),
+            navigation = ReaderNavigation(),
         )
     }
 
     private fun coverImageBytes(
         path: Path,
-        fileSystem: FileSystem = systemFileSystem(),
+        fileSystem: FileSystem,
     ): ByteArray? {
         val zip = fileSystem.openZip(path)
-        val opfPath = zip.readUtf8OrNull("META-INF/container.xml".toPath())
-            ?.let(::findRootFilePath)
-            ?: return null
+        val opfPath = zip.readUtf8OrNull(ContainerPath.toPath())?.let(::findRootFilePath) ?: return null
         val opf = zip.readUtf8OrNull(opfPath) ?: return null
-        val coverItem = findEpubCoverItem(opf) ?: return null
-        val coverPath = opfPath.parent?.resolve(coverItem.href) ?: coverItem.href.toPath()
-        return zip.readBytesOrNull(coverPath)
+        val coverPath = findEpubCoverHref(opf, opfPath) ?: return null
+        return zip.readBytesOrNull(coverPath.toPath())
     }
 
     private fun extractEmbeddedImageBytes(
         path: Path,
         hrefs: Set<String>,
-        fileSystem: FileSystem = systemFileSystem(),
+        fileSystem: FileSystem,
     ): Map<String, ByteArray> {
         val zip = fileSystem.openZip(path)
-        return hrefs.associateWith { href ->
-            zip.readBytesOrNull(href.toPath())
-        }.mapNotNull { (href, imageBytes) ->
-            imageBytes?.let { href to it }
-        }.toMap()
+        return hrefs.mapNotNull { href -> zip.readBytesOrNull(href.toPath())?.let { href to it } }.toMap()
     }
 }
 
@@ -190,6 +276,17 @@ private data class ManifestItem(
     val mediaType: String?,
     val properties: String?,
 )
+
+private data class SpineItem(val item: ManifestItem, val path: String, val linear: Boolean)
+private data class SpineItemRef(val idref: String, val linear: Boolean)
+private data class PackageData(
+    val documentTitle: String?,
+    val spineItems: List<SpineItem>,
+    val navigationItemPath: String?,
+    val ncxPath: String?,
+    val coverHref: String?,
+)
+private data class ResolvedReference(val path: String, val fragment: String?)
 
 private fun FileSystem.readUtf8OrNull(path: Path): String? =
     runCatching {
@@ -221,14 +318,51 @@ private fun FileSystem.readBytesOrNull(path: Path): ByteArray? {
 }
 
 private fun findRootFilePath(containerXml: String): Path? =
-    Regex("""full-path=["']([^"']+)["']""")
+    Regex("""full-path\s*=\s*["']([^"']+)["']""")
         .find(containerXml)
         ?.groupValues
         ?.get(1)
         ?.toPath()
 
+private fun parsePackageData(opf: String, opfPath: Path): PackageData {
+    val manifest = parseManifest(opf)
+    val spineRefs = parseSpine(opf)
+    val spineItems = spineRefs.mapNotNull { ref ->
+        val item = manifest[ref.idref]?.takeIf { it.isChapterItem() } ?: return@mapNotNull null
+        val path = resolveContainerHref(opfPath.toString(), item.href) ?: return@mapNotNull null
+        SpineItem(item = item, path = path, linear = ref.linear)
+    }
+    val spineTocId = Regex("""<spine\b[^>]*toc\s*=\s*["']([^"']+)["']""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .find(opf)
+        ?.groupValues
+        ?.get(1)
+    val navPath = manifest.values
+        .firstOrNull { navTypeTokens(it.properties).contains("nav") }
+        ?.let { resolveContainerHref(opfPath.toString(), it.href) }
+    val ncxPath = spineTocId?.let { manifest[it] }
+        ?.takeIf { it.mediaType.equals(NcxMediaType, ignoreCase = true) }
+        ?.let { resolveContainerHref(opfPath.toString(), it.href) }
+        ?: manifest.values.firstOrNull { it.mediaType.equals(NcxMediaType, ignoreCase = true) }
+            ?.let { resolveContainerHref(opfPath.toString(), it.href) }
+    return PackageData(
+        documentTitle = parseDcTitle(opf),
+        spineItems = spineItems,
+        navigationItemPath = navPath,
+        ncxPath = ncxPath,
+        coverHref = findEpubCoverHref(opf, opfPath),
+    )
+}
+
+private fun parseDcTitle(opf: String): String? =
+    Regex("""<dc:title\b[^>]*>(.*?)</dc:title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .find(opf)
+        ?.groupValues
+        ?.get(1)
+        ?.let(::stripMarkup)
+        ?.takeIf(String::isNotBlank)
+
 private fun parseManifest(opf: String): Map<String, ManifestItem> =
-    Regex("""<item\b[^>]*>""")
+    Regex("""<item\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -236,37 +370,42 @@ private fun parseManifest(opf: String): Map<String, ManifestItem> =
             val href = attrs["href"] ?: return@mapNotNull null
             id to ManifestItem(
                 id = id,
-                href = href,
-                title = attrs["title"],
+                href = decodeXmlEntities(href),
+                title = attrs["title"]?.let(::decodeXmlEntities),
                 mediaType = attrs["media-type"],
                 properties = attrs["properties"],
             )
         }
         .toMap()
 
-private fun parseSpine(opf: String): List<String> =
-    Regex("""<itemref\b[^>]*>""")
-        .findAll(opf)
-        .mapNotNull { match -> parseAttributes(match.value)["idref"] }
-        .toList()
-
-internal fun findEpubCoverHref(opf: String): String? = findEpubCoverItem(opf)?.href
-
-private fun findEpubCoverItem(opf: String): ManifestItem? {
-    val manifest = parseManifest(opf)
-    manifest.values.firstOrNull { it.isCoverImageProperty() && it.isRasterImage() }?.let { return it }
-    findCoverMetaId(opf)?.let { coverId ->
-        manifest[coverId]?.takeIf { it.isRasterImage() }?.let { return it }
-    }
-    return manifest.values.firstOrNull { it.isRasterImage() && it.hasCoverHint() }
-}
-
-private fun findCoverMetaId(opf: String): String? =
-    Regex("""<meta\b[^>]*>""")
+private fun parseSpine(opf: String): List<SpineItemRef> =
+    Regex("""<itemref\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
-            if (attrs["name"] == "cover") attrs["content"] else null
+            val idref = attrs["idref"] ?: return@mapNotNull null
+            SpineItemRef(idref = idref, linear = !attrs["linear"].equals("no", ignoreCase = true))
+        }
+        .toList()
+
+internal fun findEpubCoverHref(opf: String, opfPath: Path? = null): String? =
+    findEpubCoverItem(opf, opfPath)
+
+private fun findEpubCoverItem(opf: String, opfPath: Path? = null): String? {
+    val manifest = parseManifest(opf)
+    val raw = manifest.values.firstOrNull { it.isCoverImageProperty() && it.isRasterImage() }
+        ?: findCoverMetaId(opf)?.let { manifest[it] }?.takeIf { it.isRasterImage() }
+        ?: manifest.values.firstOrNull { it.isRasterImage() && it.hasCoverHint() }
+        ?: return null
+    return opfPath?.let { resolveContainerHref(it.toString(), raw.href) } ?: raw.href
+}
+
+private fun findCoverMetaId(opf: String): String? =
+    Regex("""<meta\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .findAll(opf)
+        .mapNotNull { match ->
+            val attrs = parseAttributes(match.value)
+            attrs["content"]?.takeIf { attrs["name"]?.equals("cover", ignoreCase = true) == true }
         }
         .firstOrNull()
 
@@ -285,23 +424,37 @@ private fun ManifestItem.isChapterItem(): Boolean {
 private fun ManifestItem.hasCoverHint(): Boolean =
     id.contains("cover", ignoreCase = true) || href.contains("cover", ignoreCase = true)
 
-private fun ManifestItem.isCoverImageProperty(): Boolean =
-    properties?.split(Regex("""\s+"""))?.contains("cover-image") == true
+private fun ManifestItem.isCoverImageProperty(): Boolean = navTypeTokens(properties).contains("cover-image")
 
-private fun parseAttributes(tag: String): Map<String, String> =
-    Regex("""([\w:-]+)=["']([^"']*)["']""")
+internal fun parseAttributes(tag: String): Map<String, String> =
+    Regex("""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
         .findAll(tag)
-        .associate { match -> match.groupValues[1] to match.groupValues[2] }
+        .associate { match ->
+            match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
+        }
 
 /** Resolve a chapter-relative reference against the chapter's own place in the container. */
 internal fun resolveContainerHref(chapterPath: String?, source: String): String? {
-    val cleaned = source.substringBefore('#').trim()
-    if (cleaned.isEmpty() || cleaned.startsWith("data:")) return null
-    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return null
-    val decoded = decodePercentEncoding(cleaned)
-    if (decoded.startsWith("/")) return decoded.removePrefix("/")
-    val parent = chapterPath?.toPath()?.parent ?: return decoded
-    return parent.resolve(decoded).normalized().toString().removePrefix("/")
+    val decodedSource = decodePercentEncoding(decodeXmlEntities(source.trim()))
+    if (decodedSource.isEmpty() || decodedSource.startsWith("data:")) return null
+    if (decodedSource.startsWith("http://") || decodedSource.startsWith("https://")) return null
+    val cleaned = decodedSource.substringBefore('#')
+    if (cleaned.isEmpty()) return null
+    if (cleaned.startsWith("/")) return cleaned.removePrefix("/")
+    val parent = chapterPath?.toPath()?.parent ?: return cleaned
+    return parent.resolve(cleaned).normalized().toString().removePrefix("/")
+}
+
+private fun resolveContainerReference(basePath: String?, source: String): ResolvedReference? {
+    val decodedSource = decodePercentEncoding(decodeXmlEntities(source.trim()))
+    if (decodedSource.isEmpty()) return null
+    val fragment = decodedSource.substringAfter('#', missingDelimiterValue = "").takeIf(String::isNotEmpty)
+    val pathSource = decodedSource.substringBefore('#')
+    val resolvedPath = when {
+        pathSource.isEmpty() -> basePath?.removePrefix("/")
+        else -> resolveContainerHref(basePath, decodedSource)
+    } ?: return null
+    return ResolvedReference(path = resolvedPath, fragment = fragment)
 }
 
 private fun decodePercentEncoding(value: String): String {
@@ -324,7 +477,79 @@ private fun decodePercentEncoding(value: String): String {
     return bytes.toByteArray().decodeToString()
 }
 
+private fun isPureCoverXhtml(
+    content: XhtmlContent,
+    coverHref: String,
+): Boolean {
+    if (content.text.isNotBlank()) return false
+    val imageBlocks = content.blocks.filter { it.kind == ReaderBlockKind.IMAGE }
+    return imageBlocks.isNotEmpty() && content.blocks.all { it.kind == ReaderBlockKind.IMAGE } && imageBlocks.all { it.imageHref == coverHref }
+}
+
+private fun firstHeadingTitle(
+    content: XhtmlContent,
+    baseOffset: Long,
+): String? =
+    content.blocks.firstOrNull { it.kind == ReaderBlockKind.HEADING }?.let { block ->
+        val start = (block.range.start - baseOffset).toInt().coerceAtLeast(0)
+        val end = (block.range.end - baseOffset).toInt().coerceAtMost(content.text.length)
+        if (end <= start) null else content.text.substring(start, end).trim().takeIf(String::isNotBlank)
+    }
+
+private fun resolveNavigation(
+    navigation: ParsedNavigation,
+    sectionPathByIndex: Map<Int, String>,
+    sectionStartOffsets: Map<Int, Long>,
+    sectionAnchorOffsets: Map<Int, Map<String, Long>>,
+    coverSpineIndex: Int?,
+    firstReadableContentSectionIndex: Int?,
+    navigationBasePath: String,
+): ReaderNavigation {
+    val sectionByPath = sectionPathByIndex.entries.associateBy({ it.value }, { it.key })
+    val firstContentSection = firstReadableContentSectionIndex
+        ?: sectionPathByIndex.keys.firstOrNull { it != coverSpineIndex }
+        ?: 0
+    val items = navigation.entries.mapNotNull { entry ->
+        val resolved = resolveContainerReference(navigationBasePath, entry.href) ?: return@mapNotNull null
+        val matchingSection = sectionByPath[resolved.path]
+            ?: sectionByPath.entries.firstOrNull { (path, _) -> path.endsWith(resolved.path) }?.value
+            ?: return@mapNotNull null
+        val spineIndex = if (coverSpineIndex != null && matchingSection == coverSpineIndex && !entry.title.isVisibleCoverLabel()) {
+            firstContentSection
+        } else {
+            matchingSection
+        }
+        val offset = resolved.fragment?.let { fragment ->
+            sectionAnchorOffsets[spineIndex]?.get(fragment)?.let { anchorAbsolute ->
+                (anchorAbsolute - (sectionStartOffsets[spineIndex] ?: 0L)).coerceAtLeast(0L)
+            }
+        } ?: 0L
+        ReaderNavigationItem(
+            title = entry.title.trim(),
+            level = entry.level.coerceAtLeast(1),
+            spineIndex = spineIndex,
+            offset = offset,
+        )
+    }
+    return ReaderNavigation(heading = navigation.heading, items = items)
+}
+
+private fun String.isVisibleCoverLabel(): Boolean {
+    val normalized = lowercase().replace(Regex("""\s+"""), "")
+    return normalized == "cover" || normalized == "표지"
+}
+
+private fun navTypeTokens(value: String?): Set<String> =
+    value.orEmpty()
+        .let(::decodeXmlEntities)
+        .split(Regex("""\s+"""))
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .map(String::lowercase)
+        .toSet()
+
 /** Sections are joined by a single newline when the document is read as one text. */
 private const val SectionSeparatorLength = 1L
-
 private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
+private const val ContainerPath = "META-INF/container.xml"
+private const val NcxMediaType = "application/x-dtbncx+xml"
