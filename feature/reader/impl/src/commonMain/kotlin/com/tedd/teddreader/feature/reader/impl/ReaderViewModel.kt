@@ -61,6 +61,7 @@ class ReaderViewModel(
     private var pageBreakerStyle: ReaderStyle? = null
     private var pageBreakerSize: ViewportSize? = null
     private var viewportReloadJob: Job? = null
+    private var openDocumentJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
     private var visualPageLoadJob: Job? = null
@@ -74,20 +75,27 @@ class ReaderViewModel(
         val documentId = DocumentId(documentIdValue)
         if (currentDocumentId == documentId) return
         currentDocumentId = documentId
+        openDocumentJob?.cancel()
+        viewportReloadJob?.cancel()
         visualPageLoadJob?.cancel()
         embeddedImageLoadJob?.cancel()
+        currentPageWindows = emptyList()
+        currentSections = emptyList()
+        anchorOffset = null
         visualPageCache.clear()
         failedVisualPages.clear()
         embeddedImageCache.clear()
         failedEmbeddedImageHrefs.clear()
+        _uiState.value = ReaderUiState(documentTitle = documentId.value)
         observeSavedPlaces(documentId)
 
-        viewModelScope.launch {
-            runCatching {
+        openDocumentJob = viewModelScope.launch {
+            try {
                 val metadata = documentRepository.getDocument(documentId)
                 val readerDocument = documentRepository.getReaderDocument(documentId)
                 val progress = restoreReadingProgress(documentId)
                 val settings = readerSettingsRepository.settings.first()
+                if (currentDocumentId != documentId) return@launch
                 val documentFormat = metadata?.format ?: DocumentFormat.UNKNOWN
                 val isPdfMode = documentFormat == DocumentFormat.PDF
                 val isVisualMode = documentFormat.isVisualPageFormat()
@@ -102,12 +110,14 @@ class ReaderViewModel(
                         pageBreaker = pageBreakerFor(settings.style),
                     )
                 }
+                if (currentDocumentId != documentId) return@launch
                 currentPageWindows = pageWindows
                 currentSections = readerDocument?.sections.orEmpty()
                 documentRepository.markDocumentOpened(
                     documentId = documentId,
                     openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
                 )
+                if (currentDocumentId != documentId) return@launch
 
                 val metadataPageCount = metadata?.pageCount
                 val totalPages = when {
@@ -140,7 +150,7 @@ class ReaderViewModel(
                     pageWindows = pageWindows,
                 )
 
-                ReaderUiState(
+                val state = ReaderUiState(
                     documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value,
                     documentUri = documentUri,
                     documentFormat = documentFormat,
@@ -181,11 +191,14 @@ class ReaderViewModel(
                     isControlsVisible = true,
                     isLoading = false,
                 )
-            }.onSuccess { state ->
+                if (currentDocumentId != documentId) return@launch
                 _uiState.value = state
                 if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.pageIndex.current)
                 if (state.documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(state.pageIndex.current)
-            }.onFailure { throwable ->
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (throwable: Throwable) {
+                if (currentDocumentId != documentId) return@launch
                 _uiState.value = ReaderUiState(
                     documentTitle = documentId.value,
                     isLoading = false,

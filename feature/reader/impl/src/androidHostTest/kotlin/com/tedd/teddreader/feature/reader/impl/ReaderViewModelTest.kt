@@ -105,6 +105,25 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun openingAnotherDocumentImmediatelyClearsPreviousReaderContent() = runTest(dispatcher) {
+        val viewModel = createViewModel(FakeDocumentRepository(DocumentId("doc-1")))
+
+        viewModel.openDocument("doc-1")
+        advanceUntilIdle()
+        assertEquals("First stored page", viewModel.uiState.value.pageText)
+        assertTrue(viewModel.uiState.value.currentPage.text.isNotEmpty())
+
+        viewModel.openDocument("doc-2")
+
+        assertTrue(viewModel.uiState.value.isLoading)
+        assertEquals("", viewModel.uiState.value.pageText)
+        assertEquals("", viewModel.uiState.value.currentPage.text)
+        assertTrue(viewModel.uiState.value.pageSlots.isEmpty())
+        assertTrue(viewModel.uiState.value.documentPages.isEmpty())
+        assertTrue(viewModel.uiState.value.outlineItems.isEmpty())
+    }
+
+    @Test
     fun openDocumentRestoresSavedOffsetAfterViewportPagination() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
         val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
