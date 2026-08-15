@@ -40,7 +40,7 @@ class GoogleDrivePickerImportTest {
     }
 
     @Test
-    fun driveFileMetadataSupportRequiresDownloadableTxtPdfOrEpub() {
+    fun driveFileMetadataSupportRequiresCanonicalSupportedFormats() {
         assertTrue(
             GoogleDriveFileMetadata(
                 id = "txt-by-mime",
@@ -64,6 +64,24 @@ class GoogleDrivePickerImportTest {
                 id = "epub-by-extension",
                 name = "novel.epub",
                 mimeType = null,
+                sizeBytes = 3L,
+                canDownload = true,
+            ).isImportSupported(),
+        )
+        assertTrue(
+            GoogleDriveFileMetadata(
+                id = "cbz-by-mime",
+                name = "comic.cbz",
+                mimeType = "application/vnd.comicbook+zip",
+                sizeBytes = 3L,
+                canDownload = true,
+            ).isImportSupported(),
+        )
+        assertTrue(
+            GoogleDriveFileMetadata(
+                id = "image-by-mime",
+                name = "cover.webp",
+                mimeType = "image/webp",
                 sizeBytes = 3L,
                 canDownload = true,
             ).isImportSupported(),

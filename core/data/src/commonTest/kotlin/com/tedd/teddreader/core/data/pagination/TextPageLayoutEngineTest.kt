@@ -2,6 +2,8 @@ package com.tedd.teddreader.core.data.pagination
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
@@ -151,7 +153,7 @@ class TextPageLayoutEngineTest {
         )
         // Stands in for the reader's own text layout: it reports a page break every 150 characters.
         val renderedPageLength = 150
-        val pageBreaker = ReaderPageBreaker { measured ->
+        val pageBreaker = ReaderPageBreaker { measured, _ ->
             IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
                 page * renderedPageLength
             }
@@ -182,7 +184,7 @@ class TextPageLayoutEngineTest {
         // A real measurement's page starts do not have to line up with any arithmetic line count;
         // this one grows farther apart than a real layout would, to prove the estimate is ignored.
         val renderedPageLength = 137
-        val pageBreaker = ReaderPageBreaker { measured ->
+        val pageBreaker = ReaderPageBreaker { measured, _ ->
             IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
                 page * renderedPageLength
             }
@@ -225,6 +227,42 @@ class TextPageLayoutEngineTest {
 
         assertTrue(pages.first().text.lines().count { line -> line.isNotEmpty() } <= 5)
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
+    fun pageWindowsKeepOnlyIntersectingBlocks() {
+        val text = "abcdefghij"
+        val blocks = listOf(
+            ReaderBlock(
+                kind = ReaderBlockKind.HEADING,
+                range = TextRange(0, 4),
+            ),
+            ReaderBlock(
+                kind = ReaderBlockKind.QUOTE,
+                range = TextRange(4, 8),
+            ),
+            ReaderBlock(
+                kind = ReaderBlockKind.SEPARATOR,
+                range = TextRange(8, 9),
+            ),
+        )
+        val document = ReaderDocument(
+            id = DocumentId("epub-blocks"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(ReaderSection(0, text = text, range = TextRange(0, text.length.toLong()))),
+            blocks = blocks,
+        )
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = ReaderPageBreaker { _, _ -> intArrayOf(0, 5) },
+        )
+
+        assertEquals(listOf(blocks[0], blocks[1]), pages[0].blocks)
+        assertEquals(listOf(blocks[1], blocks[2]), pages[1].blocks)
     }
 
 }

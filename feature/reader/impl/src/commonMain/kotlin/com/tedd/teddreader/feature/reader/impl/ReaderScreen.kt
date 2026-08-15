@@ -845,12 +845,20 @@ private fun ReaderPagePane(
                         }
                     },
             ) {
-                ReaderPageSurface(
-                    text = uiState.pageTextFor(page),
-                    style = uiState.style,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(0.dp),
-                )
+                if (uiState.documentFormat == DocumentFormat.EPUB) {
+                    EpubPageSurface(
+                        page = uiState.pageSlot(page) ?: ReaderPageUi(page = page),
+                        style = uiState.style,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    ReaderPageSurface(
+                        text = uiState.pageTextFor(page),
+                        style = uiState.style,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(0.dp),
+                    )
+                }
             }
         }
     }

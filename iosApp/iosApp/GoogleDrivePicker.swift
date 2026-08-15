@@ -63,7 +63,7 @@ final class GoogleDrivePickerBridgeImpl: NSObject, GoogleDrivePickerBridge {
                 "prompt": "consent",
                 "trigger_onepick": "true",
                 "allow_multiple": "true",
-                "mimetypes": "text/plain,application/pdf,application/epub+zip",
+                "mimetypes": "text/plain,application/pdf,application/epub,application/epub+zip,application/vnd.comicbook+zip,application/x-cbz,application/zip,image/jpeg,image/png,image/webp,image/gif,image/bmp",
             ]
         )
 

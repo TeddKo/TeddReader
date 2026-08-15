@@ -9,5 +9,5 @@ fun createTeddReaderDatabaseBuilder(): RoomDatabase.Builder<TeddReaderDatabase> 
     Room.databaseBuilder<TeddReaderDatabase>(
         name = "${NSHomeDirectory()}/Documents/$TeddReaderDatabaseName",
     )
-        .addMigrations(TeddReaderMigration1To2, TeddReaderMigration2To3)
+        .addMigrations(TeddReaderMigration1To2, TeddReaderMigration2To3, TeddReaderMigration3To4)
         .setDriver(BundledSQLiteDriver())

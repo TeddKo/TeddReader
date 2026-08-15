@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.data.repository
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
@@ -10,6 +11,7 @@ import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.blocksIn
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.data.mapper.toDocumentEntity
 import com.tedd.teddreader.core.data.mapper.toDocumentMetadata
@@ -31,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import org.koin.core.annotation.Single
 
 @Single([DocumentRepository::class])
@@ -46,6 +49,8 @@ class DocumentRepositoryImpl(
     private val textPageLayoutEngine: TextPageLayoutEngine,
     private val documentFileSource: DocumentFileSource? = null,
 ) : DocumentRepository {
+    private val json = Json
+
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> =
         documentDao.observeRecentDocuments().map { documents -> documents.map { it.toDocumentMetadata() } }
 
@@ -88,13 +93,34 @@ class DocumentRepositoryImpl(
         )
     }
 
+    override suspend fun getEmbeddedImages(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> = withContext(Dispatchers.Default) {
+        if (hrefs.isEmpty()) return@withContext emptyMap()
+        val metadata = getDocument(documentId) ?: return@withContext emptyMap()
+        if (metadata.format != DocumentFormat.EPUB) return@withContext emptyMap()
+        val fileSource = documentFileSource ?: return@withContext emptyMap()
+        epubDocumentParser.extractEmbeddedImageBytes(
+            bytes = fileSource.readBytes(metadata.location),
+            hrefs = hrefs,
+        )
+    }
+
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
         val metadata = getDocument(documentId) ?: return null
-        val sections = getStoredSections(documentId)
-        if (metadata.format == DocumentFormat.TXT && (sections.isEmpty() || sections.hasBrokenText())) {
+        val storedSections = getStoredSections(documentId)
+        if (metadata.format == DocumentFormat.TXT && (storedSections.sections.isEmpty() || storedSections.sections.hasBrokenText())) {
             repairTxtDocument(metadata)?.let { return it }
         }
-        return metadata.toReaderDocument(sections)
+        if (
+            metadata.format == DocumentFormat.EPUB &&
+            storedSections.sections.isNotEmpty() &&
+            storedSections.blocks.isEmpty()
+        ) {
+            repairEpubDocument(metadata)?.let { return it }
+        }
+        return metadata.toReaderDocument(storedSections)
     }
 
     override suspend fun getPageWindows(
@@ -190,16 +216,20 @@ class DocumentRepositoryImpl(
         documentDao.deleteDocument(documentId.value)
     }
 
-    private suspend fun getStoredSections(documentId: DocumentId): List<ReaderSection> =
-        searchIndexDao.getDocumentSections(documentId.value)
-            .map { entry ->
+    private suspend fun getStoredSections(documentId: DocumentId): StoredReaderDocument {
+        val entries = searchIndexDao.getDocumentSections(documentId.value)
+        return StoredReaderDocument(
+            sections = entries.map { entry ->
                 ReaderSection(
                     index = entry.sectionIndex,
                     text = entry.text,
                     range = TextRange(entry.startOffset, entry.endOffset),
                     title = entry.sectionTitle,
                 )
-            }
+            },
+            blocks = entries.flatMap { entry -> decodeBlocks(entry.blocksJson) },
+        )
+    }
 
     private suspend fun repairTxtDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
@@ -222,25 +252,61 @@ class DocumentRepositoryImpl(
         }.getOrNull()
     }
 
+    private suspend fun repairEpubDocument(metadata: DocumentMetadata): ReaderDocument? {
+        val fileSource = documentFileSource ?: return null
+        return runCatching {
+            val document = epubDocumentParser.parse(
+                id = metadata.id,
+                title = metadata.location.displayName,
+                bytes = fileSource.readBytes(metadata.location),
+            )
+            persistParsedDocument(
+                metadata = metadata.copy(
+                    format = document.format,
+                    pageCount = document.pageCount,
+                    characterCount = document.characterCount,
+                    wordCount = document.wordCount,
+                ),
+                document = document,
+            )
+            document
+        }.getOrNull()
+    }
+
     private suspend fun persistParsedDocument(metadata: DocumentMetadata, document: ReaderDocument) {
         upsertDocument(metadata)
         searchIndexDao.deleteSearchIndex(metadata.id.value)
         if (document.sections.isNotEmpty()) {
             searchIndexDao.upsertSearchIndex(
-                document.sections.map { section -> section.toSearchIndexEntity(metadata.id) },
+                document.sections.map { section ->
+                    section.toSearchIndexEntity(
+                        documentId = metadata.id,
+                        blocks = document.blocks.blocksIn(section.range.start, section.range.end),
+                        json = json,
+                    )
+                },
             )
         }
     }
 
-    private fun DocumentMetadata.toReaderDocument(sections: List<ReaderSection>): ReaderDocument = ReaderDocument(
+    private fun DocumentMetadata.toReaderDocument(document: StoredReaderDocument): ReaderDocument = ReaderDocument(
         id = id,
         format = format,
         title = location.displayName,
-        sections = sections,
+        sections = document.sections,
         pageCount = pageCount,
+        blocks = document.blocks,
     )
+
+    private fun decodeBlocks(blocksJson: String): List<ReaderBlock> =
+        runCatching { json.decodeFromString<List<ReaderBlock>>(blocksJson) }.getOrDefault(emptyList())
 }
 
 private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
     section.text.contains('\uFFFD') || section.text.contains("ï¿½")
 }
+
+private data class StoredReaderDocument(
+    val sections: List<ReaderSection>,
+    val blocks: List<ReaderBlock>,
+)

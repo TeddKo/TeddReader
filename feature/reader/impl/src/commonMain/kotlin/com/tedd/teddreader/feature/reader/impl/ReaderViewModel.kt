@@ -65,14 +65,20 @@ class ReaderViewModel(
     private var visualPageLoadJob: Job? = null
     private val visualPageCache = linkedMapOf<Int, ByteArray>()
     private val failedVisualPages = linkedSetOf<Int>()
+    private var embeddedImageLoadJob: Job? = null
+    private val embeddedImageCache = linkedMapOf<String, ByteArray>()
+    private val failedEmbeddedImageHrefs = linkedSetOf<String>()
 
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
         if (currentDocumentId == documentId) return
         currentDocumentId = documentId
         visualPageLoadJob?.cancel()
+        embeddedImageLoadJob?.cancel()
         visualPageCache.clear()
         failedVisualPages.clear()
+        embeddedImageCache.clear()
+        failedEmbeddedImageHrefs.clear()
         observeSavedPlaces(documentId)
 
         viewModelScope.launch {
@@ -176,6 +182,7 @@ class ReaderViewModel(
             }.onSuccess { state ->
                 _uiState.value = state
                 if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.pageIndex.current)
+                if (state.documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(state.pageIndex.current)
             }.onFailure { throwable ->
                 _uiState.value = ReaderUiState(
                     documentTitle = documentId.value,
@@ -471,6 +478,19 @@ class ReaderViewModel(
             text = if (isPdfMode) "" else pageWindows.getOrNull(page)?.text.orEmpty(),
             isPdf = isPdfMode,
             documentUri = documentUri,
+            textRange = pageWindows.getOrNull(page)?.textRange,
+            blocks = pageWindows.getOrNull(page)?.blocks.orEmpty(),
+            embeddedImages = pageWindows.getOrNull(page)
+                ?.blocks
+                .orEmpty()
+                .mapNotNull { block -> block.imageHref?.takeIf(embeddedImageCache::containsKey) }
+                .associateWith { href -> embeddedImageCache.getValue(href) },
+            failedEmbeddedImageHrefs = pageWindows.getOrNull(page)
+                ?.blocks
+                .orEmpty()
+                .mapNotNull { it.imageHref }
+                .filter(failedEmbeddedImageHrefs::contains)
+                .toSet(),
         )
     }
 
@@ -549,6 +569,7 @@ class ReaderViewModel(
         }
         saveProgress(nextIndex)
         loadVisualPagesAround(nextPage)
+        loadEmbeddedImagesAround(nextPage)
     }
 
     private suspend fun reloadPages(style: ReaderStyle) {
@@ -613,6 +634,7 @@ class ReaderViewModel(
                 isCurrentPageSaved = isPageSaved(pageIndex, false),
             )
         }
+        loadEmbeddedImagesAround(currentPage)
     }
 
     private fun saveProgress(pageIndex: PageIndex) {
@@ -698,9 +720,85 @@ class ReaderViewModel(
             }
         }
     }
+
+    private fun loadEmbeddedImagesAround(centerPage: Int) {
+        val documentId = currentDocumentId ?: return
+        val state = _uiState.value
+        if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
+        val requestedHrefs = (centerPage - 1..centerPage + 1)
+            .filter { it in currentPageWindows.indices }
+            .flatMap { page -> currentPageWindows[page].blocks.mapNotNull { it.imageHref } }
+            .toSet()
+        val missingHrefs = requestedHrefs - embeddedImageCache.keys - failedEmbeddedImageHrefs
+        if (missingHrefs.isEmpty()) {
+            refreshEpubPages()
+            return
+        }
+
+        embeddedImageLoadJob?.cancel()
+        embeddedImageLoadJob = viewModelScope.launch {
+            try {
+                val loadedImages = documentRepository.getEmbeddedImages(documentId, missingHrefs)
+                if (currentDocumentId != documentId) return@launch
+                embeddedImageCache.putAll(loadedImages)
+                failedEmbeddedImageHrefs += missingHrefs - loadedImages.keys
+                val retainedHrefs = embeddedImageCache.keys
+                    .toList()
+                    .takeLast(MaxEmbeddedImageCacheSize)
+                    .toSet()
+                embeddedImageCache.keys.retainAll(retainedHrefs)
+                refreshEpubPages()
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (_: Throwable) {
+                if (currentDocumentId == documentId) {
+                    failedEmbeddedImageHrefs += missingHrefs
+                    refreshEpubPages()
+                }
+            }
+        }
+    }
+
+    private fun refreshEpubPages() {
+        _uiState.update {
+            val pageIndex = it.pageIndex
+            val currentPageUi = currentPageUi(
+                pageIndex = pageIndex,
+                documentUri = it.documentUri,
+                isPdfMode = it.isPdfMode,
+            )
+            it.copy(
+                previousPage = pageUi(
+                    page = pageIndex.current - 1,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                currentPage = currentPageUi,
+                nextPage = pageUi(
+                    page = pageIndex.current + 1,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                pageSlots = pageSlots(
+                    currentPage = pageIndex.current,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                documentPages = documentPages(
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isVisualMode = it.isVisualMode,
+                ),
+            )
+        }
+    }
 }
 
 // The reader reports its viewport in sp, not px, so the placeholder used before the first
 // measurement is phone-sized in sp; a px-sized value paginates ~9x too coarsely.
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
 private const val MaxVisualPageCacheSize = 8
+private const val MaxEmbeddedImageCacheSize = 12

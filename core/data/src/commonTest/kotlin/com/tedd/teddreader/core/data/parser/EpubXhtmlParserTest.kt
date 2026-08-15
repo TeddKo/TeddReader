@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.data.parser
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
+import com.tedd.teddreader.core.common.model.blocksIn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -110,6 +111,15 @@ class EpubXhtmlParserTest {
         assertEquals(ReaderTextAlign.CENTER, image.align)
         // A one-character range keeps the block addressable at a page boundary.
         assertEquals(1L, image.range.end - image.range.start)
+    }
+
+    @Test
+    fun trailingStandaloneBlockStaysInsideReturnedTextRange() {
+        val content = parseXhtmlContent("""<p>before</p><img src="plate.jpg" alt="Plate 1"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertTrue(image.range.end <= content.text.length.toLong())
+        assertTrue(image in content.blocks.blocksIn(0, content.text.length.toLong()))
     }
 
     @Test

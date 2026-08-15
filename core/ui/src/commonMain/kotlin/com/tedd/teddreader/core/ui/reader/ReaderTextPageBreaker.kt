@@ -24,14 +24,25 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
     val measurer = rememberTextMeasurer(cacheSize = 0)
     val textStyle = style.readerTextStyle()
     return remember(measurer, textStyle, widthPx, heightPx) {
-        ReaderPageBreaker { text ->
+        ReaderPageBreaker { text, blocks ->
             if (widthPx <= 0 || heightPx <= 0 || text.isEmpty()) {
                 IntArray(0)
             } else {
+                val semanticText = buildReaderSemanticText(
+                    text = text,
+                    blocks = blocks,
+                )
                 val layout = measurer.measure(
-                    text = AnnotatedString(text),
+                    text = semanticText.annotatedString,
                     style = textStyle,
                     constraints = Constraints(maxWidth = widthPx),
+                    placeholders = semanticText.placeholders.map { placeholder ->
+                        AnnotatedString.Range(
+                            item = placeholder.placeholder,
+                            start = placeholder.start,
+                            end = placeholder.end,
+                        )
+                    },
                 )
                 val starts = mutableListOf(0)
                 var pageTop = layout.getLineTop(0)
@@ -39,7 +50,7 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
                     // A line that would reach past the bottom of the pane starts the next page. Using
                     // the measured box bottom keeps this correct when line boxes are not uniform.
                     if (layout.getLineBottom(line) - pageTop > heightPx) {
-                        starts += layout.getLineStart(line)
+                        starts += semanticText.sourceOffsetFor(layout.getLineStart(line))
                         pageTop = layout.getLineTop(line)
                     }
                 }
