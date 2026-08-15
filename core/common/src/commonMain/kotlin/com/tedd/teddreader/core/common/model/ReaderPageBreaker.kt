@@ -11,5 +11,5 @@ package com.tedd.teddreader.core.common.model
  */
 fun interface ReaderPageBreaker {
     /** Offset of the first character of every page, ascending, starting at 0. */
-    fun pageStarts(text: String): IntArray
+    fun pageStarts(text: String, blocks: List<ReaderBlock>): IntArray
 }

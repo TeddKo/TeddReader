@@ -5,6 +5,9 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.usePinned
+import okio.FileSystem
+import okio.Path.Companion.toPath
+import okio.buffer
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHomeDirectory
@@ -16,6 +19,20 @@ class IosDocumentFileSource : DocumentFileSource {
         val path = location.sourceUri.removePrefix("file://")
         val data = NSData.dataWithContentsOfFile(path) ?: error("Cannot open document: ${location.sourceUri}")
         return data.toByteArray()
+    }
+
+    override suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation {
+        val destination = uniqueDestinationPath(location.displayName)
+        val sink = FileSystem.SYSTEM.sink(destination.toPath()).buffer()
+        try {
+            sink.write(bytes)
+        } finally {
+            sink.close()
+        }
+        return location.copy(
+            sourceUri = "file://$destination",
+            sizeBytes = bytes.size.toLong(),
+        )
     }
 
     @OptIn(ExperimentalForeignApi::class)
@@ -43,10 +60,15 @@ class IosDocumentFileSource : DocumentFileSource {
 
     private fun uniqueDestinationPath(displayName: String): String {
         val directory = "${NSHomeDirectory()}/Documents"
-        val dotIndex = displayName.lastIndexOf('.')
-        val name = if (dotIndex > 0) displayName.substring(0, dotIndex) else displayName
-        val extension = if (dotIndex > 0) displayName.substring(dotIndex) else ""
-        var candidate = "$directory/$displayName"
+        val safeDisplayName = displayName
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .takeUnless { it.isBlank() || it == "." || it == ".." }
+            ?: "document"
+        val dotIndex = safeDisplayName.lastIndexOf('.')
+        val name = if (dotIndex > 0) safeDisplayName.substring(0, dotIndex) else safeDisplayName
+        val extension = if (dotIndex > 0) safeDisplayName.substring(dotIndex) else ""
+        var candidate = "$directory/$safeDisplayName"
         var suffix = 2
         while (NSFileManager.defaultManager.fileExistsAtPath(candidate)) {
             candidate = "$directory/$name-$suffix$extension"

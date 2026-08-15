@@ -9,6 +9,7 @@ import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.blocksIn
 import org.koin.core.annotation.Single
 
 @Single
@@ -23,7 +24,7 @@ class TextPageLayoutEngine {
         if (fullText.isBlank()) return emptyList()
 
         val layout = pageLayout(style, viewportSize)
-        val measuredPageStarts = pageBreaker?.pageStarts(fullText)?.takeIf { it.isNotEmpty() }
+        val measuredPageStarts = pageBreaker?.pageStarts(fullText, document.blocks)?.takeIf { it.isNotEmpty() }
         val ranges = if (measuredPageStarts != null) {
             measuredPageRanges(
                 pageStarts = measuredPageStarts,
@@ -43,6 +44,7 @@ class TextPageLayoutEngine {
                 location = locationFor(document, range.start),
                 text = fullText.substring(range.start.toInt(), range.end.toInt()),
                 textRange = range,
+                blocks = document.blocks.blocksIn(range.start, range.end),
             )
         }
     }

@@ -96,6 +96,28 @@ class EpubDocumentParser {
         }
     }
 
+    fun extractEmbeddedImageBytes(
+        bytes: ByteArray,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> {
+        if (hrefs.isEmpty()) return emptyMap()
+        val normalizedHrefs = hrefs.map(String::trim).filter(String::isNotEmpty).toSet()
+        if (normalizedHrefs.isEmpty()) return emptyMap()
+        val fileSystem = systemFileSystem()
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-epub-embedded-${Random.nextLong().toString(16)}.epub"
+        val sink = fileSystem.sink(path).buffer()
+        try {
+            sink.write(bytes)
+        } finally {
+            sink.close()
+        }
+        return try {
+            extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs, fileSystem = fileSystem)
+        } finally {
+            fileSystem.delete(path)
+        }
+    }
+
     fun parseChapters(
         id: DocumentId,
         title: String,
@@ -145,6 +167,19 @@ class EpubDocumentParser {
         val coverItem = findEpubCoverItem(opf) ?: return null
         val coverPath = opfPath.parent?.resolve(coverItem.href) ?: coverItem.href.toPath()
         return zip.readBytesOrNull(coverPath)
+    }
+
+    private fun extractEmbeddedImageBytes(
+        path: Path,
+        hrefs: Set<String>,
+        fileSystem: FileSystem = systemFileSystem(),
+    ): Map<String, ByteArray> {
+        val zip = fileSystem.openZip(path)
+        return hrefs.associateWith { href ->
+            zip.readBytesOrNull(href.toPath())
+        }.mapNotNull { (href, imageBytes) ->
+            imageBytes?.let { href to it }
+        }.toMap()
     }
 }
 

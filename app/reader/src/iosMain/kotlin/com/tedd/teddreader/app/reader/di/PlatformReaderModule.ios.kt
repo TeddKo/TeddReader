@@ -15,7 +15,8 @@ import org.koin.dsl.module
 @Composable
 internal actual fun rememberPlatformReaderModule(): Module = remember {
     module {
-        single<DocumentFileSource> { IosDocumentFileSource() }
+        single { IosDocumentFileSource() }
+        single<DocumentFileSource> { get<IosDocumentFileSource>() }
         single<TeddReaderDatabase> { createTeddReaderDatabaseBuilder().build() }
         single<DataStore<ReaderPreferences>> { createReaderPreferencesDataStore() }
     }

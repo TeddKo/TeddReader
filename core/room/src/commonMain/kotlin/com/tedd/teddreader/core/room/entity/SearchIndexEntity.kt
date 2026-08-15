@@ -24,4 +24,5 @@ data class SearchIndexEntity(
     val text: String,
     val startOffset: Long,
     val endOffset: Long,
+    val blocksJson: String = "[]",
 )

@@ -20,7 +20,8 @@ internal actual fun rememberPlatformReaderModule(): Module {
     return remember(context) {
         module {
             single<Context> { context }
-            single<DocumentFileSource> { AndroidDocumentFileSource(get<Context>()) }
+            single { AndroidDocumentFileSource(get<Context>()) }
+            single<DocumentFileSource> { get<AndroidDocumentFileSource>() }
             single<TeddReaderDatabase> { createTeddReaderDatabaseBuilder(get<Context>()).build() }
             single<DataStore<ReaderPreferences>> { createReaderPreferencesDataStore(get<Context>()) }
         }

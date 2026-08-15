@@ -27,6 +27,10 @@ interface DocumentRepository {
         documentId: DocumentId,
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> = emptyMap()
+    suspend fun getEmbeddedImages(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> = emptyMap()
     suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument?
     suspend fun getPageWindows(
         documentId: DocumentId,

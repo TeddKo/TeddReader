@@ -8,6 +8,8 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
+import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderStyle
@@ -173,6 +175,47 @@ class ReaderViewModelTest {
 
         assertEquals(DocumentFormat.CBZ, viewModel.uiState.value.documentFormat)
         assertContentEquals(imageBytes, viewModel.uiState.value.visualPageImages[0])
+    }
+
+    @Test
+    fun openEpubDocumentLoadsCurrentPageBlocksAndEmbeddedImages() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-1")
+        val imageBytes = byteArrayOf(9, 8, 7)
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.IMAGE,
+            range = TextRange(0, 1),
+            imageHref = "images/pic.png",
+            label = "Cover art",
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Stored epub",
+                    sections = emptyList(),
+                    blocks = listOf(block),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "\n",
+                        textRange = TextRange(0, 1),
+                        blocks = listOf(block),
+                    ),
+                ),
+                embeddedImages = mapOf("images/pic.png" to imageBytes),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(listOf(block), viewModel.uiState.value.currentPage.blocks)
+        assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/pic.png"])
     }
 
     @Test
@@ -373,6 +416,9 @@ private class FakeDocumentRepository(
     pageCount: Int = 2,
     private val paginatedText: String? = null,
     private val visualPageImages: Map<Int, ByteArray> = emptyMap(),
+    private val embeddedImages: Map<String, ByteArray> = emptyMap(),
+    private val readerDocument: ReaderDocument? = null,
+    private val pageWindows: List<PageWindow>? = null,
 ) : DocumentRepository {
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -398,18 +444,23 @@ private class FakeDocumentRepository(
         metadata.takeIf { it.id == documentId }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? =
-        ReaderDocument(
+        (readerDocument ?: ReaderDocument(
             id = documentId,
             format = format,
             title = "Stored book",
             sections = emptyList(),
             pageCount = metadata.pageCount ?: 0,
-        ).takeIf { documentId == this.documentId }
+        )).takeIf { documentId == this.documentId }
 
     override suspend fun getVisualPageImages(
         documentId: DocumentId,
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> = visualPageImages.filterKeys(pageIndexes::contains)
+
+    override suspend fun getEmbeddedImages(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> = embeddedImages.filterKeys(hrefs::contains)
 
     override suspend fun getPageWindows(
         documentId: DocumentId,
@@ -418,6 +469,8 @@ private class FakeDocumentRepository(
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = if (documentId != this.documentId || format == DocumentFormat.PDF) {
         emptyList()
+    } else if (pageWindows != null) {
+        pageWindows
     } else if (paginatedText != null) {
         paginate(paginatedText, viewportSize)
     } else {

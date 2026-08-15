@@ -275,7 +275,10 @@ private class XhtmlContentBuilder(
     fun build(): XhtmlContent {
         flushBlock()
         // The separator after the final block would show as a blank line at the end of a chapter.
-        while (text.isNotEmpty() && text.last() == '\n') text.deleteAt(text.length - 1)
+        val minimumLength = blocks.maxOfOrNull { block -> (block.range.end - baseOffset).toInt() } ?: 0
+        while (text.length > minimumLength && text.isNotEmpty() && text.last() == '\n') {
+            text.deleteAt(text.length - 1)
+        }
         return XhtmlContent(text = text.toString(), blocks = blocks.toList())
     }
 
