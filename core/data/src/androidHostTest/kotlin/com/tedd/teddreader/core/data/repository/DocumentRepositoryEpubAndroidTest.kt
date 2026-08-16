@@ -23,6 +23,9 @@ import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import okio.Path
+import okio.FileSystem
+import okio.buffer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -259,6 +262,13 @@ private class AndroidFakeDocumentFileSource(
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
         assertEquals(this.location, location)
         return bytes
+    }
+
+    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
+        assertEquals(this.location, location)
+        FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
+            sink.write(bytes)
+        }
     }
 }
 

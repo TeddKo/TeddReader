@@ -143,13 +143,6 @@ class ReaderViewModel(
                     readerDocument = readerDocument,
                     totalPages = totalPages,
                 )
-                val documentPages = documentPages(
-                    pageIndex = pageIndex,
-                    documentUri = documentUri,
-                    isVisualMode = isVisualMode,
-                    pageWindows = pageWindows,
-                )
-
                 val state = ReaderUiState(
                     documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value,
                     documentUri = documentUri,
@@ -171,7 +164,7 @@ class ReaderViewModel(
                         isPdfMode = isPdfMode,
                         pageWindows = pageWindows,
                     ),
-                    documentPages = documentPages,
+                    documentPages = emptyList(),
                     pageSlots = pageSlots(
                         currentPage = currentPage,
                         pageIndex = pageIndex,
@@ -500,24 +493,38 @@ class ReaderViewModel(
         pageWindows: List<PageWindow> = currentPageWindows,
     ): ReaderPageUi? {
         if (pageIndex.total <= 0 || page !in 0 until pageIndex.total) return null
+        val pageWindow = pageWindows.getOrNull(page)
+        val chapterTitle = pageWindow
+            ?.takeIf { window ->
+                val start = window.textRange?.start
+                start != null && currentSections.any { section ->
+                    section.range.start == start &&
+                        section.title != null &&
+                        window.blocks.none { it.kind == com.tedd.teddreader.core.common.model.ReaderBlockKind.COVER_IMAGE }
+                }
+            }
+            ?.textRange
+            ?.start
+            ?.let { start -> currentSections.firstOrNull { it.range.start == start }?.title }
         return ReaderPageUi(
             page = page,
-            text = if (isPdfMode) "" else pageWindows.getOrNull(page)?.text.orEmpty(),
+            text = if (isPdfMode) "" else pageWindow?.text.orEmpty(),
             isPdf = isPdfMode,
             documentUri = documentUri,
-            textRange = pageWindows.getOrNull(page)?.textRange,
-            blocks = pageWindows.getOrNull(page)?.blocks.orEmpty(),
-            embeddedImages = pageWindows.getOrNull(page)
+            textRange = pageWindow?.textRange,
+            blocks = pageWindow?.blocks.orEmpty(),
+            embeddedImages = pageWindow
                 ?.blocks
                 .orEmpty()
                 .mapNotNull { block -> block.imageHref?.takeIf(embeddedImageCache::containsKey) }
                 .associateWith { href -> embeddedImageCache.getValue(href) },
-            failedEmbeddedImageHrefs = pageWindows.getOrNull(page)
+            failedEmbeddedImageHrefs = pageWindow
                 ?.blocks
                 .orEmpty()
                 .mapNotNull { it.imageHref }
                 .filter(failedEmbeddedImageHrefs::contains)
                 .toSet(),
+            chapterTitle = chapterTitle,
         )
     }
 
@@ -535,24 +542,6 @@ class ReaderViewModel(
             isPdfMode = isPdfMode,
             pageWindows = pageWindows,
         )
-    }
-
-    private fun documentPages(
-        pageIndex: PageIndex,
-        documentUri: String?,
-        isVisualMode: Boolean,
-        pageWindows: List<PageWindow> = currentPageWindows,
-    ): List<ReaderPageUi> {
-        if (isVisualMode || pageIndex.total <= 0) return emptyList()
-        return (0 until pageIndex.total).mapNotNull { page ->
-            pageUi(
-                page = page,
-                pageIndex = pageIndex,
-                documentUri = documentUri,
-                isPdfMode = false,
-                pageWindows = pageWindows,
-            )
-        }
     }
 
     fun moveToPage(page: Int) {
@@ -619,12 +608,6 @@ class ReaderViewModel(
             ?: _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         currentPageWindows = pageWindows
         val pageIndex = PageIndex(current = currentPage, total = pageWindows.size)
-        val documentPages = documentPages(
-            pageIndex = pageIndex,
-            documentUri = _uiState.value.documentUri,
-            isVisualMode = false,
-            pageWindows = pageWindows,
-        )
         _uiState.update {
             val currentPageUi = currentPageUi(
                 pageIndex = pageIndex,
@@ -650,7 +633,7 @@ class ReaderViewModel(
                     isPdfMode = false,
                     pageWindows = pageWindows,
                 ),
-                documentPages = documentPages,
+                documentPages = emptyList(),
                 pageSlots = pageSlots(
                     currentPage = currentPage,
                     pageIndex = pageIndex,
@@ -814,11 +797,7 @@ class ReaderViewModel(
                     documentUri = it.documentUri,
                     isPdfMode = it.isPdfMode,
                 ),
-                documentPages = documentPages(
-                    pageIndex = pageIndex,
-                    documentUri = it.documentUri,
-                    isVisualMode = it.isVisualMode,
-                ),
+                documentPages = emptyList(),
             )
         }
     }

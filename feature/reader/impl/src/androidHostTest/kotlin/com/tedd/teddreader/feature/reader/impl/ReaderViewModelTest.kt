@@ -288,6 +288,76 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun openDocumentKeepsDocumentPagesEmptyWhileProvidingCurrentPageSlots() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-large")
+        val viewModel = createViewModel(
+            FakeDocumentRepository(documentId, paginatedText = "a".repeat(300)),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.documentPages.isEmpty())
+        assertTrue(viewModel.uiState.value.pageSlots.isNotEmpty())
+        assertEquals("a".repeat(30), viewModel.uiState.value.currentPage.text)
+    }
+
+    @Test
+    fun epubChapterTitleAppearsOnlyOnExactSectionStartPage() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-chapter")
+        val chapterStart = PageWindow(
+            pageIndex = PageIndex(current = 0, total = 2),
+            location = ReaderLocation.EpubOffset(1, 0),
+            text = "2 - 1화 기회 (1)\n본문 첫 페이지",
+            textRange = TextRange(11, 28),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.HEADING, range = TextRange(11, 22)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(23, 28)),
+            ),
+        )
+        val laterPage = PageWindow(
+            pageIndex = PageIndex(current = 1, total = 2),
+            location = ReaderLocation.EpubOffset(1, 17),
+            text = "다음 페이지",
+            textRange = TextRange(28, 33),
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Stored epub",
+                    sections = listOf(
+                        ReaderSection(0, text = "cover text", range = TextRange(0, 10), title = "Cover"),
+                        ReaderSection(1, text = "2 - 1화 기회 (1)\n본문 첫 페이지다음 페이지", range = TextRange(11, 33), title = "2 - 1화 기회 (1)"),
+                    ),
+                    navigation = ReaderNavigation(
+                        heading = "Contents",
+                        items = listOf(ReaderNavigationItem(title = "2 - 1화 기회 (1)", level = 1, spineIndex = 1, offset = 0)),
+                    ),
+                ),
+                pageWindows = listOf(chapterStart, laterPage),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
+        assertEquals("2 - 1화 기회 (1)\n본문 첫 페이지", viewModel.uiState.value.currentPage.text)
+
+        viewModel.moveToPage(1)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.currentPage.chapterTitle)
+        assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
+    }
+
+    @Test
     fun repaginationKeepsCurrentReadingOffset() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
         val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))

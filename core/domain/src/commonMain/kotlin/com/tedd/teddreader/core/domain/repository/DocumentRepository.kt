@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 
 class DocumentImportSource(
     val location: DocumentLocation,
-    val bytes: ByteArray,
+    val bytes: ByteArray?,
 ) {
     init {
-        require(bytes.isNotEmpty()) { "Document bytes must not be empty." }
+        require(bytes == null || bytes.isNotEmpty()) { "Document bytes must not be empty." }
     }
 }
 

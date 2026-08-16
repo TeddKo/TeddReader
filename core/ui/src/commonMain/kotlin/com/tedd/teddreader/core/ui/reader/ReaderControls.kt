@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.PageIndex
@@ -41,6 +42,7 @@ fun ReaderTopControls(
         vertical = DefaultTeddReaderSpacing.xxSmall,
     ),
     actions: @Composable RowScope.() -> Unit = {},
+    titleAtEnd: Boolean = false,
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
@@ -63,12 +65,15 @@ fun ReaderTopControls(
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(spacing.none),
+                horizontalAlignment = if (titleAtEnd) Alignment.End else Alignment.Start,
             ) {
                 if (!titleLabel.isNullOrBlank()) {
                     Text(
                         text = titleLabel,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = if (titleAtEnd) TextAlign.End else TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth(),
                         style = typography.readerCaption,
                     )
                 }
@@ -76,6 +81,8 @@ fun ReaderTopControls(
                     text = title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textAlign = if (titleAtEnd) TextAlign.End else TextAlign.Start,
+                    modifier = Modifier.fillMaxWidth(),
                     style = typography.titleLarge,
                 )
             }

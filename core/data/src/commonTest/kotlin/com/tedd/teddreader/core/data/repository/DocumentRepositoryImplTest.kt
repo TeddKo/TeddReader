@@ -23,6 +23,9 @@ import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import okio.FileSystem
+import okio.Path
+import okio.buffer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -320,6 +323,38 @@ class DocumentRepositoryImplTest {
     }
 
     @Test
+    fun importsCbzFromLocationOnlyUsingCopyTo() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "content://comic.cbz",
+            displayName = "comic.cbz",
+            mimeType = "application/vnd.comicbook+zip",
+        )
+        val fileSource = FakeDocumentFileSource(location, comicZipBytes("cover.jpg" to byteArrayOf(1), "page2.jpg" to byteArrayOf(2)))
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+
+        val document = repository.importDocument(
+            source = DocumentImportSource(location = location, bytes = null),
+            importedAtEpochMillis = 1_000,
+        )
+
+        assertEquals(DocumentFormat.CBZ, document.format)
+        assertEquals(2, document.pageCount)
+        assertEquals(0, fileSource.readCount)
+        assertEquals(1, fileSource.copyCount)
+    }
+
+    @Test
     fun getPageWindowsUsesStoredReaderDocument() = runTest {
         val documentDao = FakeDocumentDao()
         val searchIndexDao = FakeDocumentSearchIndexDao()
@@ -399,11 +434,35 @@ private class FakeDocumentFileSource(
     private val expectedLocation: DocumentLocation,
     private val bytes: ByteArray,
 ) : DocumentFileSource {
+    var readCount: Int = 0
+    var copyCount: Int = 0
+
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
         assertEquals(expectedLocation, location)
+        readCount += 1
         return bytes
     }
+
+    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
+        assertEquals(expectedLocation, location)
+        copyCount += 1
+        FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
+            sink.write(bytes)
+        }
+    }
 }
+
+private fun comicZipBytes(vararg entries: Pair<String, ByteArray>): ByteArray =
+    java.io.ByteArrayOutputStream().use { output ->
+        java.util.zip.ZipOutputStream(output).use { zip ->
+            entries.forEach { (name, entryBytes) ->
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(entryBytes)
+                zip.closeEntry()
+            }
+        }
+        output.toByteArray()
+    }
 
 private class FakeDocumentDao : DocumentDao {
     var saved: DocumentEntity? = null

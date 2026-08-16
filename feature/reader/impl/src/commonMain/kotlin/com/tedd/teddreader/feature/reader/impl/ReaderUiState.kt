@@ -22,6 +22,7 @@ data class ReaderPageUi(
     val blocks: List<ReaderBlock> = emptyList(),
     val embeddedImages: Map<String, ByteArray> = emptyMap(),
     val failedEmbeddedImageHrefs: Set<String> = emptySet(),
+    val chapterTitle: String? = null,
 )
 
 @Immutable
