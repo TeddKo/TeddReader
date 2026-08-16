@@ -25,6 +25,7 @@ import com.tedd.teddreader.core.data.parser.ImageDocumentParser
 import com.tedd.teddreader.core.data.parser.PdfDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtTextDecoder
+import com.tedd.teddreader.core.data.parser.systemFileSystem
 import com.tedd.teddreader.core.data.storage.DocumentFileSource
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
@@ -35,6 +36,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlin.random.Random
+import okio.FileSystem
+import okio.Path
 import org.koin.core.annotation.Single
 
 @Single([DocumentRepository::class])
@@ -69,11 +73,18 @@ class DocumentRepositoryImpl(
             DocumentFormat.CBZ,
                 -> {
                 val fileSource = documentFileSource ?: return@withContext null
-                val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
                 when (metadata.format) {
-                    DocumentFormat.EPUB -> epubDocumentParser.coverImageBytes(bytes)
-                    DocumentFormat.PDF -> pdfDocumentParser.coverImageBytes(metadata.location, bytes)
-                    DocumentFormat.CBZ -> comicBookDocumentParser.coverImageBytes(bytes)
+                    DocumentFormat.EPUB -> {
+                        val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
+                        epubDocumentParser.coverImageBytes(bytes)
+                    }
+                    DocumentFormat.PDF -> {
+                        val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
+                        pdfDocumentParser.coverImageBytes(metadata.location, bytes)
+                    }
+                    DocumentFormat.CBZ -> withTemporarySourceCopy(fileSource, metadata.location) { path ->
+                        comicBookDocumentParser.coverImageBytes(path)
+                    }
                     else -> null
                 }
             }
@@ -88,10 +99,12 @@ class DocumentRepositoryImpl(
         val metadata = getDocument(documentId) ?: return@withContext emptyMap()
         if (metadata.format != DocumentFormat.CBZ) return@withContext emptyMap()
         val fileSource = documentFileSource ?: return@withContext emptyMap()
-        comicBookDocumentParser.pageImageBytes(
-            bytes = fileSource.readBytes(metadata.location),
-            pageIndexes = pageIndexes,
-        )
+        withTemporarySourceCopy(fileSource, metadata.location) { path ->
+            comicBookDocumentParser.pageImageBytes(
+                path = path,
+                pageIndexes = pageIndexes,
+            )
+        }
     }
 
     override suspend fun getEmbeddedImages(
@@ -155,27 +168,38 @@ class DocumentRepositoryImpl(
             DocumentFormat.TXT -> txtDocumentParser.parse(
                 id = id,
                 title = source.location.displayName,
-                text = TxtTextDecoder.decode(source.bytes),
+                text = TxtTextDecoder.decode(requireDocumentBytes(source)),
             )
 
             DocumentFormat.EPUB -> epubDocumentParser.parse(
                 id = id,
                 title = source.location.displayName,
-                bytes = source.bytes,
+                bytes = requireDocumentBytes(source),
             )
 
             DocumentFormat.PDF -> pdfDocumentParser.parse(
                 id = id,
                 title = source.location.displayName,
                 location = source.location,
-                bytes = source.bytes,
+                bytes = requireDocumentBytes(source),
             )
 
-            DocumentFormat.CBZ -> comicBookDocumentParser.parse(
-                id = id,
-                title = source.location.displayName,
-                bytes = source.bytes,
-            )
+            DocumentFormat.CBZ -> source.bytes?.let { bytes ->
+                comicBookDocumentParser.parse(
+                    id = id,
+                    title = source.location.displayName,
+                    bytes = bytes,
+                )
+            } ?: run {
+                val fileSource = documentFileSource ?: error("Cannot import CBZ without file source.")
+                withTemporarySourceCopy(fileSource, source.location) { path ->
+                    comicBookDocumentParser.parse(
+                        id = id,
+                        title = source.location.displayName,
+                        path = path,
+                    )
+                }
+            }
 
             DocumentFormat.IMAGE -> imageDocumentParser.parse(
                 id = id,
@@ -315,6 +339,25 @@ class DocumentRepositoryImpl(
 
 private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
     section.text.contains('\uFFFD') || section.text.contains("ï¿½")
+}
+
+private fun requireDocumentBytes(source: DocumentImportSource): ByteArray =
+    source.bytes ?: error("Document bytes required for ${source.location.displayName}")
+
+private suspend fun <T> withTemporarySourceCopy(
+    fileSource: DocumentFileSource,
+    location: com.tedd.teddreader.core.common.model.DocumentLocation,
+    block: suspend (Path) -> T,
+): T {
+    val fileSystem = systemFileSystem()
+    val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+        "tedd-reader-document-${Random.nextLong().toString(16)}-${location.displayName.substringAfterLast('/').ifBlank { "document" }}"
+    return try {
+        fileSource.copyTo(location, path)
+        block(path)
+    } finally {
+        runCatching { fileSystem.delete(path) }
+    }
 }
 
 private data class StoredReaderDocument(

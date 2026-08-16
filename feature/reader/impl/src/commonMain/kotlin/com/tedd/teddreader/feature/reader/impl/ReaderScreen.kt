@@ -30,6 +30,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.DrawerValue
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -409,14 +416,51 @@ private fun ReaderContent(
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val motion = teddReaderMotion()
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(uiState.style.readerColors().background),
+    val tocDrawerState = rememberDrawerState(DrawerValue.Closed)
+    var tocDrawerSeenOpen by remember(uiState.documentUri) { mutableStateOf(false) }
+    LaunchedEffect(uiState.activeSheet) {
+        if (uiState.activeSheet == ReaderOptionSheet.TableOfContents) {
+            tocDrawerState.open()
+        } else {
+            tocDrawerSeenOpen = false
+            if (tocDrawerState.isOpen) tocDrawerState.close()
+        }
+    }
+    LaunchedEffect(tocDrawerState.currentValue, uiState.activeSheet) {
+        if (uiState.activeSheet == ReaderOptionSheet.TableOfContents) {
+            if (tocDrawerState.currentValue == DrawerValue.Open) {
+                tocDrawerSeenOpen = true
+            } else if (tocDrawerSeenOpen && tocDrawerState.currentValue == DrawerValue.Closed) {
+                tocDrawerSeenOpen = false
+                onDismissSheet()
+            }
+        }
+    }
+    ModalNavigationDrawer(
+        drawerState = tocDrawerState,
+        gesturesEnabled = uiState.activeSheet == ReaderOptionSheet.TableOfContents,
+        drawerContent = {
+            if (uiState.activeSheet == ReaderOptionSheet.TableOfContents) {
+                ModalDrawerSheet {
+                    TableOfContentsDrawerContent(
+                        uiState = uiState,
+                        onLocationClick = { location ->
+                            onMoveToLocation(location)
+                            onDismissSheet()
+                        },
+                    )
+                }
+            }
+        },
     ) {
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize(),
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(uiState.style.readerColors().background),
         ) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+            ) {
             val density = LocalDensity.current
             val systemBarsInsets = readerSystemBarsInsets()
             val displayFold = rememberDisplayFold()
@@ -613,11 +657,13 @@ private fun ReaderContent(
                             exit = fadeOut(tween(motion.shortDurationMs)) +
                                 slideOutVertically(tween(motion.shortDurationMs)) { -it / 4 },
                         ) {
+                            val chapterTopTitle = uiState.currentPage.chapterTitle
                             ReaderTopControls(
-                                title = uiState.documentTitle,
+                                title = chapterTopTitle?.let { "|$it" } ?: uiState.documentTitle,
                                 style = uiState.style,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                                titleLabel = stringResource(Res.string.reader_reading_label),
+                                titleLabel = if (chapterTopTitle != null) null else stringResource(Res.string.reader_reading_label),
+                                titleAtEnd = chapterTopTitle != null,
                                 navigationIcon = {
                                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
                                         Icon(imageVector = TeddIcons.Back, contentDescription = null)
@@ -725,7 +771,7 @@ private fun ReaderContent(
             )
         }
 
-        uiState.activeSheet?.let { sheet ->
+        uiState.activeSheet?.takeUnless { it == ReaderOptionSheet.TableOfContents }?.let { sheet ->
             ReaderActiveSheet(
                 sheet = sheet,
                 uiState = uiState,
@@ -772,6 +818,8 @@ private fun ReaderContent(
             )
         }
     }
+}
+
 }
 
 @Composable
@@ -1013,6 +1061,52 @@ private fun ReaderActiveSheet(
     }
 }
 
+
+@Composable
+private fun TableOfContentsDrawerContent(
+    uiState: ReaderUiState,
+    onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier = modifier.fillMaxWidth()) {
+        item {
+            Text(
+                text = stringResource(Res.string.table_of_contents),
+                modifier = Modifier.padding(
+                    start = DefaultTeddReaderSpacing.medium,
+                    end = DefaultTeddReaderSpacing.medium,
+                    top = DefaultTeddReaderSpacing.medium,
+                    bottom = DefaultTeddReaderSpacing.small,
+                ),
+                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+            )
+        }
+        if (uiState.outlineItems.isEmpty()) {
+            item {
+                Text(
+                    text = stringResource(Res.string.no_table_of_contents),
+                    modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                )
+            }
+        } else {
+            itemsIndexed(uiState.outlineItems) { index, item ->
+                NavigationDrawerItem(
+                    label = { Text(item.displayTitle()) },
+                    selected = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = DefaultTeddReaderSpacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
+                            end = DefaultTeddReaderSpacing.medium,
+                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else DefaultTeddReaderSpacing.small,
+                        ),
+                    onClick = { onLocationClick(item.location) },
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun TableOfContentsSheet(

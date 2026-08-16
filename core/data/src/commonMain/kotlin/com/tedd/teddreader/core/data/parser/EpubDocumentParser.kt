@@ -332,7 +332,7 @@ private fun parsePackageData(opf: String, opfPath: Path): PackageData {
         val path = resolveContainerHref(opfPath.toString(), item.href) ?: return@mapNotNull null
         SpineItem(item = item, path = path, linear = ref.linear)
     }
-    val spineTocId = Regex("""<spine\b[^>]*toc\s*=\s*["']([^"']+)["']""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val spineTocId = Regex("""(?is)<spine\b[^>]*toc\s*=\s*["']([^"']+)["']""")
         .find(opf)
         ?.groupValues
         ?.get(1)
@@ -354,7 +354,7 @@ private fun parsePackageData(opf: String, opfPath: Path): PackageData {
 }
 
 private fun parseDcTitle(opf: String): String? =
-    Regex("""<dc:title\b[^>]*>(.*?)</dc:title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    Regex("""(?is)<dc:title\b[^>]*>(.*?)</dc:title>""")
         .find(opf)
         ?.groupValues
         ?.get(1)
@@ -362,7 +362,7 @@ private fun parseDcTitle(opf: String): String? =
         ?.takeIf(String::isNotBlank)
 
 private fun parseManifest(opf: String): Map<String, ManifestItem> =
-    Regex("""<item\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    Regex("""(?is)<item\b[^>]*>""")
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -379,7 +379,7 @@ private fun parseManifest(opf: String): Map<String, ManifestItem> =
         .toMap()
 
 private fun parseSpine(opf: String): List<SpineItemRef> =
-    Regex("""<itemref\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    Regex("""(?is)<itemref\b[^>]*>""")
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -401,7 +401,7 @@ private fun findEpubCoverItem(opf: String, opfPath: Path? = null): String? {
 }
 
 private fun findCoverMetaId(opf: String): String? =
-    Regex("""<meta\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    Regex("""(?is)<meta\b[^>]*>""")
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)

@@ -12,14 +12,14 @@ internal data class ParsedNavigationEntry(
 )
 
 internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
-    val navMatch = Regex("""<nav\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val navMatch = Regex("""(?is)<nav\b[^>]*>""")
         .findAll(xhtml)
         .firstOrNull { match ->
             navTypeTokens(parseAttributes(match.value)).contains("toc")
         } ?: return ParsedNavigation()
     val navEnd = findMatchingEndTag(xhtml, navMatch.range.first, "nav") ?: return ParsedNavigation()
     val navBody = xhtml.substring(navMatch.range.last + 1, navEnd.start)
-    val heading = Regex("""<(h[1-6]|p)\b[^>]*>(.*?)</\1>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val heading = Regex("""(?is)<(h[1-6]|p)\b[^>]*>(.*?)</\1>""")
         .find(navBody)
         ?.groupValues
         ?.get(2)
@@ -27,7 +27,7 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
         ?.takeIf(String::isNotBlank)
 
     val entries = mutableListOf<ParsedNavigationEntry>()
-    val tokens = Regex("""<[^>]+>|[^<]+""", RegexOption.DOT_MATCHES_ALL).findAll(navBody)
+    val tokens = Regex("""(?s)<[^>]+>|[^<]+""").findAll(navBody)
     var listDepth = 0
     var captureDepth = 0
     var pendingHref: String? = null
@@ -74,7 +74,7 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
 }
 
 internal fun parseNcxDocument(xml: String): ParsedNavigation {
-    val heading = Regex("""<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val heading = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
         .find(xml)
         ?.groupValues
         ?.get(1)
@@ -88,17 +88,17 @@ internal fun parseNcxDocument(xml: String): ParsedNavigation {
 private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<ParsedNavigationEntry>) {
     var index = 0
     while (true) {
-        val start = Regex("""<navPoint\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(xml, index) ?: break
+        val start = Regex("""(?is)<navPoint\b[^>]*>""").find(xml, index) ?: break
         val end = findMatchingEndTag(xml, start.range.first, "navPoint") ?: break
         val body = xml.substring(start.range.last + 1, end.start)
-        val title = Regex("""<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val title = Regex("""(?is)<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""")
             .find(body)
             ?.groupValues
             ?.get(1)
             ?.let(::stripMarkup)
             ?.trim()
             .orEmpty()
-        val href = Regex("""<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val href = Regex("""(?is)<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""")
             .find(body)
             ?.groupValues
             ?.get(1)
@@ -115,9 +115,9 @@ private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<Pars
 private data class EndTagRange(val start: Int, val end: Int)
 
 private fun findMatchingEndTag(text: String, startIndex: Int, tagName: String): EndTagRange? {
-    val tokenRegex = Regex("""<(/?)$tagName\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val tokenRegex = Regex("""(?is)<(/?)$tagName\b[^>]*>""")
     var depth = 0
-    tokenRegex.findAll(text, startIndex).forEach { match ->
+    generateSequence(tokenRegex.find(text, startIndex)) { previous -> tokenRegex.find(text, previous.range.last + 1) }.forEach { match ->
         val raw = match.value
         val selfClosing = raw.endsWith("/>")
         val isClosing = match.groupValues[1] == "/"
@@ -151,7 +151,7 @@ private data class NavToken(
 )
 
 internal fun stripMarkup(value: String): String = buildString {
-    Regex("""<[^>]+>|[^<]+""", RegexOption.DOT_MATCHES_ALL).findAll(value).forEach { token ->
+    Regex("""(?s)<[^>]+>|[^<]+""").findAll(value).forEach { token ->
         if (!token.value.startsWith('<')) append(decodeXmlEntities(token.value))
     }
 }.replace(Regex("""\s+"""), " ").trim()

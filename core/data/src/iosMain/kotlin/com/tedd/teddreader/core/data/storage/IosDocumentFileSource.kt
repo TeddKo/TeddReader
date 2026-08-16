@@ -21,6 +21,16 @@ class IosDocumentFileSource : DocumentFileSource {
         return data.toByteArray()
     }
 
+    override suspend fun copyTo(location: DocumentLocation, destination: okio.Path) {
+        val bytes = readBytes(location)
+        val sink = FileSystem.SYSTEM.sink(destination).buffer()
+        try {
+            sink.write(bytes)
+        } finally {
+            sink.close()
+        }
+    }
+
     override suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation {
         val destination = uniqueDestinationPath(location.displayName)
         val sink = FileSystem.SYSTEM.sink(destination.toPath()).buffer()

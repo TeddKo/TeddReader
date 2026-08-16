@@ -7,6 +7,8 @@ import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import okio.FileSystem
+import okio.buffer
 
 class ComicBookDocumentParserArchiveTest {
     @Test
@@ -30,6 +32,33 @@ class ComicBookDocumentParserArchiveTest {
         assertContentEquals(page2, pages[1])
         assertContentEquals(page10, pages[2])
     }
+    @Test
+    fun parsesAndReadsNaturallyOrderedImageEntriesFromPath() {
+        val cover = byteArrayOf(1)
+        val page2 = byteArrayOf(2)
+        val page10 = byteArrayOf(10)
+        val bytes = comicZip(
+            "page10.jpg" to page10,
+            "cover.jpg" to cover,
+            "page2.png" to page2,
+        )
+        val parser = ComicBookDocumentParser()
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "comic-parser-test.cbz"
+        FileSystem.SYSTEM.sink(path).buffer().use { sink -> sink.write(bytes) }
+
+        try {
+            val document = parser.parse(DocumentId("comic"), "Comic", path)
+            val pages = parser.pageImageBytes(path, setOf(0, 1, 2))
+
+            assertEquals(3, document.pageCount)
+            assertContentEquals(cover, pages[0])
+            assertContentEquals(page2, pages[1])
+            assertContentEquals(page10, pages[2])
+        } finally {
+            runCatching { FileSystem.SYSTEM.delete(path) }
+        }
+    }
+
 }
 
 private fun comicZip(vararg entries: Pair<String, ByteArray>): ByteArray {

@@ -262,12 +262,19 @@ private suspend fun importUri(
             mimeType = overrideMimeType ?: resolver.getType(uri),
             sizeBytes = overrideSizeBytes ?: metadata.sizeBytes ?: 0L,
         )
-        val bytes = resolver.openInputStream(uri)?.use { input -> input.readBytes() }
-            ?: error("Cannot open document: $uri")
-        val persistedLocation = if (materializeInAppStorage) {
-            documentFileSource.materialize(location, bytes)
+        val extension = location.displayName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+        val mimeType = location.mimeType?.lowercase()
+        val isCbzImport = extension == "cbz" || mimeType == "application/vnd.comicbook+zip" || mimeType == "application/x-cbz"
+        val bytes = if (isCbzImport) {
+            null
         } else {
-            location
+            resolver.openInputStream(uri)?.use { input -> input.readBytes() }
+                ?: error("Cannot open document: $uri")
+        }
+        val persistedLocation = when {
+            !materializeInAppStorage -> location
+            isCbzImport -> documentFileSource.materializeFromSource(location)
+            else -> documentFileSource.materialize(location, requireNotNull(bytes))
         }
         val document = openDocumentUseCase(
             source = DocumentImportSource(location = persistedLocation, bytes = bytes),
@@ -279,10 +286,13 @@ private suspend fun importUri(
 
 private suspend fun DocumentImportSource.copyMaterialized(
     documentFileSource: AndroidDocumentFileSource,
-): DocumentImportSource = DocumentImportSource(
-    location = documentFileSource.materialize(location, bytes),
-    bytes = bytes,
-)
+): DocumentImportSource {
+    val sourceBytes = bytes
+    return DocumentImportSource(
+        location = if (sourceBytes != null) documentFileSource.materialize(location, sourceBytes) else documentFileSource.materializeFromSource(location),
+        bytes = sourceBytes,
+    )
+}
 
 private data class AndroidTreeDocument(
     val displayName: String,
