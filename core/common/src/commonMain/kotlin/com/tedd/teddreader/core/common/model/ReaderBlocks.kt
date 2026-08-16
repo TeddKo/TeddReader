@@ -150,6 +150,33 @@ fun ReaderBlockKind.isTableCell(): Boolean =
 fun ReaderBlockKind.isStandalone(): Boolean =
     this == ReaderBlockKind.IMAGE || this == ReaderBlockKind.COVER_IMAGE || this == ReaderBlockKind.SEPARATOR
 
+/**
+ * The one character a picture occupies in a document's flat text: U+FFFC OBJECT REPLACEMENT CHARACTER,
+ * which is what it means. Keeping the picture in the text rather than between two blocks is what lets
+ * an `<img>` stay inside the sentence it was written in, which is where HTML puts it.
+ */
+const val ReaderObjectReplacementChar: Char = '￼'
+
+/** True when [this] reads as empty once the pictures in it are discounted. */
+fun String.isBlankIgnoringObjects(): Boolean =
+    all { char -> char == ReaderObjectReplacementChar || char.isWhitespace() }
+
+/**
+ * The pictures and rules that stand on a line of their own, as opposed to those set inside a sentence.
+ *
+ * An `<img>` is inline content in HTML — a gaiji glyph or an icon belongs on the line it was written
+ * on — and no reading system moves it out of its paragraph. A picture that is the only thing in its
+ * block has no paragraph enclosing it, and that is exactly what makes it a plate.
+ */
+fun List<ReaderBlock>.standaloneBlocks(): List<ReaderBlock> {
+    val textRanges = filter { !it.kind.isStandalone() }.map { it.range }
+    if (textRanges.isEmpty()) return filter { it.kind.isStandalone() }
+    return filter { block ->
+        block.kind.isStandalone() &&
+            textRanges.none { range -> range.start <= block.range.start && range.end >= block.range.end }
+    }
+}
+
 /** Blocks that overlap [start, end), so a page can render only the structure it actually shows. */
 fun List<ReaderBlock>.blocksIn(start: Long, end: Long): List<ReaderBlock> = filter { block ->
     if (block.range.start == block.range.end) {

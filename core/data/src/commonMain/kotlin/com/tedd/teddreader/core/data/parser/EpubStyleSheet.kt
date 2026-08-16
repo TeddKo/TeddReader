@@ -22,6 +22,8 @@ internal data class EpubStyleSheet(
     val containerWidths: Map<String, CssWidth> = emptyMap(),
     /** Width set on an image inside it, e.g. `.img_britg img{width:100%}`. */
     val imageWidths: Map<String, CssWidth> = emptyMap(),
+    /** Width a bare `img{width:…}` rule gives every picture the classes do not size themselves. */
+    val defaultImageWidth: CssWidth? = null,
 ) {
     /**
      * Width for an image whose ancestors carry [classNames], nearest first.
@@ -45,10 +47,10 @@ internal data class EpubStyleSheet(
             }
             if (onContainer != null) return onContainer
         }
-        return null
+        return defaultImageWidth
     }
 
-    fun isEmpty(): Boolean = containerWidths.isEmpty() && imageWidths.isEmpty()
+    fun isEmpty(): Boolean = containerWidths.isEmpty() && imageWidths.isEmpty() && defaultImageWidth == null
 }
 
 /**
@@ -58,6 +60,7 @@ internal data class EpubStyleSheet(
 internal fun parseEpubStyleSheet(css: String, base: EpubStyleSheet = EpubStyleSheet()): EpubStyleSheet {
     val containerWidths = base.containerWidths.toMutableMap()
     val imageWidths = base.imageWidths.toMutableMap()
+    var defaultImageWidth = base.defaultImageWidth
 
     CssRuleRegex.findAll(stripCssComments(css)).forEach { rule ->
         val width = declaredWidth(rule.groupValues[2]) ?: return@forEach
@@ -70,11 +73,22 @@ internal fun parseEpubStyleSheet(css: String, base: EpubStyleSheet = EpubStyleSh
             val classes = keyCompounds.flatMap { compound ->
                 CssClassRegex.findAll(compound).map { it.groupValues[1] }.toList()
             }
+            if (targetsImage && classes.isEmpty()) {
+                // A bare `img{width:…}` sizes every picture in the book. Books that state their
+                // picture sizes this way rather than through a class were being read as stating
+                // nothing at all, and every one of their images fell back to the full column.
+                defaultImageWidth = width
+                return@forEach
+            }
             val target = if (targetsImage) imageWidths else containerWidths
             classes.forEach { className -> target[className] = width }
         }
     }
-    return EpubStyleSheet(containerWidths = containerWidths, imageWidths = imageWidths)
+    return EpubStyleSheet(
+        containerWidths = containerWidths,
+        imageWidths = imageWidths,
+        defaultImageWidth = defaultImageWidth,
+    )
 }
 
 private fun declaredWidth(declarations: String): CssWidth? {

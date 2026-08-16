@@ -77,6 +77,36 @@ class ReaderSemanticTextTest {
     }
 
     @Test
+    fun aPictureWrittenInsideASentenceStaysInThatParagraph() {
+        // `<p>앞 문장이 있고 <img/> 뒤 문장이 이어진다.</p>`: the picture belongs to the paragraph, so it
+        // gets no paragraph of its own — giving it one would both break the sentence and overlap the
+        // enclosing paragraph style, which AnnotatedString rejects outright.
+        val text = "앞 문장이 있고 ￼ 뒤 문장이 이어진다."
+        val imageStart = text.indexOf('￼').toLong()
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(ReaderBlockKind.PARAGRAPH, TextRange(0, text.length.toLong()), align = ReaderTextAlign.JUSTIFY),
+                ReaderBlock(
+                    ReaderBlockKind.IMAGE,
+                    TextRange(imageStart, imageStart + 1),
+                    imageHref = "images/gaiji.png",
+                    align = ReaderTextAlign.CENTER,
+                ),
+            ),
+        )
+
+        val placeholder = semantic.placeholders.single()
+        assertEquals(imageStart.toInt(), placeholder.start)
+        // One paragraph, the sentence's own, spanning the picture with it.
+        val paragraph = semantic.annotatedString.paragraphStyles.single()
+        assertEquals(0, paragraph.start)
+        assertEquals(text.length, paragraph.end)
+        assertEquals(TextAlign.Justify, paragraph.item.textAlign)
+    }
+
+    @Test
     fun aChapterHeadingTheBookDoesNotAlignIsCentred() {
         val text = "2화 기회"
         val semantic = buildReaderSemanticText(

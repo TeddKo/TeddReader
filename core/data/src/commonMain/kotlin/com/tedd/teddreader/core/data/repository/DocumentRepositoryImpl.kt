@@ -5,6 +5,8 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
+import com.tedd.teddreader.core.common.model.ReaderObjectReplacementChar
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
@@ -160,7 +162,8 @@ class DocumentRepositoryImpl(
         if (
             metadata.format == DocumentFormat.EPUB && (
                 (storedSections.sections.isNotEmpty() && storedSections.blocks.isEmpty()) ||
-                    storedSections.navigationJson.isBlank()
+                    storedSections.navigationJson.isBlank() ||
+                    storedSections.hasStaleImagePlacement()
                 )
         ) {
             repairEpubDocument(metadata)?.let { return it }
@@ -409,6 +412,23 @@ class DocumentRepositoryImpl(
 
 private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
     section.text.contains('\uFFFD') || section.text.contains("ï¿½")
+}
+
+/**
+ * True when the stored text was written before pictures were kept inside the sentences holding them.
+ *
+ * A book parsed by the older code marks an image with a newline rather than the object-replacement
+ * character, and puts every image on a line of its own — so a glyph set in the middle of a sentence
+ * comes back with the sentence broken in two around it. Re-reading the file repairs that, and the
+ * first image is enough to tell which parser wrote the book.
+ */
+private fun StoredReaderDocument.hasStaleImagePlacement(): Boolean {
+    val image = blocks.firstOrNull { it.kind == ReaderBlockKind.IMAGE } ?: return false
+    val section = sections.firstOrNull { section ->
+        section.range.start <= image.range.start && section.range.end >= image.range.end
+    } ?: return false
+    val index = (image.range.start - section.range.start).toInt()
+    return section.text.getOrNull(index) != ReaderObjectReplacementChar
 }
 
 private fun requireDocumentBytes(source: DocumentImportSource): ByteArray =

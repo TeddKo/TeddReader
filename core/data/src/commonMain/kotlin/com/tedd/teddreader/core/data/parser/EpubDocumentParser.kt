@@ -9,6 +9,7 @@ import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderNavigationItem
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
 import kotlin.random.Random
 import okio.Buffer
 import okio.FileSystem
@@ -570,7 +571,9 @@ private fun isPureCoverXhtml(
     content: XhtmlContent,
     coverHref: String,
 ): Boolean {
-    if (content.text.isNotBlank()) return false
+    // The picture itself now occupies a character of the text, so "no readable text" means no text
+    // beyond the pictures.
+    if (!content.text.isBlankIgnoringObjects()) return false
     val imageBlocks = content.blocks.filter { it.kind == ReaderBlockKind.IMAGE }
     return imageBlocks.isNotEmpty() && content.blocks.all { it.kind == ReaderBlockKind.IMAGE } && imageBlocks.all { it.imageHref == coverHref }
 }
