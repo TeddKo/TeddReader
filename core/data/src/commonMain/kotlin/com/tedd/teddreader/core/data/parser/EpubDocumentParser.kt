@@ -159,6 +159,8 @@ class EpubDocumentParser {
             section.copy(title = navigationTitlesBySection[section.index] ?: section.title)
         }
 
+        fillMissingImageAspectRatios(blocks, zip, coverHref, coverBytes)
+
         return ReaderDocument(
             id = id,
             format = DocumentFormat.EPUB,
@@ -297,6 +299,59 @@ private fun FileSystem.readUtf8OrNull(path: Path): String? =
             source.close()
         }
     }.getOrNull()
+
+/**
+ * Patches every [ReaderBlockKind.IMAGE]/[ReaderBlockKind.COVER_IMAGE] block that has no aspect ratio
+ * yet (the XHTML did not declare `width`/`height`) with the ratio sniffed from the image's own bytes,
+ * so the reader can size it correctly instead of guessing. Mutates [blocks] in place.
+ */
+private fun fillMissingImageAspectRatios(
+    blocks: MutableList<ReaderBlock>,
+    zip: FileSystem,
+    coverHref: String?,
+    coverBytes: ByteArray?,
+) {
+    val missingHrefs = blocks.asSequence()
+        .filter { it.kind == ReaderBlockKind.IMAGE || it.kind == ReaderBlockKind.COVER_IMAGE }
+        .filter { it.imageAspectRatio == null }
+        .mapNotNull { it.imageHref }
+        .toSet()
+    if (missingHrefs.isEmpty()) return
+
+    val sniffedRatios = mutableMapOf<String, Float>()
+    if (coverHref != null && coverHref in missingHrefs && coverBytes != null) {
+        sniffImageDimensions(coverBytes)?.let { (width, height) -> sniffedRatios[coverHref] = width.toFloat() / height }
+    }
+    (missingHrefs - sniffedRatios.keys).forEach { href ->
+        val header = zip.readHeaderBytesOrNull(href.toPath(), ImageHeaderSniffBytes) ?: return@forEach
+        sniffImageDimensions(header)?.let { (width, height) -> sniffedRatios[href] = width.toFloat() / height }
+    }
+    if (sniffedRatios.isEmpty()) return
+
+    for (index in blocks.indices) {
+        val block = blocks[index]
+        if (block.imageAspectRatio != null) continue
+        val ratio = block.imageHref?.let(sniffedRatios::get) ?: continue
+        blocks[index] = block.copy(imageAspectRatio = ratio)
+    }
+}
+
+private fun FileSystem.readHeaderBytesOrNull(path: Path, maxBytes: Int): ByteArray? {
+    val source = runCatching { source(path).buffer() }.getOrNull() ?: return null
+    return try {
+        val buffer = Buffer()
+        // A single read() call is not guaranteed to fill the request even when more bytes remain, so
+        // this loops to the cap (or EOF) the same way readBytesOrNull below does for the full file.
+        while (buffer.size < maxBytes) {
+            if (source.read(buffer, maxBytes - buffer.size) == -1L) break
+        }
+        buffer.readByteArray()
+    } catch (_: Throwable) {
+        null
+    } finally {
+        source.close()
+    }
+}
 
 private fun FileSystem.readBytesOrNull(path: Path): ByteArray? {
     val source = runCatching { source(path).buffer() }.getOrNull() ?: return null
@@ -551,5 +606,6 @@ private fun navTypeTokens(value: String?): Set<String> =
 /** Sections are joined by a single newline when the document is read as one text. */
 private const val SectionSeparatorLength = 1L
 private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
+private const val ImageHeaderSniffBytes = 256 * 1024
 private const val ContainerPath = "META-INF/container.xml"
 private const val NcxMediaType = "application/x-dtbncx+xml"

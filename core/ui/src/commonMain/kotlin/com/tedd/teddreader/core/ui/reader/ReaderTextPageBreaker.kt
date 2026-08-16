@@ -2,9 +2,11 @@ package com.tedd.teddreader.core.ui.reader
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.sp
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.designsystem.readerTextStyle
@@ -23,7 +25,13 @@ import com.tedd.teddreader.core.designsystem.readerTextStyle
 fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): ReaderPageBreaker {
     val measurer = rememberTextMeasurer(cacheSize = 0)
     val textStyle = style.readerTextStyle()
-    return remember(measurer, textStyle, widthPx, heightPx) {
+    val density = LocalDensity.current
+    return remember(measurer, textStyle, widthPx, heightPx, density) {
+        // Same em conversion the render side uses (see EpubPageSurface), so a standalone image is
+        // paginated with the exact box it will actually be drawn into.
+        val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
+        val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
+        val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
         ReaderPageBreaker { text, blocks ->
             if (widthPx <= 0 || heightPx <= 0 || text.isEmpty()) {
                 IntArray(0)
@@ -31,6 +39,8 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
                 val semanticText = buildReaderSemanticText(
                     text = text,
                     blocks = blocks,
+                    lineWidthEm = lineWidthEm,
+                    maxHeightEm = maxHeightEm,
                 )
                 val layout = measurer.measure(
                     text = semanticText.annotatedString,

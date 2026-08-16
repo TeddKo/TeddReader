@@ -172,6 +172,7 @@ private class XhtmlContentBuilder(
                         kind = ReaderBlockKind.IMAGE,
                         imageHref = href,
                         label = tag.attributes["alt"]?.takeIf { it.isNotBlank() },
+                        aspectRatio = tag.attributes.declaredImageAspectRatio(),
                     )
                 }
                 return
@@ -309,6 +310,7 @@ private class XhtmlContentBuilder(
         kind: ReaderBlockKind,
         imageHref: String? = null,
         label: String? = null,
+        aspectRatio: Float? = null,
     ) {
         flushBlock()
         // The block owns one newline, so it holds a real range: a zero-width block would fall through
@@ -323,6 +325,7 @@ private class XhtmlContentBuilder(
             imageHref = imageHref,
             label = label,
             align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE || kind == ReaderBlockKind.COVER_IMAGE },
+            imageAspectRatio = aspectRatio,
         )
         text.append('\n')
     }
@@ -406,6 +409,23 @@ private fun ReaderBlockKind.isTableCellKind(): Boolean =
     this == ReaderBlockKind.TABLE_CELL || this == ReaderBlockKind.TABLE_HEADER_CELL
 
 private fun Map<String, String>.startOrdinal(): Int = this["start"]?.toIntOrNull() ?: 1
+
+/**
+ * Width divided by height, from the `width`/`height` attributes or an inline `style`, when the markup
+ * declares both as plain pixel numbers. A `%` or missing dimension carries no real aspect ratio, so it
+ * is left null rather than guessed; the real pixels are sniffed from the image bytes instead.
+ */
+private fun Map<String, String>.declaredImageAspectRatio(): Float? {
+    val declaredWidth = this["width"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "width") }
+    val declaredHeight = this["height"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "height") }
+    if (declaredWidth == null || declaredHeight == null || declaredWidth <= 0f || declaredHeight <= 0f) return null
+    return declaredWidth / declaredHeight
+}
+
+private fun String.toPixelValue(): Float? = trim().takeIf { it.isNotEmpty() && it.none(Char::isLetter) }?.toFloatOrNull()
+
+private fun cssPixelDimension(style: String, property: String): Float? =
+    Regex("""$property\s*:\s*([0-9.]+)px""").find(style)?.groupValues?.get(1)?.toFloatOrNull()
 
 private fun Map<String, String>.textAlign(): ReaderTextAlign? {
     val declared = this["align"] ?: this["style"]?.let { style ->

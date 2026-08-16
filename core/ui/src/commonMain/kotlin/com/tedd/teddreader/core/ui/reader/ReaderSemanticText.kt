@@ -44,6 +44,10 @@ fun buildReaderSemanticText(
     text: String,
     blocks: List<ReaderBlock>,
     range: TextRange = TextRange(0, text.length.toLong()),
+    /** Width of the text column, in em, so a standalone image can claim the full line like `width:100%`. */
+    lineWidthEm: Float = 0f,
+    /** Height available for one page, in em, so a tall image is bounded like `max-height:98%` instead of overflowing the page. */
+    maxHeightEm: Float = 0f,
 ): ReaderSemanticText {
     if (text.isEmpty()) {
         return ReaderSemanticText(AnnotatedString(""), intArrayOf(0), emptyList())
@@ -105,6 +109,7 @@ fun buildReaderSemanticText(
                 kind = standalone.block.kind,
                 href = standalone.block.imageHref,
                 label = standalone.block.label,
+                aspectRatio = standalone.block.imageAspectRatio,
                 start = display.length - 1,
             )
             val nextLocalIndex = standalone.localEnd.coerceAtLeast(localIndex + 1)
@@ -157,7 +162,7 @@ fun buildReaderSemanticText(
             kind = spec.kind,
             href = spec.href,
             label = spec.label,
-            placeholder = placeholderFor(spec.kind),
+            placeholder = placeholderFor(spec.kind, spec.aspectRatio, lineWidthEm, maxHeightEm),
             start = spec.start,
             end = spec.start + 1,
         )
@@ -241,13 +246,34 @@ private fun inlineSpanStyle(style: ReaderInlineStyle): SpanStyle? = when (style)
     ReaderInlineStyle.LINK -> SpanStyle(textDecoration = TextDecoration.Underline)
 }
 
-private fun placeholderFor(kind: ReaderBlockKind): Placeholder = when (kind) {
+/**
+ * Sizes a standalone image the way `img { max-width: 100%; max-height: 98%; height: auto }` does in a
+ * reflowable EPUB: it claims the full line width and, when the source's real aspect ratio is known
+ * (declared in the markup or sniffed from the image bytes), a proportional height capped to the page.
+ * With no known ratio it falls back to the full page box and lets `ContentScale.Fit` contain the image
+ * without cropping or stretching it.
+ */
+private fun placeholderFor(
+    kind: ReaderBlockKind,
+    aspectRatio: Float?,
+    lineWidthEm: Float,
+    maxHeightEm: Float,
+): Placeholder = when (kind) {
     ReaderBlockKind.IMAGE,
     ReaderBlockKind.COVER_IMAGE,
-        -> Placeholder(8.em, 6.em, PlaceholderVerticalAlign.Center)
+        -> {
+        val widthEm = lineWidthEm.takeIf { it > 0f } ?: DefaultImageWidthEm
+        val boundedHeightEm = maxHeightEm.takeIf { it > 0f } ?: DefaultImageMaxHeightEm
+        val heightEm = if (aspectRatio != null && aspectRatio > 0f) widthEm / aspectRatio else boundedHeightEm
+        Placeholder(widthEm.em, heightEm.coerceIn(MinImageHeightEm, boundedHeightEm).em, PlaceholderVerticalAlign.Center)
+    }
     ReaderBlockKind.SEPARATOR -> Placeholder(8.em, 1.25.em, PlaceholderVerticalAlign.Center)
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }
+
+private const val DefaultImageWidthEm = 20f
+private const val DefaultImageMaxHeightEm = 26f
+private const val MinImageHeightEm = 2f
 
 private fun headingScale(level: Int): Float = when (level.coerceIn(1, 6)) {
     1 -> 1.55f
@@ -275,5 +301,6 @@ private data class PlaceholderSpec(
     val kind: ReaderBlockKind,
     val href: String?,
     val label: String?,
+    val aspectRatio: Float?,
     val start: Int,
 )

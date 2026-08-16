@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
@@ -45,33 +48,46 @@ internal fun EpubPageSurface(
         return
     }
 
-    val semanticText = remember(page.text, page.blocks, page.textRange) {
-        buildReaderSemanticText(
-            text = page.text,
-            blocks = page.blocks,
-            range = page.textRange ?: com.tedd.teddreader.core.common.model.TextRange(0, page.text.length.toLong()),
-        )
-    }
-    val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs) {
-        semanticText.placeholders.associate { placeholder ->
-            placeholder.id to androidx.compose.foundation.text.InlineTextContent(
-                placeholder = placeholder.placeholder,
-            ) {
-                EpubInlinePlaceholder(
-                    placeholder = placeholder,
-                    imageBytes = placeholder.href?.let(page.embeddedImages::get),
-                    isFailed = placeholder.href != null && placeholder.href in page.failedEmbeddedImageHrefs,
-                )
+    BoxWithConstraints(modifier = modifier) {
+        val density = LocalDensity.current
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        // Same em conversion the pagination breaker uses (see rememberReaderPageBreaker), so a
+        // standalone image lays out here exactly as wide/tall as it was paginated to be.
+        val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
+        val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
+        val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
+
+        val semanticText = remember(page.text, page.blocks, page.textRange, lineWidthEm, maxHeightEm) {
+            buildReaderSemanticText(
+                text = page.text,
+                blocks = page.blocks,
+                range = page.textRange ?: com.tedd.teddreader.core.common.model.TextRange(0, page.text.length.toLong()),
+                lineWidthEm = lineWidthEm,
+                maxHeightEm = maxHeightEm,
+            )
+        }
+        val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs) {
+            semanticText.placeholders.associate { placeholder ->
+                placeholder.id to androidx.compose.foundation.text.InlineTextContent(
+                    placeholder = placeholder.placeholder,
+                ) {
+                    EpubInlinePlaceholder(
+                        placeholder = placeholder,
+                        imageBytes = placeholder.href?.let(page.embeddedImages::get),
+                        isFailed = placeholder.href != null && placeholder.href in page.failedEmbeddedImageHrefs,
+                    )
+                }
             }
         }
-    }
 
-    BasicText(
-        text = semanticText.annotatedString,
-        style = style.readerTextStyle(),
-        inlineContent = inlineContent,
-        modifier = modifier,
-    )
+        BasicText(
+            text = semanticText.annotatedString,
+            style = style.readerTextStyle(),
+            inlineContent = inlineContent,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
 }
 
 @Composable
