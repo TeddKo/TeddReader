@@ -8,17 +8,17 @@ import org.koin.core.annotation.Single
 
 @Single
 class DocumentFormatDetector {
-    fun detect(location: DocumentLocation, bytes: ByteArray): DocumentFormat {
+    fun detect(location: DocumentLocation, bytes: ByteArray?): DocumentFormat {
         val name = location.displayName.lowercase()
         val mimeType = location.mimeType?.lowercase()
         val extension = name.substringAfterLast('.', missingDelimiterValue = "")
         return when {
             mimeType == "text/plain" || name.endsWith(".txt") -> DocumentFormat.TXT
-            mimeType == "application/pdf" || name.endsWith(".pdf") || bytes.startsWithAscii("%PDF") -> DocumentFormat.PDF
+            mimeType == "application/pdf" || name.endsWith(".pdf") || (bytes?.startsWithAscii("%PDF") == true) -> DocumentFormat.PDF
             mimeType == "application/epub" || mimeType == "application/epub+zip" || name.endsWith(".epub") -> DocumentFormat.EPUB
             mimeType == "application/vnd.comicbook+zip" || mimeType == "application/x-cbz" || extension == "cbz" ->
                 DocumentFormat.CBZ
-            mimeType in SupportedImageMimeTypes || extension in SupportedImageExtensions || bytes.hasRasterImageSignature() ->
+            mimeType in SupportedImageMimeTypes || extension in SupportedImageExtensions || (bytes?.hasRasterImageSignature() == true) ->
                 DocumentFormat.IMAGE
             else -> DocumentFormat.UNKNOWN
         }

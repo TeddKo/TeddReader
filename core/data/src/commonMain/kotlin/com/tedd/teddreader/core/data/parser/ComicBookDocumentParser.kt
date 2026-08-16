@@ -24,8 +24,21 @@ class ComicBookDocumentParser {
         comicReaderDocument(id = id, title = title, pageCount = pageCount)
     }
 
+    fun parse(
+        id: DocumentId,
+        title: String,
+        path: Path,
+    ): ReaderDocument = withComicZip(path) { zip ->
+        val pageCount = comicPagePaths(zip).size
+        require(pageCount > 0) { "CBZ contains no supported image pages." }
+        comicReaderDocument(id = id, title = title, pageCount = pageCount)
+    }
+
     fun coverImageBytes(bytes: ByteArray): ByteArray? =
         pageImageBytes(bytes, setOf(0))[0]
+
+    fun coverImageBytes(path: Path): ByteArray? =
+        pageImageBytes(path, setOf(0))[0]
 
     fun pageImageBytes(
         bytes: ByteArray,
@@ -33,6 +46,21 @@ class ComicBookDocumentParser {
     ): Map<Int, ByteArray> {
         if (pageIndexes.isEmpty()) return emptyMap()
         return withComicZip(bytes) { zip ->
+            val pages = comicPagePaths(zip)
+            pageIndexes.sorted().mapNotNull { pageIndex ->
+                pages.getOrNull(pageIndex)
+                    ?.let { pagePath -> zip.readComicPageOrNull(pagePath) }
+                    ?.let { pageBytes -> pageIndex to pageBytes }
+            }.toMap()
+        }
+    }
+
+    fun pageImageBytes(
+        path: Path,
+        pageIndexes: Set<Int>,
+    ): Map<Int, ByteArray> {
+        if (pageIndexes.isEmpty()) return emptyMap()
+        return withComicZip(path) { zip ->
             val pages = comicPagePaths(zip)
             pageIndexes.sorted().mapNotNull { pageIndex ->
                 pages.getOrNull(pageIndex)
@@ -58,6 +86,9 @@ class ComicBookDocumentParser {
             fileSystem.delete(path)
         }
     }
+
+    private fun <T> withComicZip(path: Path, block: (FileSystem) -> T): T =
+        block(systemFileSystem().openZip(path))
 }
 
 internal fun comicReaderDocument(

@@ -22,6 +22,8 @@ val SupportedDocumentMimeTypes: Set<String> = setOf(
     "image/bmp",
 )
 
+val GoogleDriveSupportedDocumentMimeTypes: Set<String> = SupportedDocumentMimeTypes + "application/zip"
+
 val SupportedDocumentExtensions: Set<String> = setOf(
     "txt",
     "pdf",

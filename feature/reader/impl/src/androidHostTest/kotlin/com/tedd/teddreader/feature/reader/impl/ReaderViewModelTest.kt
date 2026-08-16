@@ -8,8 +8,13 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
+import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderNavigation
+import com.tedd.teddreader.core.common.model.ReaderNavigationItem
+import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
@@ -100,6 +105,25 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun openingAnotherDocumentImmediatelyClearsPreviousReaderContent() = runTest(dispatcher) {
+        val viewModel = createViewModel(FakeDocumentRepository(DocumentId("doc-1")))
+
+        viewModel.openDocument("doc-1")
+        advanceUntilIdle()
+        assertEquals("First stored page", viewModel.uiState.value.pageText)
+        assertTrue(viewModel.uiState.value.currentPage.text.isNotEmpty())
+
+        viewModel.openDocument("doc-2")
+
+        assertTrue(viewModel.uiState.value.isLoading)
+        assertEquals("", viewModel.uiState.value.pageText)
+        assertEquals("", viewModel.uiState.value.currentPage.text)
+        assertTrue(viewModel.uiState.value.pageSlots.isEmpty())
+        assertTrue(viewModel.uiState.value.documentPages.isEmpty())
+        assertTrue(viewModel.uiState.value.outlineItems.isEmpty())
+    }
+
+    @Test
     fun openDocumentRestoresSavedOffsetAfterViewportPagination() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
         val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
@@ -173,6 +197,165 @@ class ReaderViewModelTest {
 
         assertEquals(DocumentFormat.CBZ, viewModel.uiState.value.documentFormat)
         assertContentEquals(imageBytes, viewModel.uiState.value.visualPageImages[0])
+    }
+
+    @Test
+    fun openEpubDocumentLoadsCurrentPageBlocksAndEmbeddedImages() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-1")
+        val imageBytes = byteArrayOf(9, 8, 7)
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.IMAGE,
+            range = TextRange(0, 1),
+            imageHref = "images/pic.png",
+            label = "Cover art",
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Stored epub",
+                    sections = emptyList(),
+                    blocks = listOf(block),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "\n",
+                        textRange = TextRange(0, 1),
+                        blocks = listOf(block),
+                    ),
+                ),
+                embeddedImages = mapOf("images/pic.png" to imageBytes),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(listOf(block), viewModel.uiState.value.currentPage.blocks)
+        assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/pic.png"])
+    }
+
+    @Test
+    fun epubDocumentUsesStoredTitleAndNavigationOutline() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-outline")
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Package Title",
+                    sections = listOf(
+                        ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                        ReaderSection(1, text = "Body", range = TextRange(2, 6), title = "Body"),
+                    ),
+                    navigation = ReaderNavigation(
+                        heading = "Contents",
+                        items = listOf(
+                            ReaderNavigationItem(title = "Chapter 1", level = 1, spineIndex = 1, offset = 0),
+                            ReaderNavigationItem(title = "Scene", level = 2, spineIndex = 1, offset = 3),
+                        ),
+                    ),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.EpubOffset(1, 0),
+                        text = "Body",
+                        textRange = TextRange(2, 6),
+                    ),
+                ),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals("Package Title", viewModel.uiState.value.documentTitle)
+        assertEquals("Contents", viewModel.uiState.value.outlineHeading)
+        assertEquals(listOf("Chapter 1", "Scene"), viewModel.uiState.value.outlineItems.map { it.title })
+        assertEquals(listOf(1, 2), viewModel.uiState.value.outlineItems.map { it.level })
+        assertEquals(
+            listOf(ReaderLocation.EpubOffset(1, 0), ReaderLocation.EpubOffset(1, 3)),
+            viewModel.uiState.value.outlineItems.map { it.location },
+        )
+    }
+
+    @Test
+    fun openDocumentKeepsDocumentPagesEmptyWhileProvidingCurrentPageSlots() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-large")
+        val viewModel = createViewModel(
+            FakeDocumentRepository(documentId, paginatedText = "a".repeat(300)),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.documentPages.isEmpty())
+        assertTrue(viewModel.uiState.value.pageSlots.isNotEmpty())
+        assertEquals("a".repeat(30), viewModel.uiState.value.currentPage.text)
+    }
+
+    @Test
+    fun epubChapterTitlePersistsAcrossEveryPageOfTheSameChapter() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-chapter")
+        val chapterStart = PageWindow(
+            pageIndex = PageIndex(current = 0, total = 2),
+            location = ReaderLocation.EpubOffset(1, 0),
+            text = "2 - 1화 기회 (1)\n본문 첫 페이지",
+            textRange = TextRange(11, 28),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.HEADING, range = TextRange(11, 22)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(23, 28)),
+            ),
+        )
+        val laterPage = PageWindow(
+            pageIndex = PageIndex(current = 1, total = 2),
+            location = ReaderLocation.EpubOffset(1, 17),
+            text = "다음 페이지",
+            textRange = TextRange(28, 33),
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Stored epub",
+                    sections = listOf(
+                        ReaderSection(0, text = "cover text", range = TextRange(0, 10), title = "Cover"),
+                        ReaderSection(1, text = "2 - 1화 기회 (1)\n본문 첫 페이지다음 페이지", range = TextRange(11, 33), title = "2 - 1화 기회 (1)"),
+                    ),
+                    navigation = ReaderNavigation(
+                        heading = "Contents",
+                        items = listOf(ReaderNavigationItem(title = "2 - 1화 기회 (1)", level = 1, spineIndex = 1, offset = 0)),
+                    ),
+                ),
+                pageWindows = listOf(chapterStart, laterPage),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
+        assertEquals("2 - 1화 기회 (1)\n본문 첫 페이지", viewModel.uiState.value.currentPage.text)
+
+        viewModel.moveToPage(1)
+        advanceUntilIdle()
+
+        // Pinned in the top bar for the whole chapter, not only its first page.
+        assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
+        assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
     }
 
     @Test
@@ -373,6 +556,9 @@ private class FakeDocumentRepository(
     pageCount: Int = 2,
     private val paginatedText: String? = null,
     private val visualPageImages: Map<Int, ByteArray> = emptyMap(),
+    private val embeddedImages: Map<String, ByteArray> = emptyMap(),
+    private val readerDocument: ReaderDocument? = null,
+    private val pageWindows: List<PageWindow>? = null,
 ) : DocumentRepository {
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -398,18 +584,23 @@ private class FakeDocumentRepository(
         metadata.takeIf { it.id == documentId }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? =
-        ReaderDocument(
+        (readerDocument ?: ReaderDocument(
             id = documentId,
             format = format,
             title = "Stored book",
             sections = emptyList(),
             pageCount = metadata.pageCount ?: 0,
-        ).takeIf { documentId == this.documentId }
+        )).takeIf { documentId == this.documentId }
 
     override suspend fun getVisualPageImages(
         documentId: DocumentId,
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> = visualPageImages.filterKeys(pageIndexes::contains)
+
+    override suspend fun getEmbeddedImages(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> = embeddedImages.filterKeys(hrefs::contains)
 
     override suspend fun getPageWindows(
         documentId: DocumentId,
@@ -418,6 +609,8 @@ private class FakeDocumentRepository(
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
     ): List<PageWindow> = if (documentId != this.documentId || format == DocumentFormat.PDF) {
         emptyList()
+    } else if (pageWindows != null) {
+        pageWindows
     } else if (paginatedText != null) {
         paginate(paginatedText, viewportSize)
     } else {

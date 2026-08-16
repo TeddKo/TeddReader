@@ -106,6 +106,27 @@ data class ReaderSection(
 }
 
 @Serializable
+data class ReaderNavigationItem(
+    val title: String,
+    val level: Int,
+    val spineIndex: Int,
+    val offset: Long,
+) {
+    init {
+        require(title.isNotBlank()) { "ReaderNavigationItem title must not be blank." }
+        require(level >= 1) { "ReaderNavigationItem level must be positive." }
+        require(spineIndex >= 0) { "ReaderNavigationItem spineIndex must be positive." }
+        require(offset >= 0L) { "ReaderNavigationItem offset must be positive." }
+    }
+}
+
+@Serializable
+data class ReaderNavigation(
+    val heading: String? = null,
+    val items: List<ReaderNavigationItem> = emptyList(),
+)
+
+@Serializable
 data class ReaderDocument(
     val id: DocumentId,
     val format: DocumentFormat,
@@ -118,6 +139,7 @@ data class ReaderDocument(
      * by a single newline, the same text pagination and reading position work on.
      */
     val blocks: List<ReaderBlock> = emptyList(),
+    val navigation: ReaderNavigation? = null,
 ) {
     init {
         require(title.isNotBlank()) { "ReaderDocument title must not be blank." }

@@ -10,6 +10,7 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
@@ -60,27 +61,41 @@ class ReaderViewModel(
     private var pageBreakerStyle: ReaderStyle? = null
     private var pageBreakerSize: ViewportSize? = null
     private var viewportReloadJob: Job? = null
+    private var openDocumentJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
     private var visualPageLoadJob: Job? = null
     private val visualPageCache = linkedMapOf<Int, ByteArray>()
     private val failedVisualPages = linkedSetOf<Int>()
+    private var embeddedImageLoadJob: Job? = null
+    private val embeddedImageCache = linkedMapOf<String, ByteArray>()
+    private val failedEmbeddedImageHrefs = linkedSetOf<String>()
 
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
         if (currentDocumentId == documentId) return
         currentDocumentId = documentId
+        openDocumentJob?.cancel()
+        viewportReloadJob?.cancel()
         visualPageLoadJob?.cancel()
+        embeddedImageLoadJob?.cancel()
+        currentPageWindows = emptyList()
+        currentSections = emptyList()
+        anchorOffset = null
         visualPageCache.clear()
         failedVisualPages.clear()
+        embeddedImageCache.clear()
+        failedEmbeddedImageHrefs.clear()
+        _uiState.value = ReaderUiState(documentTitle = documentId.value)
         observeSavedPlaces(documentId)
 
-        viewModelScope.launch {
-            runCatching {
+        openDocumentJob = viewModelScope.launch {
+            try {
                 val metadata = documentRepository.getDocument(documentId)
                 val readerDocument = documentRepository.getReaderDocument(documentId)
                 val progress = restoreReadingProgress(documentId)
                 val settings = readerSettingsRepository.settings.first()
+                if (currentDocumentId != documentId) return@launch
                 val documentFormat = metadata?.format ?: DocumentFormat.UNKNOWN
                 val isPdfMode = documentFormat == DocumentFormat.PDF
                 val isVisualMode = documentFormat.isVisualPageFormat()
@@ -95,12 +110,14 @@ class ReaderViewModel(
                         pageBreaker = pageBreakerFor(settings.style),
                     )
                 }
+                if (currentDocumentId != documentId) return@launch
                 currentPageWindows = pageWindows
                 currentSections = readerDocument?.sections.orEmpty()
                 documentRepository.markDocumentOpened(
                     documentId = documentId,
                     openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
                 )
+                if (currentDocumentId != documentId) return@launch
 
                 val metadataPageCount = metadata?.pageCount
                 val totalPages = when {
@@ -123,18 +140,11 @@ class ReaderViewModel(
                 )
                 val outlineItems = buildOutlineItems(
                     format = metadata?.format,
-                    sections = readerDocument?.sections.orEmpty(),
+                    readerDocument = readerDocument,
                     totalPages = totalPages,
                 )
-                val documentPages = documentPages(
-                    pageIndex = pageIndex,
-                    documentUri = documentUri,
-                    isVisualMode = isVisualMode,
-                    pageWindows = pageWindows,
-                )
-
-                ReaderUiState(
-                    documentTitle = metadata?.location?.displayName ?: documentId.value,
+                val state = ReaderUiState(
+                    documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value,
                     documentUri = documentUri,
                     documentFormat = documentFormat,
                     pageText = currentPageUi.text,
@@ -154,7 +164,7 @@ class ReaderViewModel(
                         isPdfMode = isPdfMode,
                         pageWindows = pageWindows,
                     ),
-                    documentPages = documentPages,
+                    documentPages = emptyList(),
                     pageSlots = pageSlots(
                         currentPage = currentPage,
                         pageIndex = pageIndex,
@@ -166,6 +176,7 @@ class ReaderViewModel(
                     pageTurnMode = settings.pageTurnMode,
                     pageAnimation = settings.pageAnimation,
                     autoScrollConfig = settings.autoScrollConfig.copy(enabled = false),
+                    outlineHeading = readerDocument?.navigation?.heading,
                     outlineItems = outlineItems,
                     isPdfMode = isPdfMode,
                     isFavorite = metadata?.isBookmarked == true,
@@ -173,10 +184,14 @@ class ReaderViewModel(
                     isControlsVisible = true,
                     isLoading = false,
                 )
-            }.onSuccess { state ->
+                if (currentDocumentId != documentId) return@launch
                 _uiState.value = state
                 if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.pageIndex.current)
-            }.onFailure { throwable ->
+                if (state.documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(state.pageIndex.current)
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (throwable: Throwable) {
+                if (currentDocumentId != documentId) return@launch
                 _uiState.value = ReaderUiState(
                     documentTitle = documentId.value,
                     isLoading = false,
@@ -366,7 +381,7 @@ class ReaderViewModel(
 
     private fun buildOutlineItems(
         format: DocumentFormat?,
-        sections: List<ReaderSection>,
+        readerDocument: ReaderDocument?,
         totalPages: Int,
     ): List<ReaderOutlineItem> {
         if (format?.isVisualPageFormat() == true) {
@@ -377,13 +392,25 @@ class ReaderViewModel(
                 )
             }
         }
+        val navigationItems = readerDocument?.navigation?.items.orEmpty()
+        if (format == DocumentFormat.EPUB && navigationItems.isNotEmpty()) {
+            return navigationItems.map { item ->
+                ReaderOutlineItem(
+                    title = item.title,
+                    location = ReaderLocation.EpubOffset(item.spineIndex, item.offset),
+                    level = item.level,
+                )
+            }
+        }
+        val sections = readerDocument?.sections.orEmpty()
         return sections.map { section ->
             ReaderOutlineItem(
                 title = section.title ?: "Section ${section.index + 1}",
                 location = when (format) {
-                    DocumentFormat.EPUB -> ReaderLocation.EpubOffset(section.index, section.range.start)
+                    DocumentFormat.EPUB -> ReaderLocation.EpubOffset(section.index, 0)
                     else -> ReaderLocation.TextOffset(section.range.start)
                 },
+                level = 1,
             )
         }
     }
@@ -466,11 +493,39 @@ class ReaderViewModel(
         pageWindows: List<PageWindow> = currentPageWindows,
     ): ReaderPageUi? {
         if (pageIndex.total <= 0 || page !in 0 until pageIndex.total) return null
+        val pageWindow = pageWindows.getOrNull(page)
+        // The chapter title stays pinned in the top bar for every page of a chapter, not only its
+        // first, so it finds the section that *contains* this page's start rather than requiring an
+        // exact match against the section's own start offset.
+        val chapterTitle = pageWindow
+            ?.takeIf { window -> window.blocks.none { it.kind == com.tedd.teddreader.core.common.model.ReaderBlockKind.COVER_IMAGE } }
+            ?.textRange
+            ?.start
+            ?.let { start ->
+                currentSections
+                    .filter { section -> section.range.start <= start && section.title != null }
+                    .maxByOrNull { section -> section.range.start }
+                    ?.title
+            }
         return ReaderPageUi(
             page = page,
-            text = if (isPdfMode) "" else pageWindows.getOrNull(page)?.text.orEmpty(),
+            text = if (isPdfMode) "" else pageWindow?.text.orEmpty(),
             isPdf = isPdfMode,
             documentUri = documentUri,
+            textRange = pageWindow?.textRange,
+            blocks = pageWindow?.blocks.orEmpty(),
+            embeddedImages = pageWindow
+                ?.blocks
+                .orEmpty()
+                .mapNotNull { block -> block.imageHref?.takeIf(embeddedImageCache::containsKey) }
+                .associateWith { href -> embeddedImageCache.getValue(href) },
+            failedEmbeddedImageHrefs = pageWindow
+                ?.blocks
+                .orEmpty()
+                .mapNotNull { it.imageHref }
+                .filter(failedEmbeddedImageHrefs::contains)
+                .toSet(),
+            chapterTitle = chapterTitle,
         )
     }
 
@@ -488,24 +543,6 @@ class ReaderViewModel(
             isPdfMode = isPdfMode,
             pageWindows = pageWindows,
         )
-    }
-
-    private fun documentPages(
-        pageIndex: PageIndex,
-        documentUri: String?,
-        isVisualMode: Boolean,
-        pageWindows: List<PageWindow> = currentPageWindows,
-    ): List<ReaderPageUi> {
-        if (isVisualMode || pageIndex.total <= 0) return emptyList()
-        return (0 until pageIndex.total).mapNotNull { page ->
-            pageUi(
-                page = page,
-                pageIndex = pageIndex,
-                documentUri = documentUri,
-                isPdfMode = false,
-                pageWindows = pageWindows,
-            )
-        }
     }
 
     fun moveToPage(page: Int) {
@@ -549,6 +586,7 @@ class ReaderViewModel(
         }
         saveProgress(nextIndex)
         loadVisualPagesAround(nextPage)
+        loadEmbeddedImagesAround(nextPage)
     }
 
     private suspend fun reloadPages(style: ReaderStyle) {
@@ -571,12 +609,6 @@ class ReaderViewModel(
             ?: _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         currentPageWindows = pageWindows
         val pageIndex = PageIndex(current = currentPage, total = pageWindows.size)
-        val documentPages = documentPages(
-            pageIndex = pageIndex,
-            documentUri = _uiState.value.documentUri,
-            isVisualMode = false,
-            pageWindows = pageWindows,
-        )
         _uiState.update {
             val currentPageUi = currentPageUi(
                 pageIndex = pageIndex,
@@ -602,7 +634,7 @@ class ReaderViewModel(
                     isPdfMode = false,
                     pageWindows = pageWindows,
                 ),
-                documentPages = documentPages,
+                documentPages = emptyList(),
                 pageSlots = pageSlots(
                     currentPage = currentPage,
                     pageIndex = pageIndex,
@@ -613,6 +645,7 @@ class ReaderViewModel(
                 isCurrentPageSaved = isPageSaved(pageIndex, false),
             )
         }
+        loadEmbeddedImagesAround(currentPage)
     }
 
     private fun saveProgress(pageIndex: PageIndex) {
@@ -698,9 +731,91 @@ class ReaderViewModel(
             }
         }
     }
+
+    private fun loadEmbeddedImagesAround(centerPage: Int) {
+        val documentId = currentDocumentId ?: return
+        val state = _uiState.value
+        if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
+        // Matches the pageSlots window the pager actually mounts (see pageSlots()), so every slot the
+        // reader can swipe to preview already has its images requested instead of only the immediate
+        // neighbor.
+        val relevantHrefs = (centerPage - 2..centerPage + 3)
+            .filter { it in currentPageWindows.indices }
+            .flatMap { page -> currentPageWindows[page].blocks.mapNotNull { it.imageHref } }
+            .toSet()
+        val missingHrefs = relevantHrefs - embeddedImageCache.keys - failedEmbeddedImageHrefs
+        if (missingHrefs.isEmpty()) {
+            refreshEpubPages()
+            return
+        }
+
+        embeddedImageLoadJob?.cancel()
+        embeddedImageLoadJob = viewModelScope.launch {
+            try {
+                val loadedImages = documentRepository.getEmbeddedImages(documentId, missingHrefs)
+                if (currentDocumentId != documentId) return@launch
+                embeddedImageCache.putAll(loadedImages)
+                failedEmbeddedImageHrefs += missingHrefs - loadedImages.keys
+                // Keep every image the current window still needs (e.g. the cover, revisited later);
+                // only the oldest of the rest ages out once the cache is over budget. Plain insertion-
+                // order LRU evicted a still-needed image (the cover was always the first one loaded)
+                // just because newer images had since been cached.
+                val retainedHrefs = embeddedImageCache.keys.filterTo(linkedSetOf()) { it in relevantHrefs }
+                if (retainedHrefs.size < MaxEmbeddedImageCacheSize) {
+                    embeddedImageCache.keys.toList().asReversed().forEach { href ->
+                        if (retainedHrefs.size >= MaxEmbeddedImageCacheSize) return@forEach
+                        retainedHrefs += href
+                    }
+                }
+                embeddedImageCache.keys.retainAll(retainedHrefs)
+                refreshEpubPages()
+            } catch (cancellationException: CancellationException) {
+                throw cancellationException
+            } catch (_: Throwable) {
+                if (currentDocumentId == documentId) {
+                    failedEmbeddedImageHrefs += missingHrefs
+                    refreshEpubPages()
+                }
+            }
+        }
+    }
+
+    private fun refreshEpubPages() {
+        _uiState.update {
+            val pageIndex = it.pageIndex
+            val currentPageUi = currentPageUi(
+                pageIndex = pageIndex,
+                documentUri = it.documentUri,
+                isPdfMode = it.isPdfMode,
+            )
+            it.copy(
+                previousPage = pageUi(
+                    page = pageIndex.current - 1,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                currentPage = currentPageUi,
+                nextPage = pageUi(
+                    page = pageIndex.current + 1,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                pageSlots = pageSlots(
+                    currentPage = pageIndex.current,
+                    pageIndex = pageIndex,
+                    documentUri = it.documentUri,
+                    isPdfMode = it.isPdfMode,
+                ),
+                documentPages = emptyList(),
+            )
+        }
+    }
 }
 
 // The reader reports its viewport in sp, not px, so the placeholder used before the first
 // measurement is phone-sized in sp; a px-sized value paginates ~9x too coarsely.
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
 private const val MaxVisualPageCacheSize = 8
+private const val MaxEmbeddedImageCacheSize = 12

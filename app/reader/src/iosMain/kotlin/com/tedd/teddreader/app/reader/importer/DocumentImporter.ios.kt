@@ -130,7 +130,11 @@ private class IosDocumentImporter(
                 scope.launch {
                     try {
                         val sources = result.fileIds.map { fileId ->
-                            fetchGoogleDriveImportSource(fileId = fileId, accessToken = result.accessToken)
+                            fetchGoogleDriveImportSource(
+                                fileId = fileId,
+                                accessToken = result.accessToken,
+                                fileSource = fileSource,
+                            )
                         }
                         val importResult = importDocuments(sources) { source ->
                             openDocumentUseCase(
@@ -290,13 +294,18 @@ private class IosDocumentPickerDelegate(
 private suspend fun fetchGoogleDriveImportSource(
     fileId: String,
     accessToken: String,
+    fileSource: IosDocumentFileSource,
 ): DocumentImportSource {
     val metadata = fetchGoogleDriveMetadata(fileId = fileId, accessToken = accessToken)
     check(metadata.canDownload) { "Google Drive file cannot be downloaded: ${metadata.name}" }
     check(metadata.isImportSupported()) { "Unsupported Google Drive document: ${metadata.name}" }
     val bytes = downloadGoogleDriveFile(fileId = fileId, accessToken = accessToken)
     check(bytes.isNotEmpty()) { "Google Drive file is empty: ${metadata.name}" }
-    return metadata.toDocumentImportSource(bytes)
+    val source = metadata.toDocumentImportSource(bytes)
+    return DocumentImportSource(
+        location = fileSource.materialize(source.location, bytes),
+        bytes = bytes,
+    )
 }
 
 private suspend fun fetchGoogleDriveMetadata(

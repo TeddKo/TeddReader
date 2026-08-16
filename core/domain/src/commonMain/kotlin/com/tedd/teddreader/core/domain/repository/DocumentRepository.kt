@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 
 class DocumentImportSource(
     val location: DocumentLocation,
-    val bytes: ByteArray,
+    val bytes: ByteArray?,
 ) {
     init {
-        require(bytes.isNotEmpty()) { "Document bytes must not be empty." }
+        require(bytes == null || bytes.isNotEmpty()) { "Document bytes must not be empty." }
     }
 }
 
@@ -27,6 +27,10 @@ interface DocumentRepository {
         documentId: DocumentId,
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> = emptyMap()
+    suspend fun getEmbeddedImages(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, ByteArray> = emptyMap()
     suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument?
     suspend fun getPageWindows(
         documentId: DocumentId,

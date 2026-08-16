@@ -3,9 +3,11 @@ package com.tedd.teddreader.core.data.parser
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
+import com.tedd.teddreader.core.common.model.ReaderObjectReplacementChar
 import com.tedd.teddreader.core.common.model.ReaderSpan
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
 
 /**
  * Flattened text of one chapter together with the structure that text carries.
@@ -17,6 +19,13 @@ import com.tedd.teddreader.core.common.model.TextRange
 internal data class XhtmlContent(
     val text: String,
     val blocks: List<ReaderBlock>,
+    val anchors: Map<String, Long> = emptyMap(),
+    /**
+     * Chapter name taken from the `title` attribute of the first heading. These books set their part
+     * and chapter headings as a picture and put the readable name only in that attribute, so without
+     * it the chapter has no title text at all.
+     */
+    val headingTitle: String? = null,
 )
 
 /**
@@ -29,8 +38,13 @@ internal fun parseXhtmlContent(
     xhtml: String,
     baseOffset: Long = 0L,
     resolveImageHref: (String) -> String? = { it },
+    styleSheet: EpubStyleSheet = EpubStyleSheet(),
 ): XhtmlContent {
-    val builder = XhtmlContentBuilder(baseOffset = baseOffset, resolveImageHref = resolveImageHref)
+    val builder = XhtmlContentBuilder(
+        baseOffset = baseOffset,
+        resolveImageHref = resolveImageHref,
+        styleSheet = styleSheet,
+    )
     var index = 0
     while (index < xhtml.length) {
         val tagStart = xhtml.indexOf('<', index)
@@ -65,6 +79,7 @@ internal fun parseXhtmlContent(
 
         // Script, style and head hold no readable text; skipping their bodies keeps CSS and code out.
         if (!tag.isClosing && tag.name in SkippedBodyElements) {
+            if (tag.isSelfClosing) continue
             index = xhtml.skipPast(index, "</${tag.name}")
             index = xhtml.indexOf('>', index).let { if (it < 0) xhtml.length else it + 1 }
             continue
@@ -104,12 +119,16 @@ private fun parseTagAttributes(body: String): Map<String, String> =
         match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
     }
 
+private class OpenElement(val name: String, val classNames: List<String>)
+
 private class XhtmlContentBuilder(
     private val baseOffset: Long,
     private val resolveImageHref: (String) -> String?,
+    private val styleSheet: EpubStyleSheet,
 ) {
     private val text = StringBuilder()
     private val blocks = mutableListOf<ReaderBlock>()
+    private val anchors = linkedMapOf<String, Long>()
 
     private var blockStart = -1
     private var blockKind = ReaderBlockKind.PARAGRAPH
@@ -121,11 +140,15 @@ private class XhtmlContentBuilder(
     private val blockSpans = mutableListOf<ReaderSpan>()
 
     private val openInline = mutableListOf<OpenSpan>()
-    private val openBlocks = mutableListOf<String>()
+    private val openBlocks = mutableListOf<OpenElement>()
     private val lists = mutableListOf<ListContext>()
     private val tables = mutableListOf<TableContext>()
     private var preformattedDepth = 0
     private var pendingSpace = false
+    private var headingTitle: String? = null
+
+    /** Pictures written into the block being built, so a wrapper holding only pictures is recognised. */
+    private var blockImageCount = 0
 
     fun appendText(rawText: String) {
         if (rawText.isEmpty()) return
@@ -152,6 +175,7 @@ private class XhtmlContentBuilder(
     }
 
     fun openElement(tag: XhtmlTag) {
+        rememberAnchors(tag.attributes)
         when (tag.name) {
             "br" -> {
                 ensureBlockOpen()
@@ -164,10 +188,17 @@ private class XhtmlContentBuilder(
                 val source = tag.attributes["src"] ?: tag.attributes["xlink:href"] ?: tag.attributes["href"]
                 val href = source?.let(resolveImageHref)
                 if (href != null) {
-                    emitStandaloneBlock(
-                        kind = ReaderBlockKind.IMAGE,
+                    // These books declare picture size only in their stylesheet, keyed by the class on
+                    // the image or on the block wrapping it, so the width is looked up outward from the
+                    // image through its ancestors — nearest rule wins, as the cascade would have it.
+                    val ancestorClasses = tag.classNames() + openBlocks.asReversed().flatMap(OpenElement::classNames)
+                    val cssWidth = styleSheet.widthFor(ancestorClasses)
+                    appendImage(
                         imageHref = href,
                         label = tag.attributes["alt"]?.takeIf { it.isNotBlank() },
+                        aspectRatio = tag.attributes.declaredImageAspectRatio(),
+                        widthPercent = (cssWidth as? CssWidth.Percent)?.fraction,
+                        widthEm = (cssWidth as? CssWidth.Em)?.value,
                     )
                 }
                 return
@@ -180,13 +211,13 @@ private class XhtmlContentBuilder(
 
             "ol", "ul" -> {
                 lists += ListContext(isOrdered = tag.name == "ol", nextOrdinal = tag.attributes.startOrdinal())
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
 
             "table" -> {
                 tables += TableContext()
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
 
@@ -195,7 +226,7 @@ private class XhtmlContentBuilder(
                     table.rowIndex += 1
                     table.columnIndex = -1
                 }
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
         }
@@ -211,13 +242,17 @@ private class XhtmlContentBuilder(
             return
         }
 
+        if (BlockKinds[tag.name] == ReaderBlockKind.HEADING && headingTitle == null) {
+            headingTitle = tag.attributes["title"]?.trim()?.takeIf(String::isNotEmpty)
+        }
+
         val kind = BlockKinds[tag.name] ?: run {
-            if (tag.name in NeutralContainers) openBlocks += tag.name
+            if (tag.name in NeutralContainers) openBlocks += OpenElement(tag.name, tag.classNames())
             return
         }
 
         flushBlock()
-        openBlocks += tag.name
+        openBlocks += OpenElement(tag.name, tag.classNames())
         blockKind = kind
         blockLevel = when {
             kind == ReaderBlockKind.HEADING -> tag.name.removePrefix("h").toIntOrNull() ?: 1
@@ -265,7 +300,7 @@ private class XhtmlContentBuilder(
         }
         if (lowered == "pre" && preformattedDepth > 0) preformattedDepth -= 1
 
-        val blockIndex = openBlocks.indexOfLast { it == lowered }
+        val blockIndex = openBlocks.indexOfLast { it.name == lowered }
         if (blockIndex >= 0) {
             openBlocks.removeAt(blockIndex)
             if (lowered in BlockKinds) flushBlock()
@@ -275,8 +310,27 @@ private class XhtmlContentBuilder(
     fun build(): XhtmlContent {
         flushBlock()
         // The separator after the final block would show as a blank line at the end of a chapter.
-        while (text.isNotEmpty() && text.last() == '\n') text.deleteAt(text.length - 1)
-        return XhtmlContent(text = text.toString(), blocks = blocks.toList())
+        val minimumLength = blocks.maxOfOrNull { block -> (block.range.end - baseOffset).toInt() } ?: 0
+        while (text.length > minimumLength && text.isNotEmpty() && text.last() == '\n') {
+            text.deleteAt(text.length - 1)
+        }
+        return XhtmlContent(
+            text = text.toString(),
+            // A picture is recorded the moment it is written, its paragraph only once that paragraph
+            // ends, so an inline picture is added before the block enclosing it. Reading order is what
+            // everything downstream assumes, so the list is put back into it here.
+            blocks = blocks.sortedBy { block -> block.range.start },
+            anchors = anchors.toMap(),
+            headingTitle = headingTitle,
+        )
+    }
+
+    private fun rememberAnchors(attributes: Map<String, String>) {
+        val absoluteOffset = baseOffset + text.length
+        listOfNotNull(attributes["id"], attributes["name"], attributes["xml:id"])
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .forEach { anchor -> if (anchor !in anchors) anchors[anchor] = absoluteOffset }
     }
 
     private fun ensureBlockOpen() {
@@ -290,24 +344,63 @@ private class XhtmlContentBuilder(
         pendingSpace = false
     }
 
+    /**
+     * Write a picture where it was written: into the line being built, not between two blocks.
+     *
+     * `<img>` is inline content in HTML, and no reading system takes it out of its paragraph — doing so
+     * tore a gaiji glyph out of the middle of its sentence and left a blank line in its place. A
+     * picture that turns out to be the only thing in its block is recognised in [flushBlock], and
+     * stands on a line of its own there, the way a plate does.
+     */
+    private fun appendImage(
+        imageHref: String,
+        label: String?,
+        aspectRatio: Float?,
+        widthPercent: Float?,
+        widthEm: Float?,
+    ) {
+        ensureBlockOpen()
+        flushPendingSpace()
+        val start = text.length
+        text.append(ReaderObjectReplacementChar)
+        blockImageCount += 1
+        blocks += ReaderBlock(
+            kind = ReaderBlockKind.IMAGE,
+            range = TextRange(baseOffset + start, baseOffset + text.length),
+            imageHref = imageHref,
+            label = label,
+            align = ReaderTextAlign.CENTER,
+            imageAspectRatio = aspectRatio,
+            imageWidthPercent = widthPercent,
+            imageWidthEm = widthEm,
+        )
+    }
+
     private fun emitStandaloneBlock(
         kind: ReaderBlockKind,
         imageHref: String? = null,
         label: String? = null,
+        aspectRatio: Float? = null,
+        widthPercent: Float? = null,
+        widthEm: Float? = null,
     ) {
         flushBlock()
-        // The block owns one newline, so it holds a real range: a zero-width block would fall through
-        // the page-range filter at a boundary, and a placeholder glyph would show as tofu wherever the
-        // plain-text fallback draws it.
+        // The block owns one character, so it holds a real range: a zero-width block would fall
+        // through the page-range filter at a boundary. The single newline that follows ends the rule's
+        // line; the blank line before it is the one the preceding paragraph already wrote, which is the
+        // spacing `<hr>` carries in a browser rather than the four blank lines two newlines gave it.
         pendingSpace = false
         val start = text.length
-        text.append('\n')
+        text.append(ReaderObjectReplacementChar)
         blocks += ReaderBlock(
             kind = kind,
             range = TextRange(baseOffset + start, baseOffset + text.length),
             imageHref = imageHref,
             label = label,
-            align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE },
+            align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE || kind == ReaderBlockKind.COVER_IMAGE },
+            imageAspectRatio = aspectRatio,
+            imageWidthPercent = widthPercent,
+            imageWidthEm = widthEm,
         )
         text.append('\n')
     }
@@ -316,6 +409,8 @@ private class XhtmlContentBuilder(
         val start = blockStart
         pendingSpace = false
         resetOpenSpans()
+        val imageCount = blockImageCount
+        blockImageCount = 0
         if (start < 0) {
             resetBlockAttributes()
             return
@@ -325,6 +420,15 @@ private class XhtmlContentBuilder(
         if (text.length == start) {
             blockSpans.clear()
             resetBlockAttributes()
+            return
+        }
+
+        if (imageCount > 0 && text.substring(start, text.length).isBlankIgnoringObjects()) {
+            // Nothing here but pictures, so there is no prose to record: the block was only ever a
+            // wrapper. Each picture keeps its own line, and no empty paragraph is left behind it.
+            blockSpans.clear()
+            resetBlockAttributes()
+            text.append('\n')
             return
         }
 
@@ -390,7 +494,27 @@ private fun Char.isBlockPadding(): Boolean = this == ' ' || this == '\n' || this
 private fun ReaderBlockKind.isTableCellKind(): Boolean =
     this == ReaderBlockKind.TABLE_CELL || this == ReaderBlockKind.TABLE_HEADER_CELL
 
+private fun XhtmlTag.classNames(): List<String> =
+    attributes["class"].orEmpty().split(Regex("""\s+""")).map(String::trim).filter(String::isNotEmpty)
+
 private fun Map<String, String>.startOrdinal(): Int = this["start"]?.toIntOrNull() ?: 1
+
+/**
+ * Width divided by height, from the `width`/`height` attributes or an inline `style`, when the markup
+ * declares both as plain pixel numbers. A `%` or missing dimension carries no real aspect ratio, so it
+ * is left null rather than guessed; the real pixels are sniffed from the image bytes instead.
+ */
+private fun Map<String, String>.declaredImageAspectRatio(): Float? {
+    val declaredWidth = this["width"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "width") }
+    val declaredHeight = this["height"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "height") }
+    if (declaredWidth == null || declaredHeight == null || declaredWidth <= 0f || declaredHeight <= 0f) return null
+    return declaredWidth / declaredHeight
+}
+
+private fun String.toPixelValue(): Float? = trim().takeIf { it.isNotEmpty() && it.none(Char::isLetter) }?.toFloatOrNull()
+
+private fun cssPixelDimension(style: String, property: String): Float? =
+    Regex("""$property\s*:\s*([0-9.]+)px""").find(style)?.groupValues?.get(1)?.toFloatOrNull()
 
 private fun Map<String, String>.textAlign(): ReaderTextAlign? {
     val declared = this["align"] ?: this["style"]?.let { style ->
@@ -457,7 +581,12 @@ private val TextAlignRegex = Regex("""text-align\s*:\s*([a-zA-Z]+)""")
 
 private const val MaxEntityLength = 12
 
-private val SkippedBodyElements = setOf("script", "style", "head", "svg", "title")
+// "svg" is deliberately not skipped: EPUBs very commonly wrap a full-page illustration as
+// `<svg><image xlink:href="..."/></svg>` (Sigil/Calibre's standard cover/illustration pattern) to make
+// it scale to the viewport. Skipping the whole subtree, as script/style/head genuinely warrant,
+// silently dropped every one of those images. Descending into svg is harmless: it isn't a known block
+// or inline tag, so it is otherwise ignored, and its inner "image" element is handled like any other.
+private val SkippedBodyElements = setOf("script", "style", "head", "title")
 
 private val NeutralContainers = setOf(
     "html", "body", "span", "font", "small", "big", "label", "tbody", "thead", "tfoot",

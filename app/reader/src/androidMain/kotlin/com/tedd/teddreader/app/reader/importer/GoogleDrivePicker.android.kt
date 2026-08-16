@@ -20,7 +20,6 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 private const val GoogleDriveScope = "https://www.googleapis.com/auth/drive.file"
-private const val GoogleDriveMimeTypes = "text/plain,application/pdf,application/epub,application/epub+zip"
 private const val PickedFileIdsKey = "picked_file_ids"
 
 internal fun buildGoogleDriveAuthorizationRequest(): AuthorizationRequest =
@@ -30,7 +29,10 @@ internal fun buildGoogleDriveAuthorizationRequest(): AuthorizationRequest =
         .setPrompt(AuthorizationRequest.Prompt.CONSENT or AuthorizationRequest.Prompt.SELECT_ACCOUNT)
         .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_OAUTH_TRIGGER, "true")
         .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_ALLOW_MULTIPLE, "true")
-        .addResourceParameter(AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES, GoogleDriveMimeTypes)
+        .addResourceParameter(
+            AuthorizationRequest.ResourceParameter.PICKER_MIMETYPES,
+            AndroidGoogleDriveMimeTypes.joinToString(separator = ","),
+        )
         .build()
 
 internal fun AuthorizationResult.toGoogleDrivePickerResult(): GoogleDrivePickerResult {

@@ -6,7 +6,9 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.isImagePageFormat
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
 
@@ -16,6 +18,11 @@ data class ReaderPageUi(
     val text: String = "",
     val isPdf: Boolean = false,
     val documentUri: String? = null,
+    val textRange: TextRange? = null,
+    val blocks: List<ReaderBlock> = emptyList(),
+    val embeddedImages: Map<String, ByteArray> = emptyMap(),
+    val failedEmbeddedImageHrefs: Set<String> = emptySet(),
+    val chapterTitle: String? = null,
 )
 
 @Immutable
@@ -38,6 +45,7 @@ data class ReaderUiState(
     val pageTurnMode: PageTurnMode = PageTurnMode.HORIZONTAL,
     val pageAnimation: PageAnimation = PageAnimation.SLIDE,
     val autoScrollConfig: AutoScrollConfig = AutoScrollConfig(),
+    val outlineHeading: String? = null,
     val outlineItems: List<ReaderOutlineItem> = emptyList(),
     val brightnessOverlayAlpha: Float = 0f,
     val pdfZoom: Float = 1f,

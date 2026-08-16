@@ -20,8 +20,10 @@ import androidx.compose.ui.platform.LocalContext
 import com.google.android.gms.auth.api.identity.Identity
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
+import com.tedd.teddreader.core.common.model.GoogleDriveSupportedDocumentMimeTypes
 import com.tedd.teddreader.core.common.model.SupportedDocumentExtensions
 import com.tedd.teddreader.core.common.model.SupportedDocumentMimeTypes
+import com.tedd.teddreader.core.data.storage.AndroidDocumentFileSource
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.usecase.OpenDocumentUseCase
 import kotlinx.coroutines.CancellationException
@@ -31,6 +33,7 @@ import kotlinx.coroutines.withContext
 import org.koin.compose.getKoin
 
 private val AndroidPickerMimeTypes = (SupportedDocumentMimeTypes + "application/zip").toTypedArray()
+internal val AndroidGoogleDriveMimeTypes = GoogleDriveSupportedDocumentMimeTypes.toList()
 
 @Composable
 internal actual fun rememberDocumentImporter(
@@ -40,6 +43,7 @@ internal actual fun rememberDocumentImporter(
     val activity = LocalContext.current.findActivity()
     val scope = rememberCoroutineScope()
     val openDocumentUseCase = getKoin().get<OpenDocumentUseCase>()
+    val documentFileSource = getKoin().get<AndroidDocumentFileSource>()
     val authorizationClient = remember(activity) { activity?.let(Identity::getAuthorizationClient) }
     var importedCallback by remember { mutableStateOf<(List<DocumentId>) -> Unit>({}) }
     var errorCallback by remember { mutableStateOf<(String) -> Unit>({}) }
@@ -56,7 +60,9 @@ internal actual fun rememberDocumentImporter(
                 val sources = fetchGoogleDriveImportSources(
                     authorizationClient = client,
                     pickerResult = result,
-                )
+                ).map { source ->
+                    source.copyMaterialized(documentFileSource)
+                }
                 val importResult = importDocuments(sources) { source ->
                     openDocumentUseCase(
                         source = source,
@@ -100,6 +106,7 @@ internal actual fun rememberDocumentImporter(
                     uri = uri,
                     grantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     openDocumentUseCase = openDocumentUseCase,
+                    documentFileSource = documentFileSource,
                 )
             }
             dispatchBatchImportResult(result, importedCallback, errorCallback)
@@ -121,6 +128,7 @@ internal actual fun rememberDocumentImporter(
                         uri = documentUri,
                         grantFlags = 0,
                         openDocumentUseCase = openDocumentUseCase,
+                        documentFileSource = documentFileSource,
                     )
                 }
                 dispatchBatchImportResult(result, importedCallback, errorCallback)
@@ -199,6 +207,7 @@ internal actual fun rememberDocumentImporter(
                                 context = context,
                                 request = request,
                                 openDocumentUseCase = openDocumentUseCase,
+                                documentFileSource = documentFileSource,
                             ),
                         )
                     } catch (cancellationException: CancellationException) {
@@ -216,14 +225,17 @@ private suspend fun importExternalRequest(
     context: Context,
     request: ExternalDocumentImportRequest,
     openDocumentUseCase: OpenDocumentUseCase,
+    documentFileSource: AndroidDocumentFileSource,
 ): DocumentId = importUri(
     context = context,
     uri = Uri.parse(request.sourceUri),
     grantFlags = request.grantFlags,
     openDocumentUseCase = openDocumentUseCase,
+    documentFileSource = documentFileSource,
     overrideDisplayName = request.displayName,
     overrideMimeType = request.mimeType,
     overrideSizeBytes = request.sizeBytes,
+    materializeInAppStorage = true,
 )
 
 private suspend fun importUri(
@@ -231,9 +243,11 @@ private suspend fun importUri(
     uri: Uri,
     grantFlags: Int,
     openDocumentUseCase: OpenDocumentUseCase,
+    documentFileSource: AndroidDocumentFileSource,
     overrideDisplayName: String? = null,
     overrideMimeType: String? = null,
     overrideSizeBytes: Long? = null,
+    materializeInAppStorage: Boolean = false,
 ): DocumentId {
     return withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
@@ -248,14 +262,36 @@ private suspend fun importUri(
             mimeType = overrideMimeType ?: resolver.getType(uri),
             sizeBytes = overrideSizeBytes ?: metadata.sizeBytes ?: 0L,
         )
-        val bytes = resolver.openInputStream(uri)?.use { input -> input.readBytes() }
-            ?: error("Cannot open document: $uri")
+        val extension = location.displayName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+        val mimeType = location.mimeType?.lowercase()
+        val isCbzImport = extension == "cbz" || mimeType == "application/vnd.comicbook+zip" || mimeType == "application/x-cbz"
+        val bytes = if (isCbzImport) {
+            null
+        } else {
+            resolver.openInputStream(uri)?.use { input -> input.readBytes() }
+                ?: error("Cannot open document: $uri")
+        }
+        val persistedLocation = when {
+            !materializeInAppStorage -> location
+            isCbzImport -> documentFileSource.materializeFromSource(location)
+            else -> documentFileSource.materialize(location, requireNotNull(bytes))
+        }
         val document = openDocumentUseCase(
-            source = DocumentImportSource(location = location, bytes = bytes),
+            source = DocumentImportSource(location = persistedLocation, bytes = bytes),
             openedAtEpochMillis = System.currentTimeMillis(),
         )
         document.id
     }
+}
+
+private suspend fun DocumentImportSource.copyMaterialized(
+    documentFileSource: AndroidDocumentFileSource,
+): DocumentImportSource {
+    val sourceBytes = bytes
+    return DocumentImportSource(
+        location = if (sourceBytes != null) documentFileSource.materialize(location, sourceBytes) else documentFileSource.materializeFromSource(location),
+        bytes = sourceBytes,
+    )
 }
 
 private data class AndroidTreeDocument(

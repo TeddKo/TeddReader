@@ -10,8 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
+import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.visual_page_content_description
@@ -41,11 +41,20 @@ internal fun ImagePageSurface(
         contentAlignment = Alignment.Center,
     ) {
         when {
-            request != null -> AsyncImage(
+            request != null -> SubcomposeAsyncImage(
                 model = request,
                 contentDescription = stringResource(Res.string.visual_page_content_description, page + 1),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
+                loading = {
+                    CircularProgressIndicator()
+                },
+                error = {
+                    Text(
+                        text = stringResource(Res.string.visual_page_unavailable),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
             )
             isFailed -> Text(
                 text = stringResource(Res.string.visual_page_unavailable),

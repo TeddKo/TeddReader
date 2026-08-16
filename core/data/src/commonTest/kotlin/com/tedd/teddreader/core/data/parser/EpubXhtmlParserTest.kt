@@ -3,6 +3,8 @@ package com.tedd.teddreader.core.data.parser
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
+import com.tedd.teddreader.core.common.model.blocksIn
+import com.tedd.teddreader.core.common.model.standaloneBlocks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -98,6 +100,14 @@ class EpubXhtmlParserTest {
     }
 
     @Test
+    fun anchorsCaptureNamedIdsAtAbsoluteOffsets() {
+        val content = parseXhtmlContent("""<h1 id="top">Title</h1><p><a id="scene"></a>Body</p>""", baseOffset = 10)
+
+        assertEquals(10L, content.anchors["top"])
+        assertEquals(17L, content.anchors["scene"])
+    }
+
+    @Test
     fun imageBecomesAStandaloneBlockWithAResolvedPath() {
         val content = parseXhtmlContent(
             xhtml = """<p>before</p><img src="../Images/plate.jpg" alt="Plate 1"/><p>after</p>""",
@@ -110,6 +120,54 @@ class EpubXhtmlParserTest {
         assertEquals(ReaderTextAlign.CENTER, image.align)
         // A one-character range keeps the block addressable at a page boundary.
         assertEquals(1L, image.range.end - image.range.start)
+    }
+
+    @Test
+    fun trailingStandaloneBlockStaysInsideReturnedTextRange() {
+        val content = parseXhtmlContent("""<p>before</p><img src="plate.jpg" alt="Plate 1"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertTrue(image.range.end <= content.text.length.toLong())
+        assertTrue(image in content.blocks.blocksIn(0, content.text.length.toLong()))
+    }
+
+    @Test
+    fun imageCarriesTheAspectRatioDeclaredInWidthAndHeightAttributes() {
+        val content = parseXhtmlContent("""<img src="plate.jpg" width="800" height="400"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(2f, image.imageAspectRatio)
+    }
+
+    @Test
+    fun imageCarriesTheAspectRatioDeclaredInAnInlineStyle() {
+        val content = parseXhtmlContent("""<img src="plate.jpg" style="width:300px;height:600px"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(0.5f, image.imageAspectRatio)
+    }
+
+    @Test
+    fun imageHasNoAspectRatioWhenDimensionsAreUnspecifiedOrPercentages() {
+        val undeclared = parseXhtmlContent("""<img src="plate.jpg"/>""")
+        val percentage = parseXhtmlContent("""<img src="plate.jpg" width="100%" height="200"/>""")
+
+        assertEquals(null, undeclared.blocks.single { it.kind == ReaderBlockKind.IMAGE }.imageAspectRatio)
+        assertEquals(null, percentage.blocks.single { it.kind == ReaderBlockKind.IMAGE }.imageAspectRatio)
+    }
+
+    @Test
+    fun svgWrappedImageIsStillCapturedInsteadOfBeingDropped() {
+        // `<svg><image xlink:href="..."/></svg>` is how Sigil/Calibre commonly wrap a full-page
+        // illustration or cover so it scales to the viewport; the whole subtree must not be discarded
+        // the way script/style bodies are.
+        val content = parseXhtmlContent(
+            xhtml = """<body><svg viewBox="0 0 600 800"><image width="600" height="800" xlink:href="../Images/plate.jpg"/></svg></body>""",
+            resolveImageHref = { source -> resolveContainerHref("OEBPS/Text/ch1.xhtml", source) },
+        )
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals("OEBPS/Images/plate.jpg", image.imageHref)
     }
 
     @Test
@@ -176,6 +234,14 @@ class EpubXhtmlParserTest {
     }
 
     @Test
+    fun selfClosingHeadDoesNotDiscardBody() {
+        val content = parseXhtmlContent("<html><head/><body><p>Body</p></body></html>")
+
+        assertEquals("Body", content.text)
+        assertEquals(listOf(ReaderBlockKind.PARAGRAPH), content.blocks.map { it.kind })
+    }
+
+    @Test
     fun namedAndNumericEntitiesAreDecoded() {
         assertEquals(
             "“quoted” — a b & 'c' ½ 😀",
@@ -220,5 +286,33 @@ class EpubXhtmlParserTest {
 
         assertEquals(ReaderTextAlign.CENTER, content.blocks.first().align)
         assertNull(content.blocks[1].align)
+    }
+
+    @Test
+    fun aHeadingThatIsOnlyAPictureKeepsItsNameAndDropsTheEmptyHeadingBlock() {
+        // Part and chapter headings are routinely set as a picture, with the readable name only in the
+        // heading's title attribute. The picture is the heading, so no empty heading block is recorded
+        // alongside it.
+        val content = parseXhtmlContent(
+            xhtml = """<h1 title="1화 기회"><img src="../Images/title.png"/></h1><p>본문</p>""",
+            resolveImageHref = { source -> resolveContainerHref("OEBPS/Text/ch1.xhtml", source) },
+        )
+
+        assertEquals("1화 기회", content.headingTitle)
+        assertTrue(content.blocks.none { it.kind == ReaderBlockKind.HEADING })
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals("OEBPS/Images/title.png", image.imageHref)
+        assertTrue(image in content.blocks.standaloneBlocks())
+    }
+
+    @Test
+    fun twoPicturesInOneSentenceBothStayInIt() {
+        val content = parseXhtmlContent("""<p>가<img src="a.png"/>나<img src="b.png"/>다</p>""")
+
+        val paragraph = content.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }
+        val images = content.blocks.filter { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(2, images.size)
+        assertTrue(images.all { it.range.start > paragraph.range.start && it.range.end < paragraph.range.end })
+        assertEquals(emptyList(), content.blocks.standaloneBlocks())
     }
 }

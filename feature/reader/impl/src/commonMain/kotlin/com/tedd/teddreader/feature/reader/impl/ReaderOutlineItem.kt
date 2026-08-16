@@ -7,4 +7,5 @@ import com.tedd.teddreader.core.common.model.ReaderLocation
 data class ReaderOutlineItem(
     val title: String,
     val location: ReaderLocation,
+    val level: Int = 1,
 )
