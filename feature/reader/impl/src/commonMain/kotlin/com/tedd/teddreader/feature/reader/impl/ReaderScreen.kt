@@ -657,13 +657,11 @@ private fun ReaderContent(
                             exit = fadeOut(tween(motion.shortDurationMs)) +
                                 slideOutVertically(tween(motion.shortDurationMs)) { -it / 4 },
                         ) {
-                            val chapterTopTitle = uiState.currentPage.chapterTitle
                             ReaderTopControls(
-                                title = chapterTopTitle?.let { "|$it" } ?: uiState.documentTitle,
+                                title = uiState.documentTitle,
                                 style = uiState.style,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
-                                titleLabel = if (chapterTopTitle != null) null else stringResource(Res.string.reader_reading_label),
-                                titleAtEnd = chapterTopTitle != null,
+                                titleLabel = null,
                                 navigationIcon = {
                                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
                                         Icon(imageVector = TeddIcons.Back, contentDescription = null)
@@ -873,6 +871,11 @@ private fun ReaderPagePane(
                 }
             }
 
+            // The chapter title is not a running head: it is the heading the chapter's own text
+            // carries, and pagination starts every section on a fresh page (see
+            // TextPageLayoutEngine.paginate), so that heading lands at the top of the page by itself.
+            // Nothing is drawn above the body here, which is what keeps the rule and the duplicated
+            // title out of the reader.
             Box(
                 modifier = modifier
                     .fillMaxSize()

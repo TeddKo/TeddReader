@@ -18,6 +18,12 @@ internal data class XhtmlContent(
     val text: String,
     val blocks: List<ReaderBlock>,
     val anchors: Map<String, Long> = emptyMap(),
+    /**
+     * Chapter name taken from the `title` attribute of the first heading. These books set their part
+     * and chapter headings as a picture and put the readable name only in that attribute, so without
+     * it the chapter has no title text at all.
+     */
+    val headingTitle: String? = null,
 )
 
 /**
@@ -30,8 +36,13 @@ internal fun parseXhtmlContent(
     xhtml: String,
     baseOffset: Long = 0L,
     resolveImageHref: (String) -> String? = { it },
+    styleSheet: EpubStyleSheet = EpubStyleSheet(),
 ): XhtmlContent {
-    val builder = XhtmlContentBuilder(baseOffset = baseOffset, resolveImageHref = resolveImageHref)
+    val builder = XhtmlContentBuilder(
+        baseOffset = baseOffset,
+        resolveImageHref = resolveImageHref,
+        styleSheet = styleSheet,
+    )
     var index = 0
     while (index < xhtml.length) {
         val tagStart = xhtml.indexOf('<', index)
@@ -106,9 +117,12 @@ private fun parseTagAttributes(body: String): Map<String, String> =
         match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
     }
 
+private class OpenElement(val name: String, val classNames: List<String>)
+
 private class XhtmlContentBuilder(
     private val baseOffset: Long,
     private val resolveImageHref: (String) -> String?,
+    private val styleSheet: EpubStyleSheet,
 ) {
     private val text = StringBuilder()
     private val blocks = mutableListOf<ReaderBlock>()
@@ -124,11 +138,12 @@ private class XhtmlContentBuilder(
     private val blockSpans = mutableListOf<ReaderSpan>()
 
     private val openInline = mutableListOf<OpenSpan>()
-    private val openBlocks = mutableListOf<String>()
+    private val openBlocks = mutableListOf<OpenElement>()
     private val lists = mutableListOf<ListContext>()
     private val tables = mutableListOf<TableContext>()
     private var preformattedDepth = 0
     private var pendingSpace = false
+    private var headingTitle: String? = null
 
     fun appendText(rawText: String) {
         if (rawText.isEmpty()) return
@@ -168,11 +183,18 @@ private class XhtmlContentBuilder(
                 val source = tag.attributes["src"] ?: tag.attributes["xlink:href"] ?: tag.attributes["href"]
                 val href = source?.let(resolveImageHref)
                 if (href != null) {
+                    // These books declare picture size only in their stylesheet, keyed by the class on
+                    // the image or on the block wrapping it, so the width is looked up outward from the
+                    // image through its ancestors — nearest rule wins, as the cascade would have it.
+                    val ancestorClasses = tag.classNames() + openBlocks.asReversed().flatMap(OpenElement::classNames)
+                    val cssWidth = styleSheet.widthFor(ancestorClasses)
                     emitStandaloneBlock(
                         kind = ReaderBlockKind.IMAGE,
                         imageHref = href,
                         label = tag.attributes["alt"]?.takeIf { it.isNotBlank() },
                         aspectRatio = tag.attributes.declaredImageAspectRatio(),
+                        widthPercent = (cssWidth as? CssWidth.Percent)?.fraction,
+                        widthEm = (cssWidth as? CssWidth.Em)?.value,
                     )
                 }
                 return
@@ -185,13 +207,13 @@ private class XhtmlContentBuilder(
 
             "ol", "ul" -> {
                 lists += ListContext(isOrdered = tag.name == "ol", nextOrdinal = tag.attributes.startOrdinal())
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
 
             "table" -> {
                 tables += TableContext()
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
 
@@ -200,7 +222,7 @@ private class XhtmlContentBuilder(
                     table.rowIndex += 1
                     table.columnIndex = -1
                 }
-                openBlocks += tag.name
+                openBlocks += OpenElement(tag.name, tag.classNames())
                 return
             }
         }
@@ -216,13 +238,17 @@ private class XhtmlContentBuilder(
             return
         }
 
+        if (BlockKinds[tag.name] == ReaderBlockKind.HEADING && headingTitle == null) {
+            headingTitle = tag.attributes["title"]?.trim()?.takeIf(String::isNotEmpty)
+        }
+
         val kind = BlockKinds[tag.name] ?: run {
-            if (tag.name in NeutralContainers) openBlocks += tag.name
+            if (tag.name in NeutralContainers) openBlocks += OpenElement(tag.name, tag.classNames())
             return
         }
 
         flushBlock()
-        openBlocks += tag.name
+        openBlocks += OpenElement(tag.name, tag.classNames())
         blockKind = kind
         blockLevel = when {
             kind == ReaderBlockKind.HEADING -> tag.name.removePrefix("h").toIntOrNull() ?: 1
@@ -270,7 +296,7 @@ private class XhtmlContentBuilder(
         }
         if (lowered == "pre" && preformattedDepth > 0) preformattedDepth -= 1
 
-        val blockIndex = openBlocks.indexOfLast { it == lowered }
+        val blockIndex = openBlocks.indexOfLast { it.name == lowered }
         if (blockIndex >= 0) {
             openBlocks.removeAt(blockIndex)
             if (lowered in BlockKinds) flushBlock()
@@ -284,7 +310,12 @@ private class XhtmlContentBuilder(
         while (text.length > minimumLength && text.isNotEmpty() && text.last() == '\n') {
             text.deleteAt(text.length - 1)
         }
-        return XhtmlContent(text = text.toString(), blocks = blocks.toList(), anchors = anchors.toMap())
+        return XhtmlContent(
+            text = text.toString(),
+            blocks = blocks.toList(),
+            anchors = anchors.toMap(),
+            headingTitle = headingTitle,
+        )
     }
 
     private fun rememberAnchors(attributes: Map<String, String>) {
@@ -311,6 +342,8 @@ private class XhtmlContentBuilder(
         imageHref: String? = null,
         label: String? = null,
         aspectRatio: Float? = null,
+        widthPercent: Float? = null,
+        widthEm: Float? = null,
     ) {
         flushBlock()
         // The block owns one newline, so it holds a real range: a zero-width block would fall through
@@ -326,6 +359,8 @@ private class XhtmlContentBuilder(
             label = label,
             align = ReaderTextAlign.CENTER.takeIf { kind == ReaderBlockKind.IMAGE || kind == ReaderBlockKind.COVER_IMAGE },
             imageAspectRatio = aspectRatio,
+            imageWidthPercent = widthPercent,
+            imageWidthEm = widthEm,
         )
         text.append('\n')
     }
@@ -407,6 +442,9 @@ private fun Char.isBlockPadding(): Boolean = this == ' ' || this == '\n' || this
 
 private fun ReaderBlockKind.isTableCellKind(): Boolean =
     this == ReaderBlockKind.TABLE_CELL || this == ReaderBlockKind.TABLE_HEADER_CELL
+
+private fun XhtmlTag.classNames(): List<String> =
+    attributes["class"].orEmpty().split(Regex("""\s+""")).map(String::trim).filter(String::isNotEmpty)
 
 private fun Map<String, String>.startOrdinal(): Int = this["start"]?.toIntOrNull() ?: 1
 
@@ -492,7 +530,12 @@ private val TextAlignRegex = Regex("""text-align\s*:\s*([a-zA-Z]+)""")
 
 private const val MaxEntityLength = 12
 
-private val SkippedBodyElements = setOf("script", "style", "head", "svg", "title")
+// "svg" is deliberately not skipped: EPUBs very commonly wrap a full-page illustration as
+// `<svg><image xlink:href="..."/></svg>` (Sigil/Calibre's standard cover/illustration pattern) to make
+// it scale to the viewport. Skipping the whole subtree, as script/style/head genuinely warrant,
+// silently dropped every one of those images. Descending into svg is harmless: it isn't a known block
+// or inline tag, so it is otherwise ignored, and its inner "image" element is handled like any other.
+private val SkippedBodyElements = setOf("script", "style", "head", "title")
 
 private val NeutralContainers = setOf(
     "html", "body", "span", "font", "small", "big", "label", "tbody", "thead", "tfoot",

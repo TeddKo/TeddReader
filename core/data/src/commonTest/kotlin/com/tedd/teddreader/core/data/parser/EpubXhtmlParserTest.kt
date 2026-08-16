@@ -156,6 +156,20 @@ class EpubXhtmlParserTest {
     }
 
     @Test
+    fun svgWrappedImageIsStillCapturedInsteadOfBeingDropped() {
+        // `<svg><image xlink:href="..."/></svg>` is how Sigil/Calibre commonly wrap a full-page
+        // illustration or cover so it scales to the viewport; the whole subtree must not be discarded
+        // the way script/style bodies are.
+        val content = parseXhtmlContent(
+            xhtml = """<body><svg viewBox="0 0 600 800"><image width="600" height="800" xlink:href="../Images/plate.jpg"/></svg></body>""",
+            resolveImageHref = { source -> resolveContainerHref("OEBPS/Text/ch1.xhtml", source) },
+        )
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals("OEBPS/Images/plate.jpg", image.imageHref)
+    }
+
+    @Test
     fun imageIsDroppedWhenItCannotBeResolved() {
         val content = parseXhtmlContent(
             xhtml = """<img src="https://example.com/remote.png"/><p>text</p>""",

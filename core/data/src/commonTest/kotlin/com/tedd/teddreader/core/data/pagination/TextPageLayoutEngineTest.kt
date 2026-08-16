@@ -64,6 +64,54 @@ class TextPageLayoutEngineTest {
     }
 
     @Test
+    fun estimatedPaginationReservesRoomForATallInlineImage() {
+        // A document past the measurement cap falls back to estimated pagination. A tall image there
+        // used to count as the single newline it carries, so a whole page of text was packed around it
+        // and the image was clipped by the pane it overflowed.
+        val paragraph = "가".repeat(400)
+        val text = "$paragraph\n \n$paragraph"
+        val imageOffset = paragraph.length + 1
+        val document = ReaderDocument(
+            id = DocumentId("epub-tall-image"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(ReaderSection(0, text = text, range = TextRange(0, text.length.toLong()))),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, paragraph.length.toLong())),
+                ReaderBlock(
+                    kind = ReaderBlockKind.IMAGE,
+                    range = TextRange(imageOffset.toLong(), imageOffset + 1L),
+                    imageHref = "Images/plate.jpg",
+                    // Portrait plate: half as wide as it is tall, so it cannot share a page with text.
+                    imageAspectRatio = 0.5f,
+                ),
+            ),
+        )
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1.5f),
+            viewportSize = ViewportSize(widthPx = 400, heightPx = 600),
+            pageBreaker = null,
+        )
+
+        val imagePage = pages.single { page ->
+            val range = page.textRange ?: return@single false
+            imageOffset >= range.start && imageOffset < range.end
+        }
+        val imagePageLength = (imagePage.textRange!!.end - imagePage.textRange!!.start).toInt()
+        val textOnlyPageLength = pages
+            .filter { it !== imagePage }
+            .maxOf { (it.textRange!!.end - it.textRange!!.start).toInt() }
+
+        // The image claims real height, so its page carries far less text than a text-only page does.
+        assertTrue(
+            imagePageLength < textOnlyPageLength,
+            "image page held $imagePageLength chars, text page held $textOnlyPageLength",
+        )
+    }
+
+    @Test
     fun coverSectionGetsItsOwnFirstPageWithoutPageBreaker() {
         val document = ReaderDocument(
             id = DocumentId("epub-cover"),
@@ -359,6 +407,51 @@ class TextPageLayoutEngineTest {
 
         assertTrue(pages.first().text.lines().count { line -> line.isNotEmpty() } <= 5)
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
+    }
+
+    @Test
+    fun everyChapterStartsItsOwnPageSoItsHeadingSitsAtTheTop() {
+        // One EPUB spine item is a document of its own, and no reading system runs two of them
+        // together on a screen. Paginating the book as one long string put a chapter's title halfway
+        // down the previous chapter's last page, which is exactly what the table of contents then
+        // jumped to.
+        val first = "먼저 읽는 장의 본문"
+        val second = "2화 기회\n뒤에 오는 장의 본문"
+        val document = ReaderDocument(
+            id = DocumentId("epub-chapter-breaks"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = first, range = TextRange(0, first.length.toLong()), title = "1화"),
+                ReaderSection(
+                    1,
+                    text = second,
+                    range = TextRange(first.length + 1L, first.length + 1L + second.length),
+                    title = "2화 기회",
+                ),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, first.length.toLong())),
+                ReaderBlock(
+                    kind = ReaderBlockKind.HEADING,
+                    level = 1,
+                    range = TextRange(first.length + 1L, first.length + 1L + 5),
+                ),
+            ),
+        )
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
+            viewportSize = ViewportSize(widthPx = 4_000, heightPx = 4_000),
+        )
+
+        // The whole book fits one screen by measurement, yet the chapters never share a page.
+        assertEquals(listOf(first, second), pages.map { it.text })
+        val chapterPage = pages[1]
+        assertEquals(ReaderLocation.EpubOffset(1, 0), chapterPage.location)
+        assertTrue(chapterPage.text.startsWith("2화 기회"), "chapter page began with '${chapterPage.text.take(12)}'")
+        assertEquals(ReaderBlockKind.HEADING, chapterPage.blocks.first().kind)
     }
 
     @Test

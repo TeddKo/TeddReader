@@ -19,6 +19,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
+import com.tedd.teddreader.core.common.model.readerImageSize
 import com.tedd.teddreader.core.common.model.TextRange
 
 private const val ObjectReplacementChar = '\uFFFC'
@@ -44,10 +45,12 @@ fun buildReaderSemanticText(
     text: String,
     blocks: List<ReaderBlock>,
     range: TextRange = TextRange(0, text.length.toLong()),
-    /** Width of the text column, in em, so a standalone image can claim the full line like `width:100%`. */
+    /** Width of the text column, in em, which bounds an image like `max-width: 100%`. */
     lineWidthEm: Float = 0f,
-    /** Height available for one page, in em, so a tall image is bounded like `max-height:98%` instead of overflowing the page. */
+    /** Height available for one page, in em, which bounds an image like `max-height`. */
     maxHeightEm: Float = 0f,
+    /** CSS pixels per em, which turns an image's intrinsic pixel width into em. */
+    emInPx: Float = 0f,
 ): ReaderSemanticText {
     if (text.isEmpty()) {
         return ReaderSemanticText(AnnotatedString(""), intArrayOf(0), emptyList())
@@ -57,12 +60,14 @@ fun buildReaderSemanticText(
     val absoluteEnd = range.end.toInt().coerceAtMost(absoluteStart + text.length)
     val localLength = (absoluteEnd - absoluteStart).coerceAtLeast(0)
     val sourceToDisplay = IntArray(localLength + 1)
-    val displayToSource = ArrayList<Int>(text.length + blocks.size * 4 + 1)
+    // A growable IntArray rather than an ArrayList<Int>: this holds one entry per rendered character,
+    // and the boxed list allocated an Integer for every one of them. On a chapter of any size that
+    // allocation, not the layout, was the bulk of the work.
+    val displayToSource = IntBuffer(text.length + blocks.size * 4 + 1)
     val display = StringBuilder(text.length + blocks.size * 4)
     val placeholderSpecs = mutableListOf<PlaceholderSpec>()
-    val blockRanges = mutableListOf<BlockDisplayRange>()
 
-    val clampedBlocks = blocks.mapNotNull { block ->
+    val clampedBlocks = blocks.mapIndexedNotNull { index, block ->
         val start = block.range.start.coerceAtLeast(range.start)
         val end = block.range.end.coerceAtMost(range.end)
         if (start >= end && block.kind != ReaderBlockKind.IMAGE && block.kind != ReaderBlockKind.COVER_IMAGE && block.kind != ReaderBlockKind.SEPARATOR) {
@@ -70,9 +75,13 @@ fun buildReaderSemanticText(
         } else {
             val localStart = (start - range.start).toInt().coerceAtLeast(0)
             val localEnd = (end - range.start).toInt().coerceAtLeast(localStart)
-            ClampedBlock(block, localStart, localEnd, includesStart = block.range.start in range.start until range.end)
+            ClampedBlock(index, block, localStart, localEnd, includesStart = block.range.start in range.start until range.end)
         }
     }
+    // Where each block's own text begins once prefixes are written, addressed by the block's position
+    // rather than by its value. Searching this list for an equal block instead compared whole blocks —
+    // spans and all — once per block, which is quadratic and was the slowest step in opening a book.
+    val blockDisplayStart = HashMap<Int, Int>(clampedBlocks.size)
     val blocksByStart = clampedBlocks.groupBy { it.localStart }
     val standaloneByStart = clampedBlocks
         .filter { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.COVER_IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
@@ -86,16 +95,12 @@ fun buildReaderSemanticText(
             .filterNot { it.block.kind == ReaderBlockKind.IMAGE || it.block.kind == ReaderBlockKind.COVER_IMAGE || it.block.kind == ReaderBlockKind.SEPARATOR }
             .forEach { block ->
                 val prefix = blockPrefix(block.block).takeIf { block.includesStart }.orEmpty()
-                if (prefix.isNotEmpty()) {
-                    val prefixStart = display.length
-                    prefix.forEach { char ->
-                        display.append(char)
-                        displayToSource += sourceAbsolute
-                    }
-                    blockRanges += BlockDisplayRange(block, prefixStart)
-                } else {
-                    blockRanges += BlockDisplayRange(block, display.length)
+                val blockDisplayStartIndex = display.length
+                prefix.forEach { char ->
+                    display.append(char)
+                    displayToSource += sourceAbsolute
                 }
+                blockDisplayStart[block.index] = blockDisplayStartIndex
             }
 
         sourceToDisplay[localIndex] = display.length
@@ -109,7 +114,7 @@ fun buildReaderSemanticText(
                 kind = standalone.block.kind,
                 href = standalone.block.imageHref,
                 label = standalone.block.label,
-                aspectRatio = standalone.block.imageAspectRatio,
+                block = standalone.block,
                 start = display.length - 1,
             )
             val nextLocalIndex = standalone.localEnd.coerceAtLeast(localIndex + 1)
@@ -133,7 +138,7 @@ fun buildReaderSemanticText(
 
     clampedBlocks.forEach { block ->
         if (block.block.kind == ReaderBlockKind.IMAGE || block.block.kind == ReaderBlockKind.COVER_IMAGE || block.block.kind == ReaderBlockKind.SEPARATOR) return@forEach
-        val blockStart = blockRanges.firstOrNull { it.block == block }?.displayStart ?: sourceToDisplay[block.localStart]
+        val blockStart = blockDisplayStart[block.index] ?: sourceToDisplay[block.localStart]
         val blockEnd = sourceToDisplay[block.localEnd]
         if (blockEnd <= blockStart) return@forEach
 
@@ -156,13 +161,22 @@ fun buildReaderSemanticText(
         }
     }
 
+    // A standalone image or rule is its own paragraph: that is what centres it the way the book asks
+    // and what stops a line of prose from being set beside it. Its block never overlaps another's, so
+    // the one-character range this adds can never collide with a text block's paragraph style.
+    placeholderSpecs.forEach { spec ->
+        blockParagraphStyle(spec.block)?.let { style ->
+            paragraphs += (spec.start until spec.start + 1) to style
+        }
+    }
+
     val placeholders = placeholderSpecs.map { spec ->
         ReaderPlaceholder(
             id = spec.id,
             kind = spec.kind,
             href = spec.href,
             label = spec.label,
-            placeholder = placeholderFor(spec.kind, spec.aspectRatio, lineWidthEm, maxHeightEm),
+            placeholder = placeholderFor(spec.block, lineWidthEm, maxHeightEm, emInPx),
             start = spec.start,
             end = spec.start + 1,
         )
@@ -190,6 +204,20 @@ fun buildReaderSemanticText(
         offsetMap = displayToSource.toIntArray(),
         placeholders = placeholders,
     )
+}
+
+/** Append-only IntArray, so mapping every rendered character back to its source costs no boxing. */
+private class IntBuffer(initialCapacity: Int) {
+    private var values = IntArray(initialCapacity.coerceAtLeast(16))
+    private var size = 0
+
+    operator fun plusAssign(value: Int) {
+        if (size == values.size) values = values.copyOf(size * 2)
+        values[size] = value
+        size += 1
+    }
+
+    fun toIntArray(): IntArray = values.copyOf(size)
 }
 
 fun ReaderSemanticText.sourceOffsetFor(displayIndex: Int): Int =
@@ -226,7 +254,9 @@ private fun blockParagraphStyle(block: ReaderBlock): ParagraphStyle? {
         ReaderTextAlign.END -> TextAlign.End
         ReaderTextAlign.JUSTIFY -> TextAlign.Justify
         ReaderTextAlign.START -> TextAlign.Start
-        null -> null
+        // A heading the book does not align itself is centred: it is the chapter title, and
+        // pagination starts each chapter on a fresh page, so this is the line at the top of it.
+        null -> TextAlign.Center.takeIf { block.kind == ReaderBlockKind.HEADING }
     }
     if (indent == null && align == null) return null
     return ParagraphStyle(
@@ -247,33 +277,31 @@ private fun inlineSpanStyle(style: ReaderInlineStyle): SpanStyle? = when (style)
 }
 
 /**
- * Sizes a standalone image the way `img { max-width: 100%; max-height: 98%; height: auto }` does in a
- * reflowable EPUB: it claims the full line width and, when the source's real aspect ratio is known
- * (declared in the markup or sniffed from the image bytes), a proportional height capped to the page.
- * With no known ratio it falls back to the full page box and lets `ContentScale.Fit` contain the image
- * without cropping or stretching it.
+ * Reserves exactly the box [readerImageSize] says the picture occupies, so the line the text lays out
+ * around is the line the image is actually drawn into.
  */
 private fun placeholderFor(
-    kind: ReaderBlockKind,
-    aspectRatio: Float?,
+    block: ReaderBlock,
     lineWidthEm: Float,
     maxHeightEm: Float,
-): Placeholder = when (kind) {
+    emInPx: Float,
+): Placeholder = when (block.kind) {
     ReaderBlockKind.IMAGE,
     ReaderBlockKind.COVER_IMAGE,
+    ReaderBlockKind.SEPARATOR,
         -> {
-        val widthEm = lineWidthEm.takeIf { it > 0f } ?: DefaultImageWidthEm
-        val boundedHeightEm = maxHeightEm.takeIf { it > 0f } ?: DefaultImageMaxHeightEm
-        val heightEm = if (aspectRatio != null && aspectRatio > 0f) widthEm / aspectRatio else boundedHeightEm
-        Placeholder(widthEm.em, heightEm.coerceIn(MinImageHeightEm, boundedHeightEm).em, PlaceholderVerticalAlign.Center)
+        val size = block.readerImageSize(
+            columnWidthEm = lineWidthEm.takeIf { it > 0f } ?: DefaultImageWidthEm,
+            maxHeightEm = maxHeightEm.takeIf { it > 0f } ?: DefaultImageMaxHeightEm,
+            emInPx = emInPx,
+        )
+        Placeholder(size.widthEm.em, size.heightEm.em, PlaceholderVerticalAlign.Center)
     }
-    ReaderBlockKind.SEPARATOR -> Placeholder(8.em, 1.25.em, PlaceholderVerticalAlign.Center)
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }
 
 private const val DefaultImageWidthEm = 20f
 private const val DefaultImageMaxHeightEm = 26f
-private const val MinImageHeightEm = 2f
 
 private fun headingScale(level: Int): Float = when (level.coerceIn(1, 6)) {
     1 -> 1.55f
@@ -284,16 +312,13 @@ private fun headingScale(level: Int): Float = when (level.coerceIn(1, 6)) {
     else -> 1.05f
 }
 
-private data class ClampedBlock(
+/** Deliberately not a data class: it is looked up by [index], never compared field by field. */
+private class ClampedBlock(
+    val index: Int,
     val block: ReaderBlock,
     val localStart: Int,
     val localEnd: Int,
     val includesStart: Boolean,
-)
-
-private data class BlockDisplayRange(
-    val block: ClampedBlock,
-    val displayStart: Int,
 )
 
 private data class PlaceholderSpec(
@@ -301,6 +326,6 @@ private data class PlaceholderSpec(
     val kind: ReaderBlockKind,
     val href: String?,
     val label: String?,
-    val aspectRatio: Float?,
+    val block: ReaderBlock,
     val start: Int,
 )

@@ -69,6 +69,12 @@ data class ReaderBlock(
     val tableColumn: Int? = null,
     /** Width divided by height of the source image, for [ReaderBlockKind.IMAGE] and [ReaderBlockKind.COVER_IMAGE]. */
     val imageAspectRatio: Float? = null,
+    /** Intrinsic width of the source image in CSS pixels, used when nothing declares a width. */
+    val imageNaturalWidthPx: Int? = null,
+    /** Width the document's own stylesheet gives the image, as a fraction of the text column. */
+    val imageWidthPercent: Float? = null,
+    /** Width the document's own stylesheet gives the image, in em. */
+    val imageWidthEm: Float? = null,
 ) {
     init {
         require(level >= 0) { "Block level must be positive." }
@@ -78,8 +84,64 @@ data class ReaderBlock(
         require(tableRow == null || tableRow >= 0) { "Table row must be positive." }
         require(tableColumn == null || tableColumn >= 0) { "Table column must be positive." }
         require(imageAspectRatio == null || imageAspectRatio > 0f) { "Image aspect ratio must be positive." }
+        require(imageNaturalWidthPx == null || imageNaturalWidthPx > 0) { "Image natural width must be positive." }
+        require(imageWidthPercent == null || imageWidthPercent > 0f) { "Image width percent must be positive." }
+        require(imageWidthEm == null || imageWidthEm > 0f) { "Image width em must be positive." }
     }
 }
+
+/** Size an image is drawn at, in em, so measurement and rendering can never disagree about it. */
+data class ReaderImageSize(val widthEm: Float, val heightEm: Float)
+
+/**
+ * Lay out one image the way a reading system does.
+ *
+ * This follows the rule every reflowable reading system settles on. Readium's own stylesheet states it
+ * as `img, svg, video { object-fit: contain; width: auto; height: auto; max-width: 100%;
+ * max-height: 95vh !important; break-inside: avoid }`, readium-shared-js as
+ * `max-width: 98%; max-height: 98%; height: auto; width: auto`, and foliate-js sets the same pair of
+ * maxima plus `object-fit: contain` on every `img, svg, video` it finds. The shared meaning is: the
+ * picture is drawn at the size it actually is — the width the book's stylesheet gives it, or failing
+ * that its own intrinsic width — and is only ever shrunk to fit the column and the page, never
+ * stretched up to them. Forcing every picture to the full column instead turns a hairline rule into a
+ * thick band and a small logo into a poster.
+ *
+ * [columnWidthEm] is the text column, [maxHeightEm] the page, and [emInPx] how many CSS pixels one em
+ * is, which converts an intrinsic pixel width into the em units everything else is measured in.
+ */
+fun ReaderBlock.readerImageSize(
+    columnWidthEm: Float,
+    maxHeightEm: Float,
+    emInPx: Float,
+): ReaderImageSize {
+    val column = columnWidthEm.coerceAtLeast(MinReaderImageEm)
+    if (kind == ReaderBlockKind.SEPARATOR) return ReaderImageSize(column, SeparatorHeightEm)
+
+    // `max-height: 95vh`, not the whole page: an image allowed the last hairline of the page leaves no
+    // room for the line box holding it and is pushed to a page of its own or clipped at the edge.
+    val page = (maxHeightEm * MaxImagePageHeightFraction).coerceAtLeast(MinReaderImageEm)
+    val declaredEm = imageWidthEm
+        ?: imageWidthPercent?.let { column * it }
+        ?: imageNaturalWidthPx?.takeIf { emInPx > 0f }?.let { it / emInPx }
+    // max-width: 100%; the picture is scaled down to the column but never up past what is declared.
+    var width = (declaredEm ?: column).coerceIn(MinReaderImageEm, column)
+    val ratio = imageAspectRatio?.takeIf { it > 0f }
+    var height = if (ratio != null) width / ratio else page
+    if (height > page) {
+        // max-height: keep the proportions and give back the width the shorter box no longer needs.
+        if (ratio != null) width = (page * ratio).coerceAtMost(column)
+        height = page
+    }
+    return ReaderImageSize(width.coerceAtLeast(MinReaderImageEm), height.coerceAtLeast(MinReaderImageEm))
+}
+
+private const val MinReaderImageEm = 0.05f
+
+/** `max-height: 95vh`, the cap Readium's stylesheet puts on any image in reflowable text. */
+private const val MaxImagePageHeightFraction = 0.95f
+
+/** Height a horizontal rule draws at, matching the divider the renderer puts in its place. */
+private const val SeparatorHeightEm = 1.25f
 
 fun ReaderBlockKind.isTableCell(): Boolean =
     this == ReaderBlockKind.TABLE_CELL || this == ReaderBlockKind.TABLE_HEADER_CELL
