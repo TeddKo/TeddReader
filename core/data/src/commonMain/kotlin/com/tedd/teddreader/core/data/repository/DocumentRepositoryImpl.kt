@@ -34,6 +34,8 @@ import com.tedd.teddreader.core.room.dao.SearchIndexDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
@@ -55,6 +57,21 @@ class DocumentRepositoryImpl(
     private val documentFileSource: DocumentFileSource? = null,
 ) : DocumentRepository {
     private val json = Json
+
+    // Reading a document back means loading every section's text out of the database and decoding a
+    // block list per section. Opening a book asked for exactly that twice — once directly and once
+    // more from inside getPageWindows — and every repagination asked again. One book is cached, which
+    // is all the reader ever has open, and it is dropped the moment that book is rewritten or deleted.
+    private val documentCacheLock = Mutex()
+    private var cachedDocumentId: DocumentId? = null
+    private var cachedReaderDocument: ReaderDocument? = null
+
+    // The EPUB an image is pulled out of, unpacked once and kept. Each call used to read the whole
+    // file into memory and write a fresh scratch copy of it just to reach one picture, so turning to
+    // an illustrated page cost as much as opening the book.
+    private val epubScratchLock = Mutex()
+    private var epubScratchDocumentId: DocumentId? = null
+    private var epubScratchPath: Path? = null
 
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> =
         documentDao.observeRecentDocuments().map { documents -> documents.map { it.toDocumentMetadata() } }
@@ -115,13 +132,26 @@ class DocumentRepositoryImpl(
         val metadata = getDocument(documentId) ?: return@withContext emptyMap()
         if (metadata.format != DocumentFormat.EPUB) return@withContext emptyMap()
         val fileSource = documentFileSource ?: return@withContext emptyMap()
-        epubDocumentParser.extractEmbeddedImageBytes(
-            bytes = fileSource.readBytes(metadata.location),
-            hrefs = hrefs,
-        )
+        val normalizedHrefs = hrefs.map(String::trim).filterTo(mutableSetOf(), String::isNotEmpty)
+        if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
+        val path = runCatching { epubScratchCopy(metadata, fileSource) }.getOrNull()
+            ?: return@withContext emptyMap()
+        epubDocumentParser.extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs)
     }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
+        documentCacheLock.withLock {
+            if (cachedDocumentId == documentId) return cachedReaderDocument
+        }
+        val document = loadReaderDocument(documentId)
+        documentCacheLock.withLock {
+            cachedDocumentId = documentId
+            cachedReaderDocument = document
+        }
+        return document
+    }
+
+    private suspend fun loadReaderDocument(documentId: DocumentId): ReaderDocument? {
         val metadata = getDocument(documentId) ?: return null
         val storedSections = getStoredSections(documentId)
         if (metadata.format == DocumentFormat.TXT && (storedSections.sections.isEmpty() || storedSections.sections.hasBrokenText())) {
@@ -240,6 +270,45 @@ class DocumentRepositoryImpl(
 
     override suspend fun deleteDocument(documentId: DocumentId) {
         documentDao.deleteDocument(documentId.value)
+        invalidateCaches(documentId)
+    }
+
+    private suspend fun invalidateCaches(documentId: DocumentId) {
+        documentCacheLock.withLock {
+            if (cachedDocumentId == documentId) {
+                cachedDocumentId = null
+                cachedReaderDocument = null
+            }
+        }
+        epubScratchLock.withLock {
+            if (epubScratchDocumentId == documentId) {
+                epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
+                epubScratchDocumentId = null
+                epubScratchPath = null
+            }
+        }
+    }
+
+    /**
+     * A scratch copy of the EPUB behind [documentId], made once and reused for every later image.
+     *
+     * Only one is kept: the reader has one book open, and holding a second copy of a previous one on
+     * disk buys nothing.
+     */
+    private suspend fun epubScratchCopy(
+        metadata: DocumentMetadata,
+        fileSource: DocumentFileSource,
+    ): Path = epubScratchLock.withLock {
+        epubScratchPath?.takeIf { epubScratchDocumentId == metadata.id && systemFileSystem().exists(it) }
+            ?.let { return@withLock it }
+
+        epubScratchPath?.let { previous -> runCatching { systemFileSystem().delete(previous) } }
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+            "tedd-reader-epub-open-${Random.nextLong().toString(16)}.epub"
+        fileSource.copyTo(metadata.location, path)
+        epubScratchDocumentId = metadata.id
+        epubScratchPath = path
+        path
     }
 
     private suspend fun getStoredSections(documentId: DocumentId): StoredReaderDocument {
@@ -302,6 +371,7 @@ class DocumentRepositoryImpl(
     }
 
     private suspend fun persistParsedDocument(metadata: DocumentMetadata, document: ReaderDocument) {
+        invalidateCaches(metadata.id)
         upsertDocument(metadata)
         searchIndexDao.deleteSearchIndex(metadata.id.value)
         if (document.sections.isNotEmpty()) {

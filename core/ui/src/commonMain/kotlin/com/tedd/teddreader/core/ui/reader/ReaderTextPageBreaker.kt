@@ -32,6 +32,9 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
         val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
         val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
         val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
+        // An image's intrinsic size is in CSS pixels, which are density-independent, so one em is the
+        // font size in dp rather than in device pixels.
+        val emInPx = style.fontSizeSp * density.fontScale
         ReaderPageBreaker { text, blocks ->
             if (widthPx <= 0 || heightPx <= 0 || text.isEmpty()) {
                 IntArray(0)
@@ -41,6 +44,7 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
                     blocks = blocks,
                     lineWidthEm = lineWidthEm,
                     maxHeightEm = maxHeightEm,
+                    emInPx = emInPx,
                 )
                 val layout = measurer.measure(
                     text = semanticText.annotatedString,

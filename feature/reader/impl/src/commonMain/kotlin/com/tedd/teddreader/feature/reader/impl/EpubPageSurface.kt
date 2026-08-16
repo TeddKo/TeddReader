@@ -1,11 +1,9 @@
 package com.tedd.teddreader.feature.reader.impl
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -15,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -57,14 +54,16 @@ internal fun EpubPageSurface(
         val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
         val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
         val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
+        val emInPx = style.fontSizeSp * density.fontScale
 
-        val semanticText = remember(page.text, page.blocks, page.textRange, lineWidthEm, maxHeightEm) {
+        val semanticText = remember(page.text, page.blocks, page.textRange, lineWidthEm, maxHeightEm, emInPx) {
             buildReaderSemanticText(
                 text = page.text,
                 blocks = page.blocks,
                 range = page.textRange ?: com.tedd.teddreader.core.common.model.TextRange(0, page.text.length.toLong()),
                 lineWidthEm = lineWidthEm,
                 maxHeightEm = maxHeightEm,
+                emInPx = emInPx,
             )
         }
         val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs) {
@@ -126,11 +125,11 @@ private fun EpubImageBox(
         }
     }
 
+    // No frame and no plate behind the picture: the placeholder is already the exact box the image
+    // occupies, so a background would show as a slab around every illustration and a rounded corner
+    // would clip the artwork the book actually drew.
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         when {

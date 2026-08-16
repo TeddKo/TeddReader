@@ -112,18 +112,23 @@ class EpubDocumentParser {
             nextOffset = coverRange.end + SectionSeparatorLength
         }
 
+        val styleSheetCache = mutableMapOf<String, EpubStyleSheet>()
         packageData.spineItems.filter { it.linear }.forEachIndexed { spineOrder, spineItem ->
             val xhtml = zip.readUtf8OrNull(spineItem.path.toPath()) ?: return@forEachIndexed
             val content = parseXhtmlContent(
                 xhtml = xhtml,
                 baseOffset = nextOffset,
                 resolveImageHref = { source -> resolveContainerHref(spineItem.path, source) },
+                styleSheet = linkedStyleSheet(xhtml, spineItem.path, zip, styleSheetCache),
             )
             if (coverHref != null && spineOrder == 0 && isPureCoverXhtml(content, coverHref)) {
                 if (coverSectionIndex != null) sectionPathByIndex[coverSectionIndex] = spineItem.path
                 return@forEachIndexed
             }
-            val sectionTitle = firstHeadingTitle(content, nextOffset) ?: spineItem.item.title ?: spineItem.item.id
+            val sectionTitle = content.headingTitle
+                ?: firstHeadingTitle(content, nextOffset)
+                ?: spineItem.item.title
+                ?: spineItem.item.id
             val range = TextRange(nextOffset, nextOffset + content.text.length)
             val sectionIndex = nextIndex
             sections += ReaderSection(
@@ -159,7 +164,7 @@ class EpubDocumentParser {
             section.copy(title = navigationTitlesBySection[section.index] ?: section.title)
         }
 
-        fillMissingImageAspectRatios(blocks, zip, coverHref, coverBytes)
+        fillIntrinsicImageSizes(blocks, zip, coverHref, coverBytes)
 
         return ReaderDocument(
             id = id,
@@ -261,10 +266,11 @@ class EpubDocumentParser {
         return zip.readBytesOrNull(coverPath.toPath())
     }
 
-    private fun extractEmbeddedImageBytes(
+    /** Pull images straight out of an already-unpacked copy, without re-reading the whole book. */
+    fun extractEmbeddedImageBytes(
         path: Path,
         hrefs: Set<String>,
-        fileSystem: FileSystem,
+        fileSystem: FileSystem = systemFileSystem(),
     ): Map<String, ByteArray> {
         val zip = fileSystem.openZip(path)
         return hrefs.mapNotNull { href -> zip.readBytesOrNull(href.toPath())?.let { href to it } }.toMap()
@@ -301,38 +307,66 @@ private fun FileSystem.readUtf8OrNull(path: Path): String? =
     }.getOrNull()
 
 /**
- * Patches every [ReaderBlockKind.IMAGE]/[ReaderBlockKind.COVER_IMAGE] block that has no aspect ratio
- * yet (the XHTML did not declare `width`/`height`) with the ratio sniffed from the image's own bytes,
- * so the reader can size it correctly instead of guessing. Mutates [blocks] in place.
+ * The stylesheets a chapter links, merged in `<link>` order so the last one wins the cascade, which is
+ * where these books keep their picture sizes. Cached by stylesheet path: a book reuses the same few
+ * sheets across hundreds of chapters.
  */
-private fun fillMissingImageAspectRatios(
+private fun linkedStyleSheet(
+    xhtml: String,
+    chapterPath: String,
+    zip: FileSystem,
+    cache: MutableMap<String, EpubStyleSheet>,
+): EpubStyleSheet {
+    val hrefs = StyleSheetLinkRegex.findAll(xhtml)
+        .map { match -> parseAttributes(match.value) }
+        .filter { attributes -> attributes["rel"]?.contains("stylesheet", ignoreCase = true) == true }
+        .mapNotNull { attributes -> attributes["href"]?.let { resolveContainerHref(chapterPath, it) } }
+        .toList()
+    if (hrefs.isEmpty()) return EpubStyleSheet()
+    val key = hrefs.joinToString("|")
+    cache[key]?.let { return it }
+    val merged = hrefs.fold(EpubStyleSheet()) { sheet, href ->
+        val css = zip.readUtf8OrNull(href.toPath()) ?: return@fold sheet
+        parseEpubStyleSheet(css, sheet)
+    }
+    cache[key] = merged
+    return merged
+}
+
+/**
+ * Patches every image block with the size read from the picture's own bytes: the aspect ratio, and the
+ * intrinsic width that sizes it when neither the markup nor the stylesheet declares one. Mutates
+ * [blocks] in place.
+ */
+private fun fillIntrinsicImageSizes(
     blocks: MutableList<ReaderBlock>,
     zip: FileSystem,
     coverHref: String?,
     coverBytes: ByteArray?,
 ) {
-    val missingHrefs = blocks.asSequence()
+    val hrefs = blocks.asSequence()
         .filter { it.kind == ReaderBlockKind.IMAGE || it.kind == ReaderBlockKind.COVER_IMAGE }
-        .filter { it.imageAspectRatio == null }
         .mapNotNull { it.imageHref }
         .toSet()
-    if (missingHrefs.isEmpty()) return
+    if (hrefs.isEmpty()) return
 
-    val sniffedRatios = mutableMapOf<String, Float>()
-    if (coverHref != null && coverHref in missingHrefs && coverBytes != null) {
-        sniffImageDimensions(coverBytes)?.let { (width, height) -> sniffedRatios[coverHref] = width.toFloat() / height }
+    val sizes = mutableMapOf<String, Pair<Int, Int>>()
+    if (coverHref != null && coverHref in hrefs && coverBytes != null) {
+        sniffImageDimensions(coverBytes)?.let { sizes[coverHref] = it }
     }
-    (missingHrefs - sniffedRatios.keys).forEach { href ->
+    (hrefs - sizes.keys).forEach { href ->
         val header = zip.readHeaderBytesOrNull(href.toPath(), ImageHeaderSniffBytes) ?: return@forEach
-        sniffImageDimensions(header)?.let { (width, height) -> sniffedRatios[href] = width.toFloat() / height }
+        sniffImageDimensions(header)?.let { sizes[href] = it }
     }
-    if (sniffedRatios.isEmpty()) return
+    if (sizes.isEmpty()) return
 
     for (index in blocks.indices) {
         val block = blocks[index]
-        if (block.imageAspectRatio != null) continue
-        val ratio = block.imageHref?.let(sniffedRatios::get) ?: continue
-        blocks[index] = block.copy(imageAspectRatio = ratio)
+        val (width, height) = block.imageHref?.let(sizes::get) ?: continue
+        blocks[index] = block.copy(
+            imageAspectRatio = block.imageAspectRatio ?: (width.toFloat() / height),
+            imageNaturalWidthPx = block.imageNaturalWidthPx ?: width,
+        )
     }
 }
 
@@ -606,6 +640,11 @@ private fun navTypeTokens(value: String?): Set<String> =
 /** Sections are joined by a single newline when the document is read as one text. */
 private const val SectionSeparatorLength = 1L
 private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
-private const val ImageHeaderSniffBytes = 256 * 1024
+// PNG, GIF and WebP declare their size in the first 32 bytes; a JPEG's SOF marker sits after its
+// APP segments, and an embedded EXIF thumbnail is the only thing that pushes it far in. 64 KiB clears
+// that and no more: this is inflated once per distinct image in the book, so the window is the whole
+// cost of learning how big the pictures are.
+private const val ImageHeaderSniffBytes = 64 * 1024
+private val StyleSheetLinkRegex = Regex("""(?is)<link\b[^>]*>""")
 private const val ContainerPath = "META-INF/container.xml"
 private const val NcxMediaType = "application/x-dtbncx+xml"
