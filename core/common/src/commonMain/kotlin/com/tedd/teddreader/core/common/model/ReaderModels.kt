@@ -247,6 +247,7 @@ data class PageWindow(
     val location: ReaderLocation,
     val text: String,
     val textRange: TextRange? = null,
+    val blocks: List<ReaderBlock> = emptyList(),
 )
 
 @Serializable

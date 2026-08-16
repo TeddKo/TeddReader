@@ -2,7 +2,9 @@ package com.tedd.teddreader.core.data.mapper
 
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.common.model.TextRange
@@ -14,6 +16,7 @@ import com.tedd.teddreader.core.room.entity.BookmarkEntity
 import com.tedd.teddreader.core.room.entity.ReadingProgressEntity
 import com.tedd.teddreader.core.room.entity.ReadingSessionEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
+import kotlinx.serialization.json.Json
 
 fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress(
     documentId = DocumentId(documentId),
@@ -68,13 +71,22 @@ fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessi
     endLocation = endLocation?.asStorageString(),
 )
 
-fun ReaderSection.toSearchIndexEntity(documentId: DocumentId): SearchIndexEntity = SearchIndexEntity(
+fun ReaderSection.toSearchIndexEntity(
+    documentId: DocumentId,
+    blocks: List<ReaderBlock> = emptyList(),
+    documentTitle: String? = null,
+    navigation: ReaderNavigation? = null,
+    json: Json = Json,
+): SearchIndexEntity = SearchIndexEntity(
     documentId = documentId.value,
     sectionIndex = index,
     sectionTitle = title,
     text = text,
     startOffset = range.start,
     endOffset = range.end,
+    blocksJson = json.encodeToString(blocks),
+    documentTitle = documentTitle,
+    navigationJson = navigation?.let { json.encodeToString(it) }.orEmpty(),
 )
 
 fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
