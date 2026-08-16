@@ -20,6 +20,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
 import com.tedd.teddreader.core.common.model.readerImageSize
+import com.tedd.teddreader.core.common.model.standaloneBlocks
 import com.tedd.teddreader.core.common.model.TextRange
 
 private const val ObjectReplacementChar = '\uFFFC'
@@ -161,10 +162,13 @@ fun buildReaderSemanticText(
         }
     }
 
-    // A standalone image or rule is its own paragraph: that is what centres it the way the book asks
-    // and what stops a line of prose from being set beside it. Its block never overlaps another's, so
-    // the one-character range this adds can never collide with a text block's paragraph style.
+    // A picture on a line of its own is its own paragraph: that is what centres it the way the book
+    // asks and what stops a line of prose from being set beside it. A picture written inside a
+    // sentence gets none of this — it is part of that paragraph, and giving it a paragraph of its own
+    // would both break the sentence and overlap the enclosing style.
+    val standaloneBlocks = clampedBlocks.map { it.block }.standaloneBlocks().toSet()
     placeholderSpecs.forEach { spec ->
+        if (spec.block !in standaloneBlocks) return@forEach
         blockParagraphStyle(spec.block)?.let { style ->
             paragraphs += (spec.start until spec.start + 1) to style
         }
@@ -176,7 +180,13 @@ fun buildReaderSemanticText(
             kind = spec.kind,
             href = spec.href,
             label = spec.label,
-            placeholder = placeholderFor(spec.block, lineWidthEm, maxHeightEm, emInPx),
+            placeholder = placeholderFor(
+                block = spec.block,
+                isStandalone = spec.block in standaloneBlocks,
+                lineWidthEm = lineWidthEm,
+                maxHeightEm = maxHeightEm,
+                emInPx = emInPx,
+            ),
             start = spec.start,
             end = spec.start + 1,
         )
@@ -282,6 +292,7 @@ private fun inlineSpanStyle(style: ReaderInlineStyle): SpanStyle? = when (style)
  */
 private fun placeholderFor(
     block: ReaderBlock,
+    isStandalone: Boolean,
     lineWidthEm: Float,
     maxHeightEm: Float,
     emInPx: Float,
@@ -295,7 +306,17 @@ private fun placeholderFor(
             maxHeightEm = maxHeightEm.takeIf { it > 0f } ?: DefaultImageMaxHeightEm,
             emInPx = emInPx,
         )
-        Placeholder(size.widthEm.em, size.heightEm.em, PlaceholderVerticalAlign.Center)
+        Placeholder(
+            width = size.widthEm.em,
+            height = size.heightEm.em,
+            // A picture set inside a sentence sits on the text's own centre, the way a glyph does; a
+            // plate has its line to itself and is centred in it.
+            placeholderVerticalAlign = if (isStandalone) {
+                PlaceholderVerticalAlign.Center
+            } else {
+                PlaceholderVerticalAlign.TextCenter
+            },
+        )
     }
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }

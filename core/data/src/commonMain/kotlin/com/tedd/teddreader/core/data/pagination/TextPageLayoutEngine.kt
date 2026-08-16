@@ -15,6 +15,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.blocksIn
 import com.tedd.teddreader.core.common.model.isStandalone
 import com.tedd.teddreader.core.common.model.readerImageSize
+import com.tedd.teddreader.core.common.model.standaloneBlocks
 import kotlin.math.ceil
 import org.koin.core.annotation.Single
 
@@ -209,7 +210,7 @@ class TextPageLayoutEngine {
         val pageHeightEm = layout.linesPerPage * style.lineHeightMultiplier
         val lineHeightEm = style.lineHeightMultiplier.coerceAtLeast(0.1f)
         return blocks
-            .filter { it.kind.isStandalone() }
+            .standaloneBlocks()
             .associate { block ->
                 val size = block.readerImageSize(
                     columnWidthEm = columnWidthEm,

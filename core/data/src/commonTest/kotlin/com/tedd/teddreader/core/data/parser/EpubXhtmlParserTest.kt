@@ -4,6 +4,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
 import com.tedd.teddreader.core.common.model.blocksIn
+import com.tedd.teddreader.core.common.model.standaloneBlocks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -285,5 +286,33 @@ class EpubXhtmlParserTest {
 
         assertEquals(ReaderTextAlign.CENTER, content.blocks.first().align)
         assertNull(content.blocks[1].align)
+    }
+
+    @Test
+    fun aHeadingThatIsOnlyAPictureKeepsItsNameAndDropsTheEmptyHeadingBlock() {
+        // Part and chapter headings are routinely set as a picture, with the readable name only in the
+        // heading's title attribute. The picture is the heading, so no empty heading block is recorded
+        // alongside it.
+        val content = parseXhtmlContent(
+            xhtml = """<h1 title="1화 기회"><img src="../Images/title.png"/></h1><p>본문</p>""",
+            resolveImageHref = { source -> resolveContainerHref("OEBPS/Text/ch1.xhtml", source) },
+        )
+
+        assertEquals("1화 기회", content.headingTitle)
+        assertTrue(content.blocks.none { it.kind == ReaderBlockKind.HEADING })
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals("OEBPS/Images/title.png", image.imageHref)
+        assertTrue(image in content.blocks.standaloneBlocks())
+    }
+
+    @Test
+    fun twoPicturesInOneSentenceBothStayInIt() {
+        val content = parseXhtmlContent("""<p>가<img src="a.png"/>나<img src="b.png"/>다</p>""")
+
+        val paragraph = content.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }
+        val images = content.blocks.filter { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(2, images.size)
+        assertTrue(images.all { it.range.start > paragraph.range.start && it.range.end < paragraph.range.end })
+        assertEquals(emptyList(), content.blocks.standaloneBlocks())
     }
 }

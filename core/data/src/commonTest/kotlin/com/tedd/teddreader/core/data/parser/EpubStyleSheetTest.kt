@@ -3,6 +3,7 @@ package com.tedd.teddreader.core.data.parser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class EpubStyleSheetTest {
     @Test
@@ -72,5 +73,31 @@ class EpubStyleSheetTest {
 
         assertNull(sheet.widthFor(listOf("ghost")))
         assertNull(sheet.widthFor(listOf("capped")))
+    }
+
+    @Test
+    fun aBareImgRuleSizesEveryPictureTheClassesDoNotSizeThemselves() {
+        // Plenty of books state their picture sizes with `img{width:…}` and no class at all. Keying
+        // every rule by a class name threw those away, and each of their images fell back to the full
+        // column as though the book had said nothing.
+        val sheet = parseEpubStyleSheet(
+            """
+            img{width:80%;}
+            .thumb{width:25%;}
+            """.trimIndent(),
+        )
+
+        assertEquals(CssWidth.Percent(0.8f), sheet.widthFor(emptyList()))
+        assertEquals(CssWidth.Percent(0.8f), sheet.widthFor(listOf("unstyled")))
+        // A class that does size itself still wins over the blanket rule.
+        assertEquals(CssWidth.Percent(0.25f), sheet.widthFor(listOf("thumb")))
+    }
+
+    @Test
+    fun aBareImgMaxWidthIsStillNotAWidth() {
+        val sheet = parseEpubStyleSheet("img{max-width:100%;height:auto;}")
+
+        assertNull(sheet.widthFor(emptyList()))
+        assertTrue(sheet.isEmpty())
     }
 }

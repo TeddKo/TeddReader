@@ -3,9 +3,11 @@ package com.tedd.teddreader.core.data.parser
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
+import com.tedd.teddreader.core.common.model.ReaderObjectReplacementChar
 import com.tedd.teddreader.core.common.model.ReaderSpan
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
 
 /**
  * Flattened text of one chapter together with the structure that text carries.
@@ -145,6 +147,9 @@ private class XhtmlContentBuilder(
     private var pendingSpace = false
     private var headingTitle: String? = null
 
+    /** Pictures written into the block being built, so a wrapper holding only pictures is recognised. */
+    private var blockImageCount = 0
+
     fun appendText(rawText: String) {
         if (rawText.isEmpty()) return
         val decoded = decodeXmlEntities(rawText)
@@ -188,8 +193,7 @@ private class XhtmlContentBuilder(
                     // image through its ancestors — nearest rule wins, as the cascade would have it.
                     val ancestorClasses = tag.classNames() + openBlocks.asReversed().flatMap(OpenElement::classNames)
                     val cssWidth = styleSheet.widthFor(ancestorClasses)
-                    emitStandaloneBlock(
-                        kind = ReaderBlockKind.IMAGE,
+                    appendImage(
                         imageHref = href,
                         label = tag.attributes["alt"]?.takeIf { it.isNotBlank() },
                         aspectRatio = tag.attributes.declaredImageAspectRatio(),
@@ -312,7 +316,10 @@ private class XhtmlContentBuilder(
         }
         return XhtmlContent(
             text = text.toString(),
-            blocks = blocks.toList(),
+            // A picture is recorded the moment it is written, its paragraph only once that paragraph
+            // ends, so an inline picture is added before the block enclosing it. Reading order is what
+            // everything downstream assumes, so the list is put back into it here.
+            blocks = blocks.sortedBy { block -> block.range.start },
             anchors = anchors.toMap(),
             headingTitle = headingTitle,
         )
@@ -337,6 +344,38 @@ private class XhtmlContentBuilder(
         pendingSpace = false
     }
 
+    /**
+     * Write a picture where it was written: into the line being built, not between two blocks.
+     *
+     * `<img>` is inline content in HTML, and no reading system takes it out of its paragraph — doing so
+     * tore a gaiji glyph out of the middle of its sentence and left a blank line in its place. A
+     * picture that turns out to be the only thing in its block is recognised in [flushBlock], and
+     * stands on a line of its own there, the way a plate does.
+     */
+    private fun appendImage(
+        imageHref: String,
+        label: String?,
+        aspectRatio: Float?,
+        widthPercent: Float?,
+        widthEm: Float?,
+    ) {
+        ensureBlockOpen()
+        flushPendingSpace()
+        val start = text.length
+        text.append(ReaderObjectReplacementChar)
+        blockImageCount += 1
+        blocks += ReaderBlock(
+            kind = ReaderBlockKind.IMAGE,
+            range = TextRange(baseOffset + start, baseOffset + text.length),
+            imageHref = imageHref,
+            label = label,
+            align = ReaderTextAlign.CENTER,
+            imageAspectRatio = aspectRatio,
+            imageWidthPercent = widthPercent,
+            imageWidthEm = widthEm,
+        )
+    }
+
     private fun emitStandaloneBlock(
         kind: ReaderBlockKind,
         imageHref: String? = null,
@@ -346,12 +385,13 @@ private class XhtmlContentBuilder(
         widthEm: Float? = null,
     ) {
         flushBlock()
-        // The block owns one newline, so it holds a real range: a zero-width block would fall through
-        // the page-range filter at a boundary, and a placeholder glyph would show as tofu wherever the
-        // plain-text fallback draws it.
+        // The block owns one character, so it holds a real range: a zero-width block would fall
+        // through the page-range filter at a boundary. The single newline that follows ends the rule's
+        // line; the blank line before it is the one the preceding paragraph already wrote, which is the
+        // spacing `<hr>` carries in a browser rather than the four blank lines two newlines gave it.
         pendingSpace = false
         val start = text.length
-        text.append('\n')
+        text.append(ReaderObjectReplacementChar)
         blocks += ReaderBlock(
             kind = kind,
             range = TextRange(baseOffset + start, baseOffset + text.length),
@@ -369,6 +409,8 @@ private class XhtmlContentBuilder(
         val start = blockStart
         pendingSpace = false
         resetOpenSpans()
+        val imageCount = blockImageCount
+        blockImageCount = 0
         if (start < 0) {
             resetBlockAttributes()
             return
@@ -378,6 +420,15 @@ private class XhtmlContentBuilder(
         if (text.length == start) {
             blockSpans.clear()
             resetBlockAttributes()
+            return
+        }
+
+        if (imageCount > 0 && text.substring(start, text.length).isBlankIgnoringObjects()) {
+            // Nothing here but pictures, so there is no prose to record: the block was only ever a
+            // wrapper. Each picture keeps its own line, and no empty paragraph is left behind it.
+            blockSpans.clear()
+            resetBlockAttributes()
+            text.append('\n')
             return
         }
 
