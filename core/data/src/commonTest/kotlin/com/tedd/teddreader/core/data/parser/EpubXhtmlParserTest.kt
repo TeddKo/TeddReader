@@ -131,6 +131,31 @@ class EpubXhtmlParserTest {
     }
 
     @Test
+    fun imageCarriesTheAspectRatioDeclaredInWidthAndHeightAttributes() {
+        val content = parseXhtmlContent("""<img src="plate.jpg" width="800" height="400"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(2f, image.imageAspectRatio)
+    }
+
+    @Test
+    fun imageCarriesTheAspectRatioDeclaredInAnInlineStyle() {
+        val content = parseXhtmlContent("""<img src="plate.jpg" style="width:300px;height:600px"/>""")
+
+        val image = content.blocks.single { it.kind == ReaderBlockKind.IMAGE }
+        assertEquals(0.5f, image.imageAspectRatio)
+    }
+
+    @Test
+    fun imageHasNoAspectRatioWhenDimensionsAreUnspecifiedOrPercentages() {
+        val undeclared = parseXhtmlContent("""<img src="plate.jpg"/>""")
+        val percentage = parseXhtmlContent("""<img src="plate.jpg" width="100%" height="200"/>""")
+
+        assertEquals(null, undeclared.blocks.single { it.kind == ReaderBlockKind.IMAGE }.imageAspectRatio)
+        assertEquals(null, percentage.blocks.single { it.kind == ReaderBlockKind.IMAGE }.imageAspectRatio)
+    }
+
+    @Test
     fun imageIsDroppedWhenItCannotBeResolved() {
         val content = parseXhtmlContent(
             xhtml = """<img src="https://example.com/remote.png"/><p>text</p>""",

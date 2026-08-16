@@ -494,18 +494,19 @@ class ReaderViewModel(
     ): ReaderPageUi? {
         if (pageIndex.total <= 0 || page !in 0 until pageIndex.total) return null
         val pageWindow = pageWindows.getOrNull(page)
+        // The chapter title stays pinned in the top bar for every page of a chapter, not only its
+        // first, so it finds the section that *contains* this page's start rather than requiring an
+        // exact match against the section's own start offset.
         val chapterTitle = pageWindow
-            ?.takeIf { window ->
-                val start = window.textRange?.start
-                start != null && currentSections.any { section ->
-                    section.range.start == start &&
-                        section.title != null &&
-                        window.blocks.none { it.kind == com.tedd.teddreader.core.common.model.ReaderBlockKind.COVER_IMAGE }
-                }
-            }
+            ?.takeIf { window -> window.blocks.none { it.kind == com.tedd.teddreader.core.common.model.ReaderBlockKind.COVER_IMAGE } }
             ?.textRange
             ?.start
-            ?.let { start -> currentSections.firstOrNull { it.range.start == start }?.title }
+            ?.let { start ->
+                currentSections
+                    .filter { section -> section.range.start <= start && section.title != null }
+                    .maxByOrNull { section -> section.range.start }
+                    ?.title
+            }
         return ReaderPageUi(
             page = page,
             text = if (isPdfMode) "" else pageWindow?.text.orEmpty(),
@@ -735,11 +736,14 @@ class ReaderViewModel(
         val documentId = currentDocumentId ?: return
         val state = _uiState.value
         if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
-        val requestedHrefs = (centerPage - 1..centerPage + 1)
+        // Matches the pageSlots window the pager actually mounts (see pageSlots()), so every slot the
+        // reader can swipe to preview already has its images requested instead of only the immediate
+        // neighbor.
+        val relevantHrefs = (centerPage - 2..centerPage + 3)
             .filter { it in currentPageWindows.indices }
             .flatMap { page -> currentPageWindows[page].blocks.mapNotNull { it.imageHref } }
             .toSet()
-        val missingHrefs = requestedHrefs - embeddedImageCache.keys - failedEmbeddedImageHrefs
+        val missingHrefs = relevantHrefs - embeddedImageCache.keys - failedEmbeddedImageHrefs
         if (missingHrefs.isEmpty()) {
             refreshEpubPages()
             return
@@ -752,10 +756,17 @@ class ReaderViewModel(
                 if (currentDocumentId != documentId) return@launch
                 embeddedImageCache.putAll(loadedImages)
                 failedEmbeddedImageHrefs += missingHrefs - loadedImages.keys
-                val retainedHrefs = embeddedImageCache.keys
-                    .toList()
-                    .takeLast(MaxEmbeddedImageCacheSize)
-                    .toSet()
+                // Keep every image the current window still needs (e.g. the cover, revisited later);
+                // only the oldest of the rest ages out once the cache is over budget. Plain insertion-
+                // order LRU evicted a still-needed image (the cover was always the first one loaded)
+                // just because newer images had since been cached.
+                val retainedHrefs = embeddedImageCache.keys.filterTo(linkedSetOf()) { it in relevantHrefs }
+                if (retainedHrefs.size < MaxEmbeddedImageCacheSize) {
+                    embeddedImageCache.keys.toList().asReversed().forEach { href ->
+                        if (retainedHrefs.size >= MaxEmbeddedImageCacheSize) return@forEach
+                        retainedHrefs += href
+                    }
+                }
                 embeddedImageCache.keys.retainAll(retainedHrefs)
                 refreshEpubPages()
             } catch (cancellationException: CancellationException) {

@@ -305,7 +305,7 @@ class ReaderViewModelTest {
     }
 
     @Test
-    fun epubChapterTitleAppearsOnlyOnExactSectionStartPage() = runTest(dispatcher) {
+    fun epubChapterTitlePersistsAcrossEveryPageOfTheSameChapter() = runTest(dispatcher) {
         val documentId = DocumentId("epub-chapter")
         val chapterStart = PageWindow(
             pageIndex = PageIndex(current = 0, total = 2),
@@ -353,7 +353,8 @@ class ReaderViewModelTest {
         viewModel.moveToPage(1)
         advanceUntilIdle()
 
-        assertEquals(null, viewModel.uiState.value.currentPage.chapterTitle)
+        // Pinned in the top bar for the whole chapter, not only its first page.
+        assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
         assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
     }
 

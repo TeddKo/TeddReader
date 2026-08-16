@@ -67,6 +67,8 @@ data class ReaderBlock(
     val label: String? = null,
     val tableRow: Int? = null,
     val tableColumn: Int? = null,
+    /** Width divided by height of the source image, for [ReaderBlockKind.IMAGE] and [ReaderBlockKind.COVER_IMAGE]. */
+    val imageAspectRatio: Float? = null,
 ) {
     init {
         require(level >= 0) { "Block level must be positive." }
@@ -75,6 +77,7 @@ data class ReaderBlock(
         ) { "An image block must carry an href." }
         require(tableRow == null || tableRow >= 0) { "Table row must be positive." }
         require(tableColumn == null || tableColumn >= 0) { "Table column must be positive." }
+        require(imageAspectRatio == null || imageAspectRatio > 0f) { "Image aspect ratio must be positive." }
     }
 }
 
