@@ -3,9 +3,8 @@ package com.tedd.teddreader.feature.reader.impl
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -14,12 +13,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.designsystem.readerTextStyle
 import com.tedd.teddreader.core.ui.generated.resources.Res
@@ -34,12 +36,12 @@ internal fun EpubPageSurface(
     style: com.tedd.teddreader.core.common.model.ReaderStyle,
     modifier: Modifier = Modifier,
 ) {
-    val coverBlock = page.blocks.firstOrNull { it.kind == ReaderBlockKind.COVER_IMAGE }
-    if (coverBlock != null) {
+    val plateBlock = epubFullPagePlate(text = page.text, blocks = page.blocks)
+    if (plateBlock != null) {
         EpubImageBox(
-            imageBytes = coverBlock.imageHref?.let(page.embeddedImages::get),
-            label = coverBlock.label,
-            isFailed = coverBlock.imageHref != null && coverBlock.imageHref in page.failedEmbeddedImageHrefs,
+            imageBytes = plateBlock.imageHref?.let(page.embeddedImages::get),
+            label = plateBlock.label,
+            isFailed = plateBlock.imageHref != null && plateBlock.imageHref in page.failedEmbeddedImageHrefs,
             modifier = modifier,
         )
         return
@@ -80,12 +82,44 @@ internal fun EpubPageSurface(
             }
         }
 
-        BasicText(
-            text = semanticText.annotatedString,
-            style = style.readerTextStyle(),
-            inlineContent = inlineContent,
+        // A page that ends its section is a page the book gave over to something short — a chapter
+        // epigraph, a part title, the tail of a chapter — and centring it reads as the plate it is,
+        // rather than as a page that failed to load with the rest of the sheet blank underneath. A
+        // mid-section page of running prose is never this, whatever pagination produced it, which is
+        // what keeps the first line of ordinary pages at the same height as you turn through them.
+        //
+        // This used to be decided from how much of the sheet the measured text filled — under some
+        // fraction, centred — but an estimated pagination (the only kind available before the type has
+        // ever been measured for real, see TextPageLayoutEngine) cannot know the line height the book's
+        // own stylesheet sets and under-fills badly, so on a fresh install every page looked short and
+        // was centred until the real measurement replaced it. Whether a page ends its section is true
+        // by construction from where pagination put its boundaries, estimated or not, so it does not
+        // share that failure.
+        val readerTextStyle = style.readerTextStyle()
+        Layout(
+            content = {
+                BasicText(
+                    text = semanticText.annotatedString,
+                    style = readerTextStyle,
+                    inlineContent = inlineContent,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
             modifier = Modifier.fillMaxSize(),
-        )
+        ) { measurables, constraints ->
+            // Measured against an unbounded height, so a short page reports the height it really is
+            // rather than the height of the sheet it was given.
+            val placeable = measurables.first().measure(
+                constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
+            )
+            val pageHeight = constraints.maxHeight
+            val top = if (page.isSectionTail) {
+                ((pageHeight - placeable.height) / 2).coerceAtLeast(0)
+            } else {
+                0
+            }
+            layout(constraints.maxWidth, pageHeight) { placeable.place(0, top) }
+        }
     }
 }
 
@@ -95,6 +129,7 @@ private fun EpubInlinePlaceholder(
     imageBytes: ByteArray?,
     isFailed: Boolean,
 ) {
+
     when (placeholder.kind) {
         ReaderBlockKind.SEPARATOR -> HorizontalDivider(modifier = Modifier.fillMaxSize())
         ReaderBlockKind.IMAGE,
@@ -107,6 +142,7 @@ private fun EpubInlinePlaceholder(
         else -> Box(modifier = Modifier.fillMaxSize())
     }
 }
+
 
 @Composable
 private fun EpubImageBox(
@@ -121,6 +157,9 @@ private fun EpubImageBox(
             ImageRequest.Builder(platformContext)
                 .data(bytes)
                 .size(MaxInlineImageDimensionPx, MaxInlineImageDimensionPx)
+                // Fading in rather than appearing means the page settles once, instead of snapping as
+                // each picture finishes decoding.
+                .crossfade(ImageFadeMillis)
                 .build()
         }
     }
@@ -132,15 +171,18 @@ private fun EpubImageBox(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
+        // A picture arrives in two steps — the bytes are read out of the book, then decoded — and
+        // showing something during each step made the page change three times before settling: alt
+        // text or a spinner, then a second spinner, then the picture. The space is already reserved
+        // at the right size, so waiting quietly and fading the picture in leaves nothing to flicker.
+        // Only a picture that will never arrive says so.
         when {
             request != null -> SubcomposeAsyncImage(
                 model = request,
                 contentDescription = label,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
-                loading = {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                },
+                loading = {},
                 error = {
                     Text(
                         text = label ?: stringResource(Res.string.visual_page_unavailable),
@@ -154,14 +196,9 @@ private fun EpubImageBox(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            label != null -> Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            else -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
         }
     }
 }
 
 private const val MaxInlineImageDimensionPx = 2_048
+private const val ImageFadeMillis = 120

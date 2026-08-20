@@ -6,6 +6,8 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -57,17 +59,28 @@ class HomeViewModel(
                             it.format == DocumentFormat.EPUB ||
                             it.format == DocumentFormat.CBZ
                     }
-                    .map { it.id.value }
-                    .filterNot { id -> id in documentCoverImages.value || id in attemptedCoverIds }
-                    .forEach { documentIdValue ->
+                    .filterNot { document ->
+                        document.id.value in documentCoverImages.value || document.id.value in attemptedCoverIds
+                    }
+                    .forEach { document ->
+                        val documentIdValue = document.id.value
                         val coverBytes = try {
-                            documentRepository.getDocumentCover(DocumentId(documentIdValue))
+                            documentRepository.getDocumentCover(document.id)
                         } catch (cancellationException: CancellationException) {
                             throw cancellationException
                         } catch (_: Throwable) {
                             null
                         }
-                        attemptedCoverIds = attemptedCoverIds + documentIdValue
+                        // Remembering that a document has no cover is what keeps the list from reading
+                        // the whole file again on every emission. But a document that is still being
+                        // imported has not had its cover written yet, and the row now appears in the
+                        // library before the import finishes, so remembering that answer would leave
+                        // the card blank until the app was restarted. A character count is only filled
+                        // in once the import completes, so it says whether the answer is final.
+                        val importFinished = document.characterCount != null
+                        if (coverBytes != null || importFinished) {
+                            attemptedCoverIds = attemptedCoverIds + documentIdValue
+                        }
                         if (coverBytes != null && documentIdValue in currentDocumentIds) {
                             documentCoverImages.update { current -> current + (documentIdValue to coverBytes) }
                         }
@@ -89,14 +102,15 @@ class HomeViewModel(
             filteredDocuments.any { it.id.value == key }
         }
         HomeUiState(
-            favoriteDocuments = filteredDocuments.filter { it.isBookmarked },
+            favoriteDocuments = filteredDocuments.filter { it.isBookmarked }.toImmutableList(),
             recentDocuments = filterMatchedDocuments
                 .filterNot { it.isBookmarked }
                 .sortedByDescending { it.lastOpenedAtEpochMillis ?: it.addedAtEpochMillis }
-                .take(20),
-            libraryDocuments = filteredDocuments,
-            libraryFolders = buildLibraryFolders(documents.orEmpty()),
-            documentCoverImages = visibleCoverImages,
+                .take(20)
+                .toImmutableList(),
+            libraryDocuments = filteredDocuments.toImmutableList(),
+            libraryFolders = buildLibraryFolders(documents.orEmpty()).toImmutableList(),
+            documentCoverImages = visibleCoverImages.toImmutableMap(),
             hasDocuments = documents?.isNotEmpty() == true,
             sort = controls.sort,
             formatFilter = controls.formatFilter,

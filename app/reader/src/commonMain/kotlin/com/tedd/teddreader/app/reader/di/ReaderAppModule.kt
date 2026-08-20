@@ -21,7 +21,6 @@ import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
 import com.tedd.teddreader.core.domain.repository.SearchRepository
-import com.tedd.teddreader.core.domain.usecase.BuildSearchIndexUseCase
 import com.tedd.teddreader.core.domain.usecase.CalculateReadingStatsUseCase
 import com.tedd.teddreader.core.domain.usecase.FindInDocumentUseCase
 import com.tedd.teddreader.core.domain.usecase.OpenDocumentUseCase
@@ -46,6 +45,7 @@ internal fun readerAppModule(): Module = module {
     single { get<TeddReaderDatabase>().bookmarkDao() }
     single { get<TeddReaderDatabase>().readingSessionDao() }
     single { get<TeddReaderDatabase>().searchIndexDao() }
+    single { get<TeddReaderDatabase>().pageLayoutDao() }
 
     single { ReaderPreferencesDataSource(get()) }
     single { DocumentFormatDetector() }
@@ -60,6 +60,7 @@ internal fun readerAppModule(): Module = module {
         DocumentRepositoryImpl(
             documentDao = get(),
             searchIndexDao = get(),
+            pageLayoutDao = get(),
             formatDetector = get(),
             txtDocumentParser = get(),
             epubDocumentParser = get(),
@@ -82,7 +83,6 @@ internal fun readerAppModule(): Module = module {
     single<SearchRepository> { SearchRepositoryImpl(searchIndexDao = get()) }
 
     single { OpenDocumentUseCase(documentRepository = get()) }
-    single { BuildSearchIndexUseCase(searchRepository = get()) }
     single { FindInDocumentUseCase(searchRepository = get()) }
     single { ReadingSessionCalculator() }
     single { RestoreReadingProgressUseCase(readerRepository = get()) }

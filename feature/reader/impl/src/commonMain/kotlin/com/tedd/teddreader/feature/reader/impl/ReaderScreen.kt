@@ -215,7 +215,6 @@ fun ReaderRouteScreen(
         onGoToPage = viewModel::moveToPage,
         onMoveToLocation = viewModel::moveToLocation,
         onBrightnessOverlayAlphaChange = viewModel::updateBrightnessOverlayAlpha,
-        onViewportSizeChanged = viewModel::updateViewportSize,
         onPageBreakerChanged = viewModel::updatePageBreaker,
         goToPageText = goToPageText,
         onGoToPageTextChange = { value -> goToPageText = value.filter(Char::isDigit).take(6) },
@@ -267,8 +266,7 @@ fun ReaderScreen(
     onGoToPage: (Int) -> Unit,
     onMoveToLocation: (ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
-    onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit = { _, _, _ -> },
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ViewportSize, ReaderPageBreaker) -> Unit = { _, _, _, _ -> },
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -325,7 +323,6 @@ fun ReaderScreen(
             onGoToPage = onGoToPage,
             onMoveToLocation = onMoveToLocation,
             onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
-            onViewportSizeChanged = onViewportSizeChanged,
             onPageBreakerChanged = onPageBreakerChanged,
             goToPageText = goToPageText,
             onGoToPageTextChange = onGoToPageTextChange,
@@ -377,8 +374,7 @@ private fun ReaderContent(
     onGoToPage: (Int) -> Unit,
     onMoveToLocation: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
-    onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ViewportSize, ReaderPageBreaker) -> Unit,
     goToPageText: String,
     onGoToPageTextChange: (String) -> Unit,
     brightnessDraft: Float,
@@ -579,7 +575,6 @@ private fun ReaderContent(
                             ReaderPagePane(
                                 uiState = uiState,
                                 page = page,
-                                onViewportSizeChanged = onViewportSizeChanged,
                                 onPageBreakerChanged = onPageBreakerChanged,
                                 reportViewportSize = page == uiState.pageIndex.current,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
@@ -613,7 +608,6 @@ private fun ReaderContent(
                             ReaderPagePane(
                                 uiState = uiState,
                                 page = page,
-                                onViewportSizeChanged = onViewportSizeChanged,
                                 onPageBreakerChanged = onPageBreakerChanged,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                 modifier = contentTransformModifier,
@@ -627,7 +621,6 @@ private fun ReaderContent(
                                 ReaderPagePane(
                                     uiState = uiState,
                                     page = page,
-                                    onViewportSizeChanged = onViewportSizeChanged,
                                     onPageBreakerChanged = onPageBreakerChanged,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                     modifier = Modifier.weight(spreadLeftWeight).fillMaxHeight(),
@@ -635,7 +628,6 @@ private fun ReaderContent(
                                 ReaderPagePane(
                                     uiState = uiState,
                                     page = page + 1,
-                                    onViewportSizeChanged = onViewportSizeChanged,
                                     onPageBreakerChanged = onPageBreakerChanged,
                                     reportViewportSize = false,
                                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
@@ -718,6 +710,7 @@ private fun ReaderContent(
                                 style = uiState.style,
                                 isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                                 showProgress = uiState.showProgress,
+                                isPaginationComplete = uiState.isPaginationComplete,
                                 onAutoScrollToggle = onAutoScrollToggle,
                                 onPageSelected = { page ->
                                     onGoToPage(
@@ -824,8 +817,7 @@ private fun ReaderContent(
 private fun ReaderPagePane(
     uiState: ReaderUiState,
     page: Int,
-    onViewportSizeChanged: (Int, Int) -> Unit,
-    onPageBreakerChanged: (ReaderStyle, ViewportSize, ReaderPageBreaker) -> Unit,
+    onPageBreakerChanged: (ReaderStyle, ViewportSize, ViewportSize, ReaderPageBreaker) -> Unit,
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
     contentPadding: PaddingValues = PaddingValues(
@@ -861,10 +853,32 @@ private fun ReaderPagePane(
             // renders them instead of estimating glyph advances and line counts.
             var textAreaPx by remember { mutableStateOf(IntSize.Zero) }
             val pageBreaker = rememberReaderPageBreaker(uiState.style, textAreaPx.width, textAreaPx.height)
-            LaunchedEffect(pageBreaker, reportViewportSize) {
-                if (reportViewportSize && textAreaPx.width > 0 && textAreaPx.height > 0) {
+            // Keyed on the size as well as the breaker, so the breaker reported is the one built for
+            // the size reported with it. Keyed on the breaker alone, the effect for the first pass —
+            // when the pane has not been measured and the breaker holds a zero size — ran after the
+            // measurement had landed, and announced that zero-size breaker under the real size. It
+            // then measured nothing, every page fell back to the estimate, and because the estimate
+            // cannot know the line height a book's stylesheet sets, pages were packed with half again
+            // as many lines as they draw and the rest were clipped away.
+            //
+            // This is the only place a measured size reaches the view model now — onSizeChanged below
+            // just remembers textAreaPx locally. Two separate reports used to fire off of one resize
+            // (this effect, and a viewport callback from onSizeChanged), each launching its own reload;
+            // Job.cancel() couldn't stop the first reload's DB read once it had started, so both landed
+            // and the stored page layout was restored from storage twice. Reporting once here removes
+            // the race instead of trying to cancel it faster.
+            LaunchedEffect(pageBreaker, textAreaPx, reportViewportSize) {
+                if (pageBreaker != null && reportViewportSize && textAreaPx.width > 0 && textAreaPx.height > 0) {
                     onPageBreakerChanged(
                         uiState.style,
+                        // Pagination and PageLayoutEntity's viewportWidthPx/viewportHeightPx columns key
+                        // on sp, not px, despite the column names — this is that sp value.
+                        ViewportSize(
+                            widthPx = density.pxToSp(textAreaPx.width.toFloat()).value.roundToInt().coerceAtLeast(1),
+                            heightPx = density.pxToSp(textAreaPx.height.toFloat()).value.roundToInt().coerceAtLeast(1),
+                        ),
+                        // The pane's real measured pixel box, used only to recognise a report the reader
+                        // has already answered (see updatePageBreaker's dedupe guard).
                         ViewportSize(widthPx = textAreaPx.width, heightPx = textAreaPx.height),
                         pageBreaker,
                     )
@@ -886,13 +900,7 @@ private fun ReaderPagePane(
                         if (!reportViewportSize) {
                             this
                         } else {
-                            onSizeChanged { size ->
-                                textAreaPx = size
-                                onViewportSizeChanged(
-                                    density.pxToSp(size.width.toFloat()).value.roundToInt().coerceAtLeast(1),
-                                    density.pxToSp(size.height.toFloat()).value.roundToInt().coerceAtLeast(1),
-                                )
-                            }
+                            onSizeChanged { size -> textAreaPx = size }
                         }
                     },
             ) {
@@ -1725,7 +1733,6 @@ private fun ReaderScreenCompactPreview() {
             onGoToPage = {},
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
-            onViewportSizeChanged = { _, _ -> },
             goToPageText = "1",
             onGoToPageTextChange = {},
             brightnessDraft = 100f,
@@ -1777,7 +1784,6 @@ private fun ReaderScreenHiddenChromePreview() {
             onGoToPage = {},
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
-            onViewportSizeChanged = { _, _ -> },
             goToPageText = "1",
             onGoToPageTextChange = {},
             brightnessDraft = 100f,
@@ -1829,7 +1835,6 @@ private fun ReaderScreenDarkPreview() {
             onGoToPage = {},
             onMoveToLocation = {},
             onBrightnessOverlayAlphaChange = {},
-            onViewportSizeChanged = { _, _ -> },
             goToPageText = "1",
             onGoToPageTextChange = {},
             brightnessDraft = 100f,
@@ -1887,7 +1892,6 @@ private fun ReaderScreenPreview() {
         onGoToPage = {},
         onMoveToLocation = {},
         onBrightnessOverlayAlphaChange = {},
-            onViewportSizeChanged = { _, _ -> },
             goToPageText = "1",
             onGoToPageTextChange = {},
             brightnessDraft = 100f,

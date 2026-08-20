@@ -142,6 +142,26 @@ data class ReaderStyle(
     }
 }
 
+/**
+ * The part of a [ReaderStyle] that decides where the pages break.
+ *
+ * Laying a book out is the most expensive thing the reader does, and only type decides the outcome:
+ * the same text at the same size, line height and family breaks in the same places whatever colour
+ * it is drawn in. Comparing whole styles instead made a theme switch look like a new measurement and
+ * laid the entire book out again for a change that cannot move a single line.
+ */
+data class ReaderLayoutKey(
+    val fontSizeSp: Float,
+    val lineHeightMultiplier: Float,
+    val fontFamilyName: String?,
+)
+
+fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
+    fontSizeSp = fontSizeSp,
+    lineHeightMultiplier = lineHeightMultiplier,
+    fontFamilyName = fontFamilyName,
+)
+
 fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) {
     ReaderThemeMode.SYSTEM,
     ReaderThemeMode.LIGHT,

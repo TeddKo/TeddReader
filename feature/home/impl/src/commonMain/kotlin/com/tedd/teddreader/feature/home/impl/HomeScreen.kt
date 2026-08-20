@@ -117,6 +117,8 @@ import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
 import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -202,7 +204,9 @@ fun HomeScreen(
     NavigationBackHandler(
         state = selectionBackState,
         isBackEnabled = selectedDocumentIds.isNotEmpty(),
-        onBackCompleted = { selectedDocumentIds = emptySet() },
+        onBackCompleted = {
+            selectedDocumentIds = emptySet()
+        },
     )
 
     LaunchedEffect(visibleDocumentIds) {
@@ -238,7 +242,9 @@ fun HomeScreen(
             SelectionTopBar(
                 selectedCount = selectedDocumentIds.size,
                 bookmarkTarget = bookmarkTarget,
-                onCancelClick = { selectedDocumentIds = emptySet() },
+                onCancelClick = {
+                    selectedDocumentIds = emptySet()
+                },
                 onBookmarkClick = {
                     val documentIds = selectedDocumentIds.map(::DocumentId)
                     actionDocumentTarget = null
@@ -329,17 +335,8 @@ fun HomeScreen(
                         },
                         documents = uiState.favoriteDocuments,
                         actionDocumentTarget = actionDocumentTarget,
-                        selectedDocumentIds = selectedDocumentIds,
                         showFavoriteIcon = true,
                         onDocumentClick = onDocumentClick,
-                        onToggleSelection = { documentId ->
-                            actionDocumentTarget = null
-                            selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
-                        },
-                        onStartSelection = { documentId ->
-                            actionDocumentTarget = null
-                            selectedDocumentIds = selectedDocumentIds + documentId.value
-                        },
                         onShowActions = {
                             actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Favorites, it)
                         },
@@ -363,16 +360,7 @@ fun HomeScreen(
                         description = stringResource(Res.string.recent_reading_description),
                         documents = uiState.recentDocuments,
                         actionDocumentTarget = actionDocumentTarget,
-                        selectedDocumentIds = selectedDocumentIds,
                         onDocumentClick = onDocumentClick,
-                        onToggleSelection = { documentId ->
-                            actionDocumentTarget = null
-                            selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
-                        },
-                        onStartSelection = { documentId ->
-                            actionDocumentTarget = null
-                            selectedDocumentIds = selectedDocumentIds + documentId.value
-                        },
                         onShowActions = {
                             actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Recent, it)
                         },
@@ -403,6 +391,7 @@ fun HomeScreen(
                         documentCoverImages = uiState.documentCoverImages,
                         onDocumentClick = { documentId ->
                             if (selectedDocumentIds.isNotEmpty()) {
+                                actionDocumentTarget = null
                                 selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
                             } else {
                                 onDocumentClick(documentId)
@@ -593,9 +582,9 @@ private fun HomeSectionHeader(
 private fun HomeLibraryPreviewSection(
     previewMode: LibraryCollectionMode,
     onPreviewModeChange: (LibraryCollectionMode) -> Unit,
-    previewDocuments: List<DocumentMetadata>,
-    allDocuments: List<DocumentMetadata>,
-    folders: List<LibraryFolder>,
+    previewDocuments: ImmutableList<DocumentMetadata>,
+    allDocuments: ImmutableList<DocumentMetadata>,
+    folders: ImmutableList<LibraryFolder>,
     previewLimit: Int,
     selectedDocumentIds: Set<String>,
     actionDocumentTarget: HomeDocumentActionTarget?,
@@ -734,12 +723,9 @@ private fun HomeDocumentSection(
     section: HomeDocumentSection,
     title: String,
     description: String,
-    documents: List<DocumentMetadata>,
+    documents: ImmutableList<DocumentMetadata>,
     actionDocumentTarget: HomeDocumentActionTarget?,
-    selectedDocumentIds: Set<String>,
     onDocumentClick: (DocumentId) -> Unit,
-    onToggleSelection: (DocumentId) -> Unit,
-    onStartSelection: (DocumentId) -> Unit,
     onShowActions: (String) -> Unit,
     onDismissActions: () -> Unit,
     onBookmarkClick: (DocumentMetadata) -> Unit,
@@ -764,10 +750,7 @@ private fun HomeDocumentSection(
             section = section,
             documents = documents,
             actionDocumentTarget = actionDocumentTarget,
-            selectedDocumentIds = selectedDocumentIds,
             onDocumentClick = onDocumentClick,
-            onToggleSelection = onToggleSelection,
-            onStartSelection = onStartSelection,
             onShowActions = onShowActions,
             onDismissActions = onDismissActions,
             onBookmarkClick = onBookmarkClick,
@@ -780,12 +763,9 @@ private fun HomeDocumentSection(
 @Composable
 private fun HomeDocumentPager(
     section: HomeDocumentSection,
-    documents: List<DocumentMetadata>,
+    documents: ImmutableList<DocumentMetadata>,
     actionDocumentTarget: HomeDocumentActionTarget?,
-    selectedDocumentIds: Set<String>,
     onDocumentClick: (DocumentId) -> Unit,
-    onToggleSelection: (DocumentId) -> Unit,
-    onStartSelection: (DocumentId) -> Unit,
     onShowActions: (String) -> Unit,
     onDismissActions: () -> Unit,
     onBookmarkClick: (DocumentMetadata) -> Unit,
@@ -807,16 +787,15 @@ private fun HomeDocumentPager(
         contentPadding = PaddingValues(horizontal = DefaultTeddReaderSpacing.screenPadding),
     ) { page ->
         val document = documents[page]
-        val selectionMode = selectedDocumentIds.isNotEmpty()
         DocumentCard(
             document = document,
             coverImageBytes = documentCoverImages[document.id.value],
-            selected = document.id.value in selectedDocumentIds,
+            // Favourites and recent reading are shortcuts into a book, not a place to manage the
+            // library. Selecting here also duplicated a book that appears in both places, and the
+            // bulk actions it offered all belong to the library section.
+            selected = false,
             actionsExpanded = actionDocumentTarget == HomeDocumentActionTarget(section, document.id.value),
-            onClick = {
-                if (selectionMode) onToggleSelection(document.id) else onDocumentClick(document.id)
-            },
-            onLongClick = { onStartSelection(document.id) },
+            onClick = { onDocumentClick(document.id) },
             onShowActions = { onShowActions(document.id.value) },
             onDismissActions = onDismissActions,
             onBookmarkClick = { onBookmarkClick(document) },
@@ -1099,7 +1078,7 @@ private fun HomeScreenRecentPreview() {
             uiState = HomeUiState(
                 isLoading = false,
                 hasDocuments = true,
-                favoriteDocuments = listOf(
+                favoriteDocuments = persistentListOf(
                     DocumentMetadata(
                         id = DocumentId("preview-1"),
                         location = DocumentLocation(
@@ -1113,7 +1092,7 @@ private fun HomeScreenRecentPreview() {
                         isBookmarked = true,
                     ),
                 ),
-                recentDocuments = listOf(
+                recentDocuments = persistentListOf(
                     DocumentMetadata(
                         id = DocumentId("preview-2"),
                         location = DocumentLocation(
@@ -1126,7 +1105,7 @@ private fun HomeScreenRecentPreview() {
                         pageCount = 48,
                     ),
                 ),
-                libraryDocuments = listOf(
+                libraryDocuments = persistentListOf(
                     DocumentMetadata(
                         id = DocumentId("preview-2"),
                         location = DocumentLocation(
@@ -1151,7 +1130,7 @@ private fun HomeScreenRecentPreview() {
                         folderName = "Weekend Reads",
                     ),
                 ),
-                libraryFolders = listOf(LibraryFolder("folder-1", "Weekend Reads", 1)),
+                libraryFolders = persistentListOf(LibraryFolder("folder-1", "Weekend Reads", 1)),
             ),
             onOpenFilesClick = {},
             onOpenFolderClick = {},

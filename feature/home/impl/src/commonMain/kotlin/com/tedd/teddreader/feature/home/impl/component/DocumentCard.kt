@@ -71,7 +71,8 @@ fun DocumentCard(
     coverImageBytes: ByteArray? = null,
     selected: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    /** Null where the section does not offer selection, which leaves the long press unhandled. */
+    onLongClick: (() -> Unit)? = null,
     actionsExpanded: Boolean,
     onShowActions: () -> Unit,
     onDismissActions: () -> Unit,
@@ -104,7 +105,7 @@ fun DocumentCard(
                 indication = ripple(),
                 role = Role.Button,
                 onClick = onClick,
-                onLongClickLabel = stringResource(Res.string.select_document),
+                onLongClickLabel = onLongClick?.let { stringResource(Res.string.select_document) },
                 onLongClick = onLongClick,
             ),
     ) {
@@ -128,6 +129,17 @@ fun DocumentCard(
                     ),
                 ),
         )
+
+        // A selected card was marked by its border alone: the cover fills the card, so the selected
+        // background colour behind it never showed. Dimming over the cover is what makes the state
+        // read at a glance, the way a picker in a gallery does it.
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = SelectedCoverDimAlpha)),
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -319,3 +331,6 @@ private fun DocumentCardPreview() {
         )
     }
 }
+
+/** How far a selected card is dimmed: dark enough to read as chosen, light enough to still see it. */
+private const val SelectedCoverDimAlpha = 0.42f

@@ -36,8 +36,6 @@ private class FakeSearchRepository : SearchRepository {
     var lastQuery: String? = null
     var lastLimit: Int? = null
 
-    override suspend fun indexDocument(document: ReaderDocument) = Unit
-
     override suspend fun findInDocument(
         documentId: DocumentId,
         query: String,
@@ -49,5 +47,4 @@ private class FakeSearchRepository : SearchRepository {
         return emptyList()
     }
 
-    override suspend fun clearIndex(documentId: DocumentId) = Unit
 }

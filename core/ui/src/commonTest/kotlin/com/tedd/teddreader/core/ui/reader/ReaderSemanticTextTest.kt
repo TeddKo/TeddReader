@@ -107,7 +107,7 @@ class ReaderSemanticTextTest {
     }
 
     @Test
-    fun aChapterHeadingTheBookDoesNotAlignIsCentred() {
+    fun aChapterHeadingTheBookDoesNotAlignIsSetFlushLeftBehindItsBar() {
         val text = "2화 기회"
         val semantic = buildReaderSemanticText(
             text = text,
@@ -115,6 +115,9 @@ class ReaderSemanticTextTest {
             blocks = listOf(ReaderBlock(ReaderBlockKind.HEADING, TextRange(0, text.length.toLong()), level = 1)),
         )
 
-        assertEquals(TextAlign.Center, semantic.annotatedString.paragraphStyles.single().item.textAlign)
+        // The bar is what marks a heading now. Centring the words moved them away from it as the
+        // title grew, so the heading is set flush left like the prose it introduces.
+        assertEquals(TextAlign.Unspecified, semantic.annotatedString.paragraphStyles.single().item.textAlign)
+        assertTrue(semantic.annotatedString.text.startsWith("▌ 2화 기회"))
     }
 }

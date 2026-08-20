@@ -48,8 +48,8 @@ class AndroidDocumentFileSource(
     }
 
     override suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation {
-        val file = createDocumentFile(location)
-        file.writeBytes(bytes)
+        val file = documentFile(location)
+        if (file.length() != bytes.size.toLong()) file.writeBytes(bytes)
         return location.copy(
             sourceUri = Uri.fromFile(file).toString(),
             sizeBytes = bytes.size.toLong(),
@@ -57,13 +57,18 @@ class AndroidDocumentFileSource(
     }
 
     suspend fun materializeFromSource(location: DocumentLocation): DocumentLocation {
-        val file = createDocumentFile(location)
-        copyTo(location, file.toOkioPath())
+        val file = documentFile(location)
+        // The copy this document already has, when it has one. Another app handing the same book over a
+        // second time used to write the whole thing again under a new name (see
+        // materializedDocumentFileName); now it finds what the first hand-over wrote.
+        if (!file.exists() || file.length() == 0L) copyTo(location, file.toOkioPath())
         return location.copy(
             sourceUri = Uri.fromFile(file).toString(),
             sizeBytes = file.length(),
         )
     }
+
+    override fun appPrivateDirectory(): Path = appContext.filesDir.toOkioPath()
 
     fun persistReadPermission(sourceUri: String, grantFlags: Int) {
         val readFlag = grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -72,17 +77,10 @@ class AndroidDocumentFileSource(
         }
     }
 
-    private fun createDocumentFile(location: DocumentLocation): File {
+    private fun documentFile(location: DocumentLocation): File {
         val directory = File(appContext.filesDir, "documents").apply { mkdirs() }
-        val displayName = location.displayName.substringAfterLast('/').ifBlank { "document" }
-        val prefix = displayName.substringBeforeLast('.', displayName).take(40).ifBlank { "document" }
-        val suffix = displayName.substringAfterLast('.', "").takeIf { it.isNotBlank() }?.let { ".${it}" } ?: ""
-        return File.createTempFile(prefix.safePrefix(), suffix, directory)
+        return File(directory, materializedDocumentFileName(location.sourceUri, location.displayName))
     }
 }
-
-private fun String.safePrefix(): String = filter(Char::isLetterOrDigit)
-    .takeIf { it.length >= 3 }
-    ?: "doc"
 
 private fun File.toOkioPath(): Path = absolutePath.toPath()

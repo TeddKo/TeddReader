@@ -6,7 +6,9 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
+import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
@@ -14,20 +16,24 @@ import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderNavigationItem
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.BookmarkRepository
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
+import com.tedd.teddreader.core.domain.repository.ImportProgress
 import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReaderSettings
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.usecase.RestoreReadingProgressUseCase
 import com.tedd.teddreader.core.domain.usecase.SaveReadingProgressUseCase
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +50,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -75,6 +82,8 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
+        advanceUntilIdle()
 
         assertEquals("First stored page", viewModel.uiState.value.pageText)
         assertEquals(PageIndex(current = 0, total = 2), viewModel.uiState.value.pageIndex)
@@ -96,6 +105,8 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
+        advanceUntilIdle()
 
         viewModel.moveToLocation(ReaderLocation.TextOffset(18))
         advanceUntilIdle()
@@ -109,6 +120,8 @@ class ReaderViewModelTest {
         val viewModel = createViewModel(FakeDocumentRepository(DocumentId("doc-1")))
 
         viewModel.openDocument("doc-1")
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
         advanceUntilIdle()
         assertEquals("First stored page", viewModel.uiState.value.pageText)
         assertTrue(viewModel.uiState.value.currentPage.text.isNotEmpty())
@@ -144,7 +157,7 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
-        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
         advanceUntilIdle()
 
         assertEquals(PageIndex(current = 7, total = 10), viewModel.uiState.value.pageIndex)
@@ -235,6 +248,8 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
+        advanceUntilIdle()
 
         assertEquals(listOf(block), viewModel.uiState.value.currentPage.blocks)
         assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/pic.png"])
@@ -296,7 +311,7 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
-        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.documentPages.isEmpty())
@@ -346,6 +361,8 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
+        advanceUntilIdle()
 
         assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
         assertEquals("2 - 1화 기회 (1)\n본문 첫 페이지", viewModel.uiState.value.currentPage.text)
@@ -356,6 +373,66 @@ class ReaderViewModelTest {
         // Pinned in the top bar for the whole chapter, not only its first page.
         assertEquals("2 - 1화 기회 (1)", viewModel.uiState.value.currentPage.chapterTitle)
         assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
+    }
+
+    @Test
+    fun changingOnlyTheThemeDoesNotLayTheBookOutAgain() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val readerRepository = FakeReaderRepository()
+        val viewModel = ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = FakeBookmarkRepository(),
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+        val laidOutBefore = documentRepository.pageWindowRequests
+
+        viewModel.updateThemeMode(ReaderThemeMode.DARK)
+        advanceUntilIdle()
+
+        // Symmetric with the font-size test below: the pane still holds a breaker matching the
+        // (unchanged) layoutKey, so reporting the same measurement again must dedupe in
+        // updatePageBreaker and never reach reloadPages, unlike a real type change.
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertEquals(laidOutBefore, documentRepository.pageWindowRequests)
+    }
+
+    @Test
+    fun changingTheFontSizeStillLaysTheBookOutAgain() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val readerRepository = FakeReaderRepository()
+        val viewModel = ReaderViewModel(
+            documentRepository = documentRepository,
+            bookmarkRepository = FakeBookmarkRepository(),
+            readerSettingsRepository = FakeReaderSettingsRepository(),
+            restoreReadingProgress = RestoreReadingProgressUseCase(readerRepository),
+            saveReadingProgress = SaveReadingProgressUseCase(readerRepository),
+        )
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+        val laidOutBefore = documentRepository.pageWindowRequests
+
+        viewModel.updateFontSize(24f)
+        advanceUntilIdle()
+
+        // A breaker measured for the old style can't safely reload the new one (see reloadPages'
+        // guard), so nothing has queried getPageWindows yet — only once the pane remeasures under the
+        // new font and reports a matching breaker does the reload actually run.
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertTrue(documentRepository.pageWindowRequests > laidOutBefore)
     }
 
     @Test
@@ -373,12 +450,12 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
-        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
         advanceUntilIdle()
         viewModel.moveToPage(6)
         advanceUntilIdle()
 
-        viewModel.updateViewportSize(widthPx = 600, heightPx = 900)
+        viewModel.reportMeasuredViewport(width = 600, height = 900)
         advanceUntilIdle()
 
         assertEquals(PageIndex(current = 3, total = 5), viewModel.uiState.value.pageIndex)
@@ -392,13 +469,13 @@ class ReaderViewModelTest {
 
         viewModel.openDocument(documentId.value)
         advanceUntilIdle()
-        viewModel.updateViewportSize(widthPx = 300, heightPx = 600)
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
         advanceUntilIdle()
         viewModel.moveToPage(6)
         advanceUntilIdle()
 
         // A font or line-height change repaginates the document shorter under the reader.
-        viewModel.updateViewportSize(widthPx = 600, heightPx = 900)
+        viewModel.reportMeasuredViewport(width = 600, height = 900)
         advanceUntilIdle()
         val afterRepagination = viewModel.uiState.value.pageIndex
         assertEquals(PageIndex(current = 3, total = 5), afterRepagination)
@@ -534,6 +611,302 @@ class ReaderViewModelTest {
         assertFalse(readerSettingsRepository.lastAutoScrollConfig?.enabled ?: true)
     }
 
+    @Test
+    fun openDocumentPublishesNonEmptyPagesForAFreshlyImportedDocumentBeforeAnyViewportIsMeasured() = runTest(dispatcher) {
+        // Regression guard for f33313b: openDocument must paginate against the default guessed
+        // viewport unconditionally. If it instead waited for a real pane measurement, a freshly
+        // imported book — no pages, so the pager mounts no slot, so nothing ever measures the pane —
+        // would never open.
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.pageIndex.total > 0)
+        assertTrue(viewModel.uiState.value.currentPage.text.isNotEmpty())
+    }
+
+    @Test
+    fun oneMeasuredViewportReportTriggersExactlyOneReload() = runTest(dispatcher) {
+        // updatePageBreaker is the only trigger left that can launch a reload (updateViewportSize is
+        // gone), so one real report settles into exactly one getPageWindows call, and a repeat of the
+        // same report — as if the pane's effect replayed mid-composition — is deduped, not doubled.
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        val requestsAfterOpen = documentRepository.pageWindowRequests
+
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertEquals(requestsAfterOpen + 1, documentRepository.pageWindowRequests)
+
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertEquals(requestsAfterOpen + 1, documentRepository.pageWindowRequests)
+    }
+
+    @Test
+    fun openDocumentPublishesTheStoredTotalOnTheFirstPublishForAPreviouslyReadBook() = runTest(dispatcher) {
+        // Step 6 regression guard: before this fix, openDocument always paginated against a hardcoded
+        // guessed viewport, which almost never matched a stored layout's real one, so the first publish
+        // carried a wrong/estimated total corrected only once the pane measured for real. A resolved
+        // layout must reach the very first publish instead.
+        val documentId = DocumentId("doc-1")
+        val storedViewport = ViewportSize(widthPx = 300, heightPx = 600)
+        val storedWindows = listOf(
+            PageWindow(pageIndex = PageIndex(0, 3), location = ReaderLocation.TextOffset(0), text = "Page A", textRange = TextRange(0, 6)),
+            PageWindow(pageIndex = PageIndex(1, 3), location = ReaderLocation.TextOffset(6), text = "Page B", textRange = TextRange(6, 12)),
+            PageWindow(pageIndex = PageIndex(2, 3), location = ReaderLocation.TextOffset(12), text = "Page C", textRange = TextRange(12, 18)),
+        )
+        val documentRepository = FakeDocumentRepository(
+            documentId,
+            pageWindows = storedWindows,
+            storedViewportSize = storedViewport,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(PageIndex(current = 0, total = 3), viewModel.uiState.value.pageIndex)
+        assertEquals("Page A", viewModel.uiState.value.pageText)
+    }
+
+    @Test
+    fun matchingMeasuredViewportAfterAdoptingAStoredLayoutDoesNotRepaginate() = runTest(dispatcher) {
+        // Once openDocument has adopted a stored layout's viewport, the pane's first real report --
+        // the same physical screen, so the same sp size — must be recognised by updatePageBreaker's
+        // dedupe as already answered, not launch a reload that would only repeat what getPageWindows
+        // already cached the answer under.
+        val documentId = DocumentId("doc-1")
+        val storedViewport = ViewportSize(widthPx = 300, heightPx = 600)
+        val storedWindows = listOf(
+            PageWindow(pageIndex = PageIndex(0, 3), location = ReaderLocation.TextOffset(0), text = "Page A", textRange = TextRange(0, 6)),
+            PageWindow(pageIndex = PageIndex(1, 3), location = ReaderLocation.TextOffset(6), text = "Page B", textRange = TextRange(6, 12)),
+            PageWindow(pageIndex = PageIndex(2, 3), location = ReaderLocation.TextOffset(12), text = "Page C", textRange = TextRange(12, 18)),
+        )
+        val documentRepository = FakeDocumentRepository(
+            documentId,
+            pageWindows = storedWindows,
+            storedViewportSize = storedViewport,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        val requestsAfterOpen = documentRepository.pageWindowRequests
+
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertEquals(requestsAfterOpen, documentRepository.pageWindowRequests)
+        assertEquals(PageIndex(current = 0, total = 3), viewModel.uiState.value.pageIndex)
+    }
+
+    @Test
+    fun changingPageTurnModeOrPageAnimationProducesNoPaginationRequest() = runTest(dispatcher) {
+        // Neither field is part of ReaderLayoutKey (see ReaderModels.kt): the text breaks in the same
+        // places no matter how pages turn or animate, so changing either must never ask the repository
+        // to lay the book out again.
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "Some prose to paginate.")
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        val requestsAfterOpen = documentRepository.pageWindowRequests
+
+        viewModel.updatePageTurnMode(PageTurnMode.VERTICAL)
+        viewModel.updatePageAnimation(PageAnimation.CURL_PAGER)
+        advanceUntilIdle()
+
+        assertEquals(
+            requestsAfterOpen,
+            documentRepository.pageWindowRequests,
+            "changing page-turn mode or page animation must not trigger any pagination request",
+        )
+    }
+
+    @Test
+    fun openDocumentShowsTheFirstPageBeforeMarkDocumentOpenedCompletesAndDoesNotMoveItAfterward() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val markDocumentOpenedGate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(documentId, markDocumentOpenedGate = markDocumentOpenedGate)
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        // markDocumentOpened (a database write) is still suspended on the gate, but the first frame —
+        // style, total, current page, its text — is already up, because it no longer waits for it.
+        assertFalse(viewModel.uiState.value.isLoading)
+        assertEquals("First stored page", viewModel.uiState.value.pageText)
+        val pageIndexBeforeSecondPublish = viewModel.uiState.value.pageIndex
+        val pageTextBeforeSecondPublish = viewModel.uiState.value.pageText
+
+        markDocumentOpenedGate.complete(Unit)
+        advanceUntilIdle()
+
+        // The second publish landed (markDocumentOpened observed completing) without moving the page,
+        // its text, or the total that already reached the reader.
+        assertEquals(documentId, documentRepository.lastOpenedDocumentId)
+        assertEquals(pageIndexBeforeSecondPublish, viewModel.uiState.value.pageIndex)
+        assertEquals(pageTextBeforeSecondPublish, viewModel.uiState.value.pageText)
+    }
+
+    @Test
+    fun secondPublishDoesNotClobberARepaginationThatLandsWhileMarkDocumentOpenedIsPending() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val markDocumentOpenedGate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(
+            documentId,
+            paginatedText = "a".repeat(300),
+            markDocumentOpenedGate = markDocumentOpenedGate,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        // markDocumentOpened (a database write) is still suspended on the gate, but the pane's reload
+        // runs on its own coroutine (see updatePageBreaker) and is not waiting on it. It measures a
+        // viewport the estimate could not have guessed and repaginates before the gate is released.
+        viewModel.reportMeasuredViewport(width = 600, height = 900)
+        advanceUntilIdle()
+        val reloadedPageIndex = viewModel.uiState.value.pageIndex
+        val reloadedPageText = viewModel.uiState.value.pageText
+        val reloadedPageSlots = viewModel.uiState.value.pageSlots
+        // The reload must actually have produced a different pagination from openDocument's guess
+        // against DefaultViewportSize, or this test would not be exercising the race at all.
+        assertEquals(PageIndex(current = 0, total = 5), reloadedPageIndex)
+        assertTrue(reloadedPageSlots.isNotEmpty())
+
+        markDocumentOpenedGate.complete(Unit)
+        advanceUntilIdle()
+
+        // The second publish (outline, favourite, saved-place flags) landed, but must not have put the
+        // pre-reload, estimated pagination back.
+        assertEquals(documentId, documentRepository.lastOpenedDocumentId)
+        assertEquals(reloadedPageIndex, viewModel.uiState.value.pageIndex)
+        assertEquals(reloadedPageText, viewModel.uiState.value.pageText)
+        assertEquals(reloadedPageSlots, viewModel.uiState.value.pageSlots)
+    }
+
+    @Test
+    fun openDocumentNeverPublishesZeroTotalPagesForAnIncompleteImport() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        // Gated so the background continuation's first importNextSections call parks instead of
+        // resolving instantly — otherwise advanceUntilIdle() drains it in the same pass as the first
+        // publish and there is no "still incomplete" moment left to observe.
+        val importNextSectionsGate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(
+            documentId,
+            format = DocumentFormat.EPUB,
+            pageWindows = listOf(
+                PageWindow(
+                    pageIndex = PageIndex(current = 0, total = 1),
+                    location = ReaderLocation.TextOffset(0),
+                    text = "First imported page",
+                    textRange = TextRange(0, 20),
+                ),
+            ),
+            importComplete = false,
+            importNextSectionsGate = importNextSectionsGate,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isPaginationComplete)
+        assertTrue(
+            viewModel.uiState.value.pageIndex.total > 0,
+            "the reader must never see pageIndex.total==0 once phase 0/1 has committed a section",
+        )
+
+        importNextSectionsGate.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isPaginationComplete)
+    }
+
+    @Test
+    fun openDocumentStartsBackgroundImportContinuationAndMarksCompleteWhenDone() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(
+            documentId,
+            format = DocumentFormat.EPUB,
+            pageWindows = listOf(
+                PageWindow(
+                    pageIndex = PageIndex(current = 0, total = 1),
+                    location = ReaderLocation.TextOffset(0),
+                    text = "First imported page",
+                    textRange = TextRange(0, 20),
+                ),
+            ),
+            importComplete = false,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertTrue(
+            documentRepository.importNextSectionsCallCount > 0,
+            "an incomplete import must start its background continuation",
+        )
+        assertTrue(
+            viewModel.uiState.value.isPaginationComplete,
+            "once importNextSections reports done, the reader must be told pagination is complete",
+        )
+    }
+
+    /**
+     * openDocument's own getPageWindows call passes viewportSize=null whenever no pane has reported a
+     * size yet (see its own doc: "Passing null lets getPageWindows resolve the newest layout ever stored
+     * for this exact style"), so a restored layout's page count is exactly what totalPages reflects for
+     * that very first frame — pageWindows.isNotEmpty() always wins in the totalPages calculation, ruling
+     * out metadata.pageCount or progress.pageIndex.total as the source once any page list comes back.
+     * But updatePageBreaker's own report, moments later, is only deduplicated against an *exact* size
+     * match (see that function's own doc) — a real device's pane can report a viewport that differs from
+     * whatever was resolved above by no more than rounding, and that alone is enough to start a second,
+     * full getPageWindows call whose result silently replaces the first. The total the reader ends up
+     * seeing is therefore whichever getPageWindows call happens to run last, not necessarily the one
+     * that restored the stored layout.
+     */
+    @Test
+    fun aLaterViewportReportRepublishesTotalPagesOverTheInitiallyRestoredCount() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(400))
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        val totalFromInitialCall = viewModel.uiState.value.pageIndex.total
+        assertEquals(1, documentRepository.pageWindowRequests, "openDocument must ask for pages exactly once before any pane report")
+
+        viewModel.reportMeasuredViewport(width = 200, height = 400)
+        advanceUntilIdle()
+        val totalAfterLaterReport = viewModel.uiState.value.pageIndex.total
+
+        assertEquals(
+            2,
+            documentRepository.pageWindowRequests,
+            "the pane's own report must have started a second getPageWindows call",
+        )
+        assertNotEquals(
+            totalFromInitialCall,
+            totalAfterLaterReport,
+            "a later report must actually change the measured total for this test to prove anything",
+        )
+    }
+
     private fun createViewModel(
         documentRepository: FakeDocumentRepository,
         bookmarkRepository: FakeBookmarkRepository = FakeBookmarkRepository(),
@@ -550,6 +923,16 @@ class ReaderViewModelTest {
     }
 }
 
+// Stands in for the pane reporting its real size now that updatePageBreaker is the only entry point
+// for a measurement; FakeDocumentRepository.getPageWindows ignores the breaker itself; only the
+// ViewportSize drives its own pagination, so width/height double as both the sp and px arguments.
+private val FakePageBreaker = ReaderPageBreaker { _, _ -> IntArray(0) }
+
+private fun ReaderViewModel.reportMeasuredViewport(width: Int, height: Int) {
+    val size = ViewportSize(widthPx = width, heightPx = height)
+    updatePageBreaker(uiState.value.style, size, size, FakePageBreaker)
+}
+
 private class FakeDocumentRepository(
     private val documentId: DocumentId,
     private val format: DocumentFormat = DocumentFormat.TXT,
@@ -559,6 +942,21 @@ private class FakeDocumentRepository(
     private val embeddedImages: Map<String, ByteArray> = emptyMap(),
     private val readerDocument: ReaderDocument? = null,
     private val pageWindows: List<PageWindow>? = null,
+    private val markDocumentOpenedGate: CompletableDeferred<Unit>? = null,
+    // The viewport a previously-read book's stored layout was measured at — what
+    // resolveViewportSizeForStyle resolves for openDocument to adopt when it asks with no pane size
+    // reported yet. Only meaningful together with [pageWindows], which stands in for that stored
+    // layout's own pages.
+    private val storedViewportSize: ViewportSize? = null,
+    // False stands in for a progressively-imported EPUB whose background import hasn't finished yet —
+    // see continueImportIfIncomplete. Unless importNextSectionsGate holds it open, every call to
+    // importNextSections below reports done immediately, so a test that just sets this false is
+    // exercising exactly one round of the continuation loop.
+    private val importComplete: Boolean = true,
+    // Suspends importNextSections until completed, the same idea as markDocumentOpenedGate above —
+    // lets a test observe the state between the first publish and the background continuation's
+    // first call landing, instead of advanceUntilIdle() draining both in one pass.
+    private val importNextSectionsGate: CompletableDeferred<Unit>? = null,
 ) : DocumentRepository {
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -602,17 +1000,25 @@ private class FakeDocumentRepository(
         hrefs: Set<String>,
     ): Map<String, ByteArray> = embeddedImages.filterKeys(hrefs::contains)
 
+    var pageWindowRequests = 0
+        private set
+
+    override suspend fun resolveViewportSizeForStyle(documentId: DocumentId, style: ReaderStyle): ViewportSize? =
+        storedViewportSize.takeIf { documentId == this.documentId }
+
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
-        viewportSize: ViewportSize,
+        viewportSize: ViewportSize?,
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
-    ): List<PageWindow> = if (documentId != this.documentId || format == DocumentFormat.PDF) {
+        anchorOffset: Long?,
+    ): List<PageWindow> = run { pageWindowRequests += 1 }.let {
+        if (documentId != this.documentId || format == DocumentFormat.PDF) {
         emptyList()
     } else if (pageWindows != null) {
         pageWindows
     } else if (paginatedText != null) {
-        paginate(paginatedText, viewportSize)
+        paginate(paginatedText, viewportSize ?: ViewportSize(widthPx = 320, heightPx = 560))
     } else {
         listOf(
             PageWindow(
@@ -628,6 +1034,7 @@ private class FakeDocumentRepository(
                 textRange = TextRange(18, 36),
             ),
         )
+        }
     }
 
     private fun paginate(text: String, viewportSize: ViewportSize): List<PageWindow> {
@@ -653,10 +1060,29 @@ private class FakeDocumentRepository(
         metadata = document
     }
     override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) {
+        markDocumentOpenedGate?.await()
         lastOpenedDocumentId = documentId
         lastOpenedAtEpochMillis = openedAtEpochMillis
     }
     override suspend fun deleteDocument(documentId: DocumentId) = Unit
+
+    override suspend fun isImportComplete(documentId: DocumentId): Boolean =
+        documentId != this.documentId || importComplete
+
+    var importNextSectionsCallCount = 0
+        private set
+
+    override suspend fun importNextSections(
+        documentId: DocumentId,
+        count: Int,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+        pageBreaker: ReaderPageBreaker?,
+    ): ImportProgress {
+        importNextSectionsGate?.await()
+        importNextSectionsCallCount += 1
+        return ImportProgress(isComplete = true, sectionsImported = 0)
+    }
 }
 
 private class FakeReaderRepository : ReaderRepository {
