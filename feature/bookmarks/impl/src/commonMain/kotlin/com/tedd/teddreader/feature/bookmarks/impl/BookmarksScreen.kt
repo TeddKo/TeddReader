@@ -53,6 +53,7 @@ import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -331,7 +332,7 @@ private fun BookmarksScreenPreview() {
         BookmarksScreen(
             uiState = BookmarksUiState(
                 isLoading = false,
-                bookmarks = listOf(
+                bookmarks = persistentListOf(
                     Bookmark(
                         id = "preview",
                         documentId = DocumentId("preview"),

@@ -7,6 +7,7 @@ import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
 import com.tedd.teddreader.core.domain.usecase.CalculateReadingStatsUseCase
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,7 +63,7 @@ class DocumentInfoViewModel(
                     _uiState.update { it.copy(errorMessage = throwable.message ?: "Failed to load sessions.") }
                 }
                 .collect { sessions ->
-                    _uiState.update { it.copy(sessions = sessions) }
+                    _uiState.update { it.copy(sessions = sessions.toImmutableList()) }
                 }
         }
     }

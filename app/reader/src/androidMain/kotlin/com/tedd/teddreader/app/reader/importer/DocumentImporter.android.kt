@@ -265,7 +265,13 @@ private suspend fun importUri(
         val extension = location.displayName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
         val mimeType = location.mimeType?.lowercase()
         val isCbzImport = extension == "cbz" || mimeType == "application/vnd.comicbook+zip" || mimeType == "application/x-cbz"
-        val bytes = if (isCbzImport) {
+        // Like CBZ, an EPUB is a zip a parser opens and seeks around in — reading it fully into memory
+        // here just to hand those bytes to a temp file the parser immediately writes back out again is
+        // wasted work. DocumentFormatDetector resolves the format from displayName/mimeType alone, so
+        // bytes=null costs it nothing; DocumentRepositoryImpl's progressive import streams its own
+        // local copy from this location the same way CBZ import already does.
+        val isEpubImport = extension == "epub" || mimeType == "application/epub+zip"
+        val bytes = if (isCbzImport || isEpubImport) {
             null
         } else {
             resolver.openInputStream(uri)?.use { input -> input.readBytes() }
@@ -273,7 +279,7 @@ private suspend fun importUri(
         }
         val persistedLocation = when {
             !materializeInAppStorage -> location
-            isCbzImport -> documentFileSource.materializeFromSource(location)
+            isCbzImport || isEpubImport -> documentFileSource.materializeFromSource(location)
             else -> documentFileSource.materialize(location, requireNotNull(bytes))
         }
         val document = openDocumentUseCase(

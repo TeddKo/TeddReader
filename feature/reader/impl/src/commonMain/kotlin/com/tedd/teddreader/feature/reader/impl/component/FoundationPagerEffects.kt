@@ -106,8 +106,18 @@ internal fun FoundationEffectPager(
     val settleAnimationSpec = remember {
         tween<Float>(FoundationPagerSettleMillis, easing = FastOutSlowInEasing)
     }
-    val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
-    val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+    // The page key the pager's three slots are currently laid out for.
+    //
+    // A turn ends with two things that have to change together: the reader moves on a page, and the
+    // pager snaps back to its centre slot so that both neighbours exist again. They cannot be written
+    // at the same instant, because the move leaves through the view model and comes back as new
+    // state, and drawing the slots from whichever of the two had changed first put the page being
+    // left at the settled position until the other caught up. That is the wrong text that appeared
+    // for a moment on every turn. The slots are drawn from this key instead, and it moves on in the
+    // same breath as the snap.
+    var renderedPageKey by remember { mutableStateOf(pageKey) }
+    val previousPage = readerPagerAdjacentPage(renderedPageKey, pageCount, pageStep, -1)
+    val nextPage = readerPagerAdjacentPage(renderedPageKey, pageCount, pageStep, 1)
     val pageFlipLayout = foundationPageFlipLayout(pageStep = pageStep, paneCount = paneCount)
     var isManualDragInProgress by remember { mutableStateOf(false) }
     val manualDragDistancePx = remember { floatArrayOf(0f) }
@@ -132,8 +142,12 @@ internal fun FoundationEffectPager(
     LaunchedEffect(pageKey, pageCount, pageStep) {
         fluidEdge.reset()
         if (pagerState.currentPage != FoundationCenterPage) {
-            pagerState.scrollToPage(FoundationCenterPage)
+            // requestScrollToPage rather than scrollToPage: it moves the pager's own position at once
+            // and leaves the layout to catch up in the next measure, so the snap back and the key the
+            // slots are drawn from reach the screen in the same frame instead of one after the other.
+            pagerState.requestScrollToPage(FoundationCenterPage)
         }
+        renderedPageKey = pageKey
     }
     LaunchedEffect(isAutoScrollEnabled) {
         if (isAutoScrollEnabled) {
@@ -155,20 +169,33 @@ internal fun FoundationEffectPager(
     val latestOnPreviousPage by rememberUpdatedState(onPreviousPage)
     val latestOnNextPage by rememberUpdatedState(onNextPage)
     val latestOnMovieTransitionProgressChanged by rememberUpdatedState(onMovieTransitionProgressChanged)
-    LaunchedEffect(pagerState, pageKey, pageCount, pageStep, isManualDragInProgress) {
+    LaunchedEffect(pagerState, pageKey, renderedPageKey, pageCount, pageStep, isManualDragInProgress) {
+        // Two keys out of step means the turn just reported is still on its way back as new state.
+        // The pager stays parked off centre until it arrives, and reporting that same resting place a
+        // second time would move the reader two pages on for one turn.
+        if (pageKey != renderedPageKey) return@LaunchedEffect
         snapshotFlow { Triple(pagerState.currentPage, pagerState.isScrollInProgress, isManualDragInProgress) }
             .filter { (_, isScrollInProgress, manualInProgress) -> !isScrollInProgress && !manualInProgress }
             .map { (page, _, _) -> page }
             .distinctUntilChanged()
             .collect { page ->
+                // A turn that moves the reader is snapped back by the effect above, once the new key
+                // has arrived. Only a turn with nowhere to go has to put the pager back itself.
                 when (page) {
                     FoundationPreviousPage -> {
-                        pagerState.scrollToPage(FoundationCenterPage)
-                        if (previousPage != null) latestOnPreviousPage()
+                        if (previousPage != null) {
+                            latestOnPreviousPage()
+                        } else {
+                            pagerState.requestScrollToPage(FoundationCenterPage)
+                        }
                     }
                     FoundationNextPage -> {
-                        pagerState.scrollToPage(FoundationCenterPage)
-                        if (nextPage != null) latestOnNextPage() else onAutoScrollStop()
+                        if (nextPage != null) {
+                            latestOnNextPage()
+                        } else {
+                            onAutoScrollStop()
+                            pagerState.requestScrollToPage(FoundationCenterPage)
+                        }
                     }
                 }
             }
@@ -440,7 +467,7 @@ internal fun FoundationEffectPager(
                 incomingContent = incomingPage?.let { page -> { content(page) } },
             ) {
                 val documentPage = readerPagerAdjacentPage(
-                    pageKey,
+                    renderedPageKey,
                     pageCount,
                     pageStep,
                     pagerPage - FoundationCenterPage,
@@ -471,7 +498,7 @@ internal fun FoundationEffectPager(
                 incomingContent = incomingPage?.let { page -> { content(page) } },
             ) {
                 val documentPage = readerPagerAdjacentPage(
-                    pageKey,
+                    renderedPageKey,
                     pageCount,
                     pageStep,
                     pagerPage - FoundationCenterPage,

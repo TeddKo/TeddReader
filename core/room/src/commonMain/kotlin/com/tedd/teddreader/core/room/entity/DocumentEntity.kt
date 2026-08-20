@@ -21,6 +21,11 @@ data class DocumentEntity(
     val isBookmarked: Boolean = false,
     val folderId: String? = null,
     val folderName: String? = null,
+    // NULL means the import that produced this row never finished. Unused by any code as of this
+    // column's introduction (TeddReaderMigration7To8) — it exists so a later progressive-import change
+    // needs no second schema bump. Existing rows are backfilled to their addedAtEpochMillis by that
+    // migration, because a row that already exists was, by definition, imported completely.
+    val importCompletedAtEpochMillis: Long? = null,
 ) {
     init {
         require((folderId == null) == (folderName == null)) {

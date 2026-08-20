@@ -20,6 +20,7 @@ dependencies {
     implementation(libs.ksp.gradle.plugin)
     implementation(libs.compose.gradle.plugin)
     implementation(libs.compose.plugin.marker)
+    implementation(libs.androidx.baselineprofile.gradle.plugin)
 }
 
 gradlePlugin {

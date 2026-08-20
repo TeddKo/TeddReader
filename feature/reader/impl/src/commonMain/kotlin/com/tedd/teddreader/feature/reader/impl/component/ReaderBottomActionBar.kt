@@ -41,6 +41,10 @@ fun ReaderBottomActionBar(
     style: ReaderStyle,
     isAutoScrollEnabled: Boolean,
     showProgress: Boolean,
+    // False only while the book is still being imported in the background — see ReaderUiState. The
+    // slider stays visible but disabled rather than hidden: a thumb that slides on its own as the
+    // total grows is worse than one that waits, and the label keeps counting up with a trailing "+".
+    isPaginationComplete: Boolean = true,
     onAutoScrollToggle: () -> Unit,
     onPreviousPage: () -> Unit,
     onNextPage: () -> Unit,
@@ -67,8 +71,10 @@ fun ReaderBottomActionBar(
 
     val pageLabel = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
-    } else {
+    } else if (isPaginationComplete) {
         "${latestSelectedPage + 1} / ${pageIndex.total}"
+    } else {
+        "${latestSelectedPage + 1} / ${pageIndex.total}+"
     }
 
     AnimatedContent(
@@ -105,7 +111,7 @@ fun ReaderBottomActionBar(
                             },
                             onValueChangeFinished = { onPageSelected(latestSelectedPage) },
                             valueRange = sliderRange,
-                            enabled = pageIndex.total > 1 && !isAutoScrollEnabled,
+                            enabled = pageIndex.total > 1 && !isAutoScrollEnabled && isPaginationComplete,
                             modifier = Modifier.weight(1f),
                         )
                     }

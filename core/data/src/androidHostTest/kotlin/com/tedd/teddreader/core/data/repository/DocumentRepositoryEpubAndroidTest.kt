@@ -4,6 +4,10 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
+import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.blocksIn
+import com.tedd.teddreader.core.common.model.rebasedBy
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
@@ -14,8 +18,13 @@ import com.tedd.teddreader.core.data.parser.PdfDocumentParser
 import com.tedd.teddreader.core.data.parser.TxtDocumentParser
 import com.tedd.teddreader.core.data.storage.DocumentFileSource
 import com.tedd.teddreader.core.room.dao.DocumentDao
+import com.tedd.teddreader.core.room.dao.PageLayoutDao
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry
+import com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry
+import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
 import com.tedd.teddreader.core.room.entity.DocumentEntity
+import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
@@ -80,7 +89,11 @@ class DocumentRepositoryEpubAndroidTest {
                 document.sections.map { section ->
                     section.toSearchIndexEntity(
                         documentId = document.id,
-                        blocks = document.blocks.filter { it.range.start < section.range.end && it.range.end > section.range.start },
+                        // Section-relative, the same shift persistParsedDocument applies before writing
+                        // blocksJson for real — this fixture stands in for "already in storage", so it
+                        // has to agree with what the real writer stores, not the absolute offsets
+                        // document.blocks itself still carries.
+                        blocks = document.blocks.blocksIn(section.range.start, section.range.end).rebasedBy(section.range.start),
                         documentTitle = document.title.takeIf { section.index == document.sections.first().index },
                         navigation = document.navigation.takeIf { section.index == document.sections.first().index },
                     )
@@ -104,6 +117,10 @@ class DocumentRepositoryEpubAndroidTest {
         )
 
         val restored = repository.getReaderDocument(DocumentId(location.sourceUri))
+        // .blocks decodes lazily per section now (see DocumentRepositoryImpl.SectionBlocksCache) —
+        // warming every section first is what stands in for "every block was already loaded", the
+        // condition this assertion is actually checking.
+        repository.warmSectionBlocks(DocumentId(location.sourceUri), document.sections.map { it.index }.toSet())
 
         assertEquals(document.title, restored?.title)
         assertEquals(document.blocks, restored?.blocks)
@@ -154,13 +171,34 @@ class DocumentRepositoryEpubAndroidTest {
             fileSource = AndroidFakeDocumentFileSource(location, epubBytes),
         )
 
-        val restored = repository.getReaderDocument(DocumentId(location.sourceUri))
+        val documentId = DocumentId(location.sourceUri)
+        val restored = repository.getReaderDocument(documentId)
 
+        // What the repair gives the reader straight away: the first chapter, with real blocks, under the
+        // book's own title. The table of contents is not part of it — the repair takes the phased import
+        // route, and that fills navigation only once the whole spine has been read (see
+        // DocumentRepositoryImpl.finishEpubImport), the same as a freshly picked EPUB.
         assertTrue(restored?.blocks?.isNotEmpty() == true)
         assertEquals("Sample EPUB Title", restored.title)
-        assertTrue(restored.navigation?.items?.isNotEmpty() == true)
         assertTrue(searchIndexDao.entries.all { it.blocksJson != "[]" })
         assertTrue(searchIndexDao.entries.first().navigationJson.isNotBlank())
+
+        var guard = 0
+        while (!repository.isImportComplete(documentId)) {
+            repository.importNextSections(
+                documentId = documentId,
+                count = 4,
+                style = ReaderStyle(),
+                viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+                pageBreaker = null,
+            )
+            guard += 1
+            check(guard < 50) { "repair import did not converge" }
+        }
+        val finished = repository.getReaderDocument(documentId)
+
+        assertTrue(finished?.navigation?.items?.isNotEmpty() == true)
+        assertTrue(searchIndexDao.entries.all { it.blocksJson != "[]" })
     }
 }
 
@@ -171,6 +209,7 @@ private fun repository(
 ): DocumentRepositoryImpl = DocumentRepositoryImpl(
     documentDao = documentDao,
     searchIndexDao = searchIndexDao,
+    pageLayoutDao = AndroidFakePageLayoutDao(),
     formatDetector = DocumentFormatDetector(),
     txtDocumentParser = TxtDocumentParser(),
     epubDocumentParser = EpubDocumentParser(),
@@ -259,6 +298,10 @@ private class AndroidFakeDocumentFileSource(
     private val location: DocumentLocation,
     private val bytes: ByteArray,
 ) : DocumentFileSource {
+    // Unique per fake instance so one test's cached cover file can never be left over for the next.
+    private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+        "tedd-reader-android-test-${kotlin.random.Random.nextLong().toString(16)}"
+
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
         assertEquals(this.location, location)
         return bytes
@@ -270,6 +313,8 @@ private class AndroidFakeDocumentFileSource(
             sink.write(bytes)
         }
     }
+
+    override fun appPrivateDirectory(): Path = privateDirectory
 }
 
 private class AndroidFakeDocumentDao(
@@ -297,12 +342,74 @@ private class AndroidFakeSearchIndexDao : SearchIndexDao {
 
     override suspend fun search(documentId: String, query: String, limit: Int): List<SearchIndexEntity> = emptyList()
 
-    override suspend fun getDocumentSections(documentId: String): List<SearchIndexEntity> =
-        entries.filter { it.documentId == documentId }.sortedBy { it.sectionIndex }
+    override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> =
+        entries.filter { it.documentId == documentId }.sortedBy { it.sectionIndex }.map { entry ->
+            SearchIndexSectionEntry(
+                sectionIndex = entry.sectionIndex,
+                sectionTitle = entry.sectionTitle,
+                text = entry.text,
+                startOffset = entry.startOffset,
+                endOffset = entry.endOffset,
+                documentTitle = entry.documentTitle,
+                navigationJson = entry.navigationJson,
+                parserVersion = entry.parserVersion,
+            )
+        }
+
+    override suspend fun getSectionBlocksJson(documentId: String, sectionIndexes: List<Int>): List<SectionBlocksJsonEntry> =
+        entries
+            .filter { it.documentId == documentId && it.sectionIndex in sectionIndexes }
+            .map { entry -> SectionBlocksJsonEntry(entry.sectionIndex, entry.blocksJson) }
+
+    override suspend fun getLastSection(documentId: String): SectionOffsetEntry? =
+        entries.filter { it.documentId == documentId }
+            .maxByOrNull { it.sectionIndex }
+            ?.let { SectionOffsetEntry(it.sectionIndex, it.endOffset) }
+
+    override suspend fun updateSectionTitle(documentId: String, sectionIndex: Int, title: String) {
+        val index = entries.indexOfFirst { it.documentId == documentId && it.sectionIndex == sectionIndex }
+        if (index >= 0) entries[index] = entries[index].copy(sectionTitle = title)
+    }
+
+    override suspend fun updateDocumentTitleAndNavigation(
+        documentId: String,
+        sectionIndex: Int,
+        documentTitle: String,
+        navigationJson: String,
+    ) {
+        val index = entries.indexOfFirst { it.documentId == documentId && it.sectionIndex == sectionIndex }
+        if (index >= 0) {
+            entries[index] = entries[index].copy(documentTitle = documentTitle, navigationJson = navigationJson)
+        }
+    }
 
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { it.documentId == documentId }
     }
+}
+
+private class AndroidFakePageLayoutDao : PageLayoutDao {
+    override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit
+
+    override suspend fun getPageLayout(
+        documentId: String,
+        fontSizeSp: Float,
+        lineHeightMultiplier: Float,
+        fontFamilyName: String,
+        viewportWidthPx: Int,
+        viewportHeightPx: Int,
+    ): PageLayoutEntity? = null
+
+    override suspend fun getNewestPageLayoutForStyle(
+        documentId: String,
+        fontSizeSp: Float,
+        lineHeightMultiplier: Float,
+        fontFamilyName: String,
+    ): PageLayoutEntity? = null
+
+    override suspend fun deletePageLayouts(documentId: String) = Unit
+
+    override suspend fun trimPageLayouts(documentId: String, keep: Int) = Unit
 }
 
 private fun sampleNavFragmentEpubBytes(): ByteArray {
