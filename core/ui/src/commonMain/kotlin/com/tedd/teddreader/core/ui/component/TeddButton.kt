@@ -128,9 +128,7 @@ fun TeddChip(
         Surface(
             selected = selected,
             onClick = onClick,
-            modifier = modifier.semantics {
-                role = Role.Button
-            },
+            modifier = modifier,
             enabled = enabled,
             shape = shape,
             color = backgroundColor,
