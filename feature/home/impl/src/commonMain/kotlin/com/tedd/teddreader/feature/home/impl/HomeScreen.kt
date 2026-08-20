@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
@@ -65,6 +67,7 @@ import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
+import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.add_documents
@@ -225,43 +228,49 @@ fun HomeScreen(
         return
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
-    ) {
-        AnimatedVisibility(
-            visible = selectedDocumentIds.isNotEmpty(),
-            enter = fadeIn(tween(motion.mediumDurationMs)) +
-                slideInVertically(tween(motion.mediumDurationMs)) { -it },
-            exit = fadeOut(tween(motion.shortDurationMs)) +
-                slideOutVertically(tween(motion.shortDurationMs)) { -it },
-        ) {
-            val selectedDocuments = uiState.libraryDocuments.filter { it.id.value in selectedDocumentIds }
-            val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
-            SelectionTopBar(
-                selectedCount = selectedDocumentIds.size,
-                bookmarkTarget = bookmarkTarget,
-                onCancelClick = {
-                    selectedDocumentIds = emptySet()
-                },
-                onBookmarkClick = {
-                    val documentIds = selectedDocumentIds.map(::DocumentId)
-                    actionDocumentTarget = null
-                    selectedDocumentIds = emptySet()
-                    onSelectionBookmarkChange(documentIds, bookmarkTarget)
-                },
-                onDeleteClick = {
-                    actionDocumentTarget = null
-                    pendingDeleteDocumentIds = selectedDocumentIds
-                },
-            )
+    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    TeddScaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            AnimatedVisibility(
+                visible = selectedDocumentIds.isNotEmpty(),
+                enter = fadeIn(tween(motion.mediumDurationMs)) +
+                    slideInVertically(tween(motion.mediumDurationMs)) { -it },
+                exit = fadeOut(tween(motion.shortDurationMs)) +
+                    slideOutVertically(tween(motion.shortDurationMs)) { -it },
+            ) {
+                val selectedDocuments = uiState.libraryDocuments.filter { it.id.value in selectedDocumentIds }
+                val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
+                SelectionTopBar(
+                    selectedCount = selectedDocumentIds.size,
+                    bookmarkTarget = bookmarkTarget,
+                    onCancelClick = {
+                        selectedDocumentIds = emptySet()
+                    },
+                    onBookmarkClick = {
+                        val documentIds = selectedDocumentIds.map(::DocumentId)
+                        actionDocumentTarget = null
+                        selectedDocumentIds = emptySet()
+                        onSelectionBookmarkChange(documentIds, bookmarkTarget)
+                    },
+                    onDeleteClick = {
+                        actionDocumentTarget = null
+                        pendingDeleteDocumentIds = selectedDocumentIds
+                    },
+                )
+            }
+        },
+    ) { scaffoldPadding ->
+        val resolvedTopPadding = if (selectedDocumentIds.isNotEmpty()) {
+            scaffoldPadding.calculateTopPadding()
+        } else {
+            statusBarTopPadding + contentPadding.calculateTopPadding()
         }
+        val resolvedBottomPadding = scaffoldPadding.calculateBottomPadding() + contentPadding.calculateBottomPadding()
 
         BoxWithConstraints(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
         ) {
             val shortestDp = if (maxWidth <= maxHeight) maxWidth else maxHeight
             val previewLimit = libraryPreviewLimit(
@@ -281,7 +290,12 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(contentPadding),
+                        .padding(
+                            start = contentPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                            top = resolvedTopPadding,
+                            end = contentPadding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                            bottom = resolvedBottomPadding,
+                        ),
                     verticalArrangement = Arrangement.spacedBy(spacing.large),
                 ) {
                     HomeMasthead(

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -106,9 +105,7 @@ fun SearchScreen(
     )
 
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TeddTopBar(
                 title = stringResource(Res.string.search_in_document),
@@ -190,7 +187,7 @@ fun SearchScreen(
                                 modifier = Modifier
                                     .padding(horizontalContentPadding)
                                     .padding(bottom = spacing.small),
-                                style = typography.settingTitle,
+                                style = typography.settingDescription,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -285,19 +282,8 @@ private fun SearchField(
         placeholder = stringResource(Res.string.search_text_placeholder),
         enabled = isFieldEnabled,
         onSearch = { if (canSearch) onSearchClick() },
-        trailingContent = if (query.isNotEmpty()) {
-            {
-                TeddIconButton(
-                    onClick = { onQueryChange("") },
-                    enabled = isFieldEnabled,
-                    contentDescription = stringResource(Res.string.clear_search_query),
-                ) {
-                    Icon(imageVector = TeddIcons.Close, contentDescription = null)
-                }
-            }
-        } else {
-            null
-        },
+        onClearClick = { onQueryChange("") },
+        clearDescription = stringResource(Res.string.clear_search_query),
     )
 }
 

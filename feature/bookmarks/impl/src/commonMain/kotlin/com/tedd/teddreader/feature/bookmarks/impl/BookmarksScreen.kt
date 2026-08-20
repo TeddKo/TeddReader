@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -136,13 +135,22 @@ fun BookmarksScreen(
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
 
+    val subtitle = if (uiState.bookmarks.isNotEmpty()) {
+        if (uiState.bookmarks.size == 1) {
+            stringResource(Res.string.saved_places_single)
+        } else {
+            stringResource(Res.string.saved_places_count, uiState.bookmarks.size)
+        }
+    } else {
+        null
+    }
+
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TeddTopBar(
                 title = stringResource(Res.string.saved_places),
+                subtitle = subtitle,
                 navigationIcon = {
                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
                         Icon(imageVector = TeddIcons.Back, contentDescription = null)
@@ -165,15 +173,6 @@ fun BookmarksScreen(
                 contentPadding = contentPadding,
                 verticalArrangement = Arrangement.spacedBy(spacing.medium),
             ) {
-                if (uiState.bookmarks.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = if (uiState.bookmarks.size == 1) stringResource(Res.string.saved_places_single) else stringResource(Res.string.saved_places_count, uiState.bookmarks.size),
-                            style = typography.settingDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
                 uiState.errorMessage?.let { message ->
                     item { TeddErrorBanner(message = message) }
                 }

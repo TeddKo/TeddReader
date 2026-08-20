@@ -8,9 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -132,31 +137,50 @@ fun TeddInfoRow(
 fun TeddTopBar(
     title: String,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
     navigationIcon: (@Composable RowScope.() -> Unit)? = null,
+    windowInsets: WindowInsets = WindowInsets.statusBars.only(WindowInsetsSides.Top),
     contentPadding: PaddingValues = PaddingValues(
         horizontal = DefaultTeddReaderSpacing.medium,
         vertical = DefaultTeddReaderSpacing.small,
     ),
     actions: @Composable RowScope.() -> Unit = {},
 ) {
+    val typography = teddReaderTypography()
+    val spacing = teddReaderSpacing()
+
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .heightIn(min = 56.dp)
                 .background(MaterialTheme.colorScheme.surface)
+                .windowInsetsPadding(windowInsets)
+                .heightIn(min = 56.dp)
                 .padding(contentPadding),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(teddReaderSpacing().small),
+            horizontalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             navigationIcon?.invoke(this)
-            Text(
-                text = title,
+            Column(
                 modifier = Modifier.weight(1f),
-                style = teddReaderTypography().titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+                verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+            ) {
+                Text(
+                    text = title,
+                    style = typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = typography.documentMeta,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             actions()
         }
     }

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -176,9 +175,7 @@ fun LibraryScreen(
     }
 
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             if (selectedDocumentIds.isNotEmpty()) {
                 LibrarySelectionTopBar(

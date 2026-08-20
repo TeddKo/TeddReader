@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,7 +33,10 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
+import com.tedd.teddreader.core.ui.component.TeddIconButton
+import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddTopBar
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.feature.bookmarks.api.BookmarksRoute
@@ -259,17 +262,23 @@ private fun PlaceholderDestination(
 ) {
     val spacing = teddReaderSpacing()
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .systemBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(spacing.large),
-    ) {
-        TeddTopBar(title = title)
+    TeddScaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TeddTopBar(
+                title = title,
+                navigationIcon = {
+                    TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
+                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                    }
+                },
+            )
+        },
+    ) { scaffoldPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(scaffoldPadding)
                 .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(spacing.medium),
         ) {

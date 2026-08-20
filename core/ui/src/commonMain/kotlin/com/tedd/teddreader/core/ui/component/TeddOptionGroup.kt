@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +24,7 @@ fun TeddOptionGroup(
     title: String?,
     modifier: Modifier = Modifier,
     description: String? = null,
+    isSelectableGroup: Boolean = false,
     headerPadding: PaddingValues = PaddingValues(
         start = DefaultTeddReaderSpacing.medium,
         top = DefaultTeddReaderSpacing.medium,
@@ -36,6 +38,16 @@ fun TeddOptionGroup(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val contentModifier = if (isSelectableGroup) {
+        Modifier
+            .fillMaxWidth()
+            .selectableGroup()
+            .padding(contentPadding)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .padding(contentPadding)
+    }
 
     Column(
         modifier = modifier
@@ -66,9 +78,7 @@ fun TeddOptionGroup(
                 }
             }
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(contentPadding),
+                modifier = contentModifier,
                 content = content,
             )
         }
