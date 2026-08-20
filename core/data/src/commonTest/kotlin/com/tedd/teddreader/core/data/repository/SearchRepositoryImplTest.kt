@@ -5,8 +5,12 @@ import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.mapper.toSearchResults
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry
+import com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry
+import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -37,7 +41,7 @@ class SearchRepositoryImplTest {
             ),
         )
 
-        repository.indexDocument(document)
+        dao.upsertSearchIndex(document.sections.map { it.toSearchIndexEntity(document.id) })
         val results = repository.findInDocument(DocumentId("doc-1"), "reader", limit = 10)
 
         assertEquals(2, dao.entries.size)
@@ -72,7 +76,7 @@ class SearchRepositoryImplTest {
             ),
         )
 
-        repository.indexDocument(document)
+        dao.upsertSearchIndex(document.sections.map { it.toSearchIndexEntity(document.id) })
         val results = repository.findInDocument(DocumentId("doc-1"), "reader", limit = 10)
 
         assertEquals(
@@ -120,7 +124,7 @@ class SearchRepositoryImplTest {
             ),
         )
 
-        repository.indexDocument(document)
+        dao.upsertSearchIndex(document.sections.map { it.toSearchIndexEntity(document.id) })
         val results = repository.findInDocument(DocumentId("doc-1"), "reader", limit = 2)
 
         assertEquals(2, results.size)
@@ -175,8 +179,46 @@ private class FakeSearchIndexDao : SearchIndexDao {
         .sortedBy { entry -> entry.sectionIndex }
         .take(limit)
 
-    override suspend fun getDocumentSections(documentId: String): List<SearchIndexEntity> =
-        entries.filter { entry -> entry.documentId == documentId }.sortedBy { entry -> entry.sectionIndex }
+    override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> =
+        entries.filter { entry -> entry.documentId == documentId }.sortedBy { entry -> entry.sectionIndex }.map { entry ->
+            SearchIndexSectionEntry(
+                sectionIndex = entry.sectionIndex,
+                sectionTitle = entry.sectionTitle,
+                text = entry.text,
+                startOffset = entry.startOffset,
+                endOffset = entry.endOffset,
+                documentTitle = entry.documentTitle,
+                navigationJson = entry.navigationJson,
+                parserVersion = entry.parserVersion,
+            )
+        }
+
+    override suspend fun getSectionBlocksJson(documentId: String, sectionIndexes: List<Int>): List<SectionBlocksJsonEntry> =
+        entries
+            .filter { entry -> entry.documentId == documentId && entry.sectionIndex in sectionIndexes }
+            .map { entry -> SectionBlocksJsonEntry(entry.sectionIndex, entry.blocksJson) }
+
+    override suspend fun getLastSection(documentId: String): SectionOffsetEntry? =
+        entries.filter { entry -> entry.documentId == documentId }
+            .maxByOrNull { entry -> entry.sectionIndex }
+            ?.let { entry -> SectionOffsetEntry(entry.sectionIndex, entry.endOffset) }
+
+    override suspend fun updateSectionTitle(documentId: String, sectionIndex: Int, title: String) {
+        val index = entries.indexOfFirst { entry -> entry.documentId == documentId && entry.sectionIndex == sectionIndex }
+        if (index >= 0) entries[index] = entries[index].copy(sectionTitle = title)
+    }
+
+    override suspend fun updateDocumentTitleAndNavigation(
+        documentId: String,
+        sectionIndex: Int,
+        documentTitle: String,
+        navigationJson: String,
+    ) {
+        val index = entries.indexOfFirst { entry -> entry.documentId == documentId && entry.sectionIndex == sectionIndex }
+        if (index >= 0) {
+            entries[index] = entries[index].copy(documentTitle = documentTitle, navigationJson = navigationJson)
+        }
+    }
 
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { entry -> entry.documentId == documentId }

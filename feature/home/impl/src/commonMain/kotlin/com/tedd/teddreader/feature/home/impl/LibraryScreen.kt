@@ -78,6 +78,7 @@ import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
 import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
+import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -541,7 +542,7 @@ private fun FolderNameDialog(
 
 @Composable
 private fun MoveToFolderDialog(
-    folders: List<LibraryFolder>,
+    folders: ImmutableList<LibraryFolder>,
     onDismiss: () -> Unit,
     onMove: (String) -> Unit,
 ) {

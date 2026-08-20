@@ -15,6 +15,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.blocksIn
 import com.tedd.teddreader.core.common.model.isStandalone
 import com.tedd.teddreader.core.common.model.readerImageSize
+import com.tedd.teddreader.core.common.model.rebasedBy
 import com.tedd.teddreader.core.common.model.standaloneBlocks
 import kotlin.math.ceil
 import org.koin.core.annotation.Single
@@ -26,37 +27,16 @@ class TextPageLayoutEngine {
         style: ReaderStyle,
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker? = null,
+        // A real measurement touches every section's text anyway, so the default — grouping the
+        // document's own block list once — is already the cheap option here. [reconstruct] is the one
+        // that overrides this, with a lookup that can answer for one section without decoding the rest.
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock> = defaultSectionBlocks(document),
     ): List<PageWindow> {
-        val coverSection = document.sections.firstOrNull()?.takeIf { section ->
-            document.blocks.any { block ->
-                block.kind == ReaderBlockKind.COVER_IMAGE &&
-                    block.range.start >= section.range.start &&
-                    block.range.end <= (section.range.end.coerceAtLeast(section.range.start + 1))
-            }
-        }
-        val coverPage = coverSection?.let { section ->
-            val coverRange = TextRange(section.range.start, section.range.end.coerceAtLeast(section.range.start + 1))
-            PageWindow(
-                pageIndex = PageIndex(current = 0, total = 1),
-                location = ReaderLocation.EpubOffset(section.index, 0),
-                text = section.text,
-                textRange = coverRange,
-                blocks = document.blocks.blocksIn(coverRange.start, coverRange.end),
-            )
-        }
+        val coverSection = findCoverSection(document, sectionBlocks)
+        val coverPage = buildCoverPage(document, coverSection, sectionBlocks)
 
         val layout = pageLayout(style, viewportSize)
-        val contentSections = document.sections.filter { section ->
-            coverSection == null || section.index != coverSection.index
-        }
-        val blocksBySection = groupBlocksBySection(contentSections, document.blocks)
-        // ponytail: the cap stays a whole-document one even though measurement is now per chapter.
-        // Applying it per chapter would let a long book slip past it a chapter at a time and lay out
-        // every one of them, which is the cost this guard exists to avoid; and a book that measured
-        // some chapters and estimated others would break its pages two different ways.
-        val measuredBreaker = pageBreaker?.takeIf {
-            contentSections.sumOf { section -> section.text.length } <= MaxMeasuredContentLengthChars
-        }
+        val contentSections = contentSections(document, coverSection)
 
         // One EPUB spine item is one document of its own, and no reading system runs two of them
         // together on a screen — readium-css and foliate-js both paginate per resource. Paginating
@@ -64,32 +44,220 @@ class TextPageLayoutEngine {
         // halfway down the previous chapter's last page, and it also keeps every text measurement to
         // one chapter rather than laying out the whole book at once.
         val contentPages = contentSections.flatMap { section ->
-            val sectionBlocks = blocksBySection[section.index].orEmpty()
+            val sectionBlockList = sectionBlocks(section)
             sectionPageRanges(
                 section = section,
-                sectionBlocks = sectionBlocks,
+                sectionBlocks = sectionBlockList,
                 layout = layout,
                 style = style,
-                pageBreaker = measuredBreaker,
-            ).map { range ->
-                PageWindow(
-                    pageIndex = PageIndex(current = 0, total = 0),
-                    location = if (document.format == DocumentFormat.EPUB) {
-                        ReaderLocation.EpubOffset(section.index, range.start - section.range.start)
-                    } else {
-                        ReaderLocation.TextOffset(range.start)
-                    },
-                    text = section.text.substring(
-                        (range.start - section.range.start).toInt(),
-                        (range.end - section.range.start).toInt(),
-                    ),
-                    textRange = range,
-                    blocks = sectionBlocks.blocksIn(range.start, range.end),
-                )
+                // The cap belongs to a chapter, because that is the unit being measured. Held against
+                // the whole book it ruled out measurement for every long book — and an estimate cannot
+                // know the line height the book's own stylesheet sets, so it packed a page with half
+                // again as many lines as the page draws and the rest were clipped off the bottom.
+                // Laying out one chapter is the price of pages that hold what they say they hold.
+                pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
+            ).map { range -> buildPageWindow(document.format, section, sectionBlockList, range) }
+        }
+        return assemblePages(coverPage, contentPages)
+    }
+
+    /**
+     * Rebuilds the exact page list [paginate] would produce from a real measurement, using page starts
+     * a measured pass produced and stored earlier: one absolute document offset per content page, in
+     * the same order [paginate] emits them, with the cover page excluded (it is always exactly the
+     * first section and never needs measuring to rebuild). No text is measured here — a stored start is
+     * exactly where the renderer put that page last time, and because no page ever spans two sections,
+     * each section's own bounds are enough to tell where its pages end.
+     *
+     * The list this returns builds a page — and asks [sectionBlocks] to decode that page's section —
+     * only the first time something reads it by index, and remembers the result after that. A reader
+     * only ever looks at a handful of pages around the one it is showing, so this is the difference
+     * between decoding one book's worth of blocks on every open and decoding a handful of sections.
+     */
+    fun reconstruct(
+        document: ReaderDocument,
+        contentPageStarts: LongArray,
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock> = defaultSectionBlocks(document),
+        // Whether sectionBlocks(section) is that section's real, decoded answer right now, or a
+        // stand-in returned while a background fetch is still in flight (see
+        // DocumentRepositoryImpl.SectionBlocksCache). A page built from a stand-in must stay free to
+        // rebuild once the real blocks arrive instead of freezing the stand-in forever; every other
+        // caller already hands over a fully-decoded document, so "always ready" changes nothing for them.
+        isSectionReady: (Int) -> Boolean = { true },
+    ): List<PageWindow> {
+        val coverSection = findCoverSection(document, sectionBlocks)
+        val coverPage = buildCoverPage(document, coverSection, sectionBlocks)
+        val contentSections = contentSections(document, coverSection)
+        return RestoredPageWindows(
+            coverPage = coverPage,
+            contentSections = contentSections,
+            contentPageStarts = contentPageStarts,
+            format = document.format,
+            sectionBlocks = sectionBlocks,
+            buildPage = ::buildPageWindow,
+            isSectionReady = isSectionReady,
+        )
+    }
+
+    /**
+     * The absolute document offsets [paginate] would give [section] measured entirely on its own — the
+     * unit DocumentRepositoryImpl.importNextSections appends to an already-stored pageStartsBlob, so a
+     * progressively imported section is measured exactly once instead of by re-measuring the whole book
+     * from scratch after every batch. Safe because no page ever spans two sections (see [paginate]), so
+     * one section's boundaries never depend on, or move, any other section's.
+     */
+    fun pageStartsForSection(
+        section: ReaderSection,
+        sectionBlocks: List<ReaderBlock>,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+        pageBreaker: ReaderPageBreaker?,
+    ): LongArray {
+        val layout = pageLayout(style, viewportSize)
+        val ranges = sectionPageRanges(
+            section = section,
+            sectionBlocks = sectionBlocks,
+            layout = layout,
+            style = style,
+            pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
+        )
+        return LongArray(ranges.size) { index -> ranges[index].start }
+    }
+
+    /** True when [paginate] would give this document a dedicated first page for its cover image. */
+    fun hasCoverPage(
+        document: ReaderDocument,
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock> = defaultSectionBlocks(document),
+    ): Boolean = findCoverSection(document, sectionBlocks) != null
+
+    /**
+     * [paginate]'s cover-page resolution and content-section split, resolved once and handed to a
+     * caller that wants to measure content sections one at a time — see DocumentRepositoryImpl's
+     * progressive pagination, which measures the section the reader resumed into before any other and
+     * needs exactly this to know which section that is and where the cover page (if any) already ends.
+     */
+    fun resolveSections(
+        document: ReaderDocument,
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock> = defaultSectionBlocks(document),
+    ): PaginationSections {
+        val coverSection = findCoverSection(document, sectionBlocks)
+        return PaginationSections(
+            coverPage = buildCoverPage(document, coverSection, sectionBlocks),
+            contentSections = contentSections(document, coverSection),
+        )
+    }
+
+    /**
+     * [paginate]'s own per-section measurement, standing alone so progressive pagination can grow a
+     * result one section at a time instead of laying every section out before the reader sees the
+     * first one (see DocumentRepositoryImpl.getPageWindows/continuePagination). Numbered (0, 0) same as
+     * [paginate]'s own per-section pass before [assemblePages] renumbers it; the caller renumbers once
+     * it knows how many sections it has measured so far.
+     */
+    fun paginateSection(
+        format: DocumentFormat,
+        section: ReaderSection,
+        sectionBlocks: List<ReaderBlock>,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+        pageBreaker: ReaderPageBreaker?,
+    ): List<PageWindow> {
+        val layout = pageLayout(style, viewportSize)
+        return sectionPageRanges(
+            section = section,
+            sectionBlocks = sectionBlocks,
+            layout = layout,
+            style = style,
+            pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
+        ).map { range -> buildPageWindow(format, section, sectionBlocks, range) }
+    }
+
+    /**
+     * Every block [paginate]/[reconstruct] need, grouped once from the document's own eager list and
+     * shifted to read relative to its own section — the same shape [SectionBlocksCache.blocksFor]
+     * hands over for a document loaded from storage (see DocumentRepositoryImpl.persistParsedDocument),
+     * so [buildPageWindow] never has to know which source a section's blocks came from. Internal rather
+     * than private so DocumentRepositoryImpl can compute this once itself and reuse the same closure
+     * across many [paginateSection] calls instead of re-grouping the whole book on every one.
+     */
+    internal fun defaultSectionBlocks(document: ReaderDocument): (ReaderSection) -> List<ReaderBlock> {
+        val grouped = groupBlocksBySection(document.sections, document.blocks)
+        return { section -> grouped[section.index].orEmpty().rebasedBy(section.range.start) }
+    }
+
+    private fun findCoverSection(
+        document: ReaderDocument,
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock>,
+    ): ReaderSection? =
+        document.sections.firstOrNull()?.takeIf { section ->
+            // A cover, when the book has one, is always the first section's own picture, so finding it
+            // never has to look at — or decode — any other section. sectionBlocks(section) reads
+            // relative to section.range.start now, so the bound checked here is 0..the section's own
+            // length in that same frame, not the section's absolute range.
+            val sectionLength = (section.range.end - section.range.start).coerceAtLeast(1L)
+            sectionBlocks(section).any { block ->
+                block.kind == ReaderBlockKind.COVER_IMAGE &&
+                    block.range.start >= 0L &&
+                    block.range.end <= sectionLength
             }
         }
-        if (contentPages.isEmpty() && coverPage == null) return emptyList()
 
+    private fun buildCoverPage(
+        document: ReaderDocument,
+        coverSection: ReaderSection?,
+        sectionBlocks: (ReaderSection) -> List<ReaderBlock>,
+    ): PageWindow? =
+        coverSection?.let { section ->
+            val coverRange = TextRange(section.range.start, section.range.end.coerceAtLeast(section.range.start + 1))
+            PageWindow(
+                pageIndex = PageIndex(current = 0, total = 1),
+                location = ReaderLocation.EpubOffset(section.index, 0),
+                text = section.text,
+                textRange = coverRange,
+                // Filter in sectionBlocks' own relative frame, then shift the result back to the
+                // absolute offsets PageWindow.blocks has always carried (see buildPageWindow) — written
+                // this way, rather than passing coverRange straight through, so the cover section's
+                // start always being 0 is not what makes this correct.
+                blocks = sectionBlocks(section)
+                    .blocksIn(coverRange.start - section.range.start, coverRange.end - section.range.start)
+                    .rebasedBy(-section.range.start),
+            )
+        }
+
+    private fun contentSections(document: ReaderDocument, coverSection: ReaderSection?): List<ReaderSection> =
+        document.sections.filter { section -> coverSection == null || section.index != coverSection.index }
+
+    private fun buildPageWindow(
+        format: DocumentFormat,
+        section: ReaderSection,
+        sectionBlocks: List<ReaderBlock>,
+        range: TextRange,
+    ): PageWindow = PageWindow(
+        pageIndex = PageIndex(current = 0, total = 0),
+        location = if (format == DocumentFormat.EPUB) {
+            ReaderLocation.EpubOffset(section.index, range.start - section.range.start)
+        } else {
+            ReaderLocation.TextOffset(range.start)
+        },
+        text = section.text.substring(
+            (range.start - section.range.start).toInt(),
+            (range.end - section.range.start).toInt(),
+        ),
+        textRange = range,
+        // sectionBlocks reads relative to section.range.start now (see defaultSectionBlocks); filter in
+        // that same frame, then shift the result back to absolute — a page's blocks have always
+        // addressed the same offsets as its own textRange above, which ReaderSemanticText relies on to
+        // locate a block within page.text.
+        blocks = sectionBlocks
+            .blocksIn(range.start - section.range.start, range.end - section.range.start)
+            .rebasedBy(-section.range.start),
+    )
+
+    // Internal rather than private so DocumentRepositoryImpl can renumber a progressive pagination's
+    // pages-so-far the same way [paginate] numbers a whole-book pass — see [resolveSections]/
+    // [paginateSection] — instead of duplicating this renumbering logic a second time.
+    internal fun assemblePages(coverPage: PageWindow?, contentPages: List<PageWindow>): List<PageWindow> {
+        if (contentPages.isEmpty() && coverPage == null) return emptyList()
         val pages = if (coverPage != null) listOf(coverPage) + contentPages else contentPages
         return pages.mapIndexed { index, page ->
             page.copy(pageIndex = PageIndex(current = index, total = pages.size))
@@ -139,9 +307,11 @@ class TextPageLayoutEngine {
         if (text.isEmpty()) return emptyList()
         if (text.isBlank() && sectionBlocks.none { it.kind.isStandalone() }) return emptyList()
 
-        val relativeBlocks = sectionBlocks.map { block -> block.rebasedBy(base) }
+        // sectionBlocks already reads relative to this section's own start (see defaultSectionBlocks /
+        // DocumentRepositoryImpl.persistParsedDocument) — no rebase needed here on every pagination
+        // pass any more; that shift now happens once, when the section was written.
         val measuredPageStarts = pageBreaker
-            ?.pageStarts(text, relativeBlocks)
+            ?.pageStarts(text, sectionBlocks)
             ?.takeIf { it.isNotEmpty() }
         val relativeRanges = if (measuredPageStarts != null) {
             measuredPageRanges(pageStarts = measuredPageStarts, textLength = text.length)
@@ -151,7 +321,7 @@ class TextPageLayoutEngine {
                 widthUnitsPerLine = layout.widthUnitsPerLine,
                 linesPerPage = layout.linesPerPage,
                 standaloneHeights = standaloneBlockLineHeights(
-                    blocks = relativeBlocks,
+                    blocks = sectionBlocks,
                     layout = layout,
                     style = style,
                 ),
@@ -160,18 +330,6 @@ class TextPageLayoutEngine {
         if (relativeRanges.isEmpty()) return listOf(TextRange(base, base + text.length))
         return relativeRanges.map { range -> TextRange(base + range.start, base + range.end) }
     }
-
-    private fun ReaderBlock.rebasedBy(base: Long): ReaderBlock = copy(
-        range = TextRange((range.start - base).coerceAtLeast(0L), (range.end - base).coerceAtLeast(0L)),
-        spans = spans.map { span ->
-            span.copy(
-                range = TextRange(
-                    (span.range.start - base).coerceAtLeast(0L),
-                    (span.range.end - base).coerceAtLeast(0L),
-                ),
-            )
-        },
-    )
 
     private fun pageLayout(style: ReaderStyle, viewportSize: ViewportSize): PageLayout {
         val emWidth = style.fontSizeSp.coerceAtLeast(1f)
@@ -318,6 +476,91 @@ class TextPageLayoutEngine {
 
 }
 
+/** [TextPageLayoutEngine.resolveSections]'s answer: the cover page, if the book has one, and the
+ * sections [TextPageLayoutEngine.paginateSection] can measure independently of each other and in any
+ * order. */
+data class PaginationSections(
+    val coverPage: PageWindow?,
+    val contentSections: List<ReaderSection>,
+)
+
+/**
+ * The page list [TextPageLayoutEngine.reconstruct] hands back: every [PageWindow] a real measurement
+ * already placed, built the first time something reads it by [get] and kept after that. [size] and
+ * page ordering come entirely from [contentPageStarts] — a handful of longs — so the total page count
+ * is exact before a single section's blocks are ever decoded.
+ */
+internal class RestoredPageWindows(
+    private val coverPage: PageWindow?,
+    private val contentSections: List<ReaderSection>,
+    private val contentPageStarts: LongArray,
+    private val format: DocumentFormat,
+    private val sectionBlocks: (ReaderSection) -> List<ReaderBlock>,
+    private val buildPage: (DocumentFormat, ReaderSection, List<ReaderBlock>, TextRange) -> PageWindow,
+    private val isSectionReady: (Int) -> Boolean = { true },
+) : AbstractList<PageWindow>() {
+    private val coverOffset = if (coverPage != null) 1 else 0
+    override val size: Int = coverOffset + contentPageStarts.size
+    private val built = HashMap<Int, PageWindow>()
+
+    /** How many of [size] pages this instance has actually built — logged to show the saving. */
+    val builtCount: Int get() = built.size
+
+    override fun get(index: Int): PageWindow {
+        if (index !in 0 until size) throw IndexOutOfBoundsException("index: $index, size: $size")
+        built[index]?.let { return it }
+        // The cover section is always prewarmed before this list is ever handed out (see
+        // DocumentRepositoryImpl.restorePageWindows — cover detection needs it eagerly, not lazily), so
+        // the cover page itself has nothing left to wait for. It still needs its pageIndex corrected to
+        // the real total, though — buildCoverPage hands over a lone PageIndex(0, 1), the same way
+        // assemblePages() rewrites it for the measured path; skipping that here is what left a restored
+        // cover page's total stuck at 1 while every other page in the same list carried the real count.
+        if (coverPage != null && index == 0) {
+            val page = coverPage.copy(pageIndex = PageIndex(current = 0, total = size))
+            built[0] = page
+            return page
+        }
+        val contentIndex = index - coverOffset
+        val section = contentSections.sectionOwning(contentPageStarts[contentIndex])
+        val page = buildAt(index, contentIndex, section)
+        // A page built while its own section's blocks are still a stand-in must stay rebuildable — the
+        // next read of this same index may land after the real blocks arrived. Once the section is
+        // ready this is the page's final answer, and from here it must never change again (a page
+        // already shown keeps its blocks — see SectionBlocksCache doc).
+        if (isSectionReady(section.index)) built[index] = page
+        return page
+    }
+
+    private fun buildAt(index: Int, contentIndex: Int, section: ReaderSection): PageWindow {
+        val start = contentPageStarts[contentIndex]
+        // A page ends where the next stored start is, unless that start belongs to the section
+        // after this one — then this page runs to the end of its own section instead, exactly like
+        // the per-section walk in [TextPageLayoutEngine.paginate] (no page ever spans two sections).
+        val nextStart = contentPageStarts.getOrNull(contentIndex + 1)
+        val end = if (nextStart != null && nextStart < section.range.end) nextStart else section.range.end
+        val page = buildPage(format, section, sectionBlocks(section), TextRange(start, end))
+        return page.copy(pageIndex = PageIndex(current = index, total = size))
+    }
+}
+
+/** The section whose range a stored page start falls in, found by binary search over its own list. */
+private fun List<ReaderSection>.sectionOwning(offset: Long): ReaderSection {
+    var lo = 0
+    var hi = lastIndex
+    var result = this[0]
+    while (lo <= hi) {
+        val mid = (lo + hi) / 2
+        val candidate = this[mid]
+        if (candidate.range.start <= offset) {
+            result = candidate
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return result
+}
+
 private data class PageLayout(
     val widthUnitsPerLine: Int,
     val linesPerPage: Int,
@@ -332,4 +575,5 @@ private data class PageLayout(
 private const val WideGlyphUnits = 100
 private const val NarrowGlyphUnits = 45
 
+/** Longest chapter this lays out for real. Beyond it the estimate takes over, imprecise but bounded. */
 private const val MaxMeasuredContentLengthChars = 200_000

@@ -2,15 +2,19 @@ package com.tedd.teddreader.core.data.pagination
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
+import com.tedd.teddreader.core.common.model.ReaderSpan
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.blocksIn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -490,4 +494,261 @@ class TextPageLayoutEngineTest {
         assertEquals(listOf(blocks[1], blocks[2]), pages[1].blocks)
     }
 
+    @Test
+    fun reconstructFromStoredStartsMatchesMeasuredPaginateExactly() {
+        // A cover section that is a single image, then two ordinary chapters — the shape a stored
+        // layout has to survive: a cover page rebuilt fresh, and content pages rebuilt purely from the
+        // absolute offsets a real measurement produced earlier.
+        val document = ReaderDocument(
+            id = DocumentId("epub-reconstruct"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "abcdef", range = TextRange(2, 8), title = "Chapter 1"),
+                ReaderSection(2, text = "ghijklmno", range = TextRange(9, 18), title = "Chapter 2"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(2, 8)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(9, 18)),
+            ),
+        )
+        // Stands in for the reader's own text layout: a page break every 3 characters of whichever
+        // section is being measured.
+        val breaker = ReaderPageBreaker { measured, _ ->
+            IntArray((measured.length + 2) / 3) { page -> page * 3 }
+        }
+
+        val measuredPages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = breaker,
+        )
+        // The cover page is never stored — it is always rebuilt the same way, with no measurement.
+        val contentPageStarts = measuredPages.drop(1).map { it.textRange!!.start }.toLongArray()
+
+        val reconstructedPages = engine.reconstruct(document, contentPageStarts)
+
+        assertEquals(measuredPages, reconstructedPages)
+    }
+
+    @Test
+    fun reconstructOnlyDecodesSectionsItsRequestedPagesTouch() {
+        // Three ordinary chapters, no cover, one page per chapter — enough sections that reading one
+        // page must not decode the others.
+        val document = ReaderDocument(
+            id = DocumentId("epub-lazy-sections"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = "aaa", range = TextRange(0, 3), title = "Chapter 1"),
+                ReaderSection(1, text = "bbb", range = TextRange(4, 7), title = "Chapter 2"),
+                ReaderSection(2, text = "ccc", range = TextRange(8, 11), title = "Chapter 3"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 3)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(4, 7)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(8, 11)),
+            ),
+        )
+        val contentPageStarts = longArrayOf(0L, 4L, 8L)
+        val decodedSections = mutableSetOf<Int>()
+        // Named: reconstruct's trailing parameter is the readiness predicate, so an unnamed lambda
+        // would bind there instead of to the block lookup this test is watching.
+        val windows = engine.reconstruct(
+            document = document,
+            contentPageStarts = contentPageStarts,
+            sectionBlocks = { section ->
+                decodedSections += section.index
+                document.blocks.blocksIn(section.range.start, section.range.end)
+            },
+        )
+
+        // Finding a cover always checks the first section — nothing else has been asked for yet.
+        assertEquals(setOf(0), decodedSections, "constructing the list must not decode beyond cover detection")
+
+        windows[2]
+        assertEquals(setOf(0, 2), decodedSections, "chapter 2 was never asked for and must stay undecoded")
+    }
+
+    // --- Step 10: section-relative block storage ---
+    //
+    // SectionBlocksCache.blocksFor now hands paginate()/reconstruct() blocks already shifted to their
+    // own section's start (see DocumentRepositoryImpl.persistParsedDocument), not absolute document
+    // offsets. These are the tests that had to fail against the pre-change code: sectionPageRanges used
+    // to rebase its sectionBlocks argument itself, on the assumption it was always absolute — fed a
+    // block that was already section-relative, it rebased a second time and corrupted it.
+
+    @Test
+    fun paginateReturnsAbsoluteBlockRangesEvenWhenSectionBlocksArriveSectionRelative() {
+        // Section 1 sits at a non-zero absolute start (6), unlike a cover section — which always sits
+        // at 0, the one place a forgotten un-rebase would still look correct by accident. A page's
+        // blocks have to stay absolute regardless: ReaderSemanticText locates a block within page.text
+        // by subtracting page.textRange.start (absolute) from block.range.start.
+        val document = ReaderDocument(
+            id = DocumentId("relative-input-absolute-output"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = "intro", range = TextRange(0, 5), title = "Intro"),
+                ReaderSection(1, text = "plain bold text", range = TextRange(6, 21), title = "Body"),
+            ),
+        )
+        val sectionRelativeBlocks = mapOf(
+            0 to listOf(ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 5))),
+            1 to listOf(
+                ReaderBlock(
+                    kind = ReaderBlockKind.PARAGRAPH,
+                    range = TextRange(0, 15),
+                    spans = listOf(ReaderSpan(range = TextRange(6, 10), style = ReaderInlineStyle.BOLD)),
+                ),
+            ),
+        )
+
+        val pages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = ReaderPageBreaker { _, _ -> intArrayOf(0) },
+        ) { section -> sectionRelativeBlocks.getValue(section.index) }
+
+        val bodyPage = pages.single { it.text == "plain bold text" }
+        val bodyBlock = bodyPage.blocks.single()
+        assertEquals(TextRange(6, 21), bodyBlock.range, "a page's blocks must stay absolute even when fed section-relative input")
+        assertEquals(TextRange(12, 16), bodyBlock.spans.single().range, "a span has to shift with its block, not stay behind")
+    }
+
+    @Test
+    fun paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
+        // The default path (no explicit sectionBlocks lambda) groups document.blocks, which a fresh
+        // parse still hands over absolute, once per section. The cache-backed path a stored book takes
+        // now hands over blocks already section-relative. Both must produce the exact same pages —
+        // cover section included, since it is exactly the case that can look right for the wrong reason.
+        val document = ReaderDocument(
+            id = DocumentId("relative-vs-default"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "chapter one text", range = TextRange(2, 18), title = "Chapter 1"),
+                ReaderSection(2, text = "chapter two text", range = TextRange(19, 35), title = "Chapter 2"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.HEADING, level = 1, range = TextRange(2, 11)),
+                ReaderBlock(kind = ReaderBlockKind.HEADING, level = 1, range = TextRange(19, 28)),
+            ),
+        )
+        val style = ReaderStyle(fontSizeSp = 20f)
+        val viewportSize = ViewportSize(widthPx = 400, heightPx = 400)
+
+        val defaultPages = engine.paginate(document = document, style = style, viewportSize = viewportSize)
+
+        val relativeBySection = mapOf(
+            0 to listOf(ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg")),
+            1 to listOf(ReaderBlock(kind = ReaderBlockKind.HEADING, level = 1, range = TextRange(0, 9))),
+            2 to listOf(ReaderBlock(kind = ReaderBlockKind.HEADING, level = 1, range = TextRange(0, 9))),
+        )
+        val relativePages = engine.paginate(
+            document = document,
+            style = style,
+            viewportSize = viewportSize,
+        ) { section -> relativeBySection.getValue(section.index) }
+
+        assertEquals(defaultPages, relativePages)
+    }
+
+    @Test
+    fun reconstructProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
+        val document = ReaderDocument(
+            id = DocumentId("reconstruct-relative-vs-default"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "abcdef", range = TextRange(2, 8), title = "Chapter 1"),
+                ReaderSection(2, text = "ghijklmno", range = TextRange(9, 18), title = "Chapter 2"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(2, 8)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(9, 18)),
+            ),
+        )
+        val contentPageStarts = longArrayOf(2L, 5L, 9L, 14L)
+
+        val defaultReconstructed = engine.reconstruct(document, contentPageStarts)
+
+        val relativeBySection = mapOf(
+            0 to listOf(ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg")),
+            1 to listOf(ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 6))),
+            2 to listOf(ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 9))),
+        )
+        val relativeReconstructed = engine.reconstruct(
+            document = document,
+            contentPageStarts = contentPageStarts,
+            sectionBlocks = { section -> relativeBySection.getValue(section.index) },
+        )
+
+        assertEquals(defaultReconstructed, relativeReconstructed)
+    }
+
+    @Test
+    fun reconstructTotalPageCountAndOffsetLookupMatchMeasuredPagination() {
+        val document = ReaderDocument(
+            id = DocumentId("epub-reconstruct-lookup"),
+            format = DocumentFormat.EPUB,
+            title = "Book",
+            sections = listOf(
+                ReaderSection(0, text = " ", range = TextRange(0, 1), title = "Cover"),
+                ReaderSection(1, text = "abcdef", range = TextRange(2, 8), title = "Chapter 1"),
+                ReaderSection(2, text = "ghijklmno", range = TextRange(9, 18), title = "Chapter 2"),
+            ),
+            blocks = listOf(
+                ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = TextRange(0, 1), imageHref = "cover.jpg"),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(2, 8)),
+                ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(9, 18)),
+            ),
+        )
+        val breaker = ReaderPageBreaker { measured, _ ->
+            IntArray((measured.length + 2) / 3) { page -> page * 3 }
+        }
+        val measuredPages = engine.paginate(
+            document = document,
+            style = ReaderStyle(fontSizeSp = 20f),
+            viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+            pageBreaker = breaker,
+        )
+        val contentPageStarts = measuredPages.drop(1).map { it.textRange!!.start }.toLongArray()
+
+        val windows = engine.reconstruct(document, contentPageStarts)
+
+        assertEquals(measuredPages.size, windows.size, "restoring from stored boundaries must not change the page count")
+        for (offset in 0L until 18L) {
+            val expected = measuredPages.indexOfFirst { page ->
+                val range = page.textRange!!
+                offset >= range.start && offset < range.end
+            }.takeIf { it >= 0 }
+            // Same binary search ReaderViewModel.pageOfOffset runs against pageWindows.
+            assertEquals(expected, windows.pageOfOffset(offset), "offset $offset landed on a different page after reconstruct")
+        }
+    }
+
+}
+
+private fun List<PageWindow>.pageOfOffset(offset: Long): Int? {
+    var low = 0
+    var high = lastIndex
+    while (low <= high) {
+        val mid = (low + high) / 2
+        val range = this[mid].textRange ?: return null
+        when {
+            offset < range.start -> high = mid - 1
+            offset >= range.end -> low = mid + 1
+            else -> return mid
+        }
+    }
+    return null
 }

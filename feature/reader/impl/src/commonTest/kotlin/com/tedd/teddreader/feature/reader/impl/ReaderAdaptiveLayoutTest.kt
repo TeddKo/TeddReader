@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.ui.system.DisplayFold
+import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -43,7 +44,7 @@ class ReaderAdaptiveLayoutTest {
         val state = ReaderUiState(
             previousPage = ReaderPageUi(page = 1, text = "previous"),
             currentPage = ReaderPageUi(page = 2, text = "legacy"),
-            pageSlots = listOf(ReaderPageUi(page = 2, text = "window")),
+            pageSlots = persistentListOf(ReaderPageUi(page = 2, text = "window")),
         )
 
         assertEquals("window", state.pageSlot(2)?.text)

@@ -2,6 +2,8 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
+import com.tedd.teddreader.core.common.model.ReaderBlockStyle
+import com.tedd.teddreader.core.common.model.ReaderFontFamily
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderObjectReplacementChar
 import com.tedd.teddreader.core.common.model.ReaderSpan
@@ -39,11 +41,13 @@ internal fun parseXhtmlContent(
     baseOffset: Long = 0L,
     resolveImageHref: (String) -> String? = { it },
     styleSheet: EpubStyleSheet = EpubStyleSheet(),
+    css: EpubCss = EpubCss.Empty,
 ): XhtmlContent {
     val builder = XhtmlContentBuilder(
         baseOffset = baseOffset,
         resolveImageHref = resolveImageHref,
         styleSheet = styleSheet,
+        css = css,
     )
     var index = 0
     while (index < xhtml.length) {
@@ -119,12 +123,15 @@ private fun parseTagAttributes(body: String): Map<String, String> =
         match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
     }
 
-private class OpenElement(val name: String, val classNames: List<String>)
+private class OpenElement(val name: String, val classNames: List<String>, val id: String?) {
+    val cssElement: CssElement = CssElement(tag = name, classes = classNames.toSet(), id = id)
+}
 
 private class XhtmlContentBuilder(
     private val baseOffset: Long,
     private val resolveImageHref: (String) -> String?,
     private val styleSheet: EpubStyleSheet,
+    private val css: EpubCss,
 ) {
     private val text = StringBuilder()
     private val blocks = mutableListOf<ReaderBlock>()
@@ -135,6 +142,8 @@ private class XhtmlContentBuilder(
     private var blockLevel = 0
     private var blockAlign: ReaderTextAlign? = null
     private var blockLabel: String? = null
+    private var blockStyle: ReaderBlockStyle? = null
+    private var blockSeparatesWithBlankLine = true
     private var blockTableRow: Int? = null
     private var blockTableColumn: Int? = null
     private val blockSpans = mutableListOf<ReaderSpan>()
@@ -211,13 +220,13 @@ private class XhtmlContentBuilder(
 
             "ol", "ul" -> {
                 lists += ListContext(isOrdered = tag.name == "ol", nextOrdinal = tag.attributes.startOrdinal())
-                openBlocks += OpenElement(tag.name, tag.classNames())
+                openBlocks += OpenElement(tag.name, tag.classNames(), tag.attributes["id"])
                 return
             }
 
             "table" -> {
                 tables += TableContext()
-                openBlocks += OpenElement(tag.name, tag.classNames())
+                openBlocks += OpenElement(tag.name, tag.classNames(), tag.attributes["id"])
                 return
             }
 
@@ -226,7 +235,7 @@ private class XhtmlContentBuilder(
                     table.rowIndex += 1
                     table.columnIndex = -1
                 }
-                openBlocks += OpenElement(tag.name, tag.classNames())
+                openBlocks += OpenElement(tag.name, tag.classNames(), tag.attributes["id"])
                 return
             }
         }
@@ -247,19 +256,25 @@ private class XhtmlContentBuilder(
         }
 
         val kind = BlockKinds[tag.name] ?: run {
-            if (tag.name in NeutralContainers) openBlocks += OpenElement(tag.name, tag.classNames())
+            if (tag.name in NeutralContainers) openBlocks += OpenElement(tag.name, tag.classNames(), tag.attributes["id"])
             return
         }
 
         flushBlock()
-        openBlocks += OpenElement(tag.name, tag.classNames())
+        openBlocks += OpenElement(tag.name, tag.classNames(), tag.attributes["id"])
+        // What the book's own stylesheet makes of this element, its ancestors included, so an
+        // inherited `text-align` on a wrapper reaches the paragraph inside it.
+        val declarations = css.declarationsFor(openBlocks.map(OpenElement::cssElement))
+        blockStyle = declarations.toReaderBlockStyle()
+        blockSeparatesWithBlankLine = declarations.separatesParagraphs()
         blockKind = kind
         blockLevel = when {
             kind == ReaderBlockKind.HEADING -> tag.name.removePrefix("h").toIntOrNull() ?: 1
             kind == ReaderBlockKind.LIST_ITEM -> lists.size.coerceAtLeast(1)
             else -> 0
         }
-        blockAlign = tag.attributes.textAlign()
+        // Markup written on the element wins over the stylesheet, as an inline style does.
+        blockAlign = tag.attributes.textAlign() ?: declarations.textAlign?.toReaderTextAlign()
         blockLabel = null
         if (kind == ReaderBlockKind.LIST_ITEM) {
             lists.lastOrNull()?.let { list ->
@@ -407,6 +422,7 @@ private class XhtmlContentBuilder(
 
     private fun flushBlock() {
         val start = blockStart
+        val separatesWithBlankLine = blockSeparatesWithBlankLine
         pendingSpace = false
         resetOpenSpans()
         val imageCount = blockImageCount
@@ -441,10 +457,15 @@ private class XhtmlContentBuilder(
             label = blockLabel,
             tableRow = blockTableRow,
             tableColumn = blockTableColumn,
+            style = blockStyle?.takeIf { !it.isEmpty() },
         )
         blockSpans.clear()
         resetBlockAttributes()
-        text.append("\n\n")
+        // A blank line is how one paragraph is told from the next here, and it reads as the margin
+        // between them. A book that sets `margin: 0` is asking for paragraphs that touch — its own
+        // indent is what separates them — and giving those a blank line each spread the page out to
+        // roughly twice the length the book intended.
+        text.append(if (separatesWithBlankLine) "\n\n" else "\n")
     }
 
     private fun resetOpenSpans() {
@@ -469,6 +490,8 @@ private class XhtmlContentBuilder(
         blockLabel = null
         blockTableRow = null
         blockTableColumn = null
+        blockStyle = null
+        blockSeparatesWithBlankLine = true
     }
 }
 
@@ -654,3 +677,73 @@ private val NamedEntities: Map<String, String> = mapOf(
     "iexcl" to "¡", "iquest" to "¿", "ordf" to "ª", "ordm" to "º", "not" to "¬",
     "brvbar" to "¦", "uml" to "¨", "macr" to "¯", "acute" to "´", "cedil" to "¸",
 )
+
+/** What of a rule this renderer can actually draw, in units relative to the reader's own type. */
+private fun CssDeclarations.toReaderBlockStyle(): ReaderBlockStyle = ReaderBlockStyle(
+    fontScale = fontSize?.toScale(),
+    bold = fontWeight?.toBoldOrNull(),
+    italic = fontStyle?.let { it == "italic" || it == "oblique" },
+    fontFamily = fontFamily?.toReaderFontFamily(),
+    lineHeightScale = lineHeight?.toScale(),
+    textIndentEm = textIndent?.toEmOrNull(),
+)
+
+/** A size relative to the reader's own type; an absolute one is read against a 16px default. */
+private fun CssLength.toScale(): Float? = when (this) {
+    is CssLength.Em -> value.takeIf { it > 0f }
+    is CssLength.Percent -> fraction.takeIf { it > 0f }
+    is CssLength.Px -> (value / CssDefaultFontPx).takeIf { it > 0f }
+}
+
+private fun CssLength.toEmOrNull(): Float? = when (this) {
+    is CssLength.Em -> value
+    is CssLength.Percent -> fraction
+    is CssLength.Px -> value / CssDefaultFontPx
+}
+
+private fun String.toBoldOrNull(): Boolean? = when {
+    this == "bold" || this == "bolder" -> true
+    this == "normal" || this == "lighter" -> false
+    // A numeric weight is bold from 600 up, which is where the CSS scale puts semi-bold.
+    toIntOrNull() != null -> toInt() >= BoldWeightThreshold
+    else -> null
+}
+
+/**
+ * The generic family a declaration asks for. A book naming its own bundled face gets the reader's
+ * font instead: that face is not installed here, and guessing a substitute would change the page for
+ * no reason the reader asked for.
+ */
+private fun String.toReaderFontFamily(): ReaderFontFamily? = when {
+    contains("monospace") || contains("courier") -> ReaderFontFamily.MONOSPACE
+    contains("sans-serif") -> ReaderFontFamily.SANS_SERIF
+    contains("serif") -> ReaderFontFamily.SERIF
+    else -> null
+}
+
+private fun String.toReaderTextAlign(): ReaderTextAlign? = when (this) {
+    "center" -> ReaderTextAlign.CENTER
+    "right", "end" -> ReaderTextAlign.END
+    "justify" -> ReaderTextAlign.JUSTIFY
+    "left", "start" -> ReaderTextAlign.START
+    else -> null
+}
+
+private const val CssDefaultFontPx = 16f
+private const val BoldWeightThreshold = 600
+
+/**
+ * Whether a blank line belongs after this block.
+ *
+ * `margin: 0` on a paragraph means paragraphs run on with no gap between them, which is the classic
+ * indented-prose setting these books use. Anything else — a margin the book states, or a margin it
+ * leaves to the default — keeps the gap.
+ */
+private fun CssDeclarations.separatesParagraphs(): Boolean {
+    val bottom = marginBottom ?: return true
+    return when (bottom) {
+        is CssLength.Em -> bottom.value > 0f
+        is CssLength.Percent -> bottom.fraction > 0f
+        is CssLength.Px -> bottom.value > 0f
+    }
+}

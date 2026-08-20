@@ -191,6 +191,36 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun coverAppearsOnceTheImportFinishesWithoutRestartingTheApp() = runTest {
+        // A progressively imported document shows up in the library before its cover has been written,
+        // so the first request comes back empty. Remembering that answer left the card blank until the
+        // process was restarted, which is exactly what a reader saw after adding a book.
+        val repository = FakeDocumentRepository()
+        repository.coverAvailable = false
+        val importing = repository.documents.value.map { document ->
+            if (document.id == repository.documentId) document.copy(characterCount = null) else document
+        }
+        repository.emitDocuments(importing)
+        val viewModel = HomeViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.documentCoverImages.containsKey(repository.documentId.value))
+
+        repository.coverAvailable = true
+        repository.emitDocuments(
+            importing.map { document ->
+                if (document.id == repository.documentId) document.copy(characterCount = 1_234L) else document
+            },
+        )
+        advanceUntilIdle()
+
+        assertContentEquals(
+            repository.pdfCoverBytes,
+            viewModel.uiState.value.documentCoverImages[repository.documentId.value],
+        )
+    }
+
+    @Test
     fun deleteRemovesLoadedCoverBytes() = runTest {
         val repository = FakeDocumentRepository()
         val viewModel = HomeViewModel(repository)
@@ -455,7 +485,7 @@ private class FakeDocumentRepository(
     val secondDocumentId = DocumentId("document-2")
     val pdfCoverBytes = byteArrayOf(1, 3, 3, 7)
     val coverRequestIds = mutableListOf<String>()
-    private val documents = MutableStateFlow(
+    val documents = MutableStateFlow(
         documents ?: buildList {
             add(
                 DocumentMetadata(
@@ -499,8 +529,15 @@ private class FakeDocumentRepository(
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
         documents.value.firstOrNull { it.id == documentId }
 
+    var coverAvailable: Boolean = true
+
+    fun emitDocuments(next: List<DocumentMetadata>) {
+        documents.value = next
+    }
+
     override suspend fun getDocumentCover(documentId: DocumentId): ByteArray? {
         coverRequestIds += documentId.value
+        if (!coverAvailable) return null
         return if (documentId == this.documentId) pdfCoverBytes else null
     }
 
@@ -509,8 +546,9 @@ private class FakeDocumentRepository(
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
-        viewportSize: ViewportSize,
+        viewportSize: ViewportSize?,
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
+        anchorOffset: Long?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(
@@ -573,8 +611,9 @@ private class SuspendingCoverDocumentRepository : DocumentRepository {
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
-        viewportSize: ViewportSize,
+        viewportSize: ViewportSize?,
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
+        anchorOffset: Long?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(

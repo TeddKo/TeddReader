@@ -6,6 +6,8 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.usecase.FindInDocumentUseCase
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -24,7 +26,7 @@ class SearchViewModel(
         _uiState.update {
             it.copy(
                 documentId = documentId,
-                results = emptyList(),
+                results = persistentListOf(),
                 errorMessage = null,
                 isSearchUnsupported = false,
             )
@@ -53,7 +55,7 @@ class SearchViewModel(
     fun search() {
         val state = _uiState.value
         if (state.query.isBlank()) {
-            _uiState.update { it.copy(results = emptyList(), errorMessage = null) }
+            _uiState.update { it.copy(results = persistentListOf(), errorMessage = null) }
             return
         }
 
@@ -82,7 +84,7 @@ class SearchViewModel(
             if (metadata?.format?.isVisualPageFormat() == true) {
                 _uiState.update {
                     it.copy(
-                        results = emptyList(),
+                        results = persistentListOf(),
                         isLoading = false,
                         isSearchUnsupported = true,
                     )
@@ -95,7 +97,7 @@ class SearchViewModel(
             }.onSuccess { results ->
                 _uiState.update {
                     it.copy(
-                        results = results,
+                        results = results.toImmutableList(),
                         isLoading = false,
                         isSearchUnsupported = false,
                     )

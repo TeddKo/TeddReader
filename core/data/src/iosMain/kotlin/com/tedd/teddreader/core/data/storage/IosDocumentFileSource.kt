@@ -32,12 +32,14 @@ class IosDocumentFileSource : DocumentFileSource {
     }
 
     override suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation {
-        val destination = uniqueDestinationPath(location.displayName)
-        val sink = FileSystem.SYSTEM.sink(destination.toPath()).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
+        val destination = materializedPath(sourceKey = location.sourceUri, displayName = location.displayName)
+        if (fileSize(destination) != bytes.size.toLong()) {
+            val sink = FileSystem.SYSTEM.sink(destination.toPath()).buffer()
+            try {
+                sink.write(bytes)
+            } finally {
+                sink.close()
+            }
         }
         return location.copy(
             sourceUri = "file://$destination",
@@ -51,41 +53,41 @@ class IosDocumentFileSource : DocumentFileSource {
         displayName: String,
         mimeType: String? = null,
     ): DocumentLocation {
-        val data = NSData.dataWithContentsOfFile(sourcePath) ?: error("Cannot open document: $sourcePath")
-        val destination = uniqueDestinationPath(displayName)
-        check(
-            NSFileManager.defaultManager.copyItemAtPath(
-                srcPath = sourcePath,
-                toPath = destination,
-                error = null,
-            ),
-        ) { "Cannot copy document: $sourcePath" }
+        val destination = materializedPath(sourceKey = sourcePath, displayName = displayName)
+        // The copy this document already has, when it has one — reopening the same book from another app
+        // used to write the whole thing again beside the first copy (see materializedDocumentFileName).
+        // Asking the filesystem for its size, rather than reading it to measure it, is what keeps even
+        // that first copy from being read twice.
+        if (fileSize(destination) <= 0L) {
+            check(
+                NSFileManager.defaultManager.copyItemAtPath(
+                    srcPath = sourcePath,
+                    toPath = destination,
+                    error = null,
+                ),
+            ) { "Cannot copy document: $sourcePath" }
+        }
         return DocumentLocation(
             sourceUri = "file://$destination",
             displayName = displayName,
             mimeType = mimeType,
-            sizeBytes = data.length.toLong(),
+            sizeBytes = fileSize(destination),
         )
     }
 
-    private fun uniqueDestinationPath(displayName: String): String {
-        val directory = "${NSHomeDirectory()}/Documents"
-        val safeDisplayName = displayName
-            .substringAfterLast('/')
-            .substringAfterLast('\\')
-            .takeUnless { it.isBlank() || it == "." || it == ".." }
-            ?: "document"
-        val dotIndex = safeDisplayName.lastIndexOf('.')
-        val name = if (dotIndex > 0) safeDisplayName.substring(0, dotIndex) else safeDisplayName
-        val extension = if (dotIndex > 0) safeDisplayName.substring(dotIndex) else ""
-        var candidate = "$directory/$safeDisplayName"
-        var suffix = 2
-        while (NSFileManager.defaultManager.fileExistsAtPath(candidate)) {
-            candidate = "$directory/$name-$suffix$extension"
-            suffix += 1
-        }
-        return candidate
-    }
+    override fun appPrivateDirectory(): okio.Path =
+        // Caches, not Documents: a cover is cheaply rebuilt from the book's own bytes on a cache miss
+        // (see DocumentRepositoryImpl.getDocumentCover), so unlike the reading database
+        // (TeddReaderDatabaseBuilder.ios.kt, which does use Documents) it has no reason to be backed up
+        // to iCloud or to show up in the on-device Files app.
+        "${NSHomeDirectory()}/Library/Caches".toPath()
+
+    private fun materializedPath(sourceKey: String, displayName: String): String =
+        "${NSHomeDirectory()}/Documents/${materializedDocumentFileName(sourceKey, displayName)}"
+
+    /** 0 for a path nothing is stored at, so "no copy yet" and "an empty copy" read the same. */
+    private fun fileSize(path: String): Long =
+        FileSystem.SYSTEM.metadataOrNull(path.toPath())?.size ?: 0L
 }
 
 @OptIn(ExperimentalForeignApi::class)

@@ -12,6 +12,7 @@ local.properties
 .vscode/
 
 # Signing material and credentials — never commit these
+.signing/
 *.jks
 *.keystore
 keystore.properties

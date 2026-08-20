@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.BookmarkRepository
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +38,7 @@ class BookmarksViewModel(
                     }
                 }
                 .collect { bookmarks ->
-                    _uiState.update { it.copy(bookmarks = bookmarks, isLoading = false) }
+                    _uiState.update { it.copy(bookmarks = bookmarks.toImmutableList(), isLoading = false) }
                 }
         }
     }

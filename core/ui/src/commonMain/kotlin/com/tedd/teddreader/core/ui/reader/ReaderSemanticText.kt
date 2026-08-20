@@ -15,6 +15,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.em
+import com.tedd.teddreader.core.common.model.ReaderFontFamily
+import androidx.compose.ui.unit.TextUnit
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
@@ -144,7 +146,8 @@ fun buildReaderSemanticText(
         if (blockEnd <= blockStart) return@forEach
 
         blockSpanStyle(block.block)?.let { spans += (blockStart until blockEnd) to it }
-        blockParagraphStyle(block.block)?.let { paragraphs += (blockStart until blockEnd) to it }
+        blockParagraphStyle(block.block, indentsFirstLine = block.includesStart)
+            ?.let { paragraphs += (blockStart until blockEnd) to it }
 
         block.block.spans.forEach { span ->
             val start = (span.range.start - range.start).toInt().coerceIn(0, localLength)
@@ -235,24 +238,70 @@ fun ReaderSemanticText.sourceOffsetFor(displayIndex: Int): Int =
 
 private fun blockPrefix(block: ReaderBlock): String = when (block.kind) {
     ReaderBlockKind.QUOTE -> "│ "
+    // A heading carries a bar, the way a pull quote does, and its level shows in the weight of that
+    // bar and the size of the type beside it. A book that centres or right-aligns its own headings is
+    // already setting them apart, and a bar dragged along into the middle of the line only clutters
+    // what the book had arranged.
+    ReaderBlockKind.HEADING -> if (block.setsItsOwnHeadingApart()) {
+        ""
+    } else {
+        "${if (block.level <= HeavyHeadingBarMaxLevel) "▌" else "▏"} "
+    }
     ReaderBlockKind.LIST_ITEM -> "${"  ".repeat((block.level - 1).coerceAtLeast(0))}${block.label ?: "•"} "
     else -> ""
 }
 
-private fun blockSpanStyle(block: ReaderBlock): SpanStyle? = when (block.kind) {
-    ReaderBlockKind.HEADING -> SpanStyle(
-        fontWeight = FontWeight.Bold,
-        fontSize = headingScale(block.level).em,
+/** Below this level the bar thins, so a sub-heading reads as subordinate to the chapter title. */
+private const val HeavyHeadingBarMaxLevel = 2
+
+/** True when the book aligns this heading itself, which already marks it off from the prose. */
+private fun ReaderBlock.setsItsOwnHeadingApart(): Boolean =
+    align == ReaderTextAlign.CENTER || align == ReaderTextAlign.END
+
+private fun blockSpanStyle(block: ReaderBlock): SpanStyle? {
+    val kindStyle = when (block.kind) {
+        ReaderBlockKind.HEADING -> SpanStyle(
+            fontWeight = FontWeight.Bold,
+            fontSize = headingScale(block.level).em,
+        )
+        ReaderBlockKind.QUOTE -> SpanStyle(fontStyle = FontStyle.Italic)
+        ReaderBlockKind.PREFORMATTED -> SpanStyle(fontFamily = FontFamily.Monospace)
+        ReaderBlockKind.TABLE_HEADER_CELL -> SpanStyle(fontWeight = FontWeight.SemiBold)
+        else -> null
+    }
+    // What the book itself says wins over the default this reader gives the kind: a stylesheet
+    // setting `h1{font-size:1.4em}` means that heading is 1.4em, not whatever was assumed for it.
+    val bookStyle = block.style ?: return kindStyle
+    val merged = SpanStyle(
+        fontWeight = bookStyle.bold?.let { if (it) FontWeight.Bold else FontWeight.Normal }
+            ?: kindStyle?.fontWeight,
+        fontStyle = bookStyle.italic?.let { if (it) FontStyle.Italic else FontStyle.Normal }
+            ?: kindStyle?.fontStyle,
+        fontSize = bookStyle.fontScale?.em ?: kindStyle?.fontSize ?: TextUnit.Unspecified,
+        fontFamily = bookStyle.fontFamily?.toComposeFontFamily() ?: kindStyle?.fontFamily,
     )
-    ReaderBlockKind.QUOTE -> SpanStyle(fontStyle = FontStyle.Italic)
-    ReaderBlockKind.PREFORMATTED -> SpanStyle(fontFamily = FontFamily.Monospace)
-    ReaderBlockKind.TABLE_HEADER_CELL -> SpanStyle(fontWeight = FontWeight.SemiBold)
-    else -> null
+    return merged.takeIf { it != EmptySpanStyle }
 }
 
-private fun blockParagraphStyle(block: ReaderBlock): ParagraphStyle? {
+private val EmptySpanStyle = SpanStyle()
+
+private fun ReaderFontFamily.toComposeFontFamily(): FontFamily = when (this) {
+    ReaderFontFamily.SERIF -> FontFamily.Serif
+    ReaderFontFamily.SANS_SERIF -> FontFamily.SansSerif
+    ReaderFontFamily.MONOSPACE -> FontFamily.Monospace
+}
+
+/**
+ * [indentsFirstLine] is false for a paragraph that began on an earlier page. Its opening line here is
+ * the middle of a paragraph, so it takes no first-line indent — pagination measured it as a middle
+ * line, and indenting it on the page costs a line's worth of room that the page does not have, which
+ * pushed the last line off the bottom.
+ */
+private fun blockParagraphStyle(block: ReaderBlock, indentsFirstLine: Boolean = true): ParagraphStyle? {
     val indent = when (block.kind) {
-        ReaderBlockKind.QUOTE -> 1.25.em
+        ReaderBlockKind.QUOTE,
+        ReaderBlockKind.HEADING,
+            -> 1.25.em
         ReaderBlockKind.LIST_ITEM -> (block.level.coerceAtLeast(1) * 1.25).em
         ReaderBlockKind.TABLE_HEADER_CELL,
         ReaderBlockKind.TABLE_CELL,
@@ -264,14 +313,22 @@ private fun blockParagraphStyle(block: ReaderBlock): ParagraphStyle? {
         ReaderTextAlign.END -> TextAlign.End
         ReaderTextAlign.JUSTIFY -> TextAlign.Justify
         ReaderTextAlign.START -> TextAlign.Start
-        // A heading the book does not align itself is centred: it is the chapter title, and
-        // pagination starts each chapter on a fresh page, so this is the line at the top of it.
-        null -> TextAlign.Center.takeIf { block.kind == ReaderBlockKind.HEADING }
+        // A heading the book does not align itself is set flush left like the prose under it. Its bar
+        // is what marks it, and a centred title wandered away from that bar as the title got longer.
+        null -> null
     }
-    if (indent == null && align == null) return null
+    // A book's own first-line indent replaces the reader's default for that block.
+    val bookIndent = block.style?.textIndentEm?.takeIf { indentsFirstLine }?.em
+    val lineHeight = block.style?.lineHeightScale?.em ?: TextUnit.Unspecified
+    if (indent == null && align == null && bookIndent == null && lineHeight == TextUnit.Unspecified) return null
     return ParagraphStyle(
         textAlign = align ?: TextAlign.Unspecified,
-        textIndent = indent?.let { TextIndent(firstLine = it, restLine = it) } ?: TextIndent(),
+        textIndent = when {
+            bookIndent != null -> TextIndent(firstLine = bookIndent)
+            indent != null -> TextIndent(firstLine = indent, restLine = indent)
+            else -> TextIndent()
+        },
+        lineHeight = lineHeight,
     )
 }
 
@@ -320,6 +377,7 @@ private fun placeholderFor(
     }
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }
+
 
 private const val DefaultImageWidthEm = 20f
 private const val DefaultImageMaxHeightEm = 26f

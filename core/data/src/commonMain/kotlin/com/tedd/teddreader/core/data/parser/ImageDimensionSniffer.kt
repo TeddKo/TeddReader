@@ -3,10 +3,62 @@ package com.tedd.teddreader.core.data.parser
 /**
  * Reads the true pixel width/height straight out of an image's own binary header, the same way any
  * real image decoder would, rather than guessing an aspect ratio. Supports the formats EPUB packages
- * actually ship: PNG, JPEG, GIF and WebP. Returns null for anything else or a truncated/corrupt file.
+ * actually ship: PNG, JPEG, GIF, WebP, BMP and SVG. Returns null for anything else or a
+ * truncated/corrupt file.
  */
 internal fun sniffImageDimensions(bytes: ByteArray): Pair<Int, Int>? =
-    sniffPng(bytes) ?: sniffGif(bytes) ?: sniffWebp(bytes) ?: sniffJpeg(bytes)
+    sniffPng(bytes) ?: sniffGif(bytes) ?: sniffWebp(bytes) ?: sniffBmp(bytes) ?: sniffJpeg(bytes)
+        ?: sniffSvg(bytes)
+
+private fun sniffBmp(bytes: ByteArray): Pair<Int, Int>? {
+    if (bytes.size < 26 || bytes[0] != 0x42.toByte() || bytes[1] != 0x4D.toByte()) return null
+    // BITMAPINFOHEADER; the height is signed, and negative only means the rows are stored top-down.
+    val width = bytes.readInt32LE(18)
+    val height = bytes.readInt32LE(22)
+    return dimensionsOrNull(width, if (height < 0) -height else height)
+}
+
+/**
+ * Size of an SVG, which EPUBs use for plates and covers far more often than any raster format — a book
+ * that wraps its illustrations this way had no measurable picture at all, so every one of them claimed
+ * a whole page. `viewBox` is read first because that is what actually sets the proportions; a
+ * percentage width states nothing about them and is skipped.
+ */
+private fun sniffSvg(bytes: ByteArray): Pair<Int, Int>? {
+    val header = bytes.decodeToString(endIndex = bytes.size.coerceAtMost(SvgHeaderChars))
+    val openTag = SvgOpenTagRegex.find(header)?.value ?: return null
+
+    SvgViewBoxRegex.find(openTag)?.groupValues?.get(1)?.let { viewBox ->
+        val numbers = viewBox.trim().split(SvgSeparatorRegex).mapNotNull(String::toFloatOrNull)
+        if (numbers.size >= 4 && numbers[2] > 0f && numbers[3] > 0f) {
+            return roundedDimensions(numbers[2], numbers[3])
+        }
+    }
+
+    val width = SvgWidthRegex.find(openTag)?.groupValues?.get(1)?.toSvgLength()
+    val height = SvgHeightRegex.find(openTag)?.groupValues?.get(1)?.toSvgLength()
+    if (width != null && height != null) return roundedDimensions(width, height)
+    return null
+}
+
+/** An SVG length in a unit that still resolves to a fixed size; a percentage does not. */
+private fun String.toSvgLength(): Float? {
+    val value = trim().removeSuffix("px").trim()
+    if (value.isEmpty() || value.endsWith("%")) return null
+    return value.toFloatOrNull()?.takeIf { it > 0f }
+}
+
+private fun roundedDimensions(width: Float, height: Float): Pair<Int, Int>? = dimensionsOrNull(
+    (width + 0.5f).toInt().coerceAtLeast(1),
+    (height + 0.5f).toInt().coerceAtLeast(1),
+)
+
+private const val SvgHeaderChars = 4096
+private val SvgOpenTagRegex = Regex("""<svg\b[^>]*>""", RegexOption.IGNORE_CASE)
+private val SvgViewBoxRegex = Regex("""viewBox\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+private val SvgWidthRegex = Regex("""\bwidth\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+private val SvgHeightRegex = Regex("""\bheight\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+private val SvgSeparatorRegex = Regex("""[\s,]+""")
 
 private fun sniffPng(bytes: ByteArray): Pair<Int, Int>? {
     val signature = byteArrayOf(

@@ -69,13 +69,25 @@ class ReaderImageSizeTest {
     }
 
     @Test
-    fun anImageNeverClaimsTheWholePage() {
-        // No aspect ratio is known, so the box falls back to the page — but still not all of it.
+    fun anImageWithUnreadableProportionsIsSquaredOffRatherThanGivenThePage() {
+        // Nothing states this picture's proportions, so its box is square. Handing it the page
+        // instead strands a small illustration in a screenful of blank space and pushes the text
+        // around it off the page — and the picture keeps its true shape when it is drawn anyway.
         val size = imageBlock()
             .readerImageSize(columnWidthEm = 20f, maxHeightEm = 30f, emInPx = 22f)
 
         assertTrue(size.heightEm < 30f, "an image must leave room on the page, was ${size.heightEm}")
-        assertClose(28.5f, size.heightEm)
+        assertClose(20f, size.widthEm)
+        assertClose(20f, size.heightEm)
+    }
+
+    @Test
+    fun anUnmeasurableImageStillShrinksToFitAShortPage() {
+        val size = imageBlock()
+            .readerImageSize(columnWidthEm = 20f, maxHeightEm = 10f, emInPx = 22f)
+
+        // 95% of a 10em page: the square box is capped by the page just as a measured one is.
+        assertClose(9.5f, size.heightEm)
     }
 
     @Test

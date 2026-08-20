@@ -86,8 +86,9 @@ private class FakeDocumentRepository(
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
-        viewportSize: ViewportSize,
+        viewportSize: ViewportSize?,
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
+        anchorOffset: Long?,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(
@@ -103,8 +104,6 @@ private class FakeDocumentRepository(
 private class FakeSearchRepository : SearchRepository {
     var searchCount = 0
 
-    override suspend fun indexDocument(document: ReaderDocument) = Unit
-
     override suspend fun findInDocument(
         documentId: DocumentId,
         query: String,
@@ -114,5 +113,4 @@ private class FakeSearchRepository : SearchRepository {
         return emptyList()
     }
 
-    override suspend fun clearIndex(documentId: DocumentId) = Unit
 }
