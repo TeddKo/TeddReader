@@ -238,15 +238,22 @@ private class IosDocumentImporter(
         return try {
             val sourcePath = url.path ?: error("Cannot read selected iOS document path.")
             val displayName = url.lastPathComponent ?: "document"
+            val extension = url.pathExtension?.lowercase()
             val sandboxLocation = fileSource.copyIntoAppContainer(
                 sourcePath = sourcePath,
                 displayName = displayName,
-                mimeType = url.pathExtension?.lowercase()?.let(::mimeTypeForExtension),
+                mimeType = extension?.let(::mimeTypeForExtension),
             )
+            // Every format already gets stream-copied into the sandbox above; reading an EPUB fully
+            // into memory here too, just to hand those bytes to a parser that immediately opens the
+            // sandboxed copy as a zip anyway, is wasted work — DocumentRepositoryImpl's progressive
+            // import streams its own local copy from sandboxLocation instead. DocumentFormatDetector
+            // resolves the format from displayName/mimeType alone, so bytes=null costs it nothing.
+            val bytes = if (extension == "epub") null else fileSource.readBytes(sandboxLocation)
             val document = openDocumentUseCase(
                 source = DocumentImportSource(
                     location = sandboxLocation,
-                    bytes = fileSource.readBytes(sandboxLocation),
+                    bytes = bytes,
                 ),
                 openedAtEpochMillis = currentTimeMillis(),
             )

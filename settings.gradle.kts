@@ -31,6 +31,7 @@ dependencyResolutionManagement {
 includeBuild("build-logic")
 
 include(":androidApp")
+include(":baselineprofile")
 include(":app:reader")
 include(":core:common")
 include(":core:domain")

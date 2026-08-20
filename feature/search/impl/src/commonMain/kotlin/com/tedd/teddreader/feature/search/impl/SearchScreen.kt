@@ -47,6 +47,7 @@ import com.tedd.teddreader.core.ui.component.TeddSearchField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -323,7 +324,7 @@ private fun SearchScreenPreview() {
             uiState = SearchUiState(
                 documentId = "preview",
                 query = "reader",
-                results = listOf(
+                results = persistentListOf(
                     SearchResult(
                         documentId = DocumentId("preview"),
                         query = "reader",

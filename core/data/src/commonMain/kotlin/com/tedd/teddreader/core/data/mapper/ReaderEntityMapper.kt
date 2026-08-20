@@ -87,7 +87,27 @@ fun ReaderSection.toSearchIndexEntity(
     blocksJson = json.encodeToString(blocks),
     documentTitle = documentTitle,
     navigationJson = navigation?.let { json.encodeToString(it) }.orEmpty(),
+    parserVersion = CurrentReaderParserVersion,
 )
+
+/**
+ * Bumped whenever the parsers start producing something the reader needs but older stored text lacks —
+ * image proportions, stylesheet-derived block styles, pictures kept inside their sentence. Stored rows
+ * written by an earlier build are re-read from the file the next time the book is opened.
+ *
+ * Version 2 is section-relative block storage (DocumentRepositoryImpl.persistParsedDocument/
+ * importNextSections). Bumping to it was held back while `repairEpubDocument` still read the whole file
+ * and parsed every chapter before the reader could draw, because that would have handed every book
+ * already on the shelf a 20-40s wall on its next open. That path now goes through the same phased import
+ * a newly picked EPUB takes, so a book below this version shows its first chapter as fast as a fresh one
+ * and finishes in the background — which is what makes a bump cost about as little as it ever will.
+ *
+ * A repair does re-read the book's text, so character offsets can move; stored page layouts are dropped
+ * on the character-count mismatch that follows (see DocumentRepositoryImpl.restorePageWindows) and the
+ * reading position lands on the nearest page rather than the exact one. That is the price of a bump and
+ * the reason not to make one for anything the reader does not actually need.
+ */
+const val CurrentReaderParserVersion: Int = 2
 
 fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
     if (query.isEmpty()) return emptyList()

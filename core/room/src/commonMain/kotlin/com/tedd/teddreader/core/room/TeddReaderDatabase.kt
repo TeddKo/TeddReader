@@ -6,11 +6,13 @@ import androidx.room3.RoomDatabase
 import androidx.room3.RoomDatabaseConstructor
 import com.tedd.teddreader.core.room.dao.BookmarkDao
 import com.tedd.teddreader.core.room.dao.DocumentDao
+import com.tedd.teddreader.core.room.dao.PageLayoutDao
 import com.tedd.teddreader.core.room.dao.ReadingProgressDao
 import com.tedd.teddreader.core.room.dao.ReadingSessionDao
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
 import com.tedd.teddreader.core.room.entity.BookmarkEntity
 import com.tedd.teddreader.core.room.entity.DocumentEntity
+import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.ReadingProgressEntity
 import com.tedd.teddreader.core.room.entity.ReadingSessionEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
@@ -22,8 +24,9 @@ import com.tedd.teddreader.core.room.entity.SearchIndexEntity
         BookmarkEntity::class,
         ReadingSessionEntity::class,
         SearchIndexEntity::class,
+        PageLayoutEntity::class,
     ],
-    version = 5,
+    version = 8,
     exportSchema = false,
 )
 @ConstructedBy(TeddReaderDatabaseConstructor::class)
@@ -33,6 +36,7 @@ abstract class TeddReaderDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun readingSessionDao(): ReadingSessionDao
     abstract fun searchIndexDao(): SearchIndexDao
+    abstract fun pageLayoutDao(): PageLayoutDao
 }
 
 @Suppress("KotlinNoActualForExpect")

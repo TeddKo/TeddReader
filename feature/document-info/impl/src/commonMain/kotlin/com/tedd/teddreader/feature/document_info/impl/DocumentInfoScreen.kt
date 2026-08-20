@@ -47,6 +47,7 @@ import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.collections.immutable.persistentListOf
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
@@ -323,7 +324,7 @@ private fun DocumentInfoScreenPreview() {
                 ),
                 pageIndex = PageIndex(current = 3, total = 10),
                 stats = ReadingStats(documentId = DocumentId("preview"), activeMillis = 12_345L, charactersRead = 1_000L, wordsRead = 200L),
-                sessions = listOf(
+                sessions = persistentListOf(
                     com.tedd.teddreader.core.domain.repository.ReadingSession(
                         id = "session-1",
                         documentId = DocumentId("preview"),

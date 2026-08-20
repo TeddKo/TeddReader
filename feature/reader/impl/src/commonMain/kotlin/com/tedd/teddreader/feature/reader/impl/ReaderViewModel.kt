@@ -15,6 +15,7 @@ import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.layoutKey
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
@@ -26,6 +27,11 @@ import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.usecase.RestoreReadingProgressUseCase
 import com.tedd.teddreader.core.domain.usecase.SaveReadingProgressUseCase
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,12 +62,23 @@ class ReaderViewModel(
     // Page numbers only mean something for one (style, viewport) pagination, so the reading
     // position is tracked as an absolute text offset that survives re-pagination.
     private var anchorOffset: Long? = null
+    // sp, not px — see updatePageBreaker. What getPageWindows and page-layout storage key on.
     private var viewportSize: ViewportSize = DefaultViewportSize
+    private val logger = co.touchlab.kermit.Logger.withTag("Reader")
     private var pageBreaker: ReaderPageBreaker? = null
     private var pageBreakerStyle: ReaderStyle? = null
+    // px, not sp — the pane's real measured pixel box, compared only to dedupe repeated reports.
     private var pageBreakerSize: ViewportSize? = null
     private var viewportReloadJob: Job? = null
     private var openDocumentJob: Job? = null
+    // Drives phase 2+ of a progressive EPUB import (see continueImportIfIncomplete) — a plain
+    // viewModelScope job, not a new subsystem: it stops the moment the reader leaves this document,
+    // and the next open picks the import back up from wherever the stored rows say it left off.
+    private var importContinuationJob: Job? = null
+    // Drives the rest of a progressive pagination pass (see continuePaginationIfIncomplete) — same
+    // shape as [importContinuationJob], just for measuring an unmeasured style instead of parsing an
+    // unimported section.
+    private var paginationContinuationJob: Job? = null
     private var savedPlaces: List<Bookmark> = emptyList()
     private var savedPlacesJob: Job? = null
     private var visualPageLoadJob: Job? = null
@@ -79,6 +96,8 @@ class ReaderViewModel(
         viewportReloadJob?.cancel()
         visualPageLoadJob?.cancel()
         embeddedImageLoadJob?.cancel()
+        importContinuationJob?.cancel()
+        paginationContinuationJob?.cancel()
         currentPageWindows = emptyList()
         currentSections = emptyList()
         anchorOffset = null
@@ -95,29 +114,65 @@ class ReaderViewModel(
                 val readerDocument = documentRepository.getReaderDocument(documentId)
                 val progress = restoreReadingProgress(documentId)
                 val settings = readerSettingsRepository.settings.first()
+                // True for every document except one whose progressive EPUB import hasn't finished
+                // yet (see ReaderUiState.isPaginationComplete) — checked here, before the first
+                // publish, so the very first frame already tells the truth about the page count.
+                val isImportComplete = documentRepository.isImportComplete(documentId)
                 if (currentDocumentId != documentId) return@launch
                 val documentFormat = metadata?.format ?: DocumentFormat.UNKNOWN
                 val isPdfMode = documentFormat == DocumentFormat.PDF
                 val isVisualMode = documentFormat.isVisualPageFormat()
                 val documentUri = metadata?.location?.sourceUri
+                // pageBreaker is only ever set by updatePageBreaker, so it is still null exactly when no
+                // pane belonging to this ViewModel instance has reported a size yet. Passing null lets
+                // getPageWindows resolve the newest layout ever stored for this exact style instead of
+                // pagination running against viewportSize's guessed default, which almost never matches a
+                // stored one and used to fall through to a full estimate pass — publishing the wrong page
+                // count as the first frame, corrected only once the pane measured for real. Paginating
+                // unconditionally (rather than waiting for that real report first) is still what matters
+                // for the deadlock a stored row cannot help with: with no pages the pager mounts no slot,
+                // with no slot nothing measures the pane, and the pane is the only thing that ever reports
+                // a size — exactly the state a freshly imported book starts in.
+                val hasReportedPaneSize = pageBreaker != null
+                // Computed early — readerDocument is already in hand, but currentSections/anchorOffset
+                // (below) are not set until after pageWindows exists — so a fresh, progressive
+                // measurement can anchor on the section the reader is actually resuming into instead of
+                // always section 0 (see DocumentRepository.getPageWindows).
+                val resumeOffset = if (isVisualMode) null else progress?.location?.let { location ->
+                    absoluteOffset(location, readerDocument?.sections.orEmpty())
+                }
                 val pageWindows = if (isVisualMode) {
                     emptyList()
                 } else {
                     documentRepository.getPageWindows(
                         documentId = documentId,
                         style = settings.style,
-                        viewportSize = viewportSize,
+                        viewportSize = if (hasReportedPaneSize) viewportSize else null,
                         pageBreaker = pageBreakerFor(settings.style),
+                        anchorOffset = resumeOffset,
                     )
                 }
                 if (currentDocumentId != documentId) return@launch
+                // A resolved layout carries its own already-measured viewport. Adopting it — and the
+                // style it was measured for, since pageBreaker itself is still null; there is no real
+                // ReaderPageBreaker instance yet — means the pane's first real report, almost always the
+                // same size since it is the same physical screen, is recognised by updatePageBreaker as
+                // already answered instead of launching a reload that would only repeat what
+                // getPageWindows just cached this exact answer under.
+                // Both branches write both fields. Leaving them alone when nothing was remembered
+                // keeps a previous document's answer sitting in them, and the pane's first report for
+                // this document would then match it and skip the reload the document actually needs.
+                if (!isVisualMode && !hasReportedPaneSize) {
+                    val remembered = documentRepository.resolveViewportSizeForStyle(documentId, settings.style)
+                    viewportSize = remembered ?: DefaultViewportSize
+                    pageBreakerStyle = settings.style.takeIf { remembered != null }
+                }
                 currentPageWindows = pageWindows
                 currentSections = readerDocument?.sections.orEmpty()
-                documentRepository.markDocumentOpened(
-                    documentId = documentId,
-                    openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
-                )
-                if (currentDocumentId != documentId) return@launch
+                // isImportComplete only speaks to whether every section has been parsed yet; a fully
+                // imported book can still have no stored layout for this exact style, in which case
+                // getPageWindows just measured only the resumed section above and this is false too.
+                val isPaginationMeasured = isVisualMode || documentRepository.isPaginationComplete(documentId)
 
                 val metadataPageCount = metadata?.pageCount
                 val totalPages = when {
@@ -126,11 +181,37 @@ class ReaderViewModel(
                     progress != null -> progress.pageIndex.total
                     else -> 0
                 }
-                val restoredOffset = if (isVisualMode) null else progress?.location?.let(::absoluteOffset)
-                anchorOffset = restoredOffset
-                val currentPage = (restoredOffset?.let { pageOfOffset(it, pageWindows) } ?: progress?.pageIndex?.current)
+                // Single pages, which is not what the reader's own counter shows on a wide screen: that
+                // one counts two-page spreads (see ReaderScreen's readerSpreadPageIndex), so a log
+                // saying 8977 sits under a bar reading 4489 with nothing wrong anywhere.
+                logger.d {
+                    "opening total=$totalPages single pages from windows=${pageWindows.size}, " +
+                        "metadata=$metadataPageCount, progress=${progress?.pageIndex?.total}, " +
+                        "paginationMeasured=$isPaginationMeasured"
+                }
+                anchorOffset = resumeOffset
+                val currentPage = (resumeOffset?.let { pageOfOffset(it, pageWindows) } ?: progress?.pageIndex?.current)
                     ?.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
                     ?: 0
+
+                // Section 0's blocks are already ready by now — getPageWindows warms it internally for
+                // cover detection (see DocumentRepositoryImpl.restorePageWindows) — but the resumed
+                // page's own section is not, and neither are its neighbours. Warming exactly the window
+                // pageSlots() mounts, before building any page UI from it, is what keeps the first frame
+                // from drawing a page with its images/chapter-title formatting still missing. Reusing
+                // pagerMountWindow (the same range pageSlots() uses) rather than a separately guessed
+                // radius is the point: whatever pageSlots() will actually build, this already warmed.
+                if (!isVisualMode && pageWindows.isNotEmpty()) {
+                    val touchedSections = pagerMountWindow(currentPage)
+                        .mapNotNull { page -> pageWindows.getOrNull(page)?.textRange?.start }
+                        .mapNotNull(::sectionIndexContaining)
+                        .toSet()
+                    if (touchedSections.isNotEmpty()) {
+                        documentRepository.warmSectionBlocks(documentId, touchedSections)
+                    }
+                }
+                if (currentDocumentId != documentId) return@launch
+
                 val pageIndex = PageIndex(current = currentPage, total = totalPages)
                 val currentPageUi = currentPageUi(
                     pageIndex = pageIndex,
@@ -138,56 +219,100 @@ class ReaderViewModel(
                     isPdfMode = isPdfMode,
                     pageWindows = pageWindows,
                 )
+                val documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value
+
+                // First publish: only what the page the reader lands on needs — style, total, current
+                // page, its text and blocks, the title. ReaderScreen composes nothing at all while
+                // isLoading is true, so everything below (the opened-at write, the outline, the
+                // favourite/saved-place flags, the neighbour page slots) would otherwise sit in front
+                // of the first frame for no reason other than living in the same function.
+                if (currentDocumentId != documentId) return@launch
+                _uiState.update { state ->
+                    state.copy(
+                        documentTitle = documentTitle,
+                        documentUri = documentUri,
+                        documentFormat = documentFormat,
+                        pageText = currentPageUi.text,
+                        pageIndex = pageIndex,
+                        currentPage = currentPageUi,
+                        style = settings.style,
+                        pageTurnMode = settings.pageTurnMode,
+                        pageAnimation = settings.pageAnimation,
+                        autoScrollConfig = settings.autoScrollConfig.copy(enabled = false),
+                        isPdfMode = isPdfMode,
+                        isControlsVisible = true,
+                        isLoading = false,
+                        isPaginationComplete = isImportComplete && isPaginationMeasured,
+                    )
+                }
+                if (documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(currentPage)
+                if (documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(currentPage)
+                if (!isImportComplete) {
+                    continueImportIfIncomplete(documentId)
+                } else if (!isPaginationMeasured && pageBreakerFor(settings.style) != null) {
+                    // Only worth continuing once a real breaker measured the first section — a null
+                    // breaker means this was an estimate, superseded within a frame or two by the real
+                    // measurement updatePageBreaker triggers, which starts its own progressive pass.
+                    continuePaginationIfIncomplete(documentId, settings.style)
+                }
+
+                // Now that the first frame is out, fetch every remaining section's blocks in the
+                // background so a later page turn or TOC jump almost never has to wait on one — the
+                // same fetch-then-fill shape as loadEmbeddedImagesAround/refreshEpubPages, just for
+                // whole sections instead of individual images. A miss that still happens (a jump ahead
+                // of this fill) renders as "not yet" and self-heals the next time that page is read —
+                // see SectionBlocksCache — so this job is fire-and-forget, not awaited.
+                if (!isVisualMode && currentSections.isNotEmpty()) {
+                    viewModelScope.launch {
+                        documentRepository.warmSectionBlocks(documentId, currentSections.map { it.index }.toSet())
+                    }
+                }
+
+                // Second publish: the rest, filled in and re-announced the same way refreshEpubPages
+                // already does for embedded images — nothing here may touch pageIndex, pageText or
+                // currentPage, which already reached the reader in the first publish above.
+                documentRepository.markDocumentOpened(
+                    documentId = documentId,
+                    openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                )
+                if (currentDocumentId != documentId) return@launch
                 val outlineItems = buildOutlineItems(
                     format = metadata?.format,
                     readerDocument = readerDocument,
                     totalPages = totalPages,
                 )
-                val state = ReaderUiState(
-                    documentTitle = readerDocument?.title ?: metadata?.location?.displayName ?: documentId.value,
-                    documentUri = documentUri,
-                    documentFormat = documentFormat,
-                    pageText = currentPageUi.text,
-                    pageIndex = pageIndex,
-                    previousPage = pageUi(
-                        page = currentPage - 1,
-                        pageIndex = pageIndex,
-                        documentUri = documentUri,
-                        isPdfMode = isPdfMode,
-                        pageWindows = pageWindows,
-                    ),
-                    currentPage = currentPageUi,
-                    nextPage = pageUi(
-                        page = currentPage + 1,
-                        pageIndex = pageIndex,
-                        documentUri = documentUri,
-                        isPdfMode = isPdfMode,
-                        pageWindows = pageWindows,
-                    ),
-                    documentPages = emptyList(),
-                    pageSlots = pageSlots(
-                        currentPage = currentPage,
-                        pageIndex = pageIndex,
-                        documentUri = documentUri,
-                        isPdfMode = isPdfMode,
-                        pageWindows = pageWindows,
-                    ),
-                    style = settings.style,
-                    pageTurnMode = settings.pageTurnMode,
-                    pageAnimation = settings.pageAnimation,
-                    autoScrollConfig = settings.autoScrollConfig.copy(enabled = false),
-                    outlineHeading = readerDocument?.navigation?.heading,
-                    outlineItems = outlineItems,
-                    isPdfMode = isPdfMode,
-                    isFavorite = metadata?.isBookmarked == true,
-                    isCurrentPageSaved = isPageSaved(pageIndex, isVisualMode),
-                    isControlsVisible = true,
-                    isLoading = false,
-                )
-                if (currentDocumentId != documentId) return@launch
-                _uiState.value = state
-                if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.pageIndex.current)
-                if (state.documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(state.pageIndex.current)
+                _uiState.update { state ->
+                    // Read positionally off the live state and currentPageWindows (defaulted below,
+                    // same as refreshEpubPages()), not the pageIndex/pageWindows/currentPage captured
+                    // above — updatePageBreaker's reload runs on its own coroutine and can already have
+                    // published a measured repagination by the time this update lands. Writing the
+                    // pre-reload locals here would silently put the estimated pagination back.
+                    val livePageIndex = state.pageIndex
+                    state.copy(
+                        previousPage = pageUi(
+                            page = livePageIndex.current - 1,
+                            pageIndex = livePageIndex,
+                            documentUri = state.documentUri,
+                            isPdfMode = state.isPdfMode,
+                        ),
+                        nextPage = pageUi(
+                            page = livePageIndex.current + 1,
+                            pageIndex = livePageIndex,
+                            documentUri = state.documentUri,
+                            isPdfMode = state.isPdfMode,
+                        ),
+                        pageSlots = pageSlots(
+                            currentPage = livePageIndex.current,
+                            pageIndex = livePageIndex,
+                            documentUri = state.documentUri,
+                            isPdfMode = state.isPdfMode,
+                        ),
+                        outlineHeading = readerDocument?.navigation?.heading,
+                        outlineItems = outlineItems.toImmutableList(),
+                        isFavorite = metadata?.isBookmarked == true,
+                        isCurrentPageSaved = isPageSaved(livePageIndex, state.isVisualMode),
+                    )
+                }
             } catch (cancellationException: CancellationException) {
                 throw cancellationException
             } catch (throwable: Throwable) {
@@ -201,40 +326,155 @@ class ReaderViewModel(
         }
     }
 
-    fun updateViewportSize(widthPx: Int, heightPx: Int) {
-        if (widthPx <= 0 || heightPx <= 0) return
-        val nextViewportSize = ViewportSize(widthPx = widthPx, heightPx = heightPx)
-        if (nextViewportSize == viewportSize) return
-        viewportSize = nextViewportSize
-        viewportReloadJob?.cancel()
-        viewportReloadJob = viewModelScope.launch {
-            reloadPages(style = _uiState.value.style)
-        }
-    }
-
     /**
      * The rendered text layout that pagination must agree with, together with the style it was
      * measured for. Pagination waits for a breaker matching the current style, because repaginating
      * a new font size against the previous measurement is exactly what clips the last line.
+     *
+     * This is the only measurement trigger — the pane used to also report through a separate
+     * viewport callback, and because that callback and this one both launched their own reload,
+     * one resize produced two `getPageWindows` calls (`Job.cancel()` cannot stop a DB read already
+     * in flight). The pane now reports its size once, twice over: [viewportSp] is the sp value
+     * pagination and page-layout storage key on — the same unit PageLayoutEntity's
+     * viewportWidthPx/viewportHeightPx columns actually hold despite their name — and becomes
+     * [viewportSize] below; [measuredSizePx] is the real pixel box, kept only to recognise a report
+     * the reader has already answered.
      */
-    fun updatePageBreaker(style: ReaderStyle, measuredSize: ViewportSize, breaker: ReaderPageBreaker) {
+    fun updatePageBreaker(
+        style: ReaderStyle,
+        viewportSp: ViewportSize,
+        measuredSizePx: ViewportSize,
+        breaker: ReaderPageBreaker,
+    ) {
         // Compared by what the measurement describes, not by instance. The reporting pane moves to a
         // different composition slot on every page turn, and a page effect may compose the page
         // twice while it animates; treating those fresh instances as new measurements repaginated
         // the whole document on every turn.
-        if (pageBreakerStyle == style && pageBreakerSize == measuredSize) return
+        if (pageBreakerStyle?.layoutKey() == style.layoutKey() && pageBreakerSize == measuredSizePx) {
+            logger.d { "breaker report ignored, already measured for $measuredSizePx" }
+            return
+        }
+        // openDocument adopts a stored layout's viewport (and the style it was measured for) into
+        // viewportSize/pageBreakerStyle before any pane has reported — pageBreaker itself is still null
+        // then. This is that adoption's first real confirmation: the same physical screen, so almost
+        // always the same sp size getPageWindows already cached pages under. Recording the breaker
+        // without relaunching a reload is what keeps that answer from being asked for a second time.
+        if (pageBreaker == null && pageBreakerStyle?.layoutKey() == style.layoutKey() && viewportSize == viewportSp) {
+            logger.d { "breaker report accepted without reload, viewport already answered by $viewportSp" }
+            pageBreaker = breaker
+            pageBreakerStyle = style
+            pageBreakerSize = measuredSizePx
+            return
+        }
+        logger.d { "breaker report accepted for $measuredSizePx, previously $pageBreakerSize" }
         pageBreaker = breaker
         pageBreakerStyle = style
-        pageBreakerSize = measuredSize
+        pageBreakerSize = measuredSizePx
+        viewportSize = viewportSp
         viewportReloadJob?.cancel()
         viewportReloadJob = viewModelScope.launch {
             reloadPages(style = _uiState.value.style)
+            currentDocumentId?.let { documentId ->
+                refreshPaginationCompleteness(documentId, style, isImportComplete = documentRepository.isImportComplete(documentId))
+            }
+        }
+    }
+
+    /**
+     * Phase 2+ of a progressive EPUB import: repeatedly asks the repository to parse and measure a
+     * bounded batch more of the book, in spine order, until it reports done. Each batch that actually
+     * added sections re-runs [reloadPages] with the *current* style/viewport/breaker — the same
+     * pagination call an ordinary font-size change already makes — so pageIndex.total grows to match
+     * what is now known without ever touching a page already published (see TextPageLayoutEngine/
+     * DocumentRepositoryImpl.importNextSections: appending only ever extends the stored page starts).
+     * Runs on this ViewModel's own scope, so leaving the reader simply stops it; the next open resumes
+     * from whatever the stored rows say is done — no separate scope, no new subsystem.
+     */
+    private fun continueImportIfIncomplete(documentId: DocumentId) {
+        importContinuationJob?.cancel()
+        importContinuationJob = viewModelScope.launch {
+            while (currentDocumentId == documentId) {
+                val style = _uiState.value.style
+                val progress = documentRepository.importNextSections(
+                    documentId = documentId,
+                    count = ImportBatchSize,
+                    style = style,
+                    viewportSize = viewportSize,
+                    pageBreaker = pageBreakerFor(style),
+                )
+                if (currentDocumentId != documentId) return@launch
+                if (progress.sectionsImported > 0) reloadPages(style)
+                if (progress.isComplete) {
+                    // Import finishing does not by itself mean pagination has: the book may still have
+                    // no stored layout for this style, in which case getPageWindows measured only the
+                    // resumed section and there is more to continue (see refreshPaginationCompleteness).
+                    refreshPaginationCompleteness(documentId, style, isImportComplete = true)
+                    return@launch
+                }
+            }
+        }
+    }
+
+    /**
+     * The rest of a progressive pagination pass [DocumentRepository.getPageWindows] started but could
+     * not finish measuring in one call — see that function's anchorOffset doc. Mirrors
+     * [continueImportIfIncomplete]: repeatedly asks the repository to measure one more content section
+     * for real, until it reports done, re-running [reloadPages] after each one so pageIndex grows to
+     * match what is now known without ever touching a page already published (see
+     * DocumentRepositoryImpl.continuePagination — one section's pages depend on nothing but that
+     * section). Stops on its own the moment [style] is no longer current, so a font change started
+     * mid-measurement lets its own fresh pass own the ui's isPaginationComplete flag instead of racing
+     * this one for it.
+     */
+    private fun continuePaginationIfIncomplete(documentId: DocumentId, style: ReaderStyle) {
+        paginationContinuationJob?.cancel()
+        paginationContinuationJob = viewModelScope.launch {
+            while (currentDocumentId == documentId && _uiState.value.style.layoutKey() == style.layoutKey()) {
+                val breaker = pageBreakerFor(style) ?: return@launch
+                val progress = documentRepository.continuePagination(
+                    documentId = documentId,
+                    style = style,
+                    viewportSize = viewportSize,
+                    pageBreaker = breaker,
+                )
+                if (currentDocumentId != documentId) return@launch
+                if (progress.sectionsMeasured > 0) reloadPages(style)
+                if (progress.isComplete) {
+                    if (currentDocumentId == documentId) {
+                        _uiState.update { state -> state.copy(isPaginationComplete = true) }
+                    }
+                    return@launch
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether the pagination [reloadPages] most recently measured for [style] is actually done and, if
+     * not, continues it in the background (see [continuePaginationIfIncomplete]). Called after every
+     * event that can start a genuinely new measurement pass on an already-imported document: the
+     * pane's first real report for a style, and a font/line-height/typeface change.
+     *
+     * [isImportComplete] is a caller-supplied fact rather than something this asks the repository for
+     * itself, because [continueImportIfIncomplete]'s own completion branch already has the freshest
+     * possible answer in [ImportProgress.isComplete] the moment it calls this — asking again could only
+     * repeat that same answer in production, and a test double that models isImportComplete()
+     * separately from importNextSections()'s return value has no reason to promise they agree.
+     */
+    private suspend fun refreshPaginationCompleteness(documentId: DocumentId, style: ReaderStyle, isImportComplete: Boolean) {
+        if (currentDocumentId != documentId) return
+        if (!documentRepository.isPaginationComplete(documentId)) {
+            if (pageBreakerFor(style) != null) continuePaginationIfIncomplete(documentId, style)
+            return
+        }
+        if (isImportComplete) {
+            _uiState.update { state -> state.copy(isPaginationComplete = true) }
         }
     }
 
     /** Only a measurement made for [style] describes the pages that [style] will actually render. */
     private fun pageBreakerFor(style: ReaderStyle): ReaderPageBreaker? =
-        pageBreaker.takeIf { pageBreakerStyle == style }
+        pageBreaker.takeIf { pageBreakerStyle?.layoutKey() == style.layoutKey() }
 
     fun toggleControls() {
         _uiState.update { state -> state.copy(isControlsVisible = !state.isControlsVisible) }
@@ -416,10 +656,21 @@ class ReaderViewModel(
     }
 
     private fun updateStyle(style: ReaderStyle) {
+        val previousStyle = _uiState.value.style
         _uiState.update { state -> state.copy(style = style) }
         saveReaderSettings {
             readerSettingsRepository.updateStyle(style)
-            reloadPages(style)
+            // Only type moves the page breaks. A colour or background change is still saved and still
+            // redraws, but laying the book out again for it would cost the whole document.
+            if (previousStyle.layoutKey() != style.layoutKey()) {
+                reloadPages(style)
+                // A type nobody has read this book at before has no stored layout — reloadPages just
+                // measured only the section the reader is on, same as a fresh open (see
+                // DocumentRepository.getPageWindows). Finish the rest in the background.
+                currentDocumentId?.let { documentId ->
+                    refreshPaginationCompleteness(documentId, style, isImportComplete = documentRepository.isImportComplete(documentId))
+                }
+            }
         }
     }
 
@@ -447,26 +698,45 @@ class ReaderViewModel(
         }
     }
 
-    private fun pageOfOffset(offset: Long, pageWindows: List<PageWindow>): Int? = pageWindows
-        .indexOfFirst { page ->
-            val range = page.textRange ?: return@indexOfFirst false
-            offset >= range.start && offset < range.end
+    // A page window is built — and its section's blocks decoded — only the first time something reads
+    // it by index (see DocumentRepository.getPageWindows), so scanning pageWindows in order here would
+    // force every page up to the match to build just to answer where one offset lands. Binary search
+    // over the pages' own start offsets instead touches only the O(log n) pages the search actually
+    // visits.
+    private fun pageOfOffset(offset: Long, pageWindows: List<PageWindow>): Int? {
+        var low = 0
+        var high = pageWindows.lastIndex
+        while (low <= high) {
+            val mid = (low + high) / 2
+            val range = pageWindows[mid].textRange ?: return null
+            when {
+                offset < range.start -> high = mid - 1
+                offset >= range.end -> low = mid + 1
+                else -> return mid
+            }
         }
-        .takeIf { index -> index >= 0 }
-
-    /** EPUB locations are section-relative; pagination works on document-absolute offsets. */
-    private fun absoluteOffset(location: ReaderLocation): Long? = when (location) {
-        is ReaderLocation.TextOffset -> location.offset
-        is ReaderLocation.EpubOffset -> {
-            val sectionStart = currentSections
-                .firstOrNull { section -> section.index == location.spineIndex }
-                ?.range
-                ?.start
-                ?: 0L
-            sectionStart + location.offset
-        }
-        is ReaderLocation.PdfPage -> null
+        return null
     }
+
+    /**
+     * EPUB locations are section-relative; pagination works on document-absolute offsets. [sections]
+     * defaults to [currentSections], but openDocument calls this before that field is populated for
+     * this document — passing the freshly loaded document's own sections lets it resolve the resumed
+     * offset early enough to anchor getPageWindows' progressive measurement on it.
+     */
+    private fun absoluteOffset(location: ReaderLocation, sections: List<ReaderSection> = currentSections): Long? =
+        when (location) {
+            is ReaderLocation.TextOffset -> location.offset
+            is ReaderLocation.EpubOffset -> {
+                val sectionStart = sections
+                    .firstOrNull { section -> section.index == location.spineIndex }
+                    ?.range
+                    ?.start
+                    ?: 0L
+                sectionStart + location.offset
+            }
+            is ReaderLocation.PdfPage -> null
+        }
 
     private fun currentPageUi(
         pageIndex: PageIndex,
@@ -507,25 +777,34 @@ class ReaderViewModel(
                     .maxByOrNull { section -> section.range.start }
                     ?.title
             }
+        // True by construction from where pagination put this page's own boundary, not from how much
+        // of the sheet the rendered text happened to fill (see EpubPageSurface) — an estimated
+        // pagination under-fills every page it has not measured for real, which used to make every
+        // page on a fresh install look short and centre itself until the real measurement replaced it.
+        val isSectionTail = pageWindow?.textRange?.let { range ->
+            sectionContaining(range.start)?.range?.end == range.end
+        } ?: false
         return ReaderPageUi(
             page = page,
             text = if (isPdfMode) "" else pageWindow?.text.orEmpty(),
             isPdf = isPdfMode,
             documentUri = documentUri,
             textRange = pageWindow?.textRange,
-            blocks = pageWindow?.blocks.orEmpty(),
+            blocks = pageWindow?.blocks.orEmpty().toImmutableList(),
             embeddedImages = pageWindow
                 ?.blocks
                 .orEmpty()
                 .mapNotNull { block -> block.imageHref?.takeIf(embeddedImageCache::containsKey) }
-                .associateWith { href -> embeddedImageCache.getValue(href) },
+                .associateWith { href -> embeddedImageCache.getValue(href) }
+                .toImmutableMap(),
             failedEmbeddedImageHrefs = pageWindow
                 ?.blocks
                 .orEmpty()
                 .mapNotNull { it.imageHref }
                 .filter(failedEmbeddedImageHrefs::contains)
-                .toSet(),
+                .toImmutableSet(),
             chapterTitle = chapterTitle,
+            isSectionTail = isSectionTail,
         )
     }
 
@@ -535,7 +814,7 @@ class ReaderViewModel(
         documentUri: String?,
         isPdfMode: Boolean,
         pageWindows: List<PageWindow> = currentPageWindows,
-    ): List<ReaderPageUi> = (currentPage - 2..currentPage + 3).mapNotNull { page ->
+    ): ImmutableList<ReaderPageUi> = pagerMountWindow(currentPage).mapNotNull { page ->
         pageUi(
             page = page,
             pageIndex = pageIndex,
@@ -543,7 +822,24 @@ class ReaderViewModel(
             isPdfMode = isPdfMode,
             pageWindows = pageWindows,
         )
-    }
+    }.toImmutableList()
+
+    /**
+     * Every page index the pager can put in front of the reader from [currentPage] — the same window
+     * [pageSlots] mounts and [loadEmbeddedImagesAround] preloads images for. Named here so
+     * openDocument's pre-publish block-warming asks for exactly this window instead of a separately
+     * guessed radius.
+     */
+    private fun pagerMountWindow(currentPage: Int): IntRange = currentPage - 2..currentPage + 3
+
+    /** The section whose absolute range contains [offset] — the last one starting at or before it,
+     * since sections are ascending and non-overlapping. Null only if [currentSections] is empty. */
+    private fun sectionContaining(offset: Long): ReaderSection? =
+        currentSections.filter { section -> section.range.start <= offset }.maxByOrNull { section -> section.range.start }
+
+    /** The section whose absolute range contains [offset], the same containment [pageUi]'s chapter-title
+     * lookup already uses — null only if [currentSections] is empty. */
+    private fun sectionIndexContaining(offset: Long): Int? = sectionContaining(offset)?.index
 
     fun moveToPage(page: Int) {
         val state = _uiState.value
@@ -595,13 +891,17 @@ class ReaderViewModel(
 
         // A measurement for another style would size the pages wrong; the UI reports a matching
         // breaker moments later and that report drives the reload.
-        if (pageBreaker != null && pageBreakerStyle != style) return
+        if (pageBreaker != null && pageBreakerStyle?.layoutKey() != style.layoutKey()) {
+            logger.d { "reload skipped: measurement belongs to another type" }
+            return
+        }
 
         val pageWindows = documentRepository.getPageWindows(
             documentId = documentId,
             style = style,
             viewportSize = viewportSize,
             pageBreaker = pageBreakerFor(style),
+            anchorOffset = anchorOffset,
         )
         if (pageWindows.isEmpty()) return
 
@@ -634,7 +934,7 @@ class ReaderViewModel(
                     isPdfMode = false,
                     pageWindows = pageWindows,
                 ),
-                documentPages = emptyList(),
+                documentPages = persistentListOf(),
                 pageSlots = pageSlots(
                     currentPage = currentPage,
                     pageIndex = pageIndex,
@@ -650,6 +950,11 @@ class ReaderViewModel(
 
     private fun saveProgress(pageIndex: PageIndex) {
         val documentId = currentDocumentId ?: return
+        // A text document with no pagination yet cannot say where the reader is. Saving anyway takes
+        // the fallback in currentLocation — a page number dressed up as a character offset — and writes
+        // it over the place the reader actually left off, sending them back to the first page of the
+        // book. Whatever is already stored is a better answer than that.
+        if (!_uiState.value.isVisualMode && currentPageWindows.isEmpty()) return
         viewModelScope.launch {
             saveReadingProgress(
                 ReadingProgress(
@@ -717,8 +1022,8 @@ class ReaderViewModel(
                 visualPageCache.keys.retainAll(retainedPages)
                 _uiState.update {
                     it.copy(
-                        visualPageImages = visualPageCache.toMap(),
-                        failedVisualPages = failedVisualPages.toSet(),
+                        visualPageImages = visualPageCache.toImmutableMap(),
+                        failedVisualPages = failedVisualPages.toImmutableSet(),
                     )
                 }
             } catch (cancellationException: CancellationException) {
@@ -726,7 +1031,7 @@ class ReaderViewModel(
             } catch (_: Throwable) {
                 if (currentDocumentId == documentId) {
                     failedVisualPages += missingPages
-                    _uiState.update { it.copy(failedVisualPages = failedVisualPages.toSet()) }
+                    _uiState.update { it.copy(failedVisualPages = failedVisualPages.toImmutableSet()) }
                 }
             }
         }
@@ -736,10 +1041,10 @@ class ReaderViewModel(
         val documentId = currentDocumentId ?: return
         val state = _uiState.value
         if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
-        // Matches the pageSlots window the pager actually mounts (see pageSlots()), so every slot the
-        // reader can swipe to preview already has its images requested instead of only the immediate
-        // neighbor.
-        val relevantHrefs = (centerPage - 2..centerPage + 3)
+        // Matches the pageSlots window the pager actually mounts (see pageSlots()/pagerMountWindow),
+        // so every slot the reader can swipe to preview already has its images requested instead of
+        // only the immediate neighbor.
+        val relevantHrefs = pagerMountWindow(centerPage)
             .filter { it in currentPageWindows.indices }
             .flatMap { page -> currentPageWindows[page].blocks.mapNotNull { it.imageHref } }
             .toSet()
@@ -808,7 +1113,7 @@ class ReaderViewModel(
                     documentUri = it.documentUri,
                     isPdfMode = it.isPdfMode,
                 ),
-                documentPages = emptyList(),
+                documentPages = persistentListOf(),
             )
         }
     }
@@ -819,3 +1124,8 @@ class ReaderViewModel(
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
 private const val MaxVisualPageCacheSize = 8
 private const val MaxEmbeddedImageCacheSize = 12
+
+// How many spine items continueImportIfIncomplete asks for per step — small enough that one batch's
+// pause is never noticeable next to a page turn, large enough that a 500-chapter book does not need
+// dozens of round trips through the ViewModel/repository boundary to finish.
+private const val ImportBatchSize = 16

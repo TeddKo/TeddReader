@@ -23,7 +23,13 @@ fun ReaderStyle.readerTextStyle(): TextStyle = TextStyle(
     lineHeight = (fontSizeSp * lineHeightMultiplier).sp,
     lineHeightStyle = LineHeightStyle(
         alignment = LineHeightStyle.Alignment.Proportional,
-        trim = LineHeightStyle.Trim.None,
+        // The half-leading above the first line and below the last is trimmed, because pagination and
+        // drawing disagree about it otherwise. Pagination lays the whole document out at once, so a
+        // page's opening line is a middle line there and carries no leading of its own; the page is
+        // then drawn on its own, that same line becomes a first line, and the leading appears — one
+        // line height of it, which pushed the last line of the page off the bottom and clipped it. The
+        // taller the type, the more it lost. Trimmed, an opening line measures the same either way.
+        trim = LineHeightStyle.Trim.Both,
         mode = LineHeightStyle.Mode.Minimum,
     ),
     fontFamily = fontFamilyName.toFontFamily(),

@@ -33,6 +33,45 @@ enum class ReaderInlineStyle {
     LINK,
 }
 
+/** Generic families a book can ask for that this reader can actually supply. */
+@Serializable
+enum class ReaderFontFamily {
+    SERIF,
+    SANS_SERIF,
+    MONOSPACE,
+}
+
+/**
+ * What a book's own stylesheet says a block looks like, in units relative to the reader's own type.
+ *
+ * Everything here is relative on purpose: the reader's font size and theme stay in charge, and the
+ * book adjusts around them. An absolute size or colour from a stylesheet would fight the size the
+ * reader chose and the theme they are reading in.
+ */
+@Serializable
+data class ReaderBlockStyle(
+    /** Multiple of the reader's font size, e.g. `font-size: 1.4em`. */
+    val fontScale: Float? = null,
+    val bold: Boolean? = null,
+    val italic: Boolean? = null,
+    val fontFamily: ReaderFontFamily? = null,
+    /** Multiple of the font size, e.g. `line-height: 1.7em`. */
+    val lineHeightScale: Float? = null,
+    /** First-line indent in em, e.g. `text-indent: 1em`. */
+    val textIndentEm: Float? = null,
+) {
+    init {
+        require(fontScale == null || fontScale > 0f) { "fontScale must be positive." }
+        require(lineHeightScale == null || lineHeightScale > 0f) { "lineHeightScale must be positive." }
+    }
+
+    fun isEmpty(): Boolean = this == Empty
+
+    companion object {
+        val Empty = ReaderBlockStyle()
+    }
+}
+
 @Serializable
 enum class ReaderTextAlign {
     START,
@@ -75,6 +114,8 @@ data class ReaderBlock(
     val imageWidthPercent: Float? = null,
     /** Width the document's own stylesheet gives the image, in em. */
     val imageWidthEm: Float? = null,
+    /** What the book's stylesheet says this block looks like, or null when it says nothing. */
+    val style: ReaderBlockStyle? = null,
 ) {
     init {
         require(level >= 0) { "Block level must be positive." }
@@ -126,7 +167,11 @@ fun ReaderBlock.readerImageSize(
     // max-width: 100%; the picture is scaled down to the column but never up past what is declared.
     var width = (declaredEm ?: column).coerceIn(MinReaderImageEm, column)
     val ratio = imageAspectRatio?.takeIf { it > 0f }
-    var height = if (ratio != null) width / ratio else page
+    // A picture whose proportions could not be read is squared off rather than handed the page. The
+    // box is only what the text lays out around — the picture keeps its real shape when it is drawn —
+    // so claiming a whole page for an unmeasurable image strands a small illustration in empty space
+    // and pushes the text around it off the page.
+    var height = if (ratio != null) width / ratio else width
     if (height > page) {
         // max-height: keep the proportions and give back the width the shorter box no longer needs.
         if (ratio != null) width = (page * ratio).coerceAtMost(column)
@@ -185,3 +230,28 @@ fun List<ReaderBlock>.blocksIn(start: Long, end: Long): List<ReaderBlock> = filt
         block.range.start < end && block.range.end > start
     }
 }
+
+/**
+ * [block] with its own range, and every span's range, shifted by [base]. Storing a book's blocks
+ * relative to their own section instead of as absolute document offsets is what this buys: the shift
+ * happens once, when a section is written (see DocumentRepositoryImpl.persistParsedDocument /
+ * importNextSections), instead of once per pagination pass — a full remeasurement used to redo this
+ * same allocation for every block and every span in the book just to lay it out again.
+ *
+ * Passing a negative [base] shifts the other way, which is how a caller reads a section-relative block
+ * back out as absolute (see TextPageLayoutEngine.buildPageWindow) — the two are the same operation.
+ */
+fun ReaderBlock.rebasedBy(base: Long): ReaderBlock = copy(
+    range = TextRange((range.start - base).coerceAtLeast(0L), (range.end - base).coerceAtLeast(0L)),
+    spans = spans.map { span ->
+        span.copy(
+            range = TextRange(
+                (span.range.start - base).coerceAtLeast(0L),
+                (span.range.end - base).coerceAtLeast(0L),
+            ),
+        )
+    },
+)
+
+/** [ReaderBlock.rebasedBy] applied to every block in the list, in order. */
+fun List<ReaderBlock>.rebasedBy(base: Long): List<ReaderBlock> = map { it.rebasedBy(base) }

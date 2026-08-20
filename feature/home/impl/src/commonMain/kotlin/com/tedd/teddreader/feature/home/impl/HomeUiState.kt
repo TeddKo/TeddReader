@@ -5,14 +5,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.ui.system.DisplayFold
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableList
 
 @Immutable
 data class HomeUiState(
-    val favoriteDocuments: List<DocumentMetadata> = emptyList(),
-    val recentDocuments: List<DocumentMetadata> = emptyList(),
-    val libraryDocuments: List<DocumentMetadata> = emptyList(),
-    val libraryFolders: List<LibraryFolder> = emptyList(),
-    val documentCoverImages: Map<String, ByteArray> = emptyMap(),
+    val favoriteDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
+    val recentDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
+    val libraryDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
+    val libraryFolders: ImmutableList<LibraryFolder> = persistentListOf(),
+    val documentCoverImages: ImmutableMap<String, ByteArray> = persistentMapOf(),
     val hasDocuments: Boolean = false,
     val sort: HomeSort = HomeSort.Recent,
     val formatFilter: HomeFormatFilter = HomeFormatFilter.All,
@@ -77,7 +82,7 @@ internal fun libraryPreviewLimit(
 internal fun homeLibraryPreviewDocuments(
     documents: List<DocumentMetadata>,
     previewLimit: Int,
-): List<DocumentMetadata> = documents.take(previewLimit)
+): ImmutableList<DocumentMetadata> = documents.take(previewLimit).toImmutableList()
 
 internal fun <T : Any> homeLibraryGridRows(
     items: List<T>,
@@ -93,7 +98,8 @@ internal fun libraryFolderPreviewDocuments(
     documents: List<DocumentMetadata>,
     folderId: String,
     previewLimit: Int,
-): List<DocumentMetadata> = documents.filter { it.folderId == folderId }.take(previewLimit)
+): ImmutableList<DocumentMetadata> =
+    documents.filter { it.folderId == folderId }.take(previewLimit).toImmutableList()
 
 internal fun libraryFolderRemainingDocumentCount(
     totalCount: Int,
