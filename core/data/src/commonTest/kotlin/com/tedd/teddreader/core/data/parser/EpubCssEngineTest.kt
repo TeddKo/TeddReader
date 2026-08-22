@@ -337,4 +337,119 @@ class EpubCssEngineTest {
         assertTrue(css("").isEmpty())
         assertTrue(css("p { }").isEmpty())
     }
+
+    /**
+     * Regression guard for the flat-regex extraction this replaced: the *body* of a non-applying
+     * at-rule must not leak its inner rules into the ordinary cascade. `@media print { p { … } }` used
+     * to match the inner `p { … }` as a normal rule and hide those paragraphs on screen.
+     */
+    @Test
+    fun aPrintMediaBodyNeverLeaksIntoTheScreenCascade() {
+        val sheet = css(
+            """
+            @media print { p { display: none; color: red } }
+            p { text-align: center }
+            """.trimIndent(),
+        )
+
+        val declarations = sheet.declarationsFor(listOf(element("p")))
+        assertNull(declarations.display)
+        assertNull(declarations.color)
+        assertEquals("center", declarations.textAlign)
+    }
+
+    /** A `screen`/`all`/`only screen` query applies its whole body, nested `@font-face` included. */
+    @Test
+    fun aScreenMediaBodyApplies() {
+        val sheet = css(
+            """
+            @media screen { p { color: red } }
+            @media only screen { h1 { color: blue } }
+            @media all { h2 { color: green } }
+            """.trimIndent(),
+        )
+
+        assertEquals("red", sheet.declarationsFor(listOf(element("p"))).color)
+        assertEquals("blue", sheet.declarationsFor(listOf(element("h1"))).color)
+        assertEquals("green", sheet.declarationsFor(listOf(element("h2"))).color)
+    }
+
+    /**
+     * A feature condition (`(min-width: …)`) needs a viewport this parse-time engine does not have, so
+     * the branch is skipped rather than guessed at — applying a wide-screen override to every phone is
+     * the same class of leak as applying print styling to the screen. A comma branch that *can* be
+     * judged still applies the block.
+     */
+    @Test
+    fun aFeatureConditionedMediaBranchIsSkippedButAJudgeableBranchStillApplies() {
+        val skipped = css("@media screen and (min-width: 60em) { p { color: red } }")
+        val applied = css("@media print, screen { p { color: blue } }")
+
+        assertNull(skipped.declarationsFor(listOf(element("p"))).color)
+        assertEquals("blue", applied.declarationsFor(listOf(element("p"))).color)
+    }
+
+    /** Other block at-rules are skipped whole; the rules *after* them still parse in order. */
+    @Test
+    fun otherAtRuleBlocksAreSkippedWithoutShiftingLaterRules() {
+        val sheet = css(
+            """
+            @supports (display: flex) { p { color: red } }
+            @keyframes fade { from { color: red } to { color: blue } }
+            @page { margin: 5em }
+            p { color: green }
+            """.trimIndent(),
+        )
+
+        val declarations = sheet.declarationsFor(listOf(element("p")))
+        assertEquals("green", declarations.color)
+        assertNull(declarations.marginTop)
+        assertNull(sheet.declarationsFor(listOf(element("from"))).color)
+    }
+
+    /** Statement at-rules (`@import`, `@charset`, `@namespace`) end at their `;` and cost nothing else. */
+    @Test
+    fun statementAtRulesAreSkippedToTheirSemicolon() {
+        val sheet = css(
+            """
+            @charset "utf-8";
+            @import url("other.css");
+            p { color: green }
+            """.trimIndent(),
+        )
+
+        assertEquals("green", sheet.declarationsFor(listOf(element("p"))).color)
+    }
+
+    /** A `@font-face` inside an applying `@media` still registers its family. */
+    @Test
+    fun aFontFaceInsideAnApplyingMediaBlockStillRegisters() {
+        val sheet = css(
+            """
+            @media screen {
+                @font-face { font-family: 'KoPub'; src: url('fonts/KoPub.otf'); }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("fonts/KoPub.otf", sheet.resolvedFontHref("'KoPub', serif"))
+    }
+
+    /** A stray `}` and an unclosed block fail soft without shifting the rules around them. */
+    @Test
+    fun malformedBracesFailSoft() {
+        val strayCloser = css("} p { color: green }")
+        val unclosed = css("p { color: green } .broken { color: red")
+
+        assertEquals("green", strayCloser.declarationsFor(listOf(element("p"))).color)
+        assertEquals("green", unclosed.declarationsFor(listOf(element("p"))).color)
+    }
+
+    /** A brace inside a quoted string never miscounts the block scan. */
+    @Test
+    fun aBraceInsideAQuotedStringDoesNotBreakTheScan() {
+        val sheet = css("""p { font-family: "Weird{Name" } h1 { color: red }""")
+
+        assertEquals("red", sheet.declarationsFor(listOf(element("h1"))).color)
+    }
 }

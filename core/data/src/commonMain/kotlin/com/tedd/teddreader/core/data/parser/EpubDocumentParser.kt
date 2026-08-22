@@ -59,7 +59,7 @@ data class EpubParseResult(
  * parsed, because settling it first — rather than discovering it while walking the spine — is what
  * keeps every other section's offset stable; doing it any later would have to shift every offset
  * already handed out to make room for it. See [parseWithCover] for the full parsing walk, and
- * [EpubXhtmlParser]/[EpubCssEngine]/[EpubStyleSheet] for how one chapter's own markup and stylesheets
+ * [EpubXhtmlParser]/[EpubCssEngine] for how one chapter's own markup and stylesheets
  * become text.
  */
 @Single
@@ -159,8 +159,8 @@ class EpubDocumentParser {
      * is still recorded against the cover section, so a navigation entry that targets that chapter file
      * resolves to the cover rather than to nothing. Each remaining spine item is parsed with
      * [parseXhtmlContent], resolving its image references against its own place in the container and
-     * passing in the chapter's linked stylesheet(s) ([linkedStyleSheet]) and CSS cascade ([linkedCss]) —
-     * both cached by stylesheet set, since a book typically reuses the same few sheets across hundreds
+     * passing in the chapter's CSS cascade ([linkedCss]) —
+     * cached by stylesheet set, since a book typically reuses the same few sheets across hundreds
      * of chapters. A section's title is resolved title-attribute-of-heading-image first
      * ([XhtmlContent.headingTitle]), then the chapter's own first heading text ([firstHeadingTitle]),
      * then the manifest item's `title`, and finally its raw `id` as a last resort when nothing else
@@ -243,7 +243,6 @@ class EpubDocumentParser {
             nextOffset = coverRange.end + SectionSeparatorLength
         }
 
-        val styleSheetCache = mutableMapOf<String, EpubStyleSheet>()
         val cssCache = mutableMapOf<String, EpubCss>()
         packageData.spineItems.filter { it.linear }.forEachIndexed { spineOrder, spineItem ->
             val xhtml = zip.readUtf8OrNull(spineItem.path.toPath()) ?: return@forEachIndexed
@@ -251,7 +250,6 @@ class EpubDocumentParser {
                 xhtml = xhtml,
                 baseOffset = nextOffset,
                 resolveImageHref = { source -> resolveContainerHref(spineItem.path, source) },
-                styleSheet = linkedStyleSheet(xhtml, spineItem.path, zip, styleSheetCache),
                 css = linkedCss(xhtml, spineItem.path, zip, cssCache),
             )
             if (coverHref != null && spineOrder == 0 && isPureCoverXhtml(content, coverHref)) {
@@ -491,8 +489,6 @@ internal class EpubImportContainer(
      * section.
      */
     val linearSpineItems: List<SpineItem> = packageData.spineItems.filter { it.linear }
-    /** Shared across progressive spine parsing so the same linked stylesheet set is parsed once per import. */
-    val linkedStyleSheetCache = mutableMapOf<String, EpubStyleSheet>()
     /** Shared across progressive spine parsing so the same linked CSS cascade is parsed once per import. */
     val linkedCssCache = mutableMapOf<String, EpubCss>()
 }
@@ -565,7 +561,6 @@ private fun resolveEpubCoverDecision(zip: FileSystem, packageData: PackageData):
                 xhtml = xhtml,
                 baseOffset = 0L,
                 resolveImageHref = { source -> resolveContainerHref(itemPath, source) },
-                styleSheet = linkedStyleSheet(xhtml, itemPath, zip, mutableMapOf()),
                 css = linkedCss(xhtml, itemPath, zip, mutableMapOf()),
             ),
             coverHref,
@@ -625,7 +620,6 @@ internal fun parseEpubSpineItem(
         xhtml = xhtml,
         baseOffset = baseOffset,
         resolveImageHref = { source -> resolveContainerHref(spineItem.path, source) },
-        styleSheet = linkedStyleSheet(xhtml, spineItem.path, container.zip, container.linkedStyleSheetCache),
         css = linkedCss(xhtml, spineItem.path, container.zip, container.linkedCssCache),
     )
     val coverHref = container.coverDecision.coverHref
@@ -808,34 +802,6 @@ private fun linkedStyleSheetHrefs(xhtml: String, chapterPath: String): List<Stri
         .filter { attributes -> attributes["rel"]?.contains("stylesheet", ignoreCase = true) == true }
         .mapNotNull { attributes -> attributes["href"]?.let { resolveContainerHref(chapterPath, it) } }
         .toList()
-
-/**
- * The picture-width declarations from every stylesheet [chapterPath] links, layered in `<link>` order
- * (see [parseEpubStyleSheet]) and cached by the set of linked stylesheets, the same way [linkedCss] is.
- *
- * @param xhtml the chapter's raw markup, scanned for linked stylesheets.
- * @param chapterPath the chapter's own container path.
- * @param zip the archive the linked stylesheet(s) are read from.
- * @param cache stylesheet-set to merged [EpubStyleSheet], shared across chapters by the caller.
- * @return an empty [EpubStyleSheet] if the chapter links no stylesheet, otherwise the merged sheet.
- */
-private fun linkedStyleSheet(
-    xhtml: String,
-    chapterPath: String,
-    zip: FileSystem,
-    cache: MutableMap<String, EpubStyleSheet>,
-): EpubStyleSheet {
-    val hrefs = linkedStyleSheetHrefs(xhtml, chapterPath)
-    if (hrefs.isEmpty()) return EpubStyleSheet()
-    val key = hrefs.joinToString("|")
-    cache[key]?.let { return it }
-    val merged = hrefs.fold(EpubStyleSheet()) { sheet, href ->
-        val css = zip.readUtf8OrNull(href.toPath()) ?: return@fold sheet
-        parseEpubStyleSheet(css, sheet)
-    }
-    cache[key] = merged
-    return merged
-}
 
 /**
  * Patches every image block with the size read from the picture's own bytes: the aspect ratio, and the

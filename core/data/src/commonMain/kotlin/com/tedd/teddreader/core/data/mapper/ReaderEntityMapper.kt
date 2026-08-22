@@ -178,7 +178,7 @@ fun ReaderSection.toSearchIndexEntity(
  * reading position lands on the nearest page rather than the exact one. That is the price of a bump and
  * the reason not to make one for anything the reader does not actually need.
  */
-const val CurrentReaderParserVersion: Int = 7
+const val CurrentReaderParserVersion: Int = 9
 
 /**
  * Every non-overlapping occurrence of [query] in this section's stored text, in document order.

@@ -100,15 +100,15 @@ class ReaderModelsTest {
     @Test
     fun layoutKeyFallsBackToPublisherFontKeyWhenNoUserFontIsChosen() {
         assertEquals(
-            "loaded-fonts#layout5",
+            "loaded-fonts#layout7",
             ReaderStyle(publisherFontKey = "loaded-fonts").layoutKey().fontFamilyName,
         )
         assertEquals(
-            "serif#layout5",
+            "serif#layout7",
             ReaderStyle(fontFamilyName = "serif", publisherFontKey = "loaded-fonts").layoutKey().fontFamilyName,
         )
         assertEquals(
-            "same-href=loaded#layout5",
+            "same-href=loaded#layout7",
             ReaderStyle(publisherFontKey = "same-href=loaded").layoutKey().fontFamilyName,
         )
     }
@@ -120,6 +120,6 @@ class ReaderModelsTest {
      */
     @Test
     fun layoutKeyCarriesTheLayoutAlgorithmVersion() {
-        assertEquals("#layout5", ReaderStyle().layoutKey().fontFamilyName)
+        assertEquals("#layout7", ReaderStyle().layoutKey().fontFamilyName)
     }
 }

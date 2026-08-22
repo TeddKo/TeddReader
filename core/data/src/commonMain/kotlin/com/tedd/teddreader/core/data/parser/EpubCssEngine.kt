@@ -149,6 +149,15 @@ internal data class CssDeclarations(
 private fun String?.resolveInheritedKeyword(parent: String?): String? =
     if (this?.equals("inherit", ignoreCase = true) == true) parent else this
 
+/** A CSS width, in the units EPUB stylesheets actually use to size a picture. */
+internal sealed interface CssWidth {
+    /** `width: 75%`, as a fraction of the containing block. */
+    data class Percent(val fraction: Float) : CssWidth
+
+    /** `width: 6.5em`. */
+    data class Em(val value: Float) : CssWidth
+}
+
 /**
  * A CSS length as this engine can resolve it — relative to a container, to the current font size, or
  * absolute.
@@ -320,27 +329,152 @@ internal class EpubCss private constructor(
             val fontFaces = linkedMapOf<String, String>()
             var order = 0
             sheets.forEach { source ->
-                val stripped = stripCssComments(source.css)
-                FontFaceRuleRegex.findAll(stripped).forEach { match ->
-                    parseFontFace(match.groupValues[1], source.path)?.let { fontFace ->
-                        fontFace.srcHref?.let { fontFaces[fontFace.familyName.normalizeFontFamilyKey()] = it }
-                    }
-                }
-                CssRuleRegex.findAll(stripped).forEach { match ->
-                    val selectorText = match.groupValues[1].trim()
-                    if (selectorText.startsWith("@")) return@forEach
-                    val declarations = parseCssDeclarations(match.groupValues[2])
-                    if (declarations.isEmpty()) return@forEach
-                    selectorText.split(',').forEach { rawSelector ->
-                        val selector = parseSelector(rawSelector) ?: return@forEach
-                        rules += CssRule(selector, declarations, order)
-                        order += 1
-                    }
-                }
+                scanCssRules(
+                    css = stripCssComments(source.css),
+                    onFontFace = { body ->
+                        parseFontFace(body, source.path)?.let { fontFace ->
+                            fontFace.srcHref?.let { fontFaces[fontFace.familyName.normalizeFontFamilyKey()] = it }
+                        }
+                    },
+                    onRule = { selectorText, body ->
+                        val declarations = parseCssDeclarations(body)
+                        if (declarations.isEmpty()) return@scanCssRules
+                        selectorText.split(',').forEach { rawSelector ->
+                            val selector = parseSelector(rawSelector) ?: return@forEach
+                            rules += CssRule(selector, declarations, order)
+                            order += 1
+                        }
+                    },
+                )
             }
             return if (rules.isEmpty() && fontFaces.isEmpty()) Empty else EpubCss(rules, fontFaces)
         }
     }
+}
+
+/**
+ * Walks one stylesheet's rules with real brace matching, so an at-rule's body is a *block* rather than
+ * text a flat regex tears rules out of.
+ *
+ * This is the boundary that keeps conditional styling conditional. The previous regex extraction had no
+ * notion of nesting, so `@media print { p { display:none } }` matched the inner `p { … }` as an ordinary
+ * rule and hid those paragraphs on screen — styling the book stated for a medium this reader is not.
+ * Here every `{` finds its matching `}` (quote-aware, so a brace inside a string never miscounts), and
+ * what happens to the block depends on its prelude:
+ *
+ * - an ordinary selector: handed to [onRule] with its own body;
+ * - `@media`: descended into only when [mediaQueryApplies] says the query names this medium, and the
+ *   body is then scanned recursively, so rules and `@font-face`s nested in an applying query still count;
+ * - `@font-face`: handed to [onFontFace];
+ * - any other at-rule block (`@supports`, `@keyframes`, `@page`, vendor rules): skipped whole, body and
+ *   all — the same "cannot judge → drop" policy the selector matcher applies to pseudo-classes;
+ * - a statement at-rule (`@import`, `@charset`, `@namespace`): skipped to its `;`.
+ *
+ * Malformed input fails soft: an unclosed block consumes the rest of the sheet as its own body, and a
+ * stray `}` is ignored, so one broken rule cannot shift every rule after it.
+ *
+ * @param css the stylesheet text, comments already stripped.
+ * @param onFontFace called with each `@font-face` body found in an applying context.
+ * @param onRule called with each ordinary rule's selector list text and declaration body.
+ */
+private fun scanCssRules(
+    css: String,
+    onFontFace: (body: String) -> Unit,
+    onRule: (selectorText: String, body: String) -> Unit,
+) {
+    var index = 0
+    var preludeStart = 0
+    while (index < css.length) {
+        when (css[index]) {
+            '"', '\'' -> index = css.skipQuoted(index)
+            ';' -> {
+                // Ends a statement at-rule (`@import …;`) or stray junk between rules.
+                preludeStart = index + 1
+                index += 1
+            }
+            '}' -> {
+                // A stray closer with no open block of its own; drop it and whatever led up to it.
+                preludeStart = index + 1
+                index += 1
+            }
+            '{' -> {
+                val prelude = css.substring(preludeStart, index).trim()
+                val bodyStart = index + 1
+                val bodyEnd = css.matchingBraceEnd(index)
+                val body = css.substring(bodyStart, bodyEnd)
+                when {
+                    prelude.startsWith("@media", ignoreCase = true) -> {
+                        if (mediaQueryApplies(prelude.drop("@media".length))) {
+                            scanCssRules(body, onFontFace, onRule)
+                        }
+                    }
+                    prelude.startsWith("@font-face", ignoreCase = true) -> onFontFace(body)
+                    prelude.startsWith("@") -> Unit
+                    prelude.isNotEmpty() -> onRule(prelude, body)
+                }
+                index = if (bodyEnd < css.length) bodyEnd + 1 else css.length
+                preludeStart = index
+            }
+            else -> index += 1
+        }
+    }
+}
+
+/**
+ * Index of the `}` closing the block opened at [openIndex], or [String.length] when the sheet ends with
+ * the block still open — the unclosed block then swallows the rest of the sheet rather than looping.
+ * Quoted strings are skipped so a brace inside one never changes the depth.
+ */
+private fun String.matchingBraceEnd(openIndex: Int): Int {
+    var depth = 1
+    var index = openIndex + 1
+    while (index < length) {
+        when (this[index]) {
+            '"', '\'' -> {
+                index = skipQuoted(index)
+                continue
+            }
+            '{' -> depth += 1
+            '}' -> {
+                depth -= 1
+                if (depth == 0) return index
+            }
+        }
+        index += 1
+    }
+    return length
+}
+
+/** Index just past the quoted string starting at [quoteIndex]; an unterminated one runs to the end. */
+private fun String.skipQuoted(quoteIndex: Int): Int {
+    val quote = this[quoteIndex]
+    var index = quoteIndex + 1
+    while (index < length) {
+        when (this[index]) {
+            '\\' -> index += 1
+            quote -> return index + 1
+        }
+        index += 1
+    }
+    return length
+}
+
+/**
+ * Whether a `@media` query names a medium this reader is: `all`, `screen`, or nothing (which CSS reads
+ * as `all`). Any branch of the comma-separated list that does — optionally `only`-prefixed — applies the
+ * whole block.
+ *
+ * A branch carrying a feature condition (`(min-width: 60em)`, `(orientation: …)`) is *skipped*, not
+ * guessed at: this engine resolves styles once at parse time and has no viewport to evaluate a feature
+ * against, and applying a wide-screen override to every phone is exactly the kind of styling leak the
+ * scan exists to stop. A `print`/`speech`/other-medium branch never applies. This is the same
+ * cannot-judge → drop policy [parseCompound] applies to pseudo-classes.
+ *
+ * @param query the raw text between `@media` and the block's `{`.
+ */
+private fun mediaQueryApplies(query: String): Boolean = query.split(',').any { branch ->
+    val cleaned = branch.trim().lowercase().removePrefix("only").trim()
+    cleaned.isEmpty() || cleaned == "all" || cleaned == "screen"
 }
 
 /**
@@ -597,13 +731,6 @@ private fun stripCssComments(css: String): String = css.replace(CssCommentRegex,
 
 /** Matches a CSS block comment, spanning newlines, for [stripCssComments] to blank out. */
 private val CssCommentRegex = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
-/** Matches one `@font-face { ... }` block so it can be parsed before ordinary selector rules. */
-private val FontFaceRuleRegex = Regex("""@font-face\s*\{([^{}]*)\}""", RegexOption.IGNORE_CASE)
-/**
- * Splits a stylesheet into `selector { declarations }` pairs; the two capture groups are the selector list
- * and the declaration body.
- */
-private val CssRuleRegex = Regex("""([^{}]+)\{([^{}]*)\}""")
 /**
  * Splits a selector on whichever combinator separates its compounds; every combinator is read as a plain
  * descendant — see [CssSelector.matches].

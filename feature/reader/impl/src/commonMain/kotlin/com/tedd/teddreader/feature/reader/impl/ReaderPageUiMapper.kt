@@ -62,7 +62,7 @@ internal fun readerPageUi(page: Int, context: ReaderPageUiContext): ReaderPageUi
             ?.blocks
             .orEmpty()
             .flatMap { block ->
-                listOfNotNull(block.style?.fontHref) + block.spans.mapNotNull { span -> span.cssStyle?.fontHref }
+                listOfNotNull(block.style?.fontHref) + block.spans.mapNotNull { span -> span.styleDelta?.fontHref }
             }
             .distinct()
             .mapNotNull { href -> context.embeddedFontFiles[href]?.let { href to it } }
@@ -78,7 +78,7 @@ internal fun readerPageUi(page: Int, context: ReaderPageUiContext): ReaderPageUi
             ?.blocks
             .orEmpty()
             .flatMap { block ->
-                listOfNotNull(block.style?.fontHref) + block.spans.mapNotNull { span -> span.cssStyle?.fontHref }
+                listOfNotNull(block.style?.fontHref) + block.spans.mapNotNull { span -> span.styleDelta?.fontHref }
             }
             .filter(context.failedEmbeddedFontHrefs::contains)
             .toImmutableSet(),
