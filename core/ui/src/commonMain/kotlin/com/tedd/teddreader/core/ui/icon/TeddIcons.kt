@@ -9,7 +9,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+/**
+ * Hand-drawn [ImageVector]s for the reader chrome, in place of Material's icon library. This app
+ * does not depend on `material-icons-extended` (a large artifact for the handful of glyphs actually
+ * needed), so each icon here is a minimal path definition covering exactly the reader's controls
+ * (navigation, bookmarking, playback, battery, delete). Every path is filled or stroked with
+ * `Color.Black` regardless of theme; that value is not the rendered color — Material's `Icon`
+ * composable recolors the whole vector via its `tint` color filter (default
+ * `LocalContentColor.current`), which replaces every opaque pixel's color and only preserves alpha,
+ * so black here is just a convenient, high-contrast placeholder for "the shape," not the on-screen
+ * color.
+ */
 object TeddIcons {
+    /** A left-pointing chevron, used for back/up navigation. */
     val Back: ImageVector by lazy {
         ImageVector.Builder(
             name = "Back",
@@ -34,6 +46,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** An open bookmark ribbon, for a page that is not currently saved. */
     val BookmarkOutline: ImageVector by lazy {
         ImageVector.Builder(
             name = "BookmarkOutline",
@@ -59,6 +72,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A filled bookmark ribbon, for a page that is currently saved. */
     val BookmarkFilled: ImageVector by lazy {
         ImageVector.Builder(
             name = "BookmarkFilled",
@@ -81,6 +95,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** An "X" glyph, used to dismiss a sheet, dialog, or overlay. */
     val Close: ImageVector by lazy {
         ImageVector.Builder(
             name = "Close",
@@ -104,6 +119,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** Three vertically stacked dots, opening an overflow menu of secondary actions. */
     val MoreVert: ImageVector by lazy {
         ImageVector.Builder(
             name = "MoreVert",
@@ -126,6 +142,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A left-pointing caret, for moving to the previous page or track. */
     val Previous: ImageVector by lazy {
         ImageVector.Builder(
             name = "Previous",
@@ -148,6 +165,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A right-pointing caret, for moving to the next page or track. */
     val Next: ImageVector by lazy {
         ImageVector.Builder(
             name = "Next",
@@ -170,6 +188,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A right-pointing triangle, starting playback (e.g. auto-scroll). */
     val Play: ImageVector by lazy {
         ImageVector.Builder(
             name = "Play",
@@ -187,6 +206,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** Two vertical bars, pausing playback (e.g. auto-scroll). */
     val Pause: ImageVector by lazy {
         ImageVector.Builder(
             name = "Pause",
@@ -210,6 +230,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A battery outline with a terminal nub, for the reader's own battery-percentage indicator. */
     val Battery: ImageVector by lazy {
         ImageVector.Builder(
             name = "Battery",
@@ -236,6 +257,7 @@ object TeddIcons {
         }.build()
     }
 
+    /** A trash can, for a destructive delete/remove action. */
     val Delete: ImageVector by lazy {
         ImageVector.Builder(
             name = "Delete",

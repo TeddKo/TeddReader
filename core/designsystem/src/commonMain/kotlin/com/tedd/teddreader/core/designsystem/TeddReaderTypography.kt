@@ -6,6 +6,37 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
+/**
+ * The app's type scale: Material's fifteen roles plus seven the app needs that Material has no name for.
+ *
+ * The Material roles are here so stock components take the app's type (see `toMaterialTypography`), and the
+ * seven extras exist because the alternative was screens re-deriving the same `TextStyle` with a local
+ * `copy()` — a library title styled slightly differently on every screen that shows one.
+ *
+ * @property displayLarge the largest display size, for a hero heading.
+ * @property displayMedium a display heading.
+ * @property displaySmall the smallest display heading.
+ * @property headlineLarge a screen's own heading.
+ * @property headlineMedium a section heading.
+ * @property headlineSmall a subsection heading.
+ * @property titleLarge a bar title.
+ * @property titleMedium a card or dialog title.
+ * @property titleSmall a dense title, as in a list header.
+ * @property bodyLarge body text at reading size for app chrome.
+ * @property bodyMedium the app's default body size.
+ * @property bodySmall body text where space is tight.
+ * @property labelLarge a button's label.
+ * @property labelMedium a chip or tab label.
+ * @property labelSmall the smallest label, for badges and captions.
+ * @property documentTitle a book's title in the library, so every list and card renders one the same way.
+ * @property documentMeta a book's format, size and dates beside that title.
+ * @property settingTitle the name of a setting row.
+ * @property settingDescription the explanation under a setting row.
+ * @property statValue a large figure on the statistics and document-info screens.
+ * @property readerBody the reader's own chrome text, distinct from the *book's* text, which is styled from
+ * the reader's own [ReaderStyle] rather than from this scale.
+ * @property readerCaption a caption inside the reader, such as a page counter.
+ */
 @Immutable
 data class TeddReaderTypography(
     val displayLarge: TextStyle,
@@ -32,6 +63,7 @@ data class TeddReaderTypography(
     val readerCaption: TextStyle,
 )
 
+/** The type scale the theme installs: sizes, weights and letter spacing tuned for reading, not for chrome. */
 val DefaultTeddReaderTypography = TeddReaderTypography(
     displayLarge = TextStyle(fontSize = 52.sp, lineHeight = 58.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.6).sp),
     displayMedium = TextStyle(fontSize = 40.sp, lineHeight = 48.sp, fontWeight = FontWeight.Medium, letterSpacing = (-0.4).sp),
@@ -57,6 +89,15 @@ val DefaultTeddReaderTypography = TeddReaderTypography(
     readerCaption = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
 )
 
+/**
+ * Hands the Material half of this scale to Material, so a stock component takes the app's type.
+ *
+ * The app-specific roles are deliberately left out: Material has no slot for them, and a screen that wants
+ * one reads it from the app theme instead.
+ *
+ * @receiver the app's full type scale.
+ * @return only its Material roles, in Material's own type, for `MaterialTheme(typography = …)`.
+ */
 fun TeddReaderTypography.toMaterialTypography(): Typography = Typography(
     displayLarge = displayLarge,
     displayMedium = displayMedium,

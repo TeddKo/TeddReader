@@ -9,6 +9,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 
+/**
+ * Wraps a `@Preview` in the app's theme and surface colours, so a preview shows the component as the app
+ * really draws it.
+ *
+ * Internal on purpose: it is scaffolding for previews in this module, not something a screen should compose.
+ *
+ * @param modifier applied to the surface.
+ * @param contentPadding inset around the previewed content, so a component's edges are visible.
+ * @param content the component being previewed.
+ */
 @Composable
 internal fun TeddPreviewSurface(
     modifier: Modifier = Modifier,

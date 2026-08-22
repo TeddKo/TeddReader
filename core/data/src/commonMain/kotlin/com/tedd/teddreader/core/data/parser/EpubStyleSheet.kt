@@ -50,12 +50,21 @@ internal data class EpubStyleSheet(
         return defaultImageWidth
     }
 
+    /** True when this sheet declares no width at all — a book that never sizes a picture through CSS. */
     fun isEmpty(): Boolean = containerWidths.isEmpty() && imageWidths.isEmpty() && defaultImageWidth == null
 }
 
 /**
  * Collect the width declarations from one stylesheet, layered over [base] so a later sheet in the
  * document's `<link>` order wins the cascade the same way a browser would resolve it.
+ *
+ * A selector's key compounds are chosen so a width resolves against whichever element actually carries
+ * the class: when the selector targets `img` directly (e.g. `.wrapper img`), the image is sized
+ * relative to its wrapper rather than itself, so every compound but the last — the last being `img` —
+ * becomes the key; otherwise the selector's own last compound is the key. A bare `img{width:…}` rule
+ * with no class at all is treated specially too, as [EpubStyleSheet.defaultImageWidth]: plenty of books
+ * state their picture sizes exactly this way, and keying every rule by a class name alone read those
+ * books as declaring nothing, leaving every one of their images to fall back to filling the full column.
  */
 internal fun parseEpubStyleSheet(css: String, base: EpubStyleSheet = EpubStyleSheet()): EpubStyleSheet {
     val containerWidths = base.containerWidths.toMutableMap()
@@ -68,15 +77,11 @@ internal fun parseEpubStyleSheet(css: String, base: EpubStyleSheet = EpubStyleSh
             val compounds = selector.trim().split(Regex("""[\s>+~]+""")).filter(String::isNotEmpty)
             if (compounds.isEmpty()) return@forEach
             val targetsImage = compounds.last().substringBefore('.').substringBefore(':').equals("img", ignoreCase = true)
-            // `.wrapper img` sizes the image relative to `.wrapper`, so it is keyed by the wrapper.
             val keyCompounds = if (targetsImage) compounds.dropLast(1) else listOf(compounds.last())
             val classes = keyCompounds.flatMap { compound ->
                 CssClassRegex.findAll(compound).map { it.groupValues[1] }.toList()
             }
             if (targetsImage && classes.isEmpty()) {
-                // A bare `img{width:…}` sizes every picture in the book. Books that state their
-                // picture sizes this way rather than through a class were being read as stating
-                // nothing at all, and every one of their images fell back to the full column.
                 defaultImageWidth = width
                 return@forEach
             }
@@ -91,22 +96,37 @@ internal fun parseEpubStyleSheet(css: String, base: EpubStyleSheet = EpubStyleSh
     )
 }
 
+/**
+ * The `width` this rule's declaration block states, in a unit that actually sizes a picture.
+ *
+ * `px` is deliberately not among the recognized units here: a pixel width does not scale with the
+ * reader's own font size the way `%` and `em` do, so it is not useful as a picture size in this reader
+ * and is read as no declared width at all. A zero or negative value is likewise treated as undeclared.
+ *
+ * @param declarations the raw text between a rule's braces, e.g. `"margin:0 auto;width:90%;"`.
+ * @return the declared width, or null if the block has no `width` in a recognized unit.
+ */
 private fun declaredWidth(declarations: String): CssWidth? {
-    val match = CssWidthRegex.find(declarations) ?: return null
-    val value = match.groupValues[1].toFloatOrNull() ?: return null
-    if (value <= 0f) return null
-    return when (match.groupValues[2].lowercase()) {
-        "%" -> CssWidth.Percent(value / 100f)
-        "em", "rem" -> CssWidth.Em(value)
+    return when (val width = parseCssDeclarations(declarations).width) {
+        is CssLength.Percent -> width.fraction.takeIf { it > 0f }?.let(CssWidth::Percent)
+        is CssLength.Em -> width.value.takeIf { it > 0f }?.let(CssWidth::Em)
         else -> null
     }
 }
 
+/**
+ * [css] with every CSS block comment blanked out, so a commented-out rule is never parsed as a real one.
+ */
 private fun stripCssComments(css: String): String = css.replace(CssCommentRegex, " ")
 
+/** Matches a CSS block comment, spanning newlines, for [stripCssComments] to blank out. */
 private val CssCommentRegex = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
-private val CssRuleRegex = Regex("""([^{}]+)\{([^{}]*)\}""")
-private val CssClassRegex = Regex("""\.([\w-]+)""")
 
-// Anchored at a declaration boundary so `max-width` or `min-width` never reads as `width`.
-private val CssWidthRegex = Regex("""(?:^|[;{\s])width\s*:\s*([0-9.]+)\s*(%|em|rem|px)""", RegexOption.IGNORE_CASE)
+/**
+ * Splits a stylesheet into `selector { declarations }` pairs; the two capture groups are the selector list
+ * and the declaration body.
+ */
+private val CssRuleRegex = Regex("""([^{}]+)\{([^{}]*)\}""")
+
+/** Captures one class name out of a compound selector, e.g. the `dedi` in `.dedi`. */
+private val CssClassRegex = Regex("""\.([\w-]+)""")

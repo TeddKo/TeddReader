@@ -23,6 +23,23 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A settings row that pairs a title/description with a trailing [Switch], where the whole row (not
+ * just the switch thumb) is the tap target — the row itself carries the `toggleable` modifier with
+ * `role = Role.Switch`, and the [Switch] passed `onCheckedChange = null` so it renders visually but
+ * does not register its own, smaller, tap target. Without that split, tapping anywhere but the small
+ * switch control itself would do nothing, which fails the row-sized touch target this app's settings
+ * screens rely on everywhere else (see [TeddRadioRow], [TeddCheckboxRow]).
+ *
+ * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
+ * @param checked Whether the switch is drawn on.
+ * @param onCheckedChange Invoked with the new checked state when the row is tapped; not invoked
+ * while [enabled] is false.
+ * @param modifier Modifier applied to the row's root.
+ * @param description A second line shown under [title] in a muted color; omitted when null.
+ * @param enabled Whether the row responds to taps; false also switches the switch to disabled colors.
+ * @param contentPadding Padding between the row's edge and its content.
+ */
 @Composable
 fun TeddSwitchRow(
     title: String,
@@ -73,6 +90,7 @@ fun TeddSwitchRow(
     }
 }
 
+/** Compose preview rendering [TeddSwitchRow] checked, with a title and description. */
 @Preview
 @Composable
 private fun TeddSwitchRowPreview() {

@@ -35,15 +35,53 @@ import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
+/**
+ * The reader's bottom chrome: the page-position slider/label and the previous/next/auto-scroll
+ * controls, faded in and out together with the rest of the reader controls.
+ *
+ * The slider is driven from [sliderValue] rather than owning its own state, so a drag in progress
+ * and the page index committed by [onPageSelected] can disagree without fighting each other — the
+ * caller is expected to hold the live drag value (e.g. `ReaderScreen`'s `bottomSliderValue`) and only
+ * call [onPageSelected] once the gesture finishes. Internally, [latestSelectedPage] mirrors the
+ * rounded target page and is what the drag reports back through [onPageSelected], since the slider
+ * itself only carries a continuous [Float].
+ *
+ * @param pageIndex The current page and the total page count the slider's range and label are built
+ *   from.
+ * @param style The active reader style, forwarded to [ReaderBottomControls] for theming.
+ * @param isAutoScrollEnabled True while auto-scroll is running; disables the slider and the
+ *   previous/next buttons so a manual page change cannot race the automatic one, and swaps the
+ *   auto-scroll button's icon/label to "pause."
+ * @param showProgress Whether the page-position row (label + slider) is shown at all; the
+ *   previous/next/auto-scroll buttons always show regardless.
+ * @param isPaginationComplete False only while the book is still being imported in the background
+ *   (see `ReaderUiState.isPaginationComplete`). The slider stays visible but disabled rather than
+ *   hidden — a thumb that slides on its own as the total grows is worse than one that waits — and the
+ *   page label keeps counting up with a trailing "+" instead of showing a fixed, wrong total.
+ * @param onAutoScrollToggle Called when the auto-scroll play/pause button is tapped.
+ * @param onPreviousPage Called when the previous-page button is tapped.
+ * @param onNextPage Called when the next-page button is tapped.
+ * @param onPageSelected Called with the rounded target page once a slider drag finishes.
+ * @param sliderValue The slider's current (possibly mid-drag) value, owned by the caller.
+ * @param onSliderValueChange Called continuously as the slider is dragged, before the drag finishes.
+ * @param modifier The modifier applied to the whole bottom bar.
+ * @param windowInsets Insets reserved so the bar avoids system chrome (e.g. the navigation bar).
+ * @param canGoPrevious Whether the previous-page button is enabled; defaults to "not on the first
+ *   page."
+ * @param canGoNext Whether the next-page button is enabled; defaults to "not on the last known
+ *   page."
+ *
+ * `latestSelectedPage` mirrors the rounded target page, so `onPageSelected` reports an `Int` even though
+ * the slider only ever produces a continuous `Float`. It is remembered against the last page rather than
+ * unconditionally, so a repagination that changes the page count resets it along with the slider's range
+ * instead of reporting a stale page number.
+ */
 @Composable
 fun ReaderBottomActionBar(
     pageIndex: PageIndex,
     style: ReaderStyle,
     isAutoScrollEnabled: Boolean,
     showProgress: Boolean,
-    // False only while the book is still being imported in the background — see ReaderUiState. The
-    // slider stays visible but disabled rather than hidden: a thumb that slides on its own as the
-    // total grows is worse than one that waits, and the label keeps counting up with a trailing "+".
     isPaginationComplete: Boolean = true,
     onAutoScrollToggle: () -> Unit,
     onPreviousPage: () -> Unit,
@@ -148,6 +186,7 @@ fun ReaderBottomActionBar(
     }
 }
 
+/** Compose preview of [ReaderBottomActionBar] mid-book, with progress shown and auto-scroll off. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderBottomActionBarPreview() {

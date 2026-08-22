@@ -68,10 +68,41 @@ import kotlin.time.TimeSource
 import okio.ByteString.Companion.encodeUtf8
 import okio.FileSystem
 import okio.Path
+import okio.Path.Companion.toPath
 import okio.openZip
 import okio.buffer
 import org.koin.core.annotation.Single
 
+/**
+ * The sole [DocumentRepository] implementation: turns an imported file into a [ReaderDocument], persists
+ * it across [documentDao] (shelf metadata), [searchIndexDao] (per-section text/blocks/search index) and
+ * [pageLayoutDao] (measured page-start layouts), and serves it back out through the small set of
+ * in-memory caches documented alongside their own fields below. Format detection and per-format parsing
+ * are delegated to [formatDetector] and the `*DocumentParser`s; text is laid out into pages by
+ * [textPageLayoutEngine]. EPUB import is progressive (see [importEpubPhase0] and [importNextSections]),
+ * so this class also tracks an in-flight pagination session and a scratch copy of the EPUB currently
+ * being read from disk.
+ *
+ * @property documentDao Shelf-level metadata: title, format, timestamps, favourite/folder state, and the
+ *   `importCompletedAtEpochMillis` stamp a progressive EPUB import leaves unset until it actually
+ *   finishes (see [isImportComplete]).
+ * @property searchIndexDao Per-section storage: text, character range, decoded-block JSON, and the
+ *   document-level navigation/title carried on section 0 (see [getStoredSections]).
+ * @property pageLayoutDao Measured page-start layouts keyed by style and viewport (see
+ *   [restorePageWindows]/[storePageWindows]).
+ * @property formatDetector Resolves a [DocumentFormat] from a [DocumentImportSource]'s location/bytes.
+ * @property txtDocumentParser Parses plain-text imports and TXT repairs.
+ * @property epubDocumentParser Parses EPUB imports and repairs, including the non-progressive
+ *   fallback-chapters path used when a book has no OPF.
+ * @property pdfDocumentParser Parses PDF imports and extracts PDF covers.
+ * @property comicBookDocumentParser Parses CBZ imports, covers, and per-page images.
+ * @property imageDocumentParser Parses single-image imports.
+ * @property textPageLayoutEngine Lays sections out into [PageWindow]s and reconstructs a stored layout
+ *   back into windows without re-measuring.
+ * @property documentFileSource Reads/copies the original file bytes for a [DocumentMetadata.location].
+ *   Null in a context with no file access (some tests); every path that needs it degrades to returning
+ *   nothing rather than throwing when it is null, except progressive EPUB import, which requires it.
+ */
 @Single([DocumentRepository::class])
 class DocumentRepositoryImpl(
     private val documentDao: DocumentDao,
@@ -86,55 +117,130 @@ class DocumentRepositoryImpl(
     private val textPageLayoutEngine: TextPageLayoutEngine,
     private val documentFileSource: DocumentFileSource? = null,
 ) : DocumentRepository {
+    /** JSON codec used to encode/decode the block lists and navigation stored as text columns. */
     private val json = Json
+
+    /**
+     * Structured logger, tagged `"Pagination"`, for this class's cache-hit/measurement/import
+     * diagnostics.
+     */
     private val logger = Logger.withTag("Pagination")
 
-    // Reading a document back means loading every section's text out of the database and decoding a
-    // block list per section. Opening a book asked for exactly that twice — once directly and once
-    // more from inside getPageWindows — and every repagination asked again. One book is cached, which
-    // is all the reader ever has open, and it is dropped the moment that book is rewritten or deleted.
+    /**
+     * Guards [cachedDocumentId], [cachedReaderDocument], [cachedSectionBlocks], and the page-window
+     * cache fields below them ([cachedPageWindowKey], [cachedPageWindows], [cachedPageWindowsAreMeasured],
+     * [paginationSession]) — every read or write of any of those fields happens inside a
+     * `documentCacheLock.withLock` block.
+     */
     private val documentCacheLock = Mutex()
+
+    /**
+     * The id of the one document currently held by [cachedReaderDocument]/[cachedSectionBlocks], or null
+     * when nothing is cached. Reading a document back means loading every section's text out of the
+     * database and decoding a block list per section. Opening a book asked for exactly that twice — once
+     * directly and once more from inside [getPageWindows] — and every repagination asked again. One book
+     * is cached, which is all the reader ever has open, and it is dropped (see [invalidateDocumentCache])
+     * the moment that book is rewritten or deleted.
+     */
     private var cachedDocumentId: DocumentId? = null
+
+    /** The [ReaderDocument] cached for [cachedDocumentId] — see that property's doc for why one is kept. */
     private var cachedReaderDocument: ReaderDocument? = null
 
-    // The same book's per-section block decoder, kept alongside [cachedReaderDocument] so a restored
-    // page layout can ask for one section's blocks instead of forcing [cachedReaderDocument.blocks] to
-    // decode the whole book. Null when the cached document came from a repair pass instead of storage —
-    // that document already holds every block in memory, so there is nothing to look up on demand.
+    /**
+     * The same book's per-section block decoder, kept alongside [cachedReaderDocument] so a restored page
+     * layout can ask for one section's blocks instead of forcing [cachedReaderDocument]'s block list to
+     * decode the whole book. Null when the cached document came from a repair pass instead of storage —
+     * that document already holds every block in memory, so there is nothing to look up on demand.
+     */
     private var cachedSectionBlocks: SectionBlocksCache? = null
 
-    // Laying the book out is the most expensive thing the reader does, and the same question gets
-    // asked repeatedly: the pane reports its size again after a rotation and back, a settings sheet
-    // opens and closes without touching the type, the reader returns to the book it just left. One
-    // answer is kept, because one book is laid out at one size at a time.
+    /**
+     * The style/viewport [cachedPageWindows] answers for. Laying the book out is the most expensive
+     * thing the reader does, and the same question gets asked repeatedly: the pane reports its size
+     * again after a rotation and back, a settings sheet opens and closes without touching the type, the
+     * reader returns to the book it just left. One answer is kept, because one book is laid out at one
+     * size at a time.
+     */
     private var cachedPageWindowKey: PageWindowKey? = null
+
+    /** The page windows cached for [cachedPageWindowKey] — see that property's doc. */
     private var cachedPageWindows: List<PageWindow> = emptyList()
+
+    /**
+     * Whether [cachedPageWindows] came from an actual measurement (a restore, or a session that measured
+     * with a real [ReaderPageBreaker]) rather than the estimate a caller with no breaker gets. Gates
+     * whether a caller that specifically wants a measured answer may reuse the cache — see
+     * [getPageWindows].
+     */
     private var cachedPageWindowsAreMeasured: Boolean = false
 
-    // Progressive pagination in flight for [cachedPageWindowKey] — see PaginationSession's own doc.
-    // Null once nothing is mid-measurement: either every content section is already covered by
-    // [cachedPageWindows] (and, once a real breaker measured it, already written to page_layouts), or
-    // getPageWindows has not had to measure this document at all yet.
+    /**
+     * Progressive pagination in flight for [cachedPageWindowKey] — see [PaginationSession]'s own doc.
+     * Null once nothing is mid-measurement: either every content section is already covered by
+     * [cachedPageWindows] (and, once a real breaker measured it, already written to `page_layouts`), or
+     * [getPageWindows] has not had to measure this document at all yet.
+     */
     private var paginationSession: PaginationSession? = null
 
-    // Serialises [continuePagination] against itself — see its own doc for the duplicate it prevents.
-    // Deliberately not [documentCacheLock]: this one is held across a whole section's measurement, and
-    // that lock guards the page list the reader reads on its way to a frame.
+    /**
+     * Serialises [continuePagination] against itself — see that function's own doc for the duplicate
+     * measurement and double-append it prevents. Deliberately not [documentCacheLock]: this one is held
+     * across a whole section's measurement, and that lock guards the page list the reader reads on its
+     * way to a frame.
+     */
     private val paginationContinuationLock = Mutex()
 
-    // The EPUB an image is pulled out of, unpacked once and kept. Each call used to read the whole
-    // file into memory and write a fresh scratch copy of it just to reach one picture, so turning to
-    // an illustrated page cost as much as opening the book.
+    /** Guards [epubScratchDocumentId]/[epubScratchPath]/[epubScratchContainer] below. */
     private val epubScratchLock = Mutex()
-    private var epubScratchDocumentId: DocumentId? = null
-    private var epubScratchPath: Path? = null
+    /** Guards [epubNextSpineCursorByDocumentId] below. */
+    private val epubImportCursorLock = Mutex()
 
+    /**
+     * The id of the document [epubScratchPath] is a scratch copy of, or null when no copy is held. The
+     * EPUB an image is pulled out of is unpacked once and kept: each call used to read the whole file
+     * into memory and write a fresh scratch copy of it just to reach one picture, so turning to an
+     * illustrated page cost as much as opening the book.
+     */
+    private var epubScratchDocumentId: DocumentId? = null
+
+    /** Filesystem path of the scratch copy for [epubScratchDocumentId] — see that property's doc. */
+    private var epubScratchPath: Path? = null
+    /** Open import container for the currently-held scratch copy, reused across progressive batches. */
+    private var epubScratchContainer: EpubImportContainer? = null
+    /** Reusable temp font files keyed by the href they were extracted from for the current EPUB. */
+    private val epubEmbeddedFontFilesByHref = linkedMapOf<String, Path>()
+    /** Next unread linear spine position per progressively imported EPUB, cached to avoid replaying prior items. */
+    private val epubNextSpineCursorByDocumentId = mutableMapOf<DocumentId, Int>()
+    /** Section source path by stored section index for same-process progressive imports, cleared on invalidation/completion. */
+    private val epubSectionPathByIndexByDocumentId = mutableMapOf<DocumentId, MutableMap<Int, String>>()
+
+    /** The shelf, live: every document [documentDao] knows about, re-emitted as that table changes. */
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> =
         documentDao.observeRecentDocuments().map { documents -> documents.map { it.toDocumentMetadata() } }
 
+    /**
+     * Shelf metadata for [documentId].
+     *
+     * @param documentId The document to look up.
+     * @return The stored [DocumentMetadata], or null when no document with that id is on the shelf.
+     */
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
         documentDao.getDocument(documentId.value)?.toDocumentMetadata()
 
+    /**
+     * The cover image bytes for [documentId], preferring the file [coverFilePath] already wrote (at
+     * import time, see [importDocument]/[persistParsedDocument]) over paying to extract one again.
+     *
+     * Nothing cached yet means either this book was imported before covers were written at import time,
+     * or it's a PDF/CBZ, whose parsers don't already have cover bytes in hand the way
+     * [EpubDocumentParser] does. In that case this falls back to today's whole-file extraction, once, and
+     * writes the result so no later open pays this again.
+     *
+     * @param documentId The document to fetch a cover for.
+     * @return The cover bytes, or null when the format has no cover concept (TXT/IMAGE/UNKNOWN), when
+     *   [documentFileSource] is unavailable, or when reading/extraction fails.
+     */
     override suspend fun getDocumentCover(documentId: DocumentId): ByteArray? = withContext(Dispatchers.Default) {
         val metadata = getDocument(documentId) ?: return@withContext null
         when (metadata.format) {
@@ -152,10 +258,6 @@ class DocumentRepositoryImpl(
                     return@withContext it
                 }
                 logger.d { "cover: no cached file at $coverPath for ${metadata.location.displayName}, extracting" }
-                // Nothing cached yet — either this book was imported before covers were written at
-                // import time (see importDocument), or it's a PDF/CBZ, whose parsers don't already have
-                // cover bytes in hand the way EpubDocumentParser does. Fall back to today's whole-file
-                // extraction, once, and write the result so no later open pays this again.
                 val extracted = when (metadata.format) {
                     DocumentFormat.EPUB -> {
                         val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
@@ -176,6 +278,16 @@ class DocumentRepositoryImpl(
         }
     }
 
+    /**
+     * Page images for a CBZ, decoded straight from the archive on demand rather than kept in memory or
+     * in [searchIndexDao] — a comic's pages are raster images, not text to index.
+     *
+     * @param documentId The document to fetch pages from; a no-op returning an empty map for any format
+     *   other than CBZ.
+     * @param pageIndexes Which pages to decode.
+     * @return Decoded bytes keyed by the page indexes that were actually found, or an empty map when
+     *   [pageIndexes] is empty, the format isn't CBZ, or [documentFileSource] is unavailable.
+     */
     override suspend fun getVisualPageImages(
         documentId: DocumentId,
         pageIndexes: Set<Int>,
@@ -192,6 +304,16 @@ class DocumentRepositoryImpl(
         }
     }
 
+    /**
+     * Inline image bytes for an EPUB, extracted through the shared [epubScratchCopy] rather than a fresh
+     * whole-file read per image (see [epubScratchLock]'s own doc).
+     *
+     * @param documentId The EPUB to extract images from; a no-op returning an empty map for any other
+     *   format.
+     * @param hrefs Archive-relative paths of the images to extract, trimmed and de-duplicated before use.
+     * @return Extracted bytes keyed by the hrefs that were actually found, or an empty map when [hrefs]
+     *   is empty (after trimming), the format isn't EPUB, or [documentFileSource] is unavailable.
+     */
     override suspend fun getEmbeddedImages(
         documentId: DocumentId,
         hrefs: Set<String>,
@@ -202,11 +324,59 @@ class DocumentRepositoryImpl(
         val fileSource = documentFileSource ?: return@withContext emptyMap()
         val normalizedHrefs = hrefs.map(String::trim).filterTo(mutableSetOf(), String::isNotEmpty)
         if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
-        val path = runCatching { epubScratchCopy(metadata, fileSource) }.getOrNull()
-            ?: return@withContext emptyMap()
+        val path = epubScratchCopy(metadata, fileSource)
         epubDocumentParser.extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs)
     }
 
+    /**
+     * Embedded EPUB font files, extracted once per href into reusable temp files and reused while this
+     * document stays current.
+     *
+     * This streams each requested ZIP entry straight to its own temp file, one href at a time, so both
+     * the long-lived cache and the extraction peak stay at file paths plus a small copy buffer rather than
+     * whole font byte arrays. Only the requested hrefs are touched.
+     */
+    override suspend fun getEmbeddedFontFiles(
+        documentId: DocumentId,
+        hrefs: Set<String>,
+    ): Map<String, String> = withContext(Dispatchers.Default) {
+        if (hrefs.isEmpty()) return@withContext emptyMap()
+        val metadata = getDocument(documentId) ?: return@withContext emptyMap()
+        if (metadata.format != DocumentFormat.EPUB) return@withContext emptyMap()
+        val fileSource = documentFileSource ?: return@withContext emptyMap()
+        val normalizedHrefs = hrefs.map(String::trim).filterTo(linkedSetOf(), String::isNotEmpty)
+        if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
+        val path = epubScratchCopy(metadata, fileSource)
+        epubScratchLock.withLock {
+            if (epubScratchDocumentId != documentId) return@withLock emptyMap()
+            val missingHrefs = normalizedHrefs.filter { href ->
+                epubEmbeddedFontFilesByHref[href]?.let(systemFileSystem()::exists) != true
+            }.toSet()
+            if (missingHrefs.isNotEmpty()) {
+                val zip = systemFileSystem().openZip(path)
+                missingHrefs.forEach { href ->
+                    streamEmbeddedFontScratchFile(zip = zip, href = href)?.let { fontPath ->
+                        epubEmbeddedFontFilesByHref[href] = fontPath
+                    }
+                }
+                deleteAbandonedEmbeddedFontScratchFiles(keep = epubEmbeddedFontFilesByHref.values.toSet())
+            }
+            normalizedHrefs.mapNotNull { href ->
+                epubEmbeddedFontFilesByHref[href]?.takeIf(systemFileSystem()::exists)?.let { href to it.toString() }
+            }.toMap()
+        }
+    }
+
+    /**
+     * The full [ReaderDocument] for [documentId] — sections, blocks, navigation — serving
+     * [cachedReaderDocument] when it already names this id, and otherwise loading it via
+     * [loadReaderDocument] and replacing the
+     * cache with the result (even when that result is null, so a document that fails to load is not
+     * retried on every call until something else invalidates the cache).
+     *
+     * @param documentId The document to load.
+     * @return The document, or null when it is not on the shelf or fails to load.
+     */
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
         documentCacheLock.withLock {
             if (cachedDocumentId == documentId) return cachedReaderDocument
@@ -220,17 +390,28 @@ class DocumentRepositoryImpl(
         return loaded?.document
     }
 
+    /**
+     * Loads [documentId] from storage, repairing it first when the stored rows are missing something the
+     * current parser would have captured.
+     *
+     * A TXT document with no sections at all, or sections whose text decoded badly (see
+     * [hasBrokenText]), is re-read from the original file via [repairTxtDocument]. An EPUB whose sections
+     * were written by an older [EpubDocumentParser] version, or whose navigation was never resolved, is
+     * re-read via [repairEpubDocument]: stored text written by an older parser is missing things the
+     * reader now needs — image proportions, block styles, pictures kept inside their sentence — and the
+     * only repair is to read the file again. Asking the rows which parser wrote them costs one integer;
+     * the previous way, looking through the blocks for traces of the old code, decoded 293 of one book's
+     * 528 chapters on every open before it could answer.
+     *
+     * @param documentId The document to load.
+     * @return The loaded document plus its on-demand block cache, or null when it is not on the shelf.
+     */
     private suspend fun loadReaderDocument(documentId: DocumentId): LoadedReaderDocument? {
         val metadata = getDocument(documentId) ?: return null
         val storedSections = getStoredSections(documentId)
         if (metadata.format == DocumentFormat.TXT && (storedSections.sections.isEmpty() || storedSections.sections.hasBrokenText())) {
             repairTxtDocument(metadata)?.let { return LoadedReaderDocument(it, sectionBlocks = null) }
         }
-        // Stored text written by an older parser is missing things the reader now needs — image
-        // proportions, block styles, pictures kept inside their sentence — and the only repair is to
-        // read the file again. Asking the rows which parser wrote them costs one integer; the previous
-        // way, looking through the blocks for traces of the old code, decoded 293 of one book's 528
-        // chapters on every open before it could answer.
         if (
             metadata.format == DocumentFormat.EPUB &&
             (storedSections.parserVersion < CurrentReaderParserVersion || storedSections.navigationJson.isBlank())
@@ -240,23 +421,80 @@ class DocumentRepositoryImpl(
         return LoadedReaderDocument(metadata.toReaderDocument(storedSections), storedSections.sectionBlocks)
     }
 
+    /**
+     * Page windows for [documentId] at [style] and [viewportSize] — the reader's primary way to ask "what
+     * do the pages of this book look like right now." Runs off the main dispatcher because laying the
+     * document out is the expensive half of pagination; off the main dispatcher it no longer stalls the
+     * frame the reader is drawing, so a page turn made right after a font or line-height change still
+     * reaches the pager instead of being dropped.
+     *
+     * A null [viewportSize] means the caller has no real pane measurement yet. The newest layout ever
+     * stored for this exact style — whatever viewport it was measured at — is a far better first answer
+     * than the hardcoded [DefaultViewportSize] guess callers used to pass directly; only when nothing is
+     * stored does this fall back to that same guess, so a freshly imported book with no stored layout at
+     * all still gets a first pagination pass instead of waiting on a pane that would never measure
+     * without one (see commit f33313b).
+     *
+     * A cached answer at [cachedPageWindowKey] (the `cachedPageWindowKey == key` check below) is reused
+     * when the key matches and either it is already measured or this call brought no [pageBreaker] of its
+     * own: a measured answer is the better answer, so it also serves a caller that arrived without a
+     * breaker; only the reverse is refused. Keying on the request instead meant the same restored layout
+     * was fetched and rebuilt twice on every open, once for each kind of caller.
+     *
+     * Failing that, [restorePageWindows] is tried next: a layout on disk is only ever a real measurement
+     * (see [storePageWindows]), so it beats measuring again whether this call brought its own breaker or
+     * not — an estimate call gets the exact result a measurement would have given it, for free. When it
+     * succeeds, the two debug logs below the `restored != null` check report first how many pages came
+     * back and how long the restore took, then what made that restore cheap: only the sections actually
+     * decoded (by [SectionBlocksCache]) and only the pages actually built (by [RestoredPageWindows]),
+     * instead of every block and every page in the book.
+     *
+     * When nothing is stored at all yet for this style, laying every section out before the reader sees
+     * anything cost 6.4s/13.0s measured on a real device (204/528-section books) — so this measures the
+     * section the reader is resting on first (via [anchorPositionFor]) and then keeps measuring forward,
+     * bounded to [InitialForwardPaginationSections] sections, until at least
+     * [InitialForwardPaginationPages] pages after the anchor page are already known. It still measures the
+     * immediate previous section first when the resumed page is the first page of its section, so a single
+     * backward turn is ready too. [continuePagination] extends the rest afterwards: backward toward
+     * position 0 first (so the resumed page's number stops moving), then forward in spine order (so the
+     * total does). A page is only ever built from a section that was actually measured — never an
+     * estimate standing in for a section not yet reached — so the total this returns is honest:
+     * "pages measured so far," not a guess dressed up as an answer. Cover detection needs section 0
+     * eagerly, the same as a restore (see [restorePageWindows]), so the `prewarm(setOf(0))` call below
+     * runs before [TextPageLayoutEngine.resolveSections].
+     *
+     * The freshly-measured session is written to [pageLayoutDao] (via [storePageWindows]) only when it is
+     * complete, [pageBreaker] is a real measurement, there is at least one page, and — critically —
+     * [isImportComplete] says the import has actually finished. Writing a row while the import is still
+     * unfinished is exactly what goes stale: the next import batch grows the document but has no real
+     * [pageBreaker] yet (see [appendMeasuredPageStarts]' own doc), so the row's `characterCount` falls
+     * behind and [restorePageWindows] later deletes it outright. Refusing to write until
+     * [isImportComplete] is true means there is nothing to go stale in the first place —
+     * [appendMeasuredPageStarts] simply finds no row to extend. [continuePagination] guards its own
+     * completion write the same way, at the matching call site in its own body.
+     *
+     * @param documentId The document to lay out.
+     * @param style The font/line-height/family the pages must be measured for.
+     * @param viewportSize The pane size to lay out for, or null to let this resolve one itself (see
+     *   above).
+     * @param pageBreaker The real page-breaking measurement to use, or null for an estimate-only call
+     *   that accepts whatever cached or restored answer is available without forcing a fresh measurement.
+     * @param anchorOffset The character offset to resume into when a fresh measurement is needed, or null
+     *   to start from the first content section.
+     * @return The known page windows for this book/style/viewport — restored, cached, or freshly measured
+     *   for the anchor section plus any bounded neighbours needed to cover the immediate previous page and
+     *   at least [InitialForwardPaginationPages] following pages — or an empty list when the document
+     *   can't be loaded or is a visual-page format (CBZ/IMAGE/PDF), which this function never paginates.
+     */
     override suspend fun getPageWindows(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize?,
         pageBreaker: ReaderPageBreaker?,
         anchorOffset: Long?,
-        // Laying the document out is the expensive half of pagination. Off the main dispatcher it no
-        // longer stalls the frame the reader is drawing, so a page turn made right after a font or
-        // line-height change still reaches the pager instead of being dropped.
+        viewportDensity: Float,
     ): List<PageWindow> = withContext(Dispatchers.Default) {
         val layoutKey = style.layoutKey()
-        // A null viewportSize means the caller has no real pane measurement yet. The newest layout
-        // ever stored for this exact style — whatever viewport it was measured at — is a far better
-        // first answer than the hardcoded guess callers used to pass directly; only when nothing is
-        // stored does this fall back to that same guess, so a freshly imported book with no stored
-        // layout at all still gets a first pagination pass instead of waiting on a pane that would
-        // never measure without one (see f33313b).
         val resolvedViewportSize = viewportSize
             ?: newestStoredViewportSize(documentId, layoutKey)
             ?: DefaultViewportSize
@@ -265,21 +503,30 @@ class DocumentRepositoryImpl(
             layoutKey = layoutKey,
             viewportSize = resolvedViewportSize,
         )
-        // A measured answer is the better answer, so it also serves a caller that arrived without a
-        // breaker; only the reverse is refused. Keying on the request instead meant the same restored
-        // layout was fetched and rebuilt twice on every open, once for each kind of caller.
         val wantsMeasured = pageBreaker != null
         documentCacheLock.withLock {
-            if (cachedPageWindowKey == key && (cachedPageWindowsAreMeasured || !wantsMeasured)) {
+            val activeSession = paginationSession?.takeIf { it.key == key }
+            if (activeSession == null && cachedPageWindowKey == key && (cachedPageWindowsAreMeasured || !wantsMeasured)) {
                 return@withContext cachedPageWindows
+            }
+        }
+        paginationContinuationLock.withLock {
+            val session = documentCacheLock.withLock {
+                paginationSession?.takeIf { it.key == key && (it.hasMeasuredPages || !wantsMeasured) }
+            }
+            if (session != null) {
+                val windows = session.snapshotWindows(textPageLayoutEngine)
+                documentCacheLock.withLock {
+                    cachedPageWindowKey = key
+                    cachedPageWindows = windows
+                    cachedPageWindowsAreMeasured = session.hasMeasuredPages
+                }
+                return@withContext windows
             }
         }
         val document = getReaderDocument(documentId) ?: return@withContext emptyList()
         if (document.format.isVisualPageFormat()) return@withContext emptyList()
 
-        // A layout on disk is only ever a real measurement (see storePageWindows), so it beats
-        // measuring again whether this particular call brought its own breaker or not — an estimate
-        // call gets the exact result a measurement would have given it, for free.
         val restoreStarted = TimeSource.Monotonic.markNow()
         val restored = runCatching { restorePageWindows(documentId, document, key) }
             .onFailure { error -> logger.w(error) { "Failed to restore stored page layout for $documentId" } }
@@ -290,8 +537,6 @@ class DocumentRepositoryImpl(
                 "${document.title.orEmpty().take(12)}: ${windows.size} pages from ${document.sections.size} sections " +
                     "restored from storage in ${restoreStarted.elapsedNow().inWholeMilliseconds} ms"
             }
-            // What made the restore above cheap: only these sections were actually decoded and only
-            // these pages actually built, instead of every block and every page in the book.
             logger.d {
                 val decodedSections = restored.sectionBlocksCache?.decodedSectionCount ?: document.sections.size
                 val builtWindows = (windows as? RestoredPageWindows)?.builtCount ?: windows.size
@@ -307,22 +552,12 @@ class DocumentRepositoryImpl(
         }
 
         val started = TimeSource.Monotonic.markNow()
-        // No layout at all is stored yet for this style. Laying every section out before the reader
-        // sees anything cost 6.4s/13.0s measured on a real device (204/528-section books) — so this
-        // measures only the section the reader is resting on and returns just that, the same shape a
-        // freshly imported EPUB already shows its first chapter in before the rest is parsed (see
-        // ReaderViewModel.continueImportIfIncomplete). continuePagination extends the rest afterwards:
-        // this section's own neighbours first (so the resumed page's number stops moving), then the
-        // remainder in spine order (so the total does). A page is only ever built from a section that
-        // was actually measured — never an estimate standing in for a section not yet reached — so the
-        // total this returns is honest: "pages measured so far," not a guess dressed up as an answer.
         val sectionBlocksCache = documentCacheLock.withLock { cachedSectionBlocks }
         val fallbackSectionBlocks: (ReaderSection) -> List<ReaderBlock> = if (sectionBlocksCache != null) {
             { section -> sectionBlocksCache.blocksFor(section.index) }
         } else {
             textPageLayoutEngine.defaultSectionBlocks(document)
         }
-        // Cover detection needs section 0 eagerly, the same as a restore (see restorePageWindows).
         sectionBlocksCache?.prewarm(setOf(0))
         val resolved = textPageLayoutEngine.resolveSections(document, fallbackSectionBlocks)
         val anchorPosition = anchorPositionFor(resolved.contentSections, anchorOffset)
@@ -335,21 +570,59 @@ class DocumentRepositoryImpl(
             fallbackSectionBlocks = fallbackSectionBlocks,
             lowPosition = anchorPosition,
             highPosition = anchorPosition,
+            hasMeasuredPages = wantsMeasured,
         )
         if (resolved.contentSections.isNotEmpty()) {
             val anchorSection = resolved.contentSections[anchorPosition]
-            session.sectionPages.addLast(
-                textPageLayoutEngine.paginateSection(
-                    format = document.format,
-                    section = anchorSection,
-                    sectionBlocks = session.blocksFor(anchorSection),
-                    style = style,
-                    viewportSize = resolvedViewportSize,
-                    pageBreaker = pageBreaker,
-                ),
+            val anchorStarts = textPageLayoutEngine.pageStartsForSection(
+                section = anchorSection,
+                sectionBlocks = session.blocksFor(anchorSection),
+                style = style,
+                viewportSize = resolvedViewportSize,
+                viewportDensity = viewportDensity,
+                pageBreaker = pageBreaker,
             )
+            session.putMeasured(anchorPosition, anchorStarts)
+
+            val anchorPageIndex = pageIndexContaining(anchorStarts, anchorSection.range, anchorOffset)
+            if (anchorPageIndex == 0 && anchorPosition > 0) {
+                val previousSection = resolved.contentSections[anchorPosition - 1]
+                session.putMeasured(
+                    anchorPosition - 1,
+                    textPageLayoutEngine.pageStartsForSection(
+                        section = previousSection,
+                        sectionBlocks = session.blocksFor(previousSection),
+                        style = style,
+                        viewportSize = resolvedViewportSize,
+                        viewportDensity = viewportDensity,
+                        pageBreaker = pageBreaker,
+                    ),
+                )
+            }
+            var nextPosition = anchorPosition + 1
+            var forwardSectionsMeasured = 0
+            while (
+                nextPosition <= resolved.contentSections.lastIndex &&
+                forwardSectionsMeasured < InitialForwardPaginationSections &&
+                session.pagesAfter(anchorPosition, anchorPageIndex) < InitialForwardPaginationPages
+            ) {
+                val nextSection = resolved.contentSections[nextPosition]
+                session.putMeasured(
+                    nextPosition,
+                    textPageLayoutEngine.pageStartsForSection(
+                        section = nextSection,
+                        sectionBlocks = session.blocksFor(nextSection),
+                        style = style,
+                        viewportSize = resolvedViewportSize,
+                        viewportDensity = viewportDensity,
+                        pageBreaker = pageBreaker,
+                    ),
+                )
+                nextPosition += 1
+                forwardSectionsMeasured += 1
+            }
         }
-        val pageWindows = windowsFor(session)
+        val pageWindows = session.snapshotWindows(textPageLayoutEngine)
         val elapsedMs = started.elapsedNow().inWholeMilliseconds
         logger.d {
             "${document.title.orEmpty().take(12)}: measured section ${anchorPosition + 1}/" +
@@ -362,70 +635,129 @@ class DocumentRepositoryImpl(
             cachedPageWindowsAreMeasured = wantsMeasured
             paginationSession = session.takeUnless { it.isComplete }
         }
-        if (session.isComplete && pageBreaker != null && pageWindows.isNotEmpty()) {
-            storePageWindows(documentId, document, key, pageWindows)
+        if (session.isComplete && pageBreaker != null && pageWindows.isNotEmpty() && isImportComplete(documentId)) {
+            storePageWindows(documentId, document, key, session)
         }
         pageWindows
     }
 
+    /**
+     * Extends the in-flight [paginationSession] for [documentId]/[style]/[viewportSize] by a bounded batch
+     * of more content sections, claiming and committing them atomically under
+     * [paginationContinuationLock].
+     *
+     * One section is claimed and committed at a time. Two continuation passes overlap in the ordinary
+     * course of a style change — `updateStyle` starts one, and the pane's first breaker report for the
+     * new style starts another — and reading [PaginationSession.lowPosition]/
+     * [PaginationSession.highPosition] outside a lock let both claim the same position, measure it, and
+     * append it twice. A pass that walked the whole book that way finished holding, and stored, exactly
+     * twice the book's pages.
+     * [paginationContinuationLock] is held across the measurement itself, not just the commit, because
+     * the claim is only safe if nothing else can read the positions it is about to move. Nothing on the
+     * reader's own path takes this lock — continuation is background work being serialised against
+     * itself, never against a page the reader is waiting for (which is served from [cachedPageWindows]
+     * under [documentCacheLock]).
+     *
+     * The extension direction alternates on [PaginationSession.lowPosition]: while it is still above 0
+     * the next section claimed is the one just before it (so the resumed section's own pages settle
+     * first); once it reaches 0 every further call extends forward from
+     * [PaginationSession.highPosition] instead. This path now only appends measured section starts to the
+     * live session; it does not rebuild the whole page-window snapshot after every batch. Snapshot/cache
+     * materialisation is deferred until a caller asks [getPageWindows] for it or the session completes.
+     * The freshly-extended windows are written to [pageLayoutDao] only once the session is complete and
+     * [isImportComplete] is true — the same guard [getPageWindows] applies at its own call site, since a
+     * row written mid-import is a row the next import batch cannot keep in sync (see
+     * [appendMeasuredPageStarts]).
+     *
+     * @param documentId The document whose in-flight session to extend.
+     * @param style The style the in-flight session must match to be extended.
+     * @param viewportSize The viewport the in-flight session must match to be extended.
+     * @param pageBreaker The real page-breaking measurement for the newly claimed section, or null to
+     *   report immediate completion without measuring anything.
+     * @return [PaginationProgress.isComplete] true and `sectionsMeasured = 0` when there is no matching
+     *   in-flight session, the session is already complete, or [pageBreaker] is null; otherwise progress
+     *   for the sections this call measured.
+     */
     override suspend fun continuePagination(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker?,
+        viewportDensity: Float,
     ): PaginationProgress = withContext(Dispatchers.Default) {
         if (pageBreaker == null) return@withContext PaginationProgress(isComplete = true, sectionsMeasured = 0)
-        // One section claimed and committed at a time. Two continuation passes overlap in the ordinary
-        // course of a type change — updateStyle starts one, and the pane's first breaker report for the
-        // new type starts another — and reading lowPosition/highPosition outside a lock let both claim
-        // the same position, measure it, and append it twice. A pass that walked the whole book that way
-        // finished holding, and stored, exactly twice the book's pages. Held across the measurement
-        // itself, not just the commit, because the claim is only safe if nothing else can read the
-        // positions it is about to move. Nothing on the reader's own path takes this lock — continuation
-        // is background work being serialised against itself, never against a page the reader is waiting
-        // for (which is served from cachedPageWindows under documentCacheLock).
         paginationContinuationLock.withLock {
             val key = PageWindowKey(documentId = documentId, layoutKey = style.layoutKey(), viewportSize = viewportSize)
             val session = documentCacheLock.withLock { paginationSession?.takeIf { it.key == key } }
                 ?: return@withContext PaginationProgress(isComplete = true, sectionsMeasured = 0)
             if (session.isComplete) return@withContext PaginationProgress(isComplete = true, sectionsMeasured = 0)
+            session.hasMeasuredPages = true
 
-            val extendingBackward = session.lowPosition > 0
-            val nextPosition = if (extendingBackward) session.lowPosition - 1 else session.highPosition + 1
-            val nextSection = session.contentSections[nextPosition]
-            val newPages = textPageLayoutEngine.paginateSection(
-                format = session.format,
-                section = nextSection,
-                sectionBlocks = session.blocksFor(nextSection),
-                style = style,
-                viewportSize = viewportSize,
-                pageBreaker = pageBreaker,
-            )
-            if (extendingBackward) {
-                session.sectionPages.addFirst(newPages)
-                session.lowPosition = nextPosition
-            } else {
-                session.sectionPages.addLast(newPages)
-                session.highPosition = nextPosition
+            var sectionsMeasured = 0
+            while (sectionsMeasured < PaginationContinuationBatchSize && !session.isComplete) {
+                val extendingBackward = session.lowPosition > 0
+                val nextPosition = if (extendingBackward) session.lowPosition - 1 else session.highPosition + 1
+                val nextSection = session.contentSections[nextPosition]
+                session.putMeasured(
+                    nextPosition,
+                    textPageLayoutEngine.pageStartsForSection(
+                        section = nextSection,
+                        sectionBlocks = session.blocksFor(nextSection),
+                        style = style,
+                        viewportSize = viewportSize,
+                        viewportDensity = viewportDensity,
+                        pageBreaker = pageBreaker,
+                    ),
+                )
+                sectionsMeasured += 1
             }
-
-            val windows = windowsFor(session)
             val isComplete = session.isComplete
-            documentCacheLock.withLock {
-                cachedPageWindowKey = key
-                cachedPageWindows = windows
-                cachedPageWindowsAreMeasured = true
-                paginationSession = session.takeUnless { isComplete }
+            if (isComplete) {
+                val windows = session.snapshotWindows(textPageLayoutEngine)
+                documentCacheLock.withLock {
+                    cachedPageWindowKey = key
+                    cachedPageWindows = windows
+                    cachedPageWindowsAreMeasured = true
+                    paginationSession = null
+                }
+                if (windows.isNotEmpty() && isImportComplete(documentId)) {
+                    getReaderDocument(documentId)?.let { document -> storePageWindows(documentId, document, key, session) }
+                }
+            } else {
+                documentCacheLock.withLock {
+                    paginationSession = session
+                }
             }
-            if (isComplete && windows.isNotEmpty()) {
-                getReaderDocument(documentId)?.let { document -> storePageWindows(documentId, document, key, windows) }
-            }
-            PaginationProgress(isComplete = isComplete, sectionsMeasured = 1)
+            PaginationProgress(isComplete = isComplete, sectionsMeasured = sectionsMeasured)
         }
     }
 
-    override suspend fun isPaginationComplete(documentId: DocumentId): Boolean = documentCacheLock.withLock {
-        paginationSession?.let { it.key.documentId != documentId || it.isComplete } ?: true
+    /**
+     * Whether pagination for [documentId] has measured every content section the book currently has.
+     *
+     * This can never be true while the import is still running: while it runs there are sections the
+     * book will have that are not even parsed yet, so no measurement of it can be complete however far
+     * the current session walked. [isImportComplete] is therefore checked first and short-circuits to
+     * false. Answering from [paginationSession] alone said "complete" for every moment a batch had just
+     * nulled it (see [invalidateDocumentCache]), and a caller asks this to decide whether to keep the
+     * continuation running (see `ReaderViewModel.refreshPaginationCompleteness`) — so that answer retired
+     * the only thing that grows the page count, leaving the total pinned to the one section the last
+     * reload measured.
+     *
+     * The [isImportComplete] check is deliberately made outside [documentCacheLock]: it reads storage,
+     * and holding the cache lock across it would block the page the reader is waiting for.
+     *
+     * @param documentId The document to check.
+     * @return True once the import has finished and either the active session for this document is
+     *   complete, or there is no active session and the cached windows for this document came from a
+     *   real measurement rather than an estimate-only open.
+     */
+    override suspend fun isPaginationComplete(documentId: DocumentId): Boolean {
+        if (!isImportComplete(documentId)) return false
+        return documentCacheLock.withLock {
+            paginationSession?.let { it.key.documentId != documentId || it.isComplete }
+                ?: if (cachedPageWindowKey?.documentId == documentId) cachedPageWindowsAreMeasured else true
+        }
     }
 
     /** The position in [contentSections] of the section containing [anchorOffset] — the last section
@@ -434,25 +766,96 @@ class DocumentRepositoryImpl(
      * place a freshly imported book with nowhere to resume to starts from. */
     private fun anchorPositionFor(contentSections: List<ReaderSection>, anchorOffset: Long?): Int {
         if (contentSections.isEmpty() || anchorOffset == null) return 0
-        val position = contentSections.indexOfLast { section -> section.range.start <= anchorOffset }
-        return position.coerceIn(0, contentSections.lastIndex)
+        var low = 0
+        var high = contentSections.lastIndex
+        var result = 0
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (contentSections[mid].range.start <= anchorOffset) {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result.coerceIn(0, contentSections.lastIndex)
     }
 
-    private fun windowsFor(session: PaginationSession): List<PageWindow> =
-        textPageLayoutEngine.assemblePages(session.coverPage, session.sectionPages.flatten())
+    /** Which page in [sectionStarts] contains [anchorOffset], defaulting to the first page when null/outside. */
+    private fun pageIndexContaining(sectionStarts: LongArray, sectionRange: TextRange, anchorOffset: Long?): Int {
+        if (sectionStarts.isEmpty() || anchorOffset == null) return 0
+        var lo = 0
+        var hi = sectionStarts.lastIndex
+        var result = 0
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            if (sectionStarts[mid] <= anchorOffset) {
+                result = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        val start = sectionStarts[result]
+        val end = sectionStarts.getOrNull(result + 1) ?: sectionRange.end
+        return if (anchorOffset in start until end) result else 0
+    }
 
+    /**
+     * The viewport a caller should measure at for [documentId]/[style] before calling [getPageWindows]
+     * with a real [ReaderPageBreaker] — the same lookup [getPageWindows] itself falls back to when no
+     * viewport is supplied.
+     *
+     * @param documentId The document to look up a stored viewport for.
+     * @param style The style whose stored layout's viewport should be reused.
+     * @return The viewport of the newest stored layout for this style, or null when none is stored yet.
+     */
     override suspend fun resolveViewportSizeForStyle(documentId: DocumentId, style: ReaderStyle): ViewportSize? =
         withContext(Dispatchers.Default) { newestStoredViewportSize(documentId, style.layoutKey()) }
 
-    override suspend fun warmSectionBlocks(documentId: DocumentId, sectionIndexes: Set<Int>) {
-        if (sectionIndexes.isEmpty()) return
+    /**
+     * Eagerly decodes [sectionIndexes]' blocks into the cached [SectionBlocksCache] for [documentId], so
+     * a caller that knows which sections it is about to show can pay that cost ahead of the page that
+     * needs it instead of leaving it to lazily catch up.
+     *
+     * @param documentId The document whose section-blocks cache to warm; a no-op returning 0 when this
+     *   is not the currently cached document.
+     * @param sectionIndexes Which sections to decode.
+     * @return How many sections were actually newly decoded by this call.
+     */
+    override suspend fun warmSectionBlocks(documentId: DocumentId, sectionIndexes: Set<Int>): Int {
+        if (sectionIndexes.isEmpty()) return 0
         val cache = documentCacheLock.withLock {
             cachedSectionBlocks.takeIf { cachedDocumentId == documentId }
-        } ?: return
-        withContext(Dispatchers.Default) { cache.prewarm(sectionIndexes) }
+        } ?: return 0
+        return withContext(Dispatchers.Default) { cache.prewarm(sectionIndexes) }
     }
 
-    /** The viewport [PageLayoutDao.getNewestPageLayoutForStyle] resolves for [layoutKey], if any row exists. */
+    override suspend fun getReferencedEmbeddedFontHrefs(documentId: DocumentId): Set<String> {
+        val cache = documentCacheLock.withLock {
+            cachedSectionBlocks.takeIf { cachedDocumentId == documentId }
+        } ?: return emptySet()
+        return withContext(Dispatchers.Default) {
+            cache.prewarm(cache.knownSectionIndexes)
+            cache.knownSectionIndexes
+                .asSequence()
+                .flatMap { sectionIndex -> cache.blocksFor(sectionIndex).asSequence() }
+                .flatMap { block ->
+                    sequenceOf(block.style?.fontHref)
+                        .plus(block.spans.asSequence().map { span -> span.cssStyle?.fontHref })
+                }
+                .filterNotNull()
+                .toSet()
+        }
+    }
+
+    /**
+     * The viewport [PageLayoutDao.getNewestPageLayoutForStyle] resolves for [layoutKey], if any row exists.
+     *
+     * @param documentId The document to look up a stored layout for.
+     * @param layoutKey The style (font size/line height/family) to match.
+     * @return The viewport of the newest matching stored layout, or null when none exists.
+     */
     private suspend fun newestStoredViewportSize(documentId: DocumentId, layoutKey: ReaderLayoutKey): ViewportSize? {
         val stored = pageLayoutDao.getNewestPageLayoutForStyle(
             documentId = documentId.value,
@@ -467,6 +870,39 @@ class DocumentRepositoryImpl(
      * The persisted counterpart of [cachedPageWindows]: page starts a real measurement produced on an
      * earlier open, kept past the process's lifetime so the next open of the same book at the same type
      * and viewport never measures a single line of it again.
+     *
+     * Refuses (and deletes) a stored row whose `characterCount` no longer matches [document]'s: re-parsing
+     * a document can move every character offset in it, and refusing a row whose character count no
+     * longer matches is what keeps a bookmark or a reading position from silently landing on the wrong
+     * text after a repair pass rewrites the book it pointed into. Only the blob (`pageStartsBlob`) is ever
+     * decoded — `pageStartsJson` is legacy storage kept for schema reasons (see [PageLayoutEntity]). A row
+     * written before `TeddReaderMigration7To8` has no blob and is treated the same as no stored row at
+     * all; that migration deletes every such row for exactly this reason, so this should only be null in
+     * a database that predates the migration entirely.
+     *
+     * Also refuses (and deletes) a row whose decoded page starts do not strictly ascend: pages are
+     * written in reading order, so their starts can only ascend. A row that breaks that was not written
+     * by a sound measurement of the book as it now stands, and rebuilding pages from it would put the
+     * reader on text that is not where the row says it is — so it is thrown away and measured again
+     * rather than trusted. The check is one pass over a few thousand longs, next to a decode that already
+     * walked the same array, and it is what lets a device carrying a row some writer bug corrupted heal
+     * itself on the next open instead of reading the wrong page forever.
+     *
+     * A section-blocks cache exists only for a document actually loaded from storage; a document that
+     * just came out of a repair pass already holds every block in memory, so
+     * [TextPageLayoutEngine.reconstruct] falls back to its own default there instead of decoding anything
+     * twice. When a cache is available,
+     * section 0 is prewarmed before reconstructing because cover detection looks at section 0 eagerly, not
+     * lazily (see `TextPageLayoutEngine.findCoverSection`, called from within `reconstruct` itself before
+     * it ever returns) — so section 0 has to already be decoded before `reconstruct` runs, not just before
+     * some later page happens to be built.
+     *
+     * @param documentId The document whose stored layout to restore.
+     * @param document The freshly loaded document the stored layout must still agree with.
+     * @param key The style/viewport the stored layout must have been measured at.
+     * @return The reconstructed windows plus the section-blocks cache that answered them, or null when
+     *   nothing is stored, the stored row fails a consistency check above, or there is no page-starts
+     *   blob to decode.
      */
     private suspend fun restorePageWindows(
         documentId: DocumentId,
@@ -481,41 +917,21 @@ class DocumentRepositoryImpl(
             viewportWidthPx = key.viewportSize.widthPx,
             viewportHeightPx = key.viewportSize.heightPx,
         ) ?: return null
-        // Re-parsing a document can move every character offset in it. Refusing a row whose character
-        // count no longer matches is what keeps a bookmark or a reading position from silently landing
-        // on the wrong text after a repair pass rewrites the book it pointed into.
         if (stored.characterCount != document.characterCount) {
             pageLayoutDao.deletePageLayouts(documentId.value)
             return null
         }
-        // Only the blob is ever decoded — pageStartsJson is legacy storage kept for schema reasons
-        // (see PageLayoutEntity). A row written before TeddReaderMigration7To8 has no blob and is
-        // treated the same as no stored row at all; that migration deletes every such row for exactly
-        // this reason, so this should only be null in a database that predates the migration entirely.
         val pageStartsBlob = stored.pageStartsBlob ?: return null
         val pageStarts = decodePageStartsBlob(pageStartsBlob)
-        // Pages are written in reading order, so their starts can only ascend. A row that breaks that
-        // was not written by a sound measurement of the book as it now stands, and rebuilding pages from
-        // it would put the reader on text that is not where the row says it is — so it is thrown away and
-        // measured again rather than trusted. One pass over a few thousand longs, next to a decode that
-        // already walked the same array, and it is what lets a device carrying a row some writer bug
-        // corrupted heal itself on the next open instead of reading the wrong page forever.
         if (!pageStarts.isStrictlyAscending()) {
             logger.w { "Discarding a stored page layout for $documentId whose page starts do not ascend" }
             pageLayoutDao.deletePageLayouts(documentId.value)
             return null
         }
-        // A section cache exists only for a document actually loaded from storage; a document that just
-        // came out of a repair pass already holds every block in memory, so reconstruct falls back to
-        // its own default there instead of decoding anything twice.
         val sectionBlocksCache = documentCacheLock.withLock {
             cachedSectionBlocks.takeIf { cachedDocumentId == documentId }
         }
         val windows = if (sectionBlocksCache != null) {
-            // Cover detection looks at section 0 eagerly, not lazily (see
-            // TextPageLayoutEngine.findCoverSection, called from within reconstruct itself before it
-            // ever returns) — so section 0 has to already be decoded before reconstruct runs, not just
-            // before some later page happens to be built.
             sectionBlocksCache.prewarm(setOf(0))
             textPageLayoutEngine.reconstruct(
                 document = document,
@@ -529,17 +945,21 @@ class DocumentRepositoryImpl(
         return RestoredPageWindowsResult(windows, sectionBlocksCache)
     }
 
-    /** Only ever called for a real measurement — see the `pageBreaker != null` guard at the call site. */
     private suspend fun storePageWindows(
         documentId: DocumentId,
         document: ReaderDocument,
         key: PageWindowKey,
-        pageWindows: List<PageWindow>,
+        session: PaginationSession,
     ) {
-        val coverPageCount = if (textPageLayoutEngine.hasCoverPage(document)) 1 else 0
-        val contentPageStarts = LongArray(pageWindows.size - coverPageCount) { index ->
-            pageWindows[index + coverPageCount].textRange?.start ?: 0L
-        }
+        storePageStarts(documentId, document, key, session.allMeasuredStarts())
+    }
+
+    private suspend fun storePageStarts(
+        documentId: DocumentId,
+        document: ReaderDocument,
+        key: PageWindowKey,
+        contentPageStarts: LongArray,
+    ) {
         pageLayoutDao.upsertPageLayout(
             PageLayoutEntity(
                 documentId = documentId.value,
@@ -549,7 +969,6 @@ class DocumentRepositoryImpl(
                 viewportWidthPx = key.viewportSize.widthPx,
                 viewportHeightPx = key.viewportSize.heightPx,
                 characterCount = document.characterCount,
-                // pageStartsJson is left at its default — see PageLayoutEntity; only the blob is written.
                 pageStartsBlob = encodePageStartsBlob(contentPageStarts),
                 writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
             ),
@@ -557,17 +976,41 @@ class DocumentRepositoryImpl(
         pageLayoutDao.trimPageLayouts(documentId.value, keep = MaxStoredPageLayoutsPerDocument)
     }
 
+    /**
+     * Imports [source] as a new document, or hands back the existing one when it is already on the
+     * shelf and fully imported.
+     *
+     * A book already on the shelf, imported all the way through, is opened rather than imported again:
+     * another app handing this one over — "open with", a share — arrives here every time, and
+     * re-importing threw away the stored text and page layouts of a book the reader was already reading,
+     * so opening a 528-chapter book from a file manager paid the whole import over again. An unfinished
+     * import is not skipped this way — [importNextSections] picks that one up where it stopped, so the
+     * `existingDocument != null && isImportComplete(id)` check below only short-circuits a book that
+     * genuinely finished.
+     *
+     * EPUB is special-cased below: progressive import ([importEpubPhase0]) only pays for itself when the
+     * caller deliberately withheld the bytes to avoid reading the whole file into memory (see
+     * `DocumentImporter.android/ios.kt`, which now passes `bytes=null` for a picked EPUB). A caller that
+     * already has the bytes — an existing test, or a Google Drive download that already paid the network
+     * cost — gets nothing from deferring the rest of the spine, so it gets the same synchronous full
+     * parse ([importEpubFullyFromBytes]) EPUB import has always done. Only the `bytes=null` path takes
+     * [importEpubPhase0]'s phased route, which needs a real file source to stream from since it has no
+     * bytes to fall back on.
+     *
+     * @param source The picked file's location and, optionally, its already-read bytes.
+     * @param importedAtEpochMillis When this import happened, used to stamp `addedAtEpochMillis` (for a
+     *   genuinely new document) and `lastOpenedAtEpochMillis`.
+     * @return The imported (or already-shelved) document.
+     * @throws IllegalStateException When an EPUB is imported with no bytes and no [documentFileSource]
+     *   is configured, or when a CBZ is imported with no bytes and no [documentFileSource].
+     * @throws IllegalArgumentException When [formatDetector] cannot recognise the format.
+     */
     override suspend fun importDocument(
         source: DocumentImportSource,
         importedAtEpochMillis: Long,
     ): ReaderDocument {
         val id = DocumentId(source.location.sourceUri)
         val existingDocument = getDocument(id)
-        // A book already on the shelf, imported all the way through, is opened rather than imported
-        // again. Another app handing this one over — "open with", a share — arrives here every time, and
-        // re-importing threw away the stored text and page layouts of a book the reader was already
-        // reading, so opening a 528-chapter book from a file manager paid the whole import over again.
-        // An unfinished import is not skipped: importNextSections picks that one up where it stopped.
         if (existingDocument != null && isImportComplete(id)) {
             getReaderDocument(id)?.let { return it }
         }
@@ -579,13 +1022,6 @@ class DocumentRepositoryImpl(
                 text = TxtTextDecoder.decode(requireDocumentBytes(source)),
             )
 
-            // Progressive import only pays for itself when the caller deliberately withheld the
-            // bytes to avoid reading the whole file into memory (see DocumentImporter.android/ios.kt,
-            // which now passes bytes=null for a picked EPUB). A caller that already has the bytes —
-            // an existing test, or a Google Drive download that already paid the network cost — gets
-            // nothing from deferring the rest of the spine, so it gets the same synchronous full parse
-            // EPUB import has always done. Only the bytes=null path takes importEpubPhase0's phased
-            // route, which needs a real file source to stream from since it has no bytes to fall back on.
             DocumentFormat.EPUB -> return source.bytes?.let { bytes ->
                 importEpubFullyFromBytes(id, source, existingDocument, importedAtEpochMillis, bytes)
             } ?: importEpubPhase0(
@@ -649,52 +1085,141 @@ class DocumentRepositoryImpl(
         return document
     }
 
+    /**
+     * Writes an ordinary metadata edit — a favourite toggle, a folder move — for a document already on
+     * the shelf, preserving its `importCompletedAtEpochMillis` stamp across the write.
+     *
+     * [DocumentMetadata] carries no field for that column (see [DocumentEntity]), and Room's upsert
+     * replaces the whole row — an ordinary edit like a favourite toggle would otherwise write back null
+     * and erase the timestamp a later progressive-import step needs to trust. Reading the stored value
+     * forward is the smaller fix; threading the column through the domain model would touch every one of
+     * its call sites for a value nothing reads yet.
+     *
+     * @param document The metadata to write; every field on it overwrites the stored row except
+     *   `importCompletedAtEpochMillis`, which is carried forward from storage instead.
+     */
     override suspend fun upsertDocument(document: DocumentMetadata) {
-        // DocumentMetadata carries no field for this column (see DocumentEntity), and Room's upsert
-        // replaces the whole row — an ordinary edit like a favourite toggle would otherwise write back
-        // null and erase the timestamp a later progressive-import step needs to trust. Reading the
-        // stored value forward is the smaller fix; threading the column through the domain model would
-        // touch every one of its call sites for a value nothing reads yet.
         val importCompletedAtEpochMillis = documentDao.getDocument(document.id.value)?.importCompletedAtEpochMillis
         documentDao.upsertDocument(
             document.toDocumentEntity().copy(importCompletedAtEpochMillis = importCompletedAtEpochMillis),
         )
     }
 
+    override suspend fun setDocumentsBookmarked(documentIds: Collection<DocumentId>, isBookmarked: Boolean) {
+        if (documentIds.isEmpty()) return
+        documentDao.updateBookmarked(documentIds.map(DocumentId::value), isBookmarked)
+    }
+
+    override suspend fun setDocumentsFolder(
+        documentIds: Collection<DocumentId>,
+        folderId: String?,
+        folderName: String?,
+    ) {
+        require((folderId == null) == (folderName == null)) {
+            "folderId and folderName must both be null or both be non-null."
+        }
+        require(folderId == null || folderId.isNotBlank()) { "folderId must not be blank." }
+        require(folderName == null || folderName.isNotBlank()) { "folderName must not be blank." }
+        if (documentIds.isEmpty()) return
+        documentDao.updateFolder(documentIds.map(DocumentId::value), folderId, folderName)
+    }
+
+    override suspend fun renameFolder(folderId: String, folderName: String) {
+        require(folderId.isNotBlank()) { "folderId must not be blank." }
+        require(folderName.isNotBlank()) { "folderName must not be blank." }
+        documentDao.renameFolder(folderId, folderName)
+    }
+
+    override suspend fun clearFolder(folderId: String) {
+        require(folderId.isNotBlank()) { "folderId must not be blank." }
+        documentDao.clearFolder(folderId)
+    }
+
+    /**
+     * Stamps [documentId] as opened at [openedAtEpochMillis], the anchor the shelf's "recent" ordering
+     * and the reading-position invariant (see AGENTS.md's Reader Invariants) both read.
+     *
+     * @param documentId The document that was opened.
+     * @param openedAtEpochMillis When it was opened.
+     */
     override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) {
         documentDao.updateLastOpenedAt(documentId.value, openedAtEpochMillis)
     }
 
+    /**
+     * Removes [documentId] from the shelf entirely: [documentDao]'s row for it, every in-memory cache
+     * that might still name it and its stored page layouts (both via [invalidateCaches]), its EPUB
+     * scratch copy if it is the one currently held (also via [invalidateCaches]), and its cached cover
+     * file.
+     *
+     * @param documentId The document to delete.
+     */
     override suspend fun deleteDocument(documentId: DocumentId) {
         documentDao.deleteDocument(documentId.value)
         invalidateCaches(documentId)
+        deleteCachedCover(documentId)
+    }
+
+    override suspend fun deleteDocuments(documentIds: Collection<DocumentId>) {
+        if (documentIds.isEmpty()) return
+        documentDao.deleteDocuments(documentIds.map(DocumentId::value))
+        documentIds.forEach { documentId ->
+            invalidateCaches(documentId)
+            deleteCachedCover(documentId)
+        }
+    }
+
+    /**
+     * The full cache teardown for [documentId] used whenever a document is rewritten (a repair, a
+     * repeat import) or deleted outright: the in-memory caches via [invalidateDocumentCache], the stored
+     * page layouts, and the EPUB scratch copy if it is the one currently held.
+     *
+     * A stored layout addresses text by absolute offset, and re-parsing the document is exactly what
+     * moves those offsets. Every path that rewrites a document's sections calls through here first, so
+     * this is the one place that needs to know a stored layout has gone stale.
+     *
+     * @param documentId The document whose caches and stored layout to drop.
+     * @param keepScratchCopy True to keep the currently-held EPUB scratch copy for this document even
+     *   while the rest of the caches are dropped — used only by phase-0 progressive import, whose next
+     *   background batch still needs that same copy.
+     */
+    private suspend fun invalidateCaches(
+        documentId: DocumentId,
+        keepScratchCopy: Boolean = false,
+    ) {
+        invalidateDocumentCache(documentId)
+        pageLayoutDao.deletePageLayouts(documentId.value)
+        epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId.remove(documentId)
+            epubSectionPathByIndexByDocumentId.remove(documentId)
+        }
+        epubScratchLock.withLock {
+            if (!keepScratchCopy && epubScratchDocumentId == documentId) {
+                epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
+                clearEmbeddedFontScratchFilesLocked()
+                epubScratchDocumentId = null
+                epubScratchPath = null
+                epubScratchContainer = null
+            }
+        }
+    }
+
+    private fun deleteCachedCover(documentId: DocumentId) {
         documentFileSource?.let { fileSource ->
             runCatching { systemFileSystem().delete(coverFilePath(fileSource, documentId)) }
         }
     }
 
-    private suspend fun invalidateCaches(documentId: DocumentId) {
-        invalidateDocumentCache(documentId)
-        // A stored layout addresses text by absolute offset, and re-parsing the document is exactly
-        // what moves those offsets. Every path that rewrites a document's sections calls through here
-        // first, so this is the one place that needs to know a stored layout has gone stale.
-        pageLayoutDao.deletePageLayouts(documentId.value)
-        epubScratchLock.withLock {
-            if (epubScratchDocumentId == documentId) {
-                epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
-                epubScratchDocumentId = null
-                epubScratchPath = null
-            }
-        }
-    }
-
     /**
      * Just the in-memory half of [invalidateCaches] — dropping the cached document, its section-blocks
-     * cache and the cached page-window answer, without touching [page_layouts] or the EPUB scratch
-     * copy. A progressive import's own batches call this instead of [invalidateCaches]: the document
-     * really did grow and the next read must see that, but the stored page layout is exactly what
+     * cache and the cached page-window answer, without touching the stored page layouts or the EPUB
+     * scratch copy. A progressive import's completion paths ([finishEpubImport],
+     * [finishNonProgressiveEpubImport]) call this instead of [invalidateCaches]: the document really did
+     * grow and the next read must see that, but the stored page layout is exactly what
      * [importNextSections] is extending in place, and the scratch copy is exactly what it is still
      * reading from — deleting either mid-import would throw away real progress, not stale data.
+     *
+     * @param documentId The document whose in-memory caches to drop, if it is the one currently cached.
      */
     private suspend fun invalidateDocumentCache(documentId: DocumentId) {
         documentCacheLock.withLock {
@@ -715,10 +1240,20 @@ class DocumentRepositoryImpl(
     }
 
     /**
-     * A scratch copy of the EPUB behind [documentId], made once and reused for every later image.
+     * A scratch copy of the EPUB behind [documentId], made once and reused for every later embedded
+     * image/font extraction and progressive import batch.
      *
      * Only one is kept: the reader has one book open, and holding a second copy of a previous one on
-     * disk buys nothing.
+     * disk buys nothing. A copy this long-lived cannot be removed in a `finally`, so the process holds
+     * its path in [epubScratchPath] and deletes it when the next book replaces it. That path is lost when
+     * the process dies, and the copy it named is not — one abandoned copy per run, the size of the whole
+     * book. [deleteAbandonedScratchCopies] sweeping the ones no longer named here is what keeps a shelf
+     * of large books from filling the cache.
+     *
+     * @param metadata The document the EPUB belongs to; a scratch copy already held for the same id is
+     *   reused as-is when it still exists on disk.
+     * @param fileSource Where to copy the original file bytes from when a fresh copy is needed.
+     * @return The scratch copy's path.
      */
     private suspend fun epubScratchCopy(
         metadata: DocumentMetadata,
@@ -728,25 +1263,100 @@ class DocumentRepositoryImpl(
             ?.let { return@withLock it }
 
         epubScratchPath?.let { previous -> runCatching { systemFileSystem().delete(previous) } }
+        clearEmbeddedFontScratchFilesLocked(keepDocumentId = metadata.id)
+        epubScratchContainer = null
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
             "tedd-reader-epub-open-${Random.nextLong().toString(16)}.epub"
-        // A copy this long-lived cannot be removed in a `finally`, so the process holds its path and
-        // deletes it when the next book replaces it. That path is lost when the process dies, and the
-        // copy it named is not — one abandoned copy per run, the size of the whole book. Sweeping the
-        // ones no longer named here is what keeps a shelf of large books from filling the cache.
         deleteAbandonedScratchCopies(keep = path)
+        deleteAbandonedEmbeddedFontScratchFiles(keep = epubEmbeddedFontFilesByHref.values.toSet())
         fileSource.copyTo(metadata.location, path)
         epubScratchDocumentId = metadata.id
         epubScratchPath = path
         path
     }
 
+    private suspend fun openEpubScratchContainer(
+        documentId: DocumentId,
+        path: Path,
+        title: String,
+    ): EpubImportContainer? {
+        epubScratchLock.withLock {
+            if (epubScratchDocumentId == documentId && epubScratchPath == path) {
+                epubScratchContainer?.let { return it }
+            }
+        }
+        val container = openEpubImportContainer(systemFileSystem().openZip(path), title)
+        epubScratchLock.withLock {
+            if (epubScratchDocumentId == documentId && epubScratchPath == path) {
+                epubScratchContainer = container
+            }
+        }
+        return container
+    }
+
+    private suspend fun clearEpubScratchContainer(documentId: DocumentId) {
+        epubScratchLock.withLock {
+            if (epubScratchDocumentId == documentId) epubScratchContainer = null
+        }
+    }
+
+    private fun clearEmbeddedFontScratchFilesLocked(keepDocumentId: DocumentId? = null) {
+        if (keepDocumentId != null && epubScratchDocumentId == keepDocumentId) return
+        epubEmbeddedFontFilesByHref.values.forEach { path -> runCatching { systemFileSystem().delete(path) } }
+        epubEmbeddedFontFilesByHref.clear()
+    }
+
+    private fun streamEmbeddedFontScratchFile(
+        zip: FileSystem,
+        href: String,
+    ): Path? {
+        val suffix = href.substringAfterLast('/', missingDelimiterValue = href)
+            .takeIf(String::isNotBlank)
+            ?.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            ?: "font.bin"
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+            "$EmbeddedFontScratchPrefix${Random.nextLong().toString(16)}-$suffix"
+        val written = runCatching {
+            val source = zip.source(href.toPath()).buffer()
+            try {
+                val sink = systemFileSystem().sink(path).buffer()
+                try {
+                    var totalBytes = 0L
+                    while (true) {
+                        val read = source.read(sink.buffer, 8_192)
+                        if (read == -1L) break
+                        totalBytes += read
+                        if (totalBytes > MAX_EPUB_FONT_BYTES) throw IllegalStateException("Embedded font too large: $href")
+                        sink.emitCompleteSegments()
+                    }
+                    sink.flush()
+                } finally {
+                    sink.close()
+                }
+            } finally {
+                source.close()
+            }
+        }.isSuccess
+        if (!written) {
+            runCatching { systemFileSystem().delete(path) }
+            return null
+        }
+        return path
+    }
+
+    /**
+     * Loads every stored section of [documentId], minus each section's block JSON — [SectionBlocksCache]
+     * fetches that back, only for the sections something actually asks for. `blocksJson` is deliberately
+     * excluded from this row (see [SearchIndexDao.getDocumentSectionsWithoutBlocks]): on a big book it
+     * dwarfs every other column combined, and opening used to pull all of it into memory as strings
+     * before a single page was built.
+     *
+     * @param documentId The document to load stored sections for.
+     * @return The stored sections, their on-demand block cache, and the document-level title/navigation/
+     *   parser-version carried on section 0.
+     */
     private suspend fun getStoredSections(documentId: DocumentId): StoredReaderDocument {
         val readStarted = TimeSource.Monotonic.markNow()
-        // blocksJson is deliberately not part of this row (see SearchIndexDao.getDocumentSectionsWithoutBlocks)
-        // — on a big book it dwarfs every other column combined, and opening used to pull all of it
-        // into memory as strings before a single page was built. SectionBlocksCache fetches it back,
-        // only for the sections something actually asks for.
         val entries = searchIndexDao.getDocumentSectionsWithoutBlocks(documentId.value)
         val readMs = readStarted.elapsedNow().inWholeMilliseconds
         logger.d {
@@ -768,6 +1378,15 @@ class DocumentRepositoryImpl(
         )
     }
 
+    /**
+     * Re-reads [metadata]'s file from scratch and re-persists it as a TXT document — the repair
+     * [loadReaderDocument] falls back to when the stored sections are empty or contain broken text (see
+     * [hasBrokenText]).
+     *
+     * @param metadata The shelf entry to repair; its location is where the file is re-read from.
+     * @return The freshly parsed document, or null when [documentFileSource] is unavailable or the
+     *   re-read/parse fails.
+     */
     private suspend fun repairTxtDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
         return runCatching {
@@ -800,9 +1419,16 @@ class DocumentRepositoryImpl(
      * been reading, which is what kept the parser version pinned at 1 and every improvement in the
      * parsers out of the hands of books already on the shelf.
      *
-     * [DocumentImportSource] with no bytes is what selects the phased route (see importDocument), and
+     * [DocumentImportSource] with no bytes is what selects the phased route (see [importDocument]), and
      * carrying the existing [metadata] through as the "existing document" is what keeps the shelf entry
-     * the reader recognises: when it was added, whether it is a favourite, which folder it sits in.
+     * the reader recognises: when it was added, whether it is a favourite, which folder it sits in. A
+     * repair is not a fresh import, so the `importedAtEpochMillis` passed down is the reader's own
+     * `lastOpenedAtEpochMillis` history and not this moment; only a document that somehow never recorded
+     * one falls back to now.
+     *
+     * @param metadata The shelf entry to repair; its location is where the file is re-read from.
+     * @return The freshly imported (phase-0) document, or null when [documentFileSource] is unavailable
+     *   or the re-read/parse fails.
      */
     private suspend fun repairEpubDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
@@ -811,9 +1437,6 @@ class DocumentRepositoryImpl(
                 id = metadata.id,
                 source = DocumentImportSource(location = metadata.location, bytes = null),
                 existingDocument = metadata,
-                // A repair is not a fresh import, so the shelf's "last opened" is the reader's own
-                // history and not this moment; only a document that somehow never recorded one falls
-                // back to now.
                 importedAtEpochMillis = metadata.lastOpenedAtEpochMillis
                     ?: Clock.System.now().toEpochMilliseconds(),
                 fileSource = fileSource,
@@ -827,6 +1450,15 @@ class DocumentRepositoryImpl(
      * import cost left to avoid once the bytes are already in hand, so nothing is gained by phasing it;
      * [persistParsedDocument]'s default `importCompletedAtEpochMillis` (now) is correct as-is because
      * this always finishes the whole book in one call.
+     *
+     * @param id The id to import as.
+     * @param source The import source; its location is used for the display title and the persisted
+     *   [DocumentMetadata.location].
+     * @param existingDocument The shelf entry already recorded for [id], if any — its `addedAtEpochMillis`,
+     *   favourite state, and folder are carried forward.
+     * @param importedAtEpochMillis When this import happened.
+     * @param bytes The whole EPUB file, already in memory.
+     * @return The fully parsed document.
      */
     private suspend fun importEpubFullyFromBytes(
         id: DocumentId,
@@ -857,13 +1489,41 @@ class DocumentRepositoryImpl(
     }
 
     /**
-     * Phase 0/1 of a progressive EPUB import (see [importNextSections] for the rest): stream the
-     * picked file into app-private storage once, parse just the container/OPF and settle the cover
-     * decision — deciding it any later shifts every offset after it — parse spine item 0, and commit
-     * the document row plus that first section. [DocumentMetadata.characterCount] stays null and
-     * `documents.importCompletedAtEpochMillis` stays unset unless the whole spine turns out to fit in
-     * this first item, so a book that never finishes importing reads as unfinished rather than wrong.
-     * Only reached with bytes=null (see [importDocument]) — there is a real file source to stream from.
+     * Phase 0/1 of a progressive EPUB import (see [importNextSections] for the batches that follow, and
+     * [finishEpubImport] for the final one): stream the picked file into app-private storage once (via
+     * [epubScratchCopy]), parse just the container/OPF and settle the cover decision — deciding it any
+     * later shifts every offset after it — parse until at least [InitialReadAheadMinimumContentChars]
+     * readable non-whitespace/non-object characters are buffered, while skipping null spine items and
+     * capping the read-ahead at [InitialReadAheadMaxSpineItems] spine slots, and commit the document row
+     * plus those initial sections. [DocumentMetadata.characterCount]
+     * stays null and `documents.importCompletedAtEpochMillis` stays unset unless the whole spine turns out
+     * to fit in this bounded read-ahead, so a book that never
+     * finishes importing reads as unfinished rather than wrong. Only reached with `bytes=null` (see
+     * [importDocument]) — there is always a real [fileSource] to stream from.
+     *
+     * When the EPUB has no OPF at all (`container == null`), the existing fallback-chapters parse
+     * ([EpubDocumentParser.parseWithCover]) already reads and lays out every chapter it can find directly
+     * from this same scratch copy, so there is no spine left to stream and nothing progressive about this
+     * branch — it is treated as fully imported in one call, same as any other format.
+     *
+     * Otherwise this parses only the cover section (if any) and enough readable spine sections to reach
+     * [InitialReadAheadMinimumContentChars] real text (bounded by
+     * [InitialReadAheadMaxSpineItems] spine slots), which is exactly what a batch from
+     * [importNextSections] does for its own slice of the spine later — except this first call also
+     * settles the cover decision and the document's initial title/navigation stand-in. A spine fully
+     * consumed by that bounded read-ahead
+     * already covered the whole book — no different, for what gets stored, than any other format that
+     * always imports in one shot; `isFullyImported` captures exactly that.
+     *
+     * @param id The id to import as.
+     * @param source The import source; its location is used for the display title and the persisted
+     *   [DocumentMetadata.location].
+     * @param existingDocument The shelf entry already recorded for [id], if any — its `addedAtEpochMillis`,
+     *   favourite state, and folder are carried forward.
+     * @param importedAtEpochMillis When this import (or repair) happened.
+     * @param fileSource Where to stream the original EPUB bytes from.
+     * @return The document as known after this first phase — just the cover and/or first bounded readable
+     *   spine sections unless the whole book fit in them, in which case it is the complete document.
      */
     private suspend fun importEpubPhase0(
         id: DocumentId,
@@ -880,16 +1540,14 @@ class DocumentRepositoryImpl(
             addedAtEpochMillis = existingDocument?.addedAtEpochMillis ?: importedAtEpochMillis,
         )
         val path = epubScratchCopy(scratchMetadata, fileSource)
-        val zip = systemFileSystem().openZip(path)
-        val container = openEpubImportContainer(zip, title)
+        val container = openEpubScratchContainer(id, path, title)
 
         val isFullyImported: Boolean
         val document: ReaderDocument
         val coverBytes: ByteArray?
+        var phase0NextSpinePosition = 0
+        var phase0SectionPaths: Map<Int, String> = emptyMap()
         if (container == null) {
-            // No OPF at all: the existing fallback-chapters parse already reads and lays out every
-            // chapter it can find directly from this same scratch copy, so there is no spine left to
-            // stream and nothing progressive about this branch.
             val parsed = epubDocumentParser.parseWithCover(id = id, title = title, path = path, fileSystem = systemFileSystem())
             document = parsed.document
             coverBytes = parsed.coverBytes
@@ -897,34 +1555,73 @@ class DocumentRepositoryImpl(
         } else {
             val sections = mutableListOf<ReaderSection>()
             val blocks = mutableListOf<ReaderBlock>()
+            val sectionPathByIndex = mutableMapOf<Int, String>()
+            val coverSectionIndex = 0.takeIf { container.coverDecision.hasCoverSection }
             buildEpubCoverSection(container.coverDecision, container.documentTitle)?.let { cover ->
                 sections += cover.section
                 blocks += cover.blocks
+                container.coverDecision.coverHref?.let { sectionPathByIndex[cover.section.index] = it }
             }
-            val baseOffset = sections.lastOrNull()?.let { it.range.end + SectionSeparatorLength } ?: 0L
-            parseEpubSpineItem(
-                container = container,
-                spinePosition = 0,
-                sectionIndex = sections.size,
-                baseOffset = baseOffset,
-            )?.let { first ->
-                sections += first.section
-                blocks += first.blocks
+            var spinePosition = 0
+            var bufferedContentChars = 0
+            var spineItemsReadAhead = 0
+            while (
+                spinePosition < container.linearSpineItems.size &&
+                spineItemsReadAhead < InitialReadAheadMaxSpineItems &&
+                bufferedContentChars < InitialReadAheadMinimumContentChars
+            ) {
+                parseEpubSpineItem(
+                    container = container,
+                    spinePosition = spinePosition,
+                    sectionIndex = sections.size,
+                    baseOffset = sections.lastOrNull()?.let { it.range.end + SectionSeparatorLength } ?: 0L,
+                )?.let { parsed ->
+                    sections += parsed.section
+                    blocks += parsed.blocks
+                    sectionPathByIndex[parsed.section.index] = container.linearSpineItems[spinePosition].path
+                    bufferedContentChars += parsed.section.text.count { char ->
+                        !char.isWhitespace() && char != ReaderObjectReplacementChar
+                    }
+                }
+                spinePosition += 1
+                spineItemsReadAhead += 1
             }
-            fillIntrinsicImageSizes(blocks, zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
+            phase0NextSpinePosition = spinePosition
+            fillIntrinsicImageSizes(blocks, container.zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
+            isFullyImported = spinePosition >= container.linearSpineItems.size
+            val navigation = if (isFullyImported) {
+                resolveEpubNavigationAtCompletion(
+                    container = container,
+                    sectionPathByIndex = sectionPathByIndex,
+                    coverSectionIndex = coverSectionIndex,
+                    firstReadableContentSectionIndex = sections.firstOrNull {
+                        it.index != coverSectionIndex && it.text.isNotBlank()
+                    }?.index,
+                )
+            } else {
+                ReaderNavigation()
+            }
+            val titledSections = if (navigation.items.isEmpty()) {
+                sections
+            } else {
+                val titlesByIndex = navigation.items
+                    .asSequence()
+                    .filter { it.offset == 0L }
+                    .associate { it.spineIndex to it.title }
+                sections.map { section ->
+                    titlesByIndex[section.index]?.let { section.copy(title = it) } ?: section
+                }
+            }
             document = ReaderDocument(
                 id = id,
                 format = DocumentFormat.EPUB,
                 title = container.documentTitle,
-                sections = sections,
+                sections = titledSections,
                 blocks = blocks,
-                navigation = ReaderNavigation(),
+                navigation = navigation,
             )
+            phase0SectionPaths = sectionPathByIndex
             coverBytes = container.coverDecision.coverBytes
-            // A spine of exactly one linear item (or a synthetic cover consuming position 0) means
-            // this very first batch already covered the whole book — no different, for what gets
-            // stored, than any other format that always imports in one shot.
-            isFullyImported = container.linearSpineItems.size <= 1
         }
 
         persistParsedDocument(
@@ -944,19 +1641,64 @@ class DocumentRepositoryImpl(
             document = document,
             coverBytes = coverBytes,
             importCompletedAtEpochMillis = if (isFullyImported) Clock.System.now().toEpochMilliseconds() else null,
+            keepScratchCopy = true,
         )
+        if (isFullyImported) {
+            clearEpubScratchContainer(id)
+        } else {
+            rememberNextSpineCursor(id, phase0NextSpinePosition)
+            rememberSectionPaths(id, phase0SectionPaths)
+        }
         return document
     }
 
+    /**
+     * Whether [documentId]'s import has fully finished — every EPUB spine item parsed and stored, or any
+     * other format's single-shot import already completed.
+     *
+     * @param documentId The document to check.
+     * @return True once `documents.importCompletedAtEpochMillis` is set for this document.
+     */
     override suspend fun isImportComplete(documentId: DocumentId): Boolean =
         documentDao.getDocument(documentId.value)?.importCompletedAtEpochMillis != null
 
+    /**
+     * One batch of a progressive EPUB import: parses up to [count] more spine items starting from where
+     * the last batch (or [importEpubPhase0]) left off, stores them, extends the stored page layout in
+     * place (via [appendMeasuredPageStarts]) instead of re-measuring the whole book, and — only once the
+     * whole spine is finally exhausted — runs [finishEpubImport] to resolve navigation and stamp the
+     * document complete. Earlier batches deliberately defer navigation resolution and the title/word-count
+     * roll-up to that final step because both need every section to exist first: a table-of-contents entry
+     * can name any spine item, and a word count is a sum over sections not all of which are parsed yet.
+     *
+     * A no-op — reporting already complete — when [documentId] is not on the shelf, its import is already
+     * complete, it is not an EPUB, or [documentFileSource] is unavailable. When the EPUB has no OPF at
+     * all, [importEpubPhase0]'s fallback-chapters branch already imported everything there was to import
+     * in one shot, so the only thing left here is the completion stamp that branch skipped — handled by
+     * [finishNonProgressiveEpubImport].
+     *
+     * In the parsing loop below: a null `parsed` result (a pure-cover skip, or an unreadable item)
+     * consumes a spine slot without becoming a section, same as the one-shot loop in [importEpubPhase0].
+     * `relativeBlocks` shifts the parsed blocks to be stored section-relative from here on, same as
+     * [persistParsedDocument]'s own sections (see `TextPageLayoutEngine.sectionPageRanges`) —
+     * [appendMeasuredPageStarts] below now expects that same relative shape, not the absolute one
+     * [parseEpubSpineItem] hands back.
+     *
+     * @param documentId The document to continue importing.
+     * @param count How many more spine items to parse in this call.
+     * @param style The style to measure any newly imported sections' pages at.
+     * @param viewportSize The viewport to measure any newly imported sections' pages at.
+     * @param pageBreaker The real page-breaking measurement to extend the stored layout with, or null to
+     *   import text without extending any stored layout.
+     * @return Whether the import is now complete, and how many sections this call actually imported.
+     */
     override suspend fun importNextSections(
         documentId: DocumentId,
         count: Int,
         style: ReaderStyle,
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker?,
+        viewportDensity: Float,
     ): ImportProgress = withContext(Dispatchers.Default) {
         val entity = documentDao.getDocument(documentId.value)
             ?: return@withContext ImportProgress(isComplete = true, sectionsImported = 0)
@@ -966,34 +1708,26 @@ class DocumentRepositoryImpl(
         }
 
         val path = epubScratchCopy(entity.toDocumentMetadata(), fileSource)
-        val zip = systemFileSystem().openZip(path)
-        val container = openEpubImportContainer(zip, entity.name)
-            // No OPF: importEpubPhase0's fallback-chapters branch already imported everything there was
-            // to import, so the only thing left here is the completion stamp that branch skipped.
+        val container = openEpubScratchContainer(documentId, path, entity.name)
             ?: return@withContext finishNonProgressiveEpubImport(documentId, entity)
 
         val lastSection = searchIndexDao.getLastSection(documentId.value)
-        val hasCoverSection = container.coverDecision.hasCoverSection
         var sectionIndex = (lastSection?.sectionIndex?.plus(1)) ?: 0
         var offset = lastSection?.endOffset?.plus(SectionSeparatorLength) ?: 0L
-        var spinePosition = sectionIndex -
-            (if (hasCoverSection) 1 else 0) +
-            (if (container.coverDecision.spineOrder0Skipped) 1 else 0)
+        var spinePosition = resolveNextSpineCursor(documentId, container, sectionIndex)
 
         val newEntries = mutableListOf<SearchIndexEntity>()
         val newSections = mutableListOf<Pair<ReaderSection, List<ReaderBlock>>>()
+        val sectionPathByIndex = mutableMapOf<Int, String>()
         var sectionsImported = 0
         while (sectionsImported < count && spinePosition < container.linearSpineItems.size) {
             val parsed = parseEpubSpineItem(container, spinePosition, sectionIndex, offset)
             spinePosition += 1
-            if (parsed == null) continue // pure-cover skip, or an unreadable item — consumes a spine
-                                          // slot without becoming a section, same as the one-shot loop.
+            if (parsed == null) continue
             val blocks = parsed.blocks.toMutableList()
-            fillIntrinsicImageSizes(blocks, zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
-            // Stored section-relative from here on, same as persistParsedDocument's own sections (see
-            // TextPageLayoutEngine.sectionPageRanges) — and pageStartsForSection below now expects that
-            // same relative shape, not the absolute one parseEpubSpineItem hands back.
+            fillIntrinsicImageSizes(blocks, container.zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
             val relativeBlocks = blocks.rebasedBy(parsed.section.range.start)
+            sectionPathByIndex[parsed.section.index] = container.linearSpineItems[spinePosition - 1].path
             newEntries += parsed.section.toSearchIndexEntity(documentId = documentId, blocks = relativeBlocks, json = json)
             newSections += parsed.section to relativeBlocks
             offset = parsed.section.range.end + SectionSeparatorLength
@@ -1003,9 +1737,10 @@ class DocumentRepositoryImpl(
 
         if (newEntries.isNotEmpty()) {
             searchIndexDao.upsertSearchIndex(newEntries)
-            invalidateDocumentCache(documentId)
-            appendMeasuredPageStarts(documentId, style, viewportSize, pageBreaker, newSections)
+            rememberSectionPaths(documentId, sectionPathByIndex)
+            appendMeasuredPageStarts(documentId, style, viewportSize, viewportDensity, pageBreaker, newSections)
         }
+        rememberNextSpineCursor(documentId, spinePosition)
 
         val isComplete = spinePosition >= container.linearSpineItems.size
         if (!isComplete) return@withContext ImportProgress(isComplete = false, sectionsImported = sectionsImported)
@@ -1021,11 +1756,29 @@ class DocumentRepositoryImpl(
      * [pageBreaker] to measure with — the next real [getPageWindows] call falls back to measuring the
      * whole currently-known book once, exactly as it already does for any document with no stored
      * layout (see that function's own fallback).
+     *
+     * Once a row is found, it may still not be one this call can extend — its `pageStartsBlob` missing,
+     * or [newSections] measuring to zero page starts. In either case the row is deleted rather than left
+     * in place: leaving it would leave its `characterCount` silently behind the document's — exactly the
+     * drift [restorePageWindows] later "fixes" by deleting every layout for the document. Deleting it
+     * here instead, the moment it is found to be unextendable, is the same outcome reached honestly:
+     * nothing stale survives for a later mismatch to blame on the wrong batch. This is only reachable at
+     * all for a row left over from before [storePageWindows] learned to wait for [isImportComplete] — a
+     * fresh import now never writes a row in the first place, so there is nothing here to find until one
+     * finishes.
+     *
+     * @param documentId The document whose stored layout to extend.
+     * @param style The style the stored layout must match to be extended.
+     * @param viewportSize The viewport the stored layout must match to be extended.
+     * @param pageBreaker The real page-breaking measurement for [newSections], or null to skip extending
+     *   (nothing was actually measured to append).
+     * @param newSections The sections [importNextSections] just imported, each paired with its blocks.
      */
     private suspend fun appendMeasuredPageStarts(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize,
+        viewportDensity: Float,
         pageBreaker: ReaderPageBreaker?,
         newSections: List<Pair<ReaderSection, List<ReaderBlock>>>,
     ) {
@@ -1039,11 +1792,17 @@ class DocumentRepositoryImpl(
             viewportWidthPx = viewportSize.widthPx,
             viewportHeightPx = viewportSize.heightPx,
         ) ?: return
-        val existingStarts = stored.pageStartsBlob?.let(::decodePageStartsBlob) ?: return
-        val appendedStarts = newSections.flatMap { (section, blocks) ->
-            textPageLayoutEngine.pageStartsForSection(section, blocks, style, viewportSize, pageBreaker).toList()
+        val existingStarts = stored.pageStartsBlob?.let(::decodePageStartsBlob) ?: run {
+            pageLayoutDao.deletePageLayouts(documentId.value)
+            return
         }
-        if (appendedStarts.isEmpty()) return
+        val appendedStarts = newSections.flatMap { (section, blocks) ->
+            textPageLayoutEngine.pageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity).toList()
+        }
+        if (appendedStarts.isEmpty()) {
+            pageLayoutDao.deletePageLayouts(documentId.value)
+            return
+        }
         val addedCharacterCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
         pageLayoutDao.upsertPageLayout(
             stored.copy(
@@ -1054,9 +1813,18 @@ class DocumentRepositoryImpl(
         )
     }
 
-    /** Which spine path each already-stored section index came from — a pure function of position
-     * (position 0 possibly skipped as a pure-cover page, every other linear item giving exactly one
-     * section, see [EpubCoverDecision]), not anything a batch needs to remember along the way. */
+    /**
+     * Which spine path each already-stored section index came from, replaying spine parsing so pure-cover,
+     * missing, and unreadable items are skipped exactly as they were during import.
+     *
+     * @param container The EPUB's parsed container, for its linear spine item paths.
+     * @param coverSectionIndex The section index of the synthetic cover section, or null when this book
+     *   has none.
+     * @param storedSectionCount How many sections are stored for this document.
+     * @return Every stored section index mapped to its source path: the cover section (if present) maps
+     *   to the cover's own href rather than a spine item, and every other section maps to the
+     *   archive-relative path of the linear spine item it came from.
+     */
     private fun buildSectionPathByIndex(
         container: EpubImportContainer,
         coverSectionIndex: Int?,
@@ -1065,18 +1833,89 @@ class DocumentRepositoryImpl(
         val map = mutableMapOf<Int, String>()
         val coverHref = container.coverDecision.coverHref
         if (coverSectionIndex != null && coverHref != null) map[coverSectionIndex] = coverHref
-        var spinePosition = if (container.coverDecision.spineOrder0Skipped) 1 else 0
-        var index = if (coverSectionIndex != null) 1 else 0
-        while (index < storedSectionCount && spinePosition < container.linearSpineItems.size) {
-            map[index] = container.linearSpineItems[spinePosition].path
-            index += 1
+        var sectionIndex = if (coverSectionIndex != null) 1 else 0
+        var offset = buildEpubCoverSection(container.coverDecision, container.documentTitle)
+            ?.section
+            ?.range
+            ?.end
+            ?.plus(SectionSeparatorLength)
+            ?: 0L
+        var spinePosition = 0
+        while (sectionIndex < storedSectionCount && spinePosition < container.linearSpineItems.size) {
+            val parsed = parseEpubSpineItem(container, spinePosition, sectionIndex, offset)
             spinePosition += 1
+            if (parsed == null) continue
+            map[sectionIndex] = container.linearSpineItems[spinePosition - 1].path
+            sectionIndex += 1
+            offset = parsed.section.range.end + SectionSeparatorLength
         }
         return map
     }
 
-    /** The last step of a progressive EPUB import: resolve navigation now that every section is known,
-     * retitle whichever sections the table of contents names, and stamp the document complete. */
+    private fun consumedSpinePositionForStoredSections(
+        container: EpubImportContainer,
+        storedSectionCount: Int,
+    ): Int {
+        var sectionIndex = if (container.coverDecision.hasCoverSection) 1 else 0
+        var offset = buildEpubCoverSection(container.coverDecision, container.documentTitle)
+            ?.section
+            ?.range
+            ?.end
+            ?.plus(SectionSeparatorLength)
+            ?: 0L
+        var spinePosition = 0
+        while (sectionIndex < storedSectionCount && spinePosition < container.linearSpineItems.size) {
+            val parsed = parseEpubSpineItem(container, spinePosition, sectionIndex, offset)
+            spinePosition += 1
+            if (parsed == null) continue
+            sectionIndex += 1
+            offset = parsed.section.range.end + SectionSeparatorLength
+        }
+        return spinePosition
+    }
+
+    private suspend fun resolveNextSpineCursor(
+        documentId: DocumentId,
+        container: EpubImportContainer,
+        storedSectionCount: Int,
+    ): Int {
+        epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId[documentId]?.let { return it }
+        }
+        val replayed = consumedSpinePositionForStoredSections(container, storedSectionCount)
+        return epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId.getOrPut(documentId) { replayed }
+        }
+    }
+
+    private suspend fun rememberNextSpineCursor(documentId: DocumentId, spinePosition: Int) {
+        epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId[documentId] = spinePosition
+        }
+    }
+
+    private suspend fun rememberSectionPaths(documentId: DocumentId, sectionPathByIndex: Map<Int, String>) {
+        if (sectionPathByIndex.isEmpty()) return
+        epubImportCursorLock.withLock {
+            val existing = epubSectionPathByIndexByDocumentId.getOrPut(documentId) { mutableMapOf() }
+            existing.putAll(sectionPathByIndex)
+        }
+    }
+
+    /**
+     * The last step of a progressive EPUB import, run by [importNextSections] only once the final batch
+     * exhausts the spine: resolve navigation now that every section is known, retitle whichever sections
+     * the table of contents names, roll up the document's real `characterCount`/`wordCount` over every
+     * stored section, and stamp the document complete. Every one of these deliberately waits for this
+     * final step because each needs the whole book, not a prefix of it: navigation can point at any
+     * spine item including ones not yet parsed by an earlier batch, and a word/character count is a sum
+     * over sections that would be wrong — not just incomplete — if taken mid-import.
+     *
+     * @param documentId The document being finished.
+     * @param entity The document's current stored row, copied forward with the rolled-up counts and the
+     *   completion stamp.
+     * @param container The EPUB's parsed container, for resolving navigation against.
+     */
     private suspend fun finishEpubImport(
         documentId: DocumentId,
         entity: DocumentEntity,
@@ -1087,9 +1926,13 @@ class DocumentRepositoryImpl(
         val firstReadableContentSectionIndex = entries
             .firstOrNull { it.sectionIndex != coverSectionIndex && it.text.isNotBlank() }
             ?.sectionIndex
+        val cachedSectionPaths = epubImportCursorLock.withLock {
+            epubSectionPathByIndexByDocumentId.remove(documentId)?.toMap()
+        }
         val navigation = resolveEpubNavigationAtCompletion(
             container = container,
-            sectionPathByIndex = buildSectionPathByIndex(container, coverSectionIndex, entries.size),
+            sectionPathByIndex = cachedSectionPaths?.takeIf { it.size >= entries.size }
+                ?: buildSectionPathByIndex(container, coverSectionIndex, entries.size),
             coverSectionIndex = coverSectionIndex,
             firstReadableContentSectionIndex = firstReadableContentSectionIndex,
         )
@@ -1109,12 +1952,27 @@ class DocumentRepositoryImpl(
                 importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
             ),
         )
+        epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId.remove(documentId)
+            epubSectionPathByIndexByDocumentId.remove(documentId)
+        }
+        clearEpubScratchContainer(documentId)
         invalidateDocumentCache(documentId)
     }
 
-    /** Defensive fallback for [importNextSections]: reached only if a document's import somehow never
-     * got stamped complete even though its EPUB has no OPF at all, a case importEpubPhase0 already
-     * finishes in one shot. */
+    /**
+     * Defensive fallback for [importNextSections]: reached only if a document's import somehow never got
+     * stamped complete even though its EPUB has no OPF at all, a case [importEpubPhase0] already
+     * finishes in one shot. Rolls up `characterCount`/`wordCount` and stamps completion, the same as
+     * [finishEpubImport]'s final step, but with no navigation to resolve since there was never a spine to
+     * walk.
+     *
+     * @param documentId The document being finished.
+     * @param entity The document's current stored row, copied forward with the rolled-up counts and the
+     *   completion stamp.
+     * @return Completion progress with `sectionsImported = 0`, since this call imports nothing new — it
+     *   only stamps a book that was already fully imported.
+     */
     private suspend fun finishNonProgressiveEpubImport(documentId: DocumentId, entity: DocumentEntity): ImportProgress {
         val entries = searchIndexDao.getDocumentSectionsWithoutBlocks(documentId.value)
         documentDao.upsertDocument(
@@ -1124,24 +1982,53 @@ class DocumentRepositoryImpl(
                 importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
             ),
         )
+        epubImportCursorLock.withLock {
+            epubNextSpineCursorByDocumentId.remove(documentId)
+            epubSectionPathByIndexByDocumentId.remove(documentId)
+        }
+        clearEpubScratchContainer(documentId)
         invalidateDocumentCache(documentId)
         return ImportProgress(isComplete = true, sectionsImported = 0)
     }
 
+    /**
+     * Replaces every stored trace of [metadata]'s document with [document]'s sections, invalidating all
+     * caches first so nothing later reads the old content out of them.
+     *
+     * Sections are stored with their blocks shifted relative to each section's own start, not as the
+     * absolute offsets pagination addresses a page with — see `TextPageLayoutEngine.sectionPageRanges`,
+     * which used to redo this exact shift, for every block and every span, on every pagination pass
+     * instead of once here.
+     *
+     * [importCompletedAtEpochMillis] defaults to now because every existing caller parses and stores the
+     * whole document in one shot, so "complete right now" is the correct default for all of them —
+     * TXT/PDF/CBZ/IMAGE import, and an EPUB repair, which re-parses the entire book synchronously even for
+     * a document whose *original* import never finished. Only [importEpubPhase0] overrides this with
+     * null: it persists just the first section(s) and leaves the rest to [importNextSections]. Bypassing
+     * the public [upsertDocument] (which otherwise preserves whatever was already stored, for an ordinary
+     * metadata edit like toggling a favourite) is what lets this decide the value outright instead of
+     * inheriting it.
+     *
+     * When [coverBytes] is supplied, it is written to the cover file now, while the caller already has
+     * it decoded — sparing every later open the whole-file read [getDocumentCover] would otherwise repeat
+     * (see this class's own doc).
+     *
+     * @param metadata The metadata row to write.
+     * @param document The parsed document whose sections/blocks/navigation to store.
+     * @param coverBytes The cover image bytes to write alongside, if the caller already has them decoded.
+     * @param importCompletedAtEpochMillis The completion stamp to write, or null to leave the import
+     *   marked unfinished (see above).
+     * @param keepScratchCopy True to preserve the in-memory EPUB scratch binding for this document while
+     *   rewriting storage; phase-0 uses this so continuation can keep reading the same copied file.
+     */
     private suspend fun persistParsedDocument(
         metadata: DocumentMetadata,
         document: ReaderDocument,
         coverBytes: ByteArray? = null,
-        // Every existing caller parses and stores the whole document in one shot, so "complete right
-        // now" is the correct default for all of them — TXT/PDF/CBZ/IMAGE import, and an EPUB repair,
-        // which re-parses the entire book synchronously even for a document whose *original* import
-        // never finished. Only importEpubPhase0 overrides this with null: it persists just the first
-        // section(s) and leaves the rest to importNextSections. Bypassing the public upsertDocument
-        // (which otherwise preserves whatever was already stored, for an ordinary metadata edit like
-        // toggling a favourite) is what lets this decide the value outright instead of inheriting it.
         importCompletedAtEpochMillis: Long? = Clock.System.now().toEpochMilliseconds(),
+        keepScratchCopy: Boolean = false,
     ) {
-        invalidateCaches(metadata.id)
+        invalidateCaches(metadata.id, keepScratchCopy = keepScratchCopy)
         documentDao.upsertDocument(metadata.toDocumentEntity().copy(importCompletedAtEpochMillis = importCompletedAtEpochMillis))
         searchIndexDao.deleteSearchIndex(metadata.id.value)
         if (document.sections.isNotEmpty()) {
@@ -1149,10 +2036,6 @@ class DocumentRepositoryImpl(
                 document.sections.map { section ->
                     section.toSearchIndexEntity(
                         documentId = metadata.id,
-                        // Stored relative to this section's own start, not as the absolute offsets
-                        // pagination addresses a page with — see TextPageLayoutEngine.sectionPageRanges,
-                        // which used to redo this exact shift, for every block and every span, on every
-                        // pagination pass instead of once here.
                         blocks = document.blocks.blocksIn(section.range.start, section.range.end).rebasedBy(section.range.start),
                         documentTitle = document.title.takeIf { section.index == document.sections.first().index },
                         navigation = document.navigation.takeIf { section.index == document.sections.first().index },
@@ -1161,28 +2044,48 @@ class DocumentRepositoryImpl(
                 },
             )
         }
-        // Writing the cover now, while the caller already has its bytes decoded, is what spares every
-        // later open the whole-file read getDocumentCover would otherwise repeat (see class doc).
         if (coverBytes != null) {
             documentFileSource?.let { fileSource -> writeCoverFile(coverFilePath(fileSource, metadata.id), coverBytes) }
         }
     }
 
+    /**
+     * Turns this shelf metadata plus [document]'s freshly loaded sections into the [ReaderDocument] the
+     * rest of the app reads. `blocks` is [LazyFlattenedBlocks], not a plain list: every block in the book
+     * is decoded the first time something actually reads that list rather than as the price of building
+     * it — pagination itself never does, see [SectionBlocksCache].
+     *
+     * @receiver The shelf metadata to combine with [document]'s content.
+     * @param document The stored sections, on-demand block cache, and navigation JSON just loaded.
+     * @return The combined [ReaderDocument].
+     */
     private fun DocumentMetadata.toReaderDocument(document: StoredReaderDocument): ReaderDocument = ReaderDocument(
         id = id,
         format = format,
         title = document.title ?: location.displayName,
         sections = document.sections,
         pageCount = pageCount,
-        // Every block in the book, decoded the first time something actually reads this list rather
-        // than as the price of building it — pagination itself never does, see [SectionBlocksCache].
         blocks = LazyFlattenedBlocks(document.sections, document.sectionBlocks),
         navigation = decodeNavigation(document.navigationJson),
     )
 
+    /**
+     * Decodes a section's stored block JSON, tolerating a decode failure by answering an empty list
+     * rather than propagating the exception — the same "missing images/formatting only" degradation
+     * [SectionBlocksCache] documents for a section it hasn't fetched yet.
+     *
+     * @param blocksJson The stored JSON to decode.
+     * @return The decoded blocks, or an empty list if decoding fails.
+     */
     private fun decodeBlocks(blocksJson: String): List<ReaderBlock> =
         runCatching { json.decodeFromString<List<ReaderBlock>>(blocksJson) }.getOrDefault(emptyList())
 
+    /**
+     * Decodes a document's stored navigation JSON.
+     *
+     * @param navigationJson The stored JSON to decode, or blank when no navigation was ever resolved.
+     * @return The decoded navigation, or null when [navigationJson] is blank or fails to decode.
+     */
     private fun decodeNavigation(navigationJson: String): ReaderNavigation? =
         navigationJson.takeIf(String::isNotBlank)
             ?.let { runCatching { json.decodeFromString<ReaderNavigation>(it) }.getOrNull() }
@@ -1201,9 +2104,13 @@ private fun LongArray.isStrictlyAscending(): Boolean {
 /**
  * [PageLayoutEntity.pageStartsBlob] as a little-endian Int32 per offset. Offsets fit comfortably
  * inside `Int` — the largest real book this reader opens is 3.5M characters — so this is exactly the
- * `LongArray` [storePageWindows] already builds, four bytes apiece instead of JSON digits. Internal
- * rather than private so [restorePageWindows]/[storePageWindows]'s round trip can be tested directly
- * (see PageStartsBlobCodecTest) without going through Room.
+ * `LongArray` [DocumentRepositoryImpl.storePageWindows] already builds, four bytes apiece instead of
+ * JSON digits. Internal rather than private so [DocumentRepositoryImpl.restorePageWindows]/
+ * [DocumentRepositoryImpl.storePageWindows]'s round trip can be tested directly (see
+ * PageStartsBlobCodecTest) without going through Room.
+ *
+ * @param pageStarts The page starts to encode; each must fit in an `Int`.
+ * @return The encoded blob, [Int.SIZE_BYTES] bytes per entry.
  */
 internal fun encodePageStartsBlob(pageStarts: LongArray): ByteArray {
     val blob = ByteArray(pageStarts.size * Int.SIZE_BYTES)
@@ -1218,7 +2125,12 @@ internal fun encodePageStartsBlob(pageStarts: LongArray): ByteArray {
     return blob
 }
 
-/** The inverse of [encodePageStartsBlob]. */
+/**
+ * The inverse of [encodePageStartsBlob].
+ *
+ * @param blob The encoded blob to decode.
+ * @return The decoded page starts.
+ */
 internal fun decodePageStartsBlob(blob: ByteArray): LongArray {
     val count = blob.size / Int.SIZE_BYTES
     return LongArray(count) { index ->
@@ -1231,11 +2143,27 @@ internal fun decodePageStartsBlob(blob: ByteArray): LongArray {
     }
 }
 
+/**
+ * Whether any section's text decoded badly — a Unicode replacement character, or the double-encoded
+ * mojibake string that shows up when the same broken decode step ran on already-broken bytes. Sections
+ * this shape trigger [DocumentRepositoryImpl.loadReaderDocument]'s TXT repair path rather than being
+ * shown to the reader as-is.
+ *
+ * @receiver The stored sections to check.
+ * @return True when at least one section's text contains broken-decode evidence.
+ */
 private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
     section.text.contains('\uFFFD') || section.text.contains("ï¿½")
 }
 
-/** True when every section decodes to zero blocks — a book stored before blocks were captured at all. */
+/**
+ * The bytes a non-progressive import (TXT, PDF) needs to already have in hand — those formats have no
+ * phased/streamed path, so they cannot proceed without them.
+ *
+ * @param source The import source to require bytes from.
+ * @return The source's bytes.
+ * @throws IllegalStateException When [source] carries no bytes.
+ */
 private fun requireDocumentBytes(source: DocumentImportSource): ByteArray =
     source.bytes ?: error("Document bytes required for ${source.location.displayName}")
 
@@ -1243,21 +2171,38 @@ private fun requireDocumentBytes(source: DocumentImportSource): ByteArray =
  * Where [documentId]'s cover is cached. Named by a hash of the id rather than the id itself — a
  * document id is the book's full source URI, which can be arbitrarily long or contain characters a
  * file system rejects as a path component — and the hash is what guarantees two different ids never
- * write the same file. The file existing at this path *is* the cache (see class doc): there is no
- * database column recording it. Internal rather than private so a test can assert the file is
- * actually written and actually removed (see DocumentRepositoryImplTest), the same reason
- * [encodePageStartsBlob]/[decodePageStartsBlob] above are internal.
+ * write the same file. The file existing at this path *is* the cache (see [DocumentRepositoryImpl]'s
+ * own doc): there is no database column recording it. Internal rather than private so a test can
+ * assert the file is actually written and actually removed (see DocumentRepositoryImplTest), the same
+ * reason [encodePageStartsBlob]/[decodePageStartsBlob] above are internal.
+ *
+ * @param fileSource Where the app-private directory the cover lives under is resolved from.
+ * @param documentId The document whose cover path to compute.
+ * @return The path the cover for [documentId] is, or would be, cached at.
  */
 internal fun coverFilePath(fileSource: DocumentFileSource, documentId: DocumentId): Path =
     fileSource.appPrivateDirectory() / "covers" / "${documentId.value.encodeUtf8().sha1().hex()}.img"
 
-// Okio's own read/write helpers rather than use {}: okio.Closeable is not kotlin.AutoCloseable on
-// Kotlin/Native, so `use` compiles on Android and fails the iOS targets.
+/**
+ * Reads a cached cover file, using Okio's own `read { }` scoping rather than `use { }`:
+ * `okio.Closeable` is not `kotlin.AutoCloseable` on Kotlin/Native, so `use` compiles on Android and
+ * fails the iOS targets. [writeCoverFile] below follows the same precedent with `write { }`.
+ *
+ * @param path The cover file to read.
+ * @return The cover bytes, or null when nothing is cached at [path] or the read fails.
+ */
 private fun readCoverFile(path: Path): ByteArray? =
     runCatching {
         systemFileSystem().read(path) { readByteArray() }
     }.getOrNull()
 
+/**
+ * Writes [bytes] to [path] as a cached cover file, creating the parent directory first if needed.
+ * Failures are swallowed: a cover that fails to cache is simply extracted again on the next request.
+ *
+ * @param path The destination to write the cover to.
+ * @param bytes The cover image bytes to write.
+ */
 private fun writeCoverFile(path: Path, bytes: ByteArray) {
     runCatching {
         path.parent?.let { parent -> systemFileSystem().createDirectories(parent) }
@@ -1265,7 +2210,15 @@ private fun writeCoverFile(path: Path, bytes: ByteArray) {
     }
 }
 
-/** Removes scratch copies left by earlier runs, keeping [keep] and anything still being written. */
+/**
+ * The identity of a [DocumentRepositoryImpl.cachedPageWindows] answer: which document, at which style,
+ * laid out for which pane size. Two calls with an equal key can share one cached or stored layout;
+ * anything that differs — even a resized pane at the same font — cannot.
+ *
+ * @property documentId The document the layout is for.
+ * @property layoutKey The font/line-height/family the layout was (or would be) measured at.
+ * @property viewportSize The pane size the layout was (or would be) measured at.
+ */
 private data class PageWindowKey(
     val documentId: DocumentId,
     val layoutKey: ReaderLayoutKey,
@@ -1287,6 +2240,15 @@ private data class PageWindowKey(
  * happened to have cached at the moment this session was built — that field can be replaced by a later,
  * unrelated cache invalidation while this session is still mid-measurement, and a closure captured
  * before the swap would then prewarm an orphaned cache while reading a different, never-warmed one.
+ *
+ * @property key Which document/style/viewport this session is measuring.
+ * @property format The document's format, threaded through to [TextPageLayoutEngine.paginateSection].
+ * @property coverPage The document's cover page, if it has one — never re-measured, only carried along.
+ * @property contentSections The document's non-cover sections, in spine order, that this session walks.
+ * @property sectionBlocksCache The document's on-demand block cache, when it was loaded from storage —
+ *   see [blocksFor].
+ * @property lowPosition The lowest position in [contentSections] measured so far.
+ * @property highPosition The highest position in [contentSections] measured so far.
  */
 private class PaginationSession(
     val key: PageWindowKey,
@@ -1294,35 +2256,118 @@ private class PaginationSession(
     val coverPage: PageWindow?,
     val contentSections: List<ReaderSection>,
     private val sectionBlocksCache: SectionBlocksCache?,
-    // Only consulted when there is no cache at all — a document already fully in memory from a repair
-    // pass (see LoadedReaderDocument) — so a whole-book grouping pass here is a one-time cost on top of
-    // work the repair already paid, not a repeat of it.
     private val fallbackSectionBlocks: (ReaderSection) -> List<ReaderBlock>,
     var lowPosition: Int,
     var highPosition: Int,
+    var hasMeasuredPages: Boolean,
 ) {
-    val sectionPages: ArrayDeque<List<PageWindow>> = ArrayDeque()
+    /** Every measured section's page starts, keyed by its position in [contentSections]. */
+    private val measuredPageStarts = mutableMapOf<Int, LongArray>()
+    private var cachedSnapshot: List<PageWindow>? = null
+    private var snapshotDirty = true
+
+    /** Whether every content section has now been measured — see class doc for the growth order. */
     val isComplete: Boolean
         get() = contentSections.isEmpty() || (lowPosition == 0 && highPosition == contentSections.lastIndex)
 
+    fun putMeasured(position: Int, starts: LongArray) {
+        measuredPageStarts[position] = starts
+        if (position < lowPosition) lowPosition = position
+        if (position > highPosition) highPosition = position
+        snapshotDirty = true
+    }
+
+    fun measuredSections(): List<ReaderSection> = (lowPosition..highPosition).mapNotNull { position ->
+        measuredPageStarts[position]?.let { contentSections[position] }
+    }
+
+    fun measuredStarts(): List<LongArray> = (lowPosition..highPosition).mapNotNull(measuredPageStarts::get)
+
+    fun pagesAfter(anchorPosition: Int, anchorPageIndex: Int): Int =
+        (measuredPageStarts[anchorPosition]?.size ?: 0) - anchorPageIndex - 1 +
+            ((anchorPosition + 1)..highPosition).sumOf { position -> measuredPageStarts[position]?.size ?: 0 }
+
+    fun allMeasuredStarts(): LongArray {
+        val ordered = measuredStarts()
+        val total = ordered.sumOf { it.size }
+        var offset = 0
+        return LongArray(total).also { flattened ->
+            ordered.forEach { starts ->
+                starts.copyInto(flattened, destinationOffset = offset)
+                offset += starts.size
+            }
+        }
+    }
+
+    /**
+     * [section]'s blocks, from [sectionBlocksCache] when one exists, or from [fallbackSectionBlocks]
+     * otherwise. [fallbackSectionBlocks] is only ever consulted when there is no cache at all — a
+     * document already fully in memory from a repair pass (see [LoadedReaderDocument]) — so a whole-book
+     * grouping pass there is a one-time cost on top of work the repair already paid, not a repeat of it.
+     *
+     * @param section The section to fetch blocks for.
+     * @return That section's blocks.
+     */
     suspend fun blocksFor(section: ReaderSection): List<ReaderBlock> {
         val cache = sectionBlocksCache ?: return fallbackSectionBlocks(section)
         cache.prewarm(setOf(section.index))
         return cache.blocksFor(section.index)
     }
+
+    fun blocksForSync(section: ReaderSection): List<ReaderBlock> =
+        sectionBlocksCache?.blocksFor(section.index) ?: fallbackSectionBlocks(section)
+
+    fun isSectionReady(sectionIndex: Int): Boolean = sectionBlocksCache?.isReady(sectionIndex) ?: true
+
+    fun snapshotWindows(textPageLayoutEngine: TextPageLayoutEngine): List<PageWindow> {
+        val existing = cachedSnapshot
+        if (existing != null && !snapshotDirty) return existing
+        return textPageLayoutEngine.reconstructMeasuredSections(
+            format = format,
+            coverPage = coverPage,
+            contentSections = measuredSections(),
+            sectionPageStarts = measuredStarts(),
+            sectionBlocks = ::blocksForSync,
+            isSectionReady = ::isSectionReady,
+        ).also {
+            cachedSnapshot = it
+            snapshotDirty = false
+        }
+    }
 }
 
-// A reader who is not yet settled on a size tries a handful of them in one sitting — the font a step
-// up, a step down, maybe a line-height or typeface change too — before landing on one. A stored row is
-// now a page-starts blob rather than a JSON array (see PageLayoutEntity), cheap enough — a few dozen KB
-// even for a 16,000-page book — that keeping a couple more of them costs nothing worth trading against
-// re-measuring one the reader lands back on.
+/**
+ * How many measured layouts [storePageWindows] keeps per document before [PageLayoutDao.trimPageLayouts]
+ * discards the oldest. A reader who is not yet settled on a size tries a handful of them in one sitting —
+ * the font a step up, a step down, maybe a line-height or typeface change too — before landing on one. A
+ * stored row is now a page-starts blob rather than a JSON array (see [PageLayoutEntity]), cheap enough —
+ * a few dozen KB even for a 16,000-page book — that keeping a couple more of them costs nothing worth
+ * trading against re-measuring one the reader lands back on.
+ */
 private const val MaxStoredPageLayoutsPerDocument = 5
+private const val PaginationContinuationBatchSize = 8
+private const val InitialReadAheadMinimumContentChars = 8_192
+private const val InitialReadAheadMaxSpineItems = 16
+private const val InitialForwardPaginationPages = 4
+private const val InitialForwardPaginationSections = 8
 
-// The viewport a null caller gets when nothing is stored for its style yet — the same guess
-// ReaderViewModel used to pass directly before getPageWindows could resolve one itself.
+/**
+ * The viewport a null caller gets from [DocumentRepositoryImpl.getPageWindows] when nothing is stored
+ * for its style yet — the same guess `ReaderViewModel` used to pass directly before `getPageWindows`
+ * could resolve one itself.
+ */
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
 
+/**
+ * Removes scratch copies left by earlier runs, keeping [keep] and anything still being written.
+ *
+ * A copy this long-lived cannot be removed in a `finally`, so [DocumentRepositoryImpl.epubScratchCopy]
+ * holds its path and deletes it when the next book replaces it. That path is lost when the process dies,
+ * and the copy it named is not — one abandoned copy per run, the size of the whole book. This sweep of
+ * the ones no longer named by [keep] is what keeps a shelf of large books from filling the cache.
+ *
+ * @param keep The scratch copy currently in use, which must survive this sweep.
+ */
 private fun deleteAbandonedScratchCopies(keep: Path) {
     val fileSystem = systemFileSystem()
     val directory = FileSystem.SYSTEM_TEMPORARY_DIRECTORY
@@ -1333,8 +2378,36 @@ private fun deleteAbandonedScratchCopies(keep: Path) {
     }
 }
 
+/** The filename prefix every EPUB scratch copy is written with, so [deleteAbandonedScratchCopies] can
+ * recognise one among whatever else is in the temporary directory. */
 private const val ScratchCopyPrefix = "tedd-reader-epub-open-"
 
+/** Removes orphaned embedded-font scratch files, keeping only the still-live set in [keep]. */
+private fun deleteAbandonedEmbeddedFontScratchFiles(keep: Set<Path>) {
+    val fileSystem = systemFileSystem()
+    val directory = FileSystem.SYSTEM_TEMPORARY_DIRECTORY
+    runCatching { fileSystem.list(directory) }.getOrNull()?.forEach { candidate ->
+        if (candidate in keep) return@forEach
+        if (!candidate.name.startsWith(EmbeddedFontScratchPrefix)) return@forEach
+        runCatching { fileSystem.delete(candidate) }
+    }
+}
+
+/** The filename prefix every embedded-font scratch file is written with. */
+private const val EmbeddedFontScratchPrefix = "tedd-reader-epub-font-"
+/** Upper bound on one embedded font's extracted size, enforced while streaming to scratch. */
+private const val MAX_EPUB_FONT_BYTES = 64L * 1024 * 1024
+
+/**
+ * Copies [location] to a fresh temporary file for the duration of [block], deleting it afterwards
+ * whether [block] succeeds or throws — for a parser that needs a real [Path] to read from (rather than
+ * bytes in memory) but must not leave anything behind once it is done.
+ *
+ * @param fileSource Where to copy the original file bytes from.
+ * @param location The original file's location.
+ * @param block The work to do with the temporary copy's path.
+ * @return Whatever [block] returns.
+ */
 private suspend fun <T> withTemporarySourceCopy(
     fileSource: DocumentFileSource,
     location: com.tedd.teddreader.core.common.model.DocumentLocation,
@@ -1351,6 +2424,19 @@ private suspend fun <T> withTemporarySourceCopy(
     }
 }
 
+/**
+ * What [DocumentRepositoryImpl.getStoredSections] loaded for one document: its sections, their
+ * on-demand block cache, and the document-level facts ([title], [navigationJson], [parserVersion])
+ * carried on section 0.
+ *
+ * @property sections The stored sections, in spine order.
+ * @property sectionBlocks The on-demand block cache built for [sections].
+ * @property title The document's title, if any section recorded one.
+ * @property navigationJson The document's stored navigation, still JSON-encoded, or blank if none was
+ *   ever resolved.
+ * @property parserVersion The parser version the sections were written by — see
+ *   [com.tedd.teddreader.core.data.mapper.CurrentReaderParserVersion].
+ */
 private class StoredReaderDocument(
     val sections: List<ReaderSection>,
     val sectionBlocks: SectionBlocksCache,
@@ -1359,13 +2445,26 @@ private class StoredReaderDocument(
     val parserVersion: Int,
 )
 
-/** What [DocumentRepositoryImpl.loadReaderDocument] found: a document plus its on-demand block cache. */
+/**
+ * What [DocumentRepositoryImpl.loadReaderDocument] found: a document plus its on-demand block cache.
+ *
+ * @property document The loaded document.
+ * @property sectionBlocks The document's on-demand block cache, or null when [document] came from a
+ *   repair pass and already holds every block in memory.
+ */
 private class LoadedReaderDocument(
     val document: ReaderDocument,
     val sectionBlocks: SectionBlocksCache?,
 )
 
-/** What a restore produced, alongside the cache that answered it — see [DocumentRepositoryImpl.getPageWindows]. */
+/**
+ * What a restore produced, alongside the cache that answered it — see
+ * [DocumentRepositoryImpl.getPageWindows].
+ *
+ * @property windows The reconstructed page windows.
+ * @property sectionBlocksCache The on-demand block cache the reconstruction was built against, or null
+ *   when the document came from a repair pass instead of storage.
+ */
 private class RestoredPageWindowsResult(
     val windows: List<PageWindow>,
     val sectionBlocksCache: SectionBlocksCache?,
@@ -1373,21 +2472,34 @@ private class RestoredPageWindowsResult(
 
 /**
  * A section's blocks, fetched from [searchIndexDao] and decoded the first time something actually
- * asks for that section, and remembered after that.
+ * asks for that section, and remembered after that. This is the guarantee a page already shown to the
+ * reader relies on: once a section is decoded it stays decoded in [decoded] for the lifetime of this
+ * cache, so a page built from it never has its images or block styles disappear back into "not decoded
+ * yet" underneath the reader.
  *
- * [blocksFor] is called synchronously — from inside [RestoredPageWindows.get] while a page is being
+ * [blocksFor] is called synchronously — from inside `RestoredPageWindows.get` while a page is being
  * built, sometimes from the main thread turning a page — so it can never suspend and must never touch
  * the database itself. It only ever answers from [decoded]; the fetching happens in [prewarm], called
  * ahead of time for the sections a caller knows it is about to need. A section nothing has fetched yet
  * answers empty, the same as a genuinely empty section would, until [prewarm] (or the background fill
- * that follows the first page publish) catches it up — see ReaderViewModel.openDocument for why an
+ * that follows the first page publish) catches it up — see `ReaderViewModel.openDocument` for why an
  * empty answer here is safe: it can only ever leave a page's images/formatting momentarily missing,
- * never its text, which never depended on blocks in the first place.
+ * never its text, which never depended on blocks in the first place. [isSectionReady] is the answer this
+ * safety argument depends on for a *restored* page list specifically: it tells
+ * [TextPageLayoutEngine.reconstruct] whether a section that page actually needs has already been
+ * decoded, so reconstruct can distinguish "genuinely no blocks" from "not fetched yet" instead of
+ * silently treating every not-yet-fetched section as the former.
  *
  * [blocksFor] answers relative to the section's own start, not as an absolute document offset — that
- * is how [persistParsedDocument] now writes `blocksJson` (see there for why). [TextPageLayoutEngine]
- * wants exactly that shape. A caller that wants the document's usual absolute addressing instead, like
- * [LazyFlattenedBlocks], has to shift it back itself.
+ * is how [DocumentRepositoryImpl.persistParsedDocument] now writes `blocksJson` (see there for why).
+ * [TextPageLayoutEngine] wants exactly that shape. A caller that wants the document's usual absolute
+ * addressing instead, like [LazyFlattenedBlocks], has to shift it back itself.
+ *
+ * @property documentId The document these sections belong to.
+ * @param sectionIndexes Every section index this document actually has, so [prewarm] can filter out a
+ *   request for a section that will never exist instead of asking the database for it.
+ * @property searchIndexDao Where a section's block JSON is fetched from.
+ * @property decode How to turn a section's stored block JSON into [ReaderBlock]s.
  */
 private class SectionBlocksCache(
     private val documentId: DocumentId,
@@ -1395,55 +2507,128 @@ private class SectionBlocksCache(
     private val searchIndexDao: SearchIndexDao,
     private val decode: (String) -> List<ReaderBlock>,
 ) {
+    /** Every section index this document actually has, per the [sectionIndexes] constructor parameter. */
     private val knownSections: Set<Int> = sectionIndexes.toSet()
 
-    // Read from blocksFor's synchronous, possibly-main-thread call and written from prewarm's suspend
-    // call, on whatever background dispatcher fetched a batch — two different threads, neither ever
-    // locking the other. Replacing the whole map on every fetch (rather than mutating one already
-    // published) is what makes a concurrent read of this field always see a complete map or the one
-    // before it, never a half-filled one.
+    /** [knownSections], exposed so a whole-document scan can name every section it has to prewarm. */
+    val knownSectionIndexes: Set<Int> get() = knownSections
+
+    /**
+     * Every section decoded so far. Read from [blocksFor]'s synchronous, possibly-main-thread call and
+     * written from [prewarm]'s suspend call, on whatever background dispatcher fetched a batch — two
+     * different threads, neither ever locking the other. Replacing the whole map on every fetch (rather
+     * than mutating one already published) is what makes a concurrent read of this field always see a
+     * complete map or the one before it, never a half-filled one.
+     */
     @Volatile
     private var decoded: Map<Int, List<ReaderBlock>> = emptyMap()
+    private val lock = Mutex()
+    @Volatile
+    private var retainAll = false
 
+    /**
+     * @param sectionIndex The section to fetch blocks for.
+     * @return That section's decoded blocks, relative to the section's own start, or an empty list when
+     *   it hasn't been decoded yet (see class doc for why that is safe).
+     */
     fun blocksFor(sectionIndex: Int): List<ReaderBlock> = decoded[sectionIndex].orEmpty()
 
-    /** Whether [sectionIndex]'s blocks are the section's real, decoded answer right now. */
+    /**
+     * Whether [sectionIndex]'s blocks are the section's real, decoded answer right now — true both for a
+     * section already in [decoded] and for one this document doesn't even have, since there is nothing
+     * to wait for in that case.
+     *
+     * @param sectionIndex The section to check.
+     * @return Whether [blocksFor] would answer this section's real content if called right now.
+     */
     fun isReady(sectionIndex: Int): Boolean = sectionIndex !in knownSections || sectionIndex in decoded
 
     /**
      * Fetches and decodes whichever of [sectionIndexes] are not decoded yet, in one query. A section
      * this document doesn't have is filtered out instead of asking the database for a row that will
      * never exist.
+     *
+     * @param sectionIndexes The sections to ensure are decoded.
+     * @return How many sections this call actually decoded, so [DocumentRepositoryImpl.warmSectionBlocks]
+     *   can tell a caller whether re-publishing is worth doing at all.
      */
-    suspend fun prewarm(sectionIndexes: Collection<Int>) {
-        val missing = sectionIndexes.filterTo(linkedSetOf()) { it in knownSections && it !in decoded }
-        if (missing.isEmpty()) return
-        val rows = searchIndexDao.getSectionBlocksJson(documentId.value, missing.toList())
-        if (rows.isEmpty()) return
-        decoded = decoded + rows.associate { row -> row.sectionIndex to decode(row.blocksJson) }
+    suspend fun prewarm(sectionIndexes: Collection<Int>): Int {
+        return lock.withLock {
+            if (sectionIndexes.size >= knownSections.size && knownSections.all(sectionIndexes::contains)) {
+                retainAll = true
+            }
+            val current = decoded
+            val requestedKnown = sectionIndexes.filterTo(linkedSetOf()) { it in knownSections }
+            val missing = requestedKnown.filterTo(linkedSetOf()) { it !in current }
+            val merged = LinkedHashMap<Int, List<ReaderBlock>>(current.size + missing.size)
+            current.forEach { (index, blocks) ->
+                if (index !in requestedKnown) merged[index] = blocks
+            }
+            requestedKnown.forEach { index ->
+                current[index]?.let { merged[index] = it }
+            }
+            if (missing.isEmpty()) {
+                decoded = merged
+                return@withLock 0
+            }
+            val rows = searchIndexDao.getSectionBlocksJson(documentId.value, missing.toList())
+            if (rows.isEmpty()) {
+                decoded = merged
+                return@withLock 0
+            }
+
+            rows.forEach { row ->
+                merged.remove(row.sectionIndex)
+                merged[row.sectionIndex] = decode(row.blocksJson)
+            }
+            if (!retainAll) {
+                while (merged.size > MaxWarmSectionsRetained) {
+                    val oldest = merged.entries.firstOrNull()?.key ?: break
+                    merged.remove(oldest)
+                }
+            }
+            decoded = merged
+            rows.size
+        }
     }
 
     /** How many distinct sections have actually been decoded — what an open logs to show the saving. */
     val decodedSectionCount: Int get() = decoded.size
+
+    private companion object {
+        const val MaxWarmSectionsRetained = 24
+    }
 }
 
 /**
  * [ReaderDocument.blocks] for a document loaded from storage: every block in the book, flattened only
  * once something actually reads this list — a repair check or a caller that wants the whole document —
- * rather than as the price of opening it. Pagination itself never touches this; it asks [SectionBlocksCache]
- * for one section at a time instead.
+ * rather than as the price of opening it. Pagination itself never touches this; it asks
+ * [SectionBlocksCache] for one section at a time instead.
+ *
+ * @property sections The document's sections, in spine order, defining how [sectionBlocks]' per-section
+ *   answers are ordered and offset when flattened.
+ * @property sectionBlocks The on-demand block cache to flatten.
  */
 private class LazyFlattenedBlocks(
     private val sections: List<ReaderSection>,
     private val sectionBlocks: SectionBlocksCache,
 ) : AbstractList<ReaderBlock>() {
-    // sectionBlocks.blocksFor answers relative to each section's own start; ReaderDocument.blocks is
-    // documented as addressing the same absolute offsets as the rest of the document, so each
-    // section's answer is shifted back before joining — otherwise two sections' blocks would land on
-    // the same small numbers once concatenated, instead of the book's real, ascending offsets.
+    /**
+     * Every section's blocks, concatenated in spine order and shifted back to the document's absolute
+     * offsets. [sectionBlocks]' `blocksFor` answers relative to each section's own start, while
+     * [ReaderDocument.blocks] is documented as addressing the same absolute offsets as the rest of the
+     * document, so each section's answer is shifted back before joining — otherwise two sections' blocks
+     * would land on the same small numbers once concatenated, instead of the book's real, ascending
+     * offsets.
+     */
     private val flattened: List<ReaderBlock> by lazy {
         sections.flatMap { section -> sectionBlocks.blocksFor(section.index).rebasedBy(-section.range.start) }
     }
+
+    /** The book's total block count once [flattened]. */
     override val size: Int get() = flattened.size
+
+    /** The [index]th block across the whole book, from [flattened]. */
     override fun get(index: Int): ReaderBlock = flattened[index]
 }

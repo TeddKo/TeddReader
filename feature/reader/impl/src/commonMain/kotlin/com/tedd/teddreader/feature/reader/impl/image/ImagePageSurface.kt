@@ -18,6 +18,18 @@ import com.tedd.teddreader.core.ui.generated.resources.visual_page_content_descr
 import com.tedd.teddreader.core.ui.generated.resources.visual_page_unavailable
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * Renders one CBZ/image-format page: decodes [imageBytes] or [sourceUri] through Coil and fits it
+ * to the available space, showing a spinner while decoding and a fixed message if the page is
+ * already known to have failed.
+ *
+ * @param page zero-based page index, used only to number the accessibility content description.
+ * @param imageBytes the page's already-loaded bytes, or null to load from [sourceUri] instead.
+ * @param sourceUri a URI Coil can load the page from, used only when [imageBytes] is null.
+ * @param isFailed whether this page already failed to decode; shown instead of the loading spinner
+ *   when both [imageBytes] and [sourceUri] are null and this is true.
+ * @param modifier applied to the outer [Box].
+ */
 @Composable
 internal fun ImagePageSurface(
     page: Int,
@@ -65,4 +77,10 @@ internal fun ImagePageSurface(
     }
 }
 
+/**
+ * Longest side, in pixels, Coil is asked to decode a page image down to. A raw CBZ page can carry
+ * far more pixels than any device screen can show; capping the decode target trades a small amount
+ * of headroom on an unusually large source image for a decode that does not hold several times more
+ * pixels in memory than the screen will ever display.
+ */
 private const val MaxReaderImageDimensionPx = 2_048

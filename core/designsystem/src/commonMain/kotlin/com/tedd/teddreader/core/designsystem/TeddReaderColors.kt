@@ -3,6 +3,13 @@ package com.tedd.teddreader.core.designsystem
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
+/**
+ * The app's raw palette: the actual pigments every theme is mixed from.
+ *
+ * Named after what they are — paper, ink, clay, sage, charcoal — rather than after the roles they fill, so
+ * one pigment can serve several roles and a role can be re-pointed without renaming a colour. Roles live in
+ * [TeddReaderColors]; these are the only literal colour values in the app.
+ */
 val PaperEggshell = Color(0xFFF7F1E7)
 val PaperWarm = Color(0xFFFBF7F0)
 val InkNearBlack = Color(0xFF191613)
@@ -15,6 +22,54 @@ val CharcoalNight = Color(0xFF1A1C1A)
 val CharcoalRaised = Color(0xFF242826)
 val EmberError = Color(0xFFB24C3B)
 
+/**
+ * The app's colour roles, mixed from the pigments above.
+ *
+ * Mirrors Material 3's role names on purpose: the app hands this to `MaterialTheme` so stock components
+ * pick the app's colours up, while screens read the same roles through the theme instead of reaching for a
+ * pigment directly. A screen that names a role keeps working when the palette is re-mixed; a screen that
+ * names a pigment does not.
+ *
+ * `@Immutable` because the whole theme is passed down through composition locals — without it Compose
+ * cannot skip a consumer that received the same colours again.
+ *
+ * @property primary the brand accent: primary buttons, active controls, progress.
+ * @property onPrimary content drawn on [primary].
+ * @property primaryContainer the accent's tinted surface, for selected rows and chips.
+ * @property onPrimaryContainer content drawn on [primaryContainer].
+ * @property inversePrimary the accent as it reads on an inverted surface, e.g. a snackbar action.
+ * @property secondary the supporting accent, for controls that must not compete with [primary].
+ * @property onSecondary content drawn on [secondary].
+ * @property secondaryContainer the supporting accent's tinted surface.
+ * @property onSecondaryContainer content drawn on [secondaryContainer].
+ * @property tertiary the third accent, used to separate a distinct kind of item from the first two.
+ * @property onTertiary content drawn on [tertiary].
+ * @property tertiaryContainer that accent's tinted surface.
+ * @property onTertiaryContainer content drawn on [tertiaryContainer].
+ * @property error a failed action or invalid input.
+ * @property onError content drawn on [error].
+ * @property errorContainer the error surface behind a message.
+ * @property onErrorContainer content drawn on [errorContainer].
+ * @property background the window behind everything.
+ * @property onBackground content drawn straight on [background].
+ * @property surface a card, bar or sheet.
+ * @property onSurface content drawn on [surface] — the app's default text colour.
+ * @property surfaceVariant a surface that has to read as recessed.
+ * @property onSurfaceVariant secondary text and icons, one step quieter than [onSurface].
+ * @property surfaceDim the darkest surface tone of the current theme.
+ * @property surfaceBright the lightest surface tone of the current theme.
+ * @property surfaceContainerLowest through [surfaceContainerHighest] the five surface elevation tones, from
+ * furthest below the reader's eye to closest, so stacked surfaces stay distinguishable without shadows.
+ * @property surfaceContainerLow one step above lowest.
+ * @property surfaceContainer the resting surface tone for a container.
+ * @property surfaceContainerHigh a raised container.
+ * @property surfaceContainerHighest the topmost container tone.
+ * @property inverseSurface a surface that inverts against the theme, e.g. a snackbar.
+ * @property inverseOnSurface content drawn on [inverseSurface].
+ * @property outline a visible border.
+ * @property outlineVariant a divider or a quieter border.
+ * @property scrim the dim behind a modal surface.
+ */
 @Immutable
 data class TeddReaderColors(
     val primary: Color,
@@ -54,6 +109,7 @@ data class TeddReaderColors(
     val scrim: Color,
 )
 
+/** The app's day palette: warm paper surfaces with clay and sage accents. */
 val LightTeddReaderColors = TeddReaderColors(
     primary = ClayPrimary,
     onPrimary = PaperWarm,
@@ -92,6 +148,7 @@ val LightTeddReaderColors = TeddReaderColors(
     scrim = Color.Black,
 )
 
+/** The app's night palette: charcoal surfaces carrying the same accents at their dark-theme tones. */
 val DarkTeddReaderColors = TeddReaderColors(
     primary = Color(0xFFD5A38D),
     onPrimary = Color(0xFF3F2318),
