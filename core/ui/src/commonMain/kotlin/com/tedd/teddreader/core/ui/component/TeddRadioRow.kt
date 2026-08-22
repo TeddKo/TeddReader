@@ -23,6 +23,23 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A settings row that pairs a title/description with a trailing [RadioButton], where the whole row
+ * (not just the radio dot) is the tap target — the row itself carries the `selectable` modifier with
+ * `role = Role.RadioButton`, and the [RadioButton] passed `onClick = null` so it renders visually but
+ * does not register its own, smaller, tap target. Meant to be used in a group (see
+ * [TeddOptionGroup]) where each row's [onClick] selects that row's option.
+ *
+ * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
+ * @param selected Whether this row's radio button is drawn selected.
+ * @param onClick Invoked when the row is tapped, to select this row's option; not invoked while
+ * [enabled] is false.
+ * @param modifier Modifier applied to the row's root.
+ * @param description A second line shown under [title] in a muted color; omitted when null.
+ * @param enabled Whether the row responds to taps; false also switches the radio button to disabled
+ * colors.
+ * @param contentPadding Padding between the row's edge and its content.
+ */
 @Composable
 fun TeddRadioRow(
     title: String,
@@ -72,6 +89,7 @@ fun TeddRadioRow(
     }
 }
 
+/** Compose preview rendering [TeddRadioRow] selected, with a title and description. */
 @Preview
 @Composable
 private fun TeddRadioRowPreview() {

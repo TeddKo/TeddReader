@@ -57,9 +57,36 @@ import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/** Caps [BookmarksScreen]'s list width so it stays a readable column and does not stretch
+ * edge-to-edge on a tablet-width screen; the surrounding [Box] centers it within that cap. */
 private val ScreenMaxWidth = 720.dp
+
+/** Below this width, the empty-state message in [BookmarksScreen] switches from centered to
+ * start-aligned text, since centering reads cramped once the container itself is this narrow. */
 private val CompactContentWidth = 320.dp
 
+/**
+ * Entry point that wires [BookmarksViewModel] into [BookmarksScreen] for one document's saved
+ * places. Like [BookmarksScreen] below it, this composable is a pure state-and-callback
+ * pass-through to the view model: it collects [BookmarksUiState] and forwards every user action
+ * back as a view model call, holding no bookmark data of its own.
+ *
+ * `note` is a draft: it holds the edit sheet's text field value while the user is typing, and is
+ * only written back to storage when [onSaveNote]/[BookmarksViewModel.saveNote] is called. It is
+ * seeded from the bookmark's own committed note when [onEditClick] opens the sheet, not kept in
+ * sync with [BookmarksUiState] afterward, since the field the user is actively editing should not
+ * be overwritten mid-edit by a state change from elsewhere. `pendingDeleteBookmarkId` and
+ * `pendingDeleteFromEditSheet` are plain UI state with no committed counterpart at all: they only
+ * track which bookmark has a delete confirmation open and whether that confirmation was raised
+ * from the edit sheet (so confirming also dismisses the sheet) or from the list directly.
+ *
+ * @param documentId The document whose saved places this screen shows.
+ * @param onBack Invoked when the user asks to leave the saved-places screen.
+ * @param onBookmarkClick Invoked with a saved place's location when the user taps it to jump
+ * there.
+ * @param modifier Applied to the resulting [BookmarksScreen].
+ * @param viewModel The bookmarks screen's view model; defaults to one resolved through Koin.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksRouteScreen(
@@ -113,6 +140,35 @@ fun BookmarksRouteScreen(
     )
 }
 
+/**
+ * The saved-places screen for one document: a scaffold with a list of saved places, an edit sheet
+ * for the place currently being edited, and a delete-confirmation dialog. This composable is a
+ * pure state-and-callback pass-through to the view model — every value it renders comes from
+ * [uiState] or one of its other parameters, and every user action is reported back through a
+ * callback; it holds no saved-place state of its own.
+ *
+ * @param uiState The saved-places screen's current state, as published by the view model.
+ * @param onBack Invoked when the user asks to leave the screen.
+ * @param onBookmarkClick Invoked with a saved place's location when the user taps its row.
+ * @param note The edit sheet's current note draft, shown in its text field.
+ * @param onNoteChange Invoked as the user types in the edit sheet's note field.
+ * @param onEditClick Invoked with a saved place when the user opens it for editing.
+ * @param pendingDeleteBookmarkId The id of the saved place awaiting delete confirmation, or null
+ * if no confirmation dialog should be shown.
+ * @param onRequestDelete Invoked with the saved place to confirm deleting and whether the request
+ * came from the edit sheet's delete button (as opposed to a row in the list), so the caller knows
+ * whether confirming should also dismiss the edit sheet.
+ * @param onDismissDeleteConfirmation Invoked when the delete-confirmation dialog is dismissed
+ * without confirming.
+ * @param onConfirmDelete Invoked with the saved place to actually delete once the user confirms.
+ * @param onDismissEdit Invoked when the edit sheet is dismissed without saving.
+ * @param onSaveNote Invoked with the note text to commit when the user saves it from the edit
+ * sheet.
+ * @param listState Scroll state for the saved-places list.
+ * @param editSheetState The edit sheet's bottom sheet state.
+ * @param modifier Applied to the scaffold.
+ * @param contentPadding Padding applied around the list's content.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksScreen(
@@ -282,6 +338,15 @@ fun BookmarksScreen(
     }
 }
 
+/**
+ * One saved place's row in [BookmarksScreen]'s list: its title, supporting text (see
+ * [buildBookmarkSupportingText]), and an edit button.
+ *
+ * @param bookmark The saved place this row displays.
+ * @param onBookmarkClick Invoked when the row itself is tapped.
+ * @param onEditClick Invoked when the row's edit button is tapped.
+ * @param modifier Applied to the row.
+ */
 @Composable
 private fun BookmarkRow(
     bookmark: Bookmark,
@@ -302,19 +367,52 @@ private fun BookmarkRow(
     )
 }
 
+/** Matches a generic, unlocalized label such as "Page 12" that an older build could have saved
+ * directly onto [Bookmark.label] instead of leaving it null; [hasCustomLabel] treats a match as no
+ * label at all so [displayTitle] falls back to today's localized, live location label instead of
+ * showing a stale string in the wrong language. */
 private val legacyPageLabelPattern = Regex("""^Page \d+$""")
 
+/**
+ * Whether this saved place carries a label the user (or an older build) actually wrote, as opposed
+ * to no label or a legacy auto-generated one (see [legacyPageLabelPattern]).
+ *
+ * @receiver The saved place to check.
+ */
 private fun Bookmark.hasCustomLabel(): Boolean {
     val currentLabel = label
     return currentLabel != null && !legacyPageLabelPattern.matches(currentLabel)
 }
 
+/**
+ * The title shown for this saved place: its own label when [hasCustomLabel] is true, otherwise
+ * today's localized description of where it points (see [ReaderLocation.displayLabel]).
+ *
+ * @receiver The saved place to title.
+ */
 @Composable
 private fun Bookmark.displayTitle(): String = label?.takeIf { hasCustomLabel() } ?: location.displayLabel()
 
+/**
+ * The secondary text shown under a saved place's title: its note when one has been written,
+ * otherwise the same location description [displayTitle] falls back to, so a row without a note
+ * still says where it points rather than repeating the title.
+ *
+ * @param bookmark The saved place to build supporting text for.
+ * @return The note if non-blank, otherwise the location's display label.
+ */
 @Composable
 private fun buildBookmarkSupportingText(bookmark: Bookmark): String = bookmark.note?.takeIf { it.isNotBlank() } ?: bookmark.location.displayLabel()
 
+/**
+ * A localized, human-readable description of where this location points, for a saved place that
+ * has no title of its own to show. Each [ReaderLocation] variant is described in the terms that
+ * make sense for it — a page number for a PDF, a raw text offset for plain text, and a
+ * section-plus-offset pair for an EPUB spine position — rather than one generic label for all
+ * three.
+ *
+ * @receiver The location to describe.
+ */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
     is ReaderLocation.PdfPage -> stringResource(Res.string.bookmark_location_pdf_page, pageIndex + 1)
@@ -322,6 +420,10 @@ private fun ReaderLocation.displayLabel(): String = when (this) {
     is ReaderLocation.EpubOffset -> stringResource(Res.string.bookmark_location_epub_position, spineIndex + 1, offset + 1)
 }
 
+/**
+ * Preview of [BookmarksScreen] at three widths, with one sample saved place, exercising the
+ * compact, default, and wide layouts the screen's content can render at.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)

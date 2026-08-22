@@ -18,6 +18,22 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A titled section that groups related settings rows (typically [TeddRadioRow]/[TeddSwitchRow]/
+ * [TeddCheckboxRow]/[TeddSliderRow]) under an optional header, giving every settings screen the same
+ * header typography, header-to-content spacing, and surface background without each screen
+ * re-deriving that layout by hand.
+ *
+ * @param title The section's header text, shown in [teddReaderTypography]'s `titleMedium` style;
+ * when null and [description] is also null, no header is rendered at all.
+ * @param modifier Modifier applied to the group's root.
+ * @param description A second header line shown under [title] in a muted color; when non-null it
+ * renders even if [title] is null.
+ * @param headerPadding Padding around the header block (only relevant when [title] or [description]
+ * is non-null).
+ * @param contentPadding Padding around [content].
+ * @param content The section's rows, laid out in a [Column].
+ */
 @Composable
 fun TeddOptionGroup(
     title: String?,
@@ -75,6 +91,7 @@ fun TeddOptionGroup(
     }
 }
 
+/** Compose preview rendering [TeddOptionGroup] with a title, description, and two [TeddRadioRow]s. */
 @Preview
 @Composable
 private fun TeddOptionGroupPreview() {

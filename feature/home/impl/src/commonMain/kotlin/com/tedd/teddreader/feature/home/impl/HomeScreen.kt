@@ -122,6 +122,24 @@ import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/**
+ * The stateful entry point for the home screen: wires [HomeViewModel]'s state and actions into the
+ * stateless [HomeScreen], the way `ReaderRouteScreen` does for the reader.
+ *
+ * @param modifier The modifier applied to [HomeScreen]'s root.
+ * @param importMessage An error message from an import that just completed elsewhere in the app
+ *   (e.g. a file picker result), shown in place of the view model's own error until the next state
+ *   update replaces it.
+ * @param onOpenFilesClick Called when the user chooses to add documents by picking files.
+ * @param onOpenFolderClick Called when the user chooses to add documents by picking a folder.
+ * @param onOpenGoogleDriveClick Called when the user chooses to add documents from Google Drive;
+ *   null hides that option entirely where the platform does not support it.
+ * @param onSettingsClick Called when the settings action is tapped.
+ * @param onDocumentClick Called with the id of a document the user tapped to open.
+ * @param onOpenLibraryClick Called when the user asks to see the full library beyond the preview.
+ * @param onOpenLibraryFolderClick Called with a folder id when the user opens a library folder.
+ * @param viewModel The screen's view model, obtained through Koin by default.
+ */
 @Composable
 fun HomeRouteScreen(
     modifier: Modifier = Modifier,
@@ -150,17 +168,46 @@ fun HomeRouteScreen(
         onOpenLibraryClick = onOpenLibraryClick,
         onOpenLibraryFolderClick = onOpenLibraryFolderClick,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
-        onSelectionBookmarkChange = { documentIds, target ->
-            viewModel.setDocumentsBookmarked(documentIds, target)
-        },
+        onSelectionBookmarkChange = viewModel::setDocumentsBookmarked,
         onDeleteDocuments = viewModel::deleteDocuments,
         onSortChange = viewModel::updateSort,
         onFormatFilterChange = viewModel::updateFormatFilter,
+        onLoadCover = viewModel::loadCover,
         scrollState = scrollState,
         modifier = modifier,
     )
 }
 
+/**
+ * The home screen's UI: masthead, favourites/recent-reading carousels, a library preview grid, and
+ * the dialogs (add-documents, delete-confirmation) and multi-select top bar that overlay it.
+ *
+ * Library-grid multi-select is owned entirely inside this composable rather than in the view
+ * model — [selectedDocumentIds] never outlives navigation away from this screen, and the system
+ * back gesture is wired (via [NavigationBackHandler]) to clear a selection before it does anything
+ * else, the same way a picker UI elsewhere in the app would.
+ *
+ * @param uiState The screen's data: documents, sections, sort/filter, loading and error state.
+ * @param onOpenFilesClick Called when the user chooses to add documents by picking files.
+ * @param onOpenFolderClick Called when the user chooses to add documents by picking a folder.
+ * @param onOpenGoogleDriveClick Called when the user chooses to add documents from Google Drive;
+ *   null hides that option in the add-documents dialog.
+ * @param onSettingsClick Called when the settings action is tapped.
+ * @param onDocumentClick Called with the id of a document the user tapped to open, unless a
+ *   library selection is active, in which case a tap toggles selection instead.
+ * @param scrollState The scroll state for the screen's main vertical content, owned by the caller
+ *   so it can survive recomposition/navigation the same way any other hoisted scroll state does.
+ * @param onOpenLibraryClick Called when the user asks to see the full library beyond the preview.
+ * @param onOpenLibraryFolderClick Called with a folder id when the user opens a library folder.
+ * @param onDocumentBookmarkChange Called with a document id and the bookmark state to set for it.
+ * @param onSelectionBookmarkChange Called with the currently selected document ids and the
+ *   bookmark state to set for all of them at once.
+ * @param onDeleteDocuments Called with the document ids to remove once a delete is confirmed.
+ * @param onSortChange Called when the library sort order changes.
+ * @param onFormatFilterChange Called when the library format filter changes.
+ * @param modifier The modifier applied to the screen's root.
+ * @param contentPadding Padding applied around the masthead/sort-filter content block.
+ */
 @Composable
 fun HomeScreen(
     uiState: HomeUiState,
@@ -177,6 +224,7 @@ fun HomeScreen(
     onDeleteDocuments: (Collection<DocumentId>) -> Unit = {},
     onSortChange: (HomeSort) -> Unit = {},
     onFormatFilterChange: (HomeFormatFilter) -> Unit = {},
+    onLoadCover: (DocumentId) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(all = DefaultTeddReaderSpacing.screenPadding),
 ) {
@@ -350,6 +398,7 @@ fun HomeScreen(
                             pendingDeleteDocumentIds = setOf(document.id.value)
                         },
                         documentCoverImages = uiState.documentCoverImages,
+                        onLoadCover = onLoadCover,
                     )
                 }
 
@@ -375,6 +424,7 @@ fun HomeScreen(
                         },
                         modifier = Modifier,
                         documentCoverImages = uiState.documentCoverImages,
+                        onLoadCover = onLoadCover,
                     )
                 }
 
@@ -415,6 +465,7 @@ fun HomeScreen(
                         },
                         onFolderClick = onOpenLibraryFolderClick,
                         onViewAllClick = onOpenLibraryClick,
+                        onLoadCover = onLoadCover,
                         modifier = Modifier.padding(bottom = DefaultTeddReaderSpacing.large),
                     )
                 }
@@ -487,9 +538,31 @@ fun HomeScreen(
     }
 }
 
+/**
+ * The bookmark state a bulk action on [selectedDocuments] should set: favourite when any selected
+ * document is not yet a favourite, unfavourite only once every selected document already is one.
+ * This is what lets one button in [SelectionTopBar] read as "add" or "remove" depending on the
+ * mixed selection, rather than requiring the two actions to be offered separately.
+ *
+ * @param selectedDocuments The documents currently selected in the library grid.
+ * @return True (favourite) if any document in [selectedDocuments] is not bookmarked; false
+ *   (unfavourite) only when all of them already are.
+ */
 internal fun homeSelectionBookmarkTarget(selectedDocuments: Collection<DocumentMetadata>): Boolean =
     selectedDocuments.any { !it.isBookmarked }
 
+/**
+ * The top bar shown in place of the masthead while a library multi-select is active: a count,
+ * a bulk bookmark toggle, and a bulk delete action.
+ *
+ * @param selectedCount The number of documents currently selected, shown as the title.
+ * @param bookmarkTarget The bookmark state the bulk action button will apply; see
+ *   [homeSelectionBookmarkTarget]. Also chooses which icon (filled/outline) the button shows.
+ * @param onCancelClick Called when the user backs out of selection mode without acting.
+ * @param onBookmarkClick Called when the bulk bookmark-toggle action is tapped.
+ * @param onDeleteClick Called when the bulk delete action is tapped.
+ * @param modifier The modifier applied to the bar's root.
+ */
 @Composable
 private fun SelectionTopBar(
     selectedCount: Int,
@@ -540,6 +613,18 @@ private fun SelectionTopBar(
     )
 }
 
+/**
+ * The title/description header shared by every home section (favourites, recent reading,
+ * library preview), with room for trailing actions such as the library's "show all" button.
+ *
+ * @param title The section's title.
+ * @param description The section's supporting description text.
+ * @param modifier The modifier applied to the header's root.
+ * @param showFavoriteIcon Whether to show a bookmark icon before the title, used to mark the
+ *   favourites section specifically.
+ * @param actions Trailing content laid out after the title/description, scoped to the row so it
+ *   can use [RowScope] alignment/weight.
+ */
 @Composable
 private fun HomeSectionHeader(
     title: String,
@@ -578,6 +663,31 @@ private fun HomeSectionHeader(
     }
 }
 
+/**
+ * The library section of the home screen: an All/Folders toggle plus a bounded grid preview of
+ * either loose documents or folder covers, with a "show all" action into the full library.
+ *
+ * @param previewMode Whether the grid currently shows all documents or folders.
+ * @param onPreviewModeChange Called when the All/Folders chip selection changes.
+ * @param previewDocuments The (already limited) documents to show in All mode.
+ * @param allDocuments The full library document list, used to compute each folder's own preview
+ *   thumbnails in Folders mode.
+ * @param folders The library's folders, further limited to [previewLimit] before being shown.
+ * @param previewLimit How many tiles this preview may show, chosen from the available screen
+ *   size (see `libraryPreviewLimit`); also selects a 2- or 4-column grid.
+ * @param selectedDocumentIds The document ids currently selected for bulk action.
+ * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
+ * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
+ * @param onDocumentClick Called with a document id on tap.
+ * @param onStartSelection Called with a document id to begin a multi-select from a long press.
+ * @param onShowActions Called with a document id to open its overflow menu.
+ * @param onDismissActions Called to close whichever overflow menu is open.
+ * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
+ * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
+ * @param onFolderClick Called with a folder id when a folder tile is tapped.
+ * @param onViewAllClick Called when the "show all" action is tapped.
+ * @param modifier The modifier applied to the section's root.
+ */
 @Composable
 private fun HomeLibraryPreviewSection(
     previewMode: LibraryCollectionMode,
@@ -597,6 +707,7 @@ private fun HomeLibraryPreviewSection(
     onDeleteClick: (DocumentMetadata) -> Unit,
     onFolderClick: (String) -> Unit,
     onViewAllClick: () -> Unit,
+    onLoadCover: (DocumentId) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
@@ -670,6 +781,7 @@ private fun HomeLibraryPreviewSection(
                                     modifier = Modifier
                                         .weight(1f)
                                         .aspectRatio(3f / 4f),
+                                    onLoadCover = { onLoadCover(document.id) },
                                 )
                             }
                         }
@@ -707,6 +819,7 @@ private fun HomeLibraryPreviewSection(
                                         documentCoverImages = documentCoverImages,
                                         onClick = { onFolderClick(folder.id) },
                                         modifier = Modifier.weight(1f),
+                                        onLoadCover = { previewDocument -> onLoadCover(previewDocument.id) },
                                     )
                                 }
                             }
@@ -718,6 +831,27 @@ private fun HomeLibraryPreviewSection(
     }
 }
 
+/**
+ * A titled, horizontally-paged shelf of documents — used for both the favourites and recent-
+ * reading sections, which share this layout and differ only in their title/description/icon and
+ * the documents they carry.
+ *
+ * @param section Which shelf this is (favourites vs. recent), passed through to
+ *   [HomeDocumentPager] and combined with a document id to identify which card's overflow menu is
+ *   open.
+ * @param title The section's title.
+ * @param description The section's supporting description text.
+ * @param documents The documents shown in this shelf.
+ * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
+ * @param onDocumentClick Called with a document id on tap.
+ * @param onShowActions Called with a document id to open its overflow menu.
+ * @param onDismissActions Called to close whichever overflow menu is open.
+ * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
+ * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
+ * @param modifier The modifier applied to the section's root.
+ * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
+ * @param showFavoriteIcon Whether the section header shows a bookmark icon before its title.
+ */
 @Composable
 private fun HomeDocumentSection(
     section: HomeDocumentSection,
@@ -732,6 +866,7 @@ private fun HomeDocumentSection(
     onDeleteClick: (DocumentMetadata) -> Unit,
     modifier: Modifier = Modifier,
     documentCoverImages: Map<String, ByteArray> = emptyMap(),
+    onLoadCover: (DocumentId) -> Unit,
     showFavoriteIcon: Boolean = false,
 ) {
     val spacing = teddReaderSpacing()
@@ -756,10 +891,33 @@ private fun HomeDocumentSection(
             onBookmarkClick = onBookmarkClick,
             onDeleteClick = onDeleteClick,
             documentCoverImages = documentCoverImages,
+            onLoadCover = onLoadCover,
         )
     }
 }
 
+/**
+ * A fixed-width [HorizontalPager] of [DocumentCard]s, used to render a shelf's document list for
+ * [HomeDocumentSection].
+ *
+ * Cards here are never selectable: [DocumentCard.selected] is hard-wired to false, and no
+ * long-press starts a selection. Favourites and recent reading are shortcuts into a book, not a
+ * place to manage the library — selecting here would also duplicate a book that appears in both
+ * this shelf and the library grid, and the bulk actions selection offers all belong to the
+ * library section instead.
+ *
+ * @param section Which shelf this is, combined with a document id to identify an open overflow
+ *   menu.
+ * @param documents The documents to show, one per page.
+ * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
+ * @param onDocumentClick Called with a document id on tap.
+ * @param onShowActions Called with a document id to open its overflow menu.
+ * @param onDismissActions Called to close whichever overflow menu is open.
+ * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
+ * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
+ * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
+ * @param modifier The modifier applied to the pager's root.
+ */
 @Composable
 private fun HomeDocumentPager(
     section: HomeDocumentSection,
@@ -771,6 +929,7 @@ private fun HomeDocumentPager(
     onBookmarkClick: (DocumentMetadata) -> Unit,
     onDeleteClick: (DocumentMetadata) -> Unit,
     documentCoverImages: Map<String, ByteArray>,
+    onLoadCover: (DocumentId) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
@@ -790,9 +949,6 @@ private fun HomeDocumentPager(
         DocumentCard(
             document = document,
             coverImageBytes = documentCoverImages[document.id.value],
-            // Favourites and recent reading are shortcuts into a book, not a place to manage the
-            // library. Selecting here also duplicated a book that appears in both places, and the
-            // bulk actions it offered all belong to the library section.
             selected = false,
             actionsExpanded = actionDocumentTarget == HomeDocumentActionTarget(section, document.id.value),
             onClick = { onDocumentClick(document.id) },
@@ -801,12 +957,24 @@ private fun HomeDocumentPager(
             onBookmarkClick = { onBookmarkClick(document) },
             onDeleteClick = { onDeleteClick(document) },
             modifier = Modifier.fillMaxWidth(),
+            onLoadCover = { onLoadCover(document.id) },
         )
     }
 }
 
+/** The fixed width of a document card inside [HomeDocumentPager]'s shelves. */
 private val HomeDocumentCardWidth = 180.dp
 
+/**
+ * The home screen's header block: the "Library" label, app name, tagline, and the add-documents
+ * and settings actions.
+ *
+ * @param showAddAction Whether the add-documents button is shown; hidden once the library already
+ *   has documents, where the empty-state's own add action would otherwise duplicate it.
+ * @param onAddDocumentsClick Called when the add-documents action is tapped.
+ * @param onSettingsClick Called when the settings action is tapped.
+ * @param modifier The modifier applied to the masthead's root.
+ */
 @Composable
 private fun HomeMasthead(
     showAddAction: Boolean,
@@ -854,6 +1022,16 @@ private fun HomeMasthead(
     }
 }
 
+/**
+ * The dialog offered by the add-documents action: local file/folder picking, plus Google Drive
+ * when the platform supports it.
+ *
+ * @param onDismissRequest Called when the dialog should close without an action.
+ * @param onSelectFilesClick Called when the "select files" row is tapped.
+ * @param onSelectFolderClick Called when the "select folder" row is tapped.
+ * @param onSelectGoogleDriveClick Called when the Google Drive row is tapped; null hides that row
+ *   entirely.
+ */
 @Composable
 private fun HomeAddDocumentsDialog(
     onDismissRequest: () -> Unit,
@@ -927,6 +1105,13 @@ private fun HomeAddDocumentsDialog(
     )
 }
 
+/**
+ * The empty state shown when a library format filter matches no documents, distinct from the
+ * whole-library empty state so the recovery action here clears the filter instead of importing.
+ *
+ * @param onShowAllClick Called when the user asks to clear the active filter.
+ * @param modifier The modifier applied to the empty state's root.
+ */
 @Composable
 private fun HomeFilteredEmptyState(
     onShowAllClick: () -> Unit,
@@ -956,6 +1141,15 @@ private fun HomeFilteredEmptyState(
     }
 }
 
+/**
+ * The library's sort-order and format-filter chip rows, shown above the library preview grid.
+ *
+ * @param sort The currently selected sort order.
+ * @param formatFilter The currently selected format filter.
+ * @param onSortChange Called when a sort chip is tapped.
+ * @param onFormatFilterChange Called when a format-filter chip is tapped.
+ * @param modifier The modifier applied to the controls' root.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeSortFilterControls(
@@ -1001,6 +1195,15 @@ private fun HomeSortFilterControls(
     }
 }
 
+/**
+ * A labelled, wrapping row of chips — the shared layout behind both the sort and format-filter
+ * rows in [HomeSortFilterControls].
+ *
+ * @param label The row's caption, shown above the chips.
+ * @param style The text style applied to [label].
+ * @param contentColor The color applied to [label].
+ * @param content The chips themselves.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeChipGroup(
@@ -1026,6 +1229,12 @@ private fun HomeChipGroup(
     }
 }
 
+/**
+ * The localized chip label for a sort option.
+ *
+ * @receiver The sort option to label.
+ * @return The chip's display text.
+ */
 @Composable
 private fun HomeSort.chipLabel(): String = when (this) {
     HomeSort.Recent -> stringResource(Res.string.recent)
@@ -1033,6 +1242,13 @@ private fun HomeSort.chipLabel(): String = when (this) {
     HomeSort.Format -> stringResource(Res.string.format)
 }
 
+/**
+ * The chip label for a format filter: the "All" option is localized, the rest are shown as the
+ * format's own short code (e.g. "PDF") since those are not translated elsewhere in the app either.
+ *
+ * @receiver The format filter to label.
+ * @return The chip's display text.
+ */
 @Composable
 private fun HomeFormatFilter.chipLabel(): String = when (this) {
     HomeFormatFilter.All -> stringResource(Res.string.all)
@@ -1043,13 +1259,29 @@ private fun HomeFormatFilter.chipLabel(): String = when (this) {
     HomeFormatFilter.Image -> "IMAGE"
 }
 
+/**
+ * Adds [value] to this set if absent, or removes it if present — the standard toggle used to
+ * flip a document's membership in the library multi-selection.
+ *
+ * @receiver The current set.
+ * @param value The element to toggle.
+ * @return A new set with [value]'s membership flipped.
+ */
 private fun Set<String>.toggle(value: String): Set<String> =
     if (value in this) this - value else this + value
 
+/**
+ * A document's page count when known, otherwise its format name — a short line meant for a
+ * supporting-text slot in a list item.
+ *
+ * @receiver The document to describe.
+ * @return The formatted page count, or the format name when no page count is known.
+ */
 @Composable
 private fun DocumentMetadata.supportingText(): String =
     pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name
 
+/** Compose preview of [HomeScreen] with no documents in the library yet. */
 @Preview(widthDp = 280)
 @Composable
 private fun HomeScreenEmptyPreview() {
@@ -1063,11 +1295,16 @@ private fun HomeScreenEmptyPreview() {
             onOpenFolderClick = {},
             onSettingsClick = {},
             onDocumentClick = {},
+            onLoadCover = {},
             scrollState = rememberScrollState(),
         )
     }
 }
 
+/**
+ * Compose preview of [HomeScreen] with favourites, recent reading, and a library folder
+ * populated, across compact/medium/expanded widths.
+ */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
 @Preview(widthDp = 840)
@@ -1136,6 +1373,7 @@ private fun HomeScreenRecentPreview() {
             onOpenFolderClick = {},
             onSettingsClick = {},
             onDocumentClick = {},
+            onLoadCover = {},
             scrollState = rememberScrollState(),
         )
     }

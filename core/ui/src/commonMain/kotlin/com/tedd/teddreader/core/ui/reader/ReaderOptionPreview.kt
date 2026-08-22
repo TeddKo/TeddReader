@@ -14,6 +14,20 @@ import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A live sample of the reading page, shown beside a type or theme control so a reader sees the effect of a
+ * setting before leaving the sheet.
+ *
+ * It draws the real [ReaderPageSurface] rather than a mock, so the sample cannot drift from the page: the
+ * paper colour, margins and type are whatever the actual page would use for this style.
+ *
+ * @param style the style being previewed — normally the draft the reader is currently dragging a slider to.
+ * @param modifier applied to the whole block; it fills its parent's width.
+ * @param title the control's name, shown above the sample.
+ * @param description an optional line explaining the control, shown under the title.
+ * @param previewText the sample text; mixes Korean and Latin by default so line height is visible for both.
+ * @param contentPadding margins for the sample page, smaller than a real page's so the sample fits a sheet.
+ */
 @Composable
 fun ReaderOptionPreview(
     style: ReaderStyle,
@@ -49,6 +63,7 @@ fun ReaderOptionPreview(
     }
 }
 
+/** The block as a settings sheet shows it, title and description included. */
 @Preview
 @Composable
 private fun ReaderOptionPreviewPreview() {

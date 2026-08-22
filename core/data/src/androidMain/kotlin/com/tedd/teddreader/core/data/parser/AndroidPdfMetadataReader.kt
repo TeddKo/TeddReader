@@ -8,9 +8,22 @@ import java.io.File
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
+/** Android's implementation of the [defaultPdfMetadataReader] contract. */
 internal actual fun defaultPdfMetadataReader(): PdfMetadataReader = AndroidPdfMetadataReader()
 
+/**
+ * Android's [PdfMetadataReader], built on `android.graphics.pdf.PdfRenderer`. `PdfRenderer` needs a
+ * [ParcelFileDescriptor] rather than a byte buffer, so every call here re-materializes [bytes] into a
+ * temporary file and deletes it again afterwards; `location` itself is never consulted, since the
+ * bytes are all this implementation needs.
+ */
 class AndroidPdfMetadataReader : PdfMetadataReader {
+    /**
+     * @param location Unused by this implementation.
+     * @param bytes The document's raw bytes, written to a temp file for [PdfRenderer] to open.
+     * @return The page count, or `1` if the PDF could not be opened or rendered at all (a corrupt
+     *   file, an I/O failure) — this never throws.
+     */
     override fun pageCount(location: DocumentLocation, bytes: ByteArray): Int {
         val file = File.createTempFile("tedd-reader", ".pdf")
         return try {
@@ -25,6 +38,13 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
         }
     }
 
+    /**
+     * @param location Unused by this implementation.
+     * @param bytes The document's raw bytes, written to a temp file for [PdfRenderer] to open.
+     * @return A PNG-encoded thumbnail of the first page, scaled down (never up) to fit within a
+     *   360×480 box while preserving aspect ratio, or `null` if the document has no page, the page has
+     *   no usable size, or rendering fails for any reason.
+     */
     override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray): ByteArray? {
         val file = File.createTempFile("tedd-reader", ".pdf")
         return try {

@@ -12,6 +12,14 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 
+/**
+ * Android's answer: a real, native blurred shadow via `android.graphics.Paint.setShadowLayer`,
+ * drawn along [polygon]'s own path. `Canvas.drawPath` only actually renders a shadow layer on a
+ * hardware-accelerated canvas from API 28 (`Build.VERSION_CODES.P`) onward; below that, the shadow
+ * layer is invisible if drawn straight into the real canvas, so this falls back to rendering into
+ * an offscreen software [Bitmap] — padded by twice [radius] on every side so the blur has room to
+ * bleed — and blitting that bitmap back into the real canvas afterward.
+ */
 internal actual fun DrawScope.drawFoundationPagerCurlShadow(
     polygon: FoundationPagerCurlPolygon,
     axis: FoundationReferenceCurlAxis,
@@ -39,16 +47,20 @@ internal actual fun DrawScope.drawFoundationPagerCurlShadow(
             (size.height + radius * 4f).toInt(),
             Bitmap.Config.ARGB_8888,
         )
-        Canvas(bitmap).drawPath(
-            polygon
-                .translate(Offset(2f * radius, 2f * radius))
-                .offset(radius)
-                .toPath(axis)
-                .asAndroidPath(),
-            paint.asFrameworkPaint(),
-        )
-        drawIntoCanvas { canvas ->
-            canvas.nativeCanvas.drawBitmap(bitmap, -2f * radius, -2f * radius, null)
+        try {
+            Canvas(bitmap).drawPath(
+                polygon
+                    .translate(Offset(2f * radius, 2f * radius))
+                    .offset(radius)
+                    .toPath(axis)
+                    .asAndroidPath(),
+                paint.asFrameworkPaint(),
+            )
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawBitmap(bitmap, -2f * radius, -2f * radius, null)
+            }
+        } finally {
+            bitmap.recycle()
         }
     }
 }

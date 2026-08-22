@@ -23,6 +23,23 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A settings row that pairs a title/description with a trailing [Checkbox], where the whole row
+ * (not just the checkbox glyph) is the tap target — the row itself carries the `toggleable` modifier
+ * with `role = Role.Checkbox`, and the [Checkbox] passed `onCheckedChange = null` so it renders
+ * visually but does not register its own, smaller, tap target. Same pattern as [TeddSwitchRow] and
+ * [TeddRadioRow], for the checkbox case.
+ *
+ * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
+ * @param checked Whether the checkbox is drawn checked.
+ * @param onCheckedChange Invoked with the new checked state when the row is tapped; not invoked
+ * while [enabled] is false.
+ * @param modifier Modifier applied to the row's root.
+ * @param description A second line shown under [title] in a muted color; omitted when null.
+ * @param enabled Whether the row responds to taps; false also switches the checkbox to disabled
+ * colors.
+ * @param contentPadding Padding between the row's edge and its content.
+ */
 @Composable
 fun TeddCheckboxRow(
     title: String,
@@ -72,6 +89,7 @@ fun TeddCheckboxRow(
     }
 }
 
+/** Compose preview rendering [TeddCheckboxRow] unchecked, with a title and description. */
 @Preview
 @Composable
 private fun TeddCheckboxRowPreview() {
