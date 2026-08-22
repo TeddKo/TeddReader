@@ -11,6 +11,7 @@ import com.tedd.teddreader.core.common.model.ReaderFloat
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderObjectReplacementChar
 import com.tedd.teddreader.core.common.model.ReaderSpan
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
@@ -68,25 +69,20 @@ internal data class XhtmlContent(
  *   with the whole book rather than just this one file.
  * @param resolveImageHref maps a raw `src`/`xlink:href`/`href` to a path inside the container, or null
  *   to drop the image — e.g. a remote `http(s)://` URL this reader cannot fetch.
- * @param styleSheet class-keyed picture widths from the chapter's linked stylesheet(s); see
- *   [EpubStyleSheet]. Defaults to an empty sheet for callers (tests, non-EPUB chapter sources) that have
- *   no stylesheet to link.
- * @param css the full CSS cascade for this chapter's element ancestry, used for everything besides
- *   picture width — alignment, weight, style, family, line height, indent, and paragraph spacing.
- *   Defaults to [EpubCss.Empty].
+ * @param css the full CSS cascade for this chapter's element ancestry — alignment, weight, style,
+ *   family, line height, indent, paragraph spacing, and picture width alike. Defaults to
+ *   [EpubCss.Empty].
  * @return the flattened [XhtmlContent] for this chapter.
  */
 internal fun parseXhtmlContent(
     xhtml: String,
     baseOffset: Long = 0L,
     resolveImageHref: (String) -> String? = { it },
-    styleSheet: EpubStyleSheet = EpubStyleSheet(),
     css: EpubCss = EpubCss.Empty,
 ): XhtmlContent {
     val builder = XhtmlContentBuilder(
         baseOffset = baseOffset,
         resolveImageHref = resolveImageHref,
-        styleSheet = styleSheet,
         css = css,
     )
     var index = 0
@@ -389,11 +385,6 @@ private class XhtmlContentBuilder(
      * parameter of the same name.
      */
     private val resolveImageHref: (String) -> String?,
-    /**
-     * Class-keyed picture widths from the chapter's stylesheet(s); see [parseXhtmlContent]'s own parameter
-     * of the same name.
-     */
-    private val styleSheet: EpubStyleSheet,
     /** The chapter's full CSS cascade; see [parseXhtmlContent]'s own parameter of the same name. */
     private val css: EpubCss,
 ) {
@@ -568,7 +559,7 @@ private class XhtmlContentBuilder(
                 val source = tag.attributes["src"] ?: tag.attributes["xlink:href"] ?: tag.attributes["href"]
                 val href = source?.let(resolveImageHref)
                 if (href != null) {
-                    val imageLayout = resolveImageLayout(currentElement, styleSheet, openBlocks)
+                    val imageLayout = resolveImageLayout(currentElement, openBlocks)
                     appendImage(
                         imageHref = href,
                         label = tag.attributes["alt"]?.takeIf { it.isNotBlank() },
@@ -621,7 +612,7 @@ private class XhtmlContentBuilder(
                 style = style,
                 href = href,
                 start = text.length,
-                cssStyle = inlineCssStyle,
+                styleDelta = inlineCssStyle,
                 computed = currentElement.computed,
             )
             return
@@ -646,7 +637,7 @@ private class XhtmlContentBuilder(
                             style = null,
                             href = null,
                             start = text.length,
-                            cssStyle = delta,
+                            styleDelta = delta,
                             computed = currentElement.computed,
                         )
                     }
@@ -712,7 +703,7 @@ private class XhtmlContentBuilder(
                     range = TextRange(baseOffset + span.start, baseOffset + text.length),
                     style = span.style,
                     href = span.href,
-                    cssStyle = span.cssStyle?.takeIf { !it.isEmpty() },
+                    styleDelta = span.styleDelta?.takeIf { !it.isEmpty() },
                 )
             }
         }
@@ -972,7 +963,7 @@ private class XhtmlContentBuilder(
                     range = TextRange(baseOffset + span.start, baseOffset + text.length),
                     style = span.style,
                     href = span.href,
-                    cssStyle = span.cssStyle?.takeIf { !it.isEmpty() },
+                    styleDelta = span.styleDelta?.takeIf { !it.isEmpty() },
                 )
             }
         }
@@ -1012,9 +1003,24 @@ private class XhtmlContentBuilder(
         while (endIndex > container.start && text[endIndex - 1].isBlockPadding()) endIndex -= 1
         val end = baseOffset + endIndex
         if (end <= start) return
+        // A styled block element that wrapped exactly one text run already carries this whole style on
+        // that leaf block — its box is the leaf's box. Recording a CONTAINER twin over the same range
+        // with the same style forced every renderer to re-discover the duplication (by comparing ranges
+        // and styles) just to avoid double-counting its spacing; suppressing the twin at the single
+        // point it would be created keeps the invariant structural: a CONTAINER is always a genuine
+        // wrapper. Page containers are exempt — html/body must always be recorded, since page margins
+        // and the page background are read off them.
+        val range = TextRange(start, end)
+        if (!container.isPageContainer &&
+            blocks.any { block ->
+                block.kind != ReaderBlockKind.CONTAINER && block.range == range && block.style == container.style
+            }
+        ) {
+            return
+        }
         val block = ReaderBlock(
             kind = ReaderBlockKind.CONTAINER,
-            range = TextRange(start, end),
+            range = range,
             level = container.depth,
             style = container.style.takeIf { !it.isEmpty() },
             isPageContainer = container.isPageContainer,
@@ -1045,7 +1051,7 @@ private class OpenSpan(
     /** Offset into the builder's text where this span starts. */
     val start: Int,
     /** Extra CSS-derived styling carried by this span, as a delta against its enclosing context. */
-    val cssStyle: ReaderBlockStyle? = null,
+    val styleDelta: ReaderSpanStyle? = null,
     /** The element's resolved style, the delta base for any span nested inside this one. */
     val computed: ComputedStyle = ComputedStyle.Root,
 )
@@ -1137,7 +1143,6 @@ private data class ResolvedImageLayout(
 
 private fun resolveImageLayout(
     current: OpenElement,
-    styleSheet: EpubStyleSheet,
     openBlocks: List<OpenElement>,
 ): ResolvedImageLayout {
     val ownDeclarations = current.computed.declarations
@@ -1146,11 +1151,19 @@ private fun resolveImageLayout(
     val width = resolveDeclaredImageWidth(
         ownWidth = ownDeclarations.width?.toCssWidthOrNull(),
         ancestorWidth = ancestorWidth,
-    ) ?: styleSheet.widthFor(current.classNames + openBlocks.asReversed().flatMap(OpenElement::classNames))
+    )
     val float = (sequenceOf(ownDeclarations) + ancestorDeclarations.asSequence())
         .mapNotNull(CssDeclarations::floatOrNull)
         .firstOrNull()
-    val align = float?.toTextAlign() ?: ReaderTextAlign.CENTER
+    // A float claims an edge and wins outright. Otherwise a deliberate placement — the inherited
+    // `text-align` reaching the image being `center` or `right` — is honored; `left`/`justify` are how
+    // a book styles its *prose* (body/p defaults the image merely inherits), and reading systems still
+    // center a plate under those, so they fall through to the CENTER default rather than dragging the
+    // picture to the margin.
+    val inheritedAlign = ownDeclarations.textAlign?.toReaderTextAlign()
+    val align = float?.toTextAlign()
+        ?: inheritedAlign?.takeIf { it == ReaderTextAlign.CENTER || it == ReaderTextAlign.END }
+        ?: ReaderTextAlign.CENTER
     return ResolvedImageLayout(
         widthPercent = (width as? CssWidth.Percent)?.fraction,
         widthEm = (width as? CssWidth.Em)?.value,
@@ -1167,17 +1180,18 @@ private fun resolveImageLayout(
  * A delta is the only shape a span can safely carry here. The renderer nests span styles the way Compose
  * nests them: an `em` font size multiplies whatever size is already in force at that position. A span
  * carrying its full inherited style re-applied everything its block already applied — a `0.9em` wrapper's
- * text came out at `0.81`.
+ * text came out at `0.81`. [ReaderSpanStyle] makes that structural: absolute lengths cannot even be
+ * stated on a span.
  *
  * @receiver the span element's resolved style.
  * @param base the enclosing context's resolved style.
  * @return the properties that actually differ, or null when nothing does.
  */
-private fun ComputedStyle.toSpanDelta(base: ComputedStyle, css: EpubCss): ReaderBlockStyle? {
+private fun ComputedStyle.toSpanDelta(base: ComputedStyle, css: EpubCss): ReaderSpanStyle? {
     fun <T> changed(value: T?, baseValue: T?): T? = value?.takeIf { it != baseValue }
     val own = declarations
     val baseDeclarations = base.declarations
-    return ReaderBlockStyle(
+    return ReaderSpanStyle(
         fontScale = (fontScale / base.fontScale).takeIf { ratio -> abs(ratio - 1f) > FontScaleRatioEpsilon },
         bold = changed(own.fontWeight?.toBoldOrNull(), baseDeclarations.fontWeight?.toBoldOrNull()),
         italic = changed(own.fontStyle?.toItalicFlag(), baseDeclarations.fontStyle?.toItalicFlag()),

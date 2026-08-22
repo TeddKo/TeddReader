@@ -32,7 +32,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.sp
 import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
@@ -56,6 +55,7 @@ import com.tedd.teddreader.core.ui.reader.ReaderFloatContent
 import com.tedd.teddreader.core.ui.reader.ReaderPlaceholder
 import com.tedd.teddreader.core.ui.reader.buildReaderSemanticText
 import com.tedd.teddreader.core.ui.reader.readerFloatTextFitter
+import com.tedd.teddreader.core.ui.reader.readerLayoutInputs
 import com.tedd.teddreader.core.ui.reader.readerReferencedFontHrefs
 import org.jetbrains.compose.resources.stringResource
 
@@ -102,40 +102,38 @@ internal fun EpubPageSurface(
         val measurer = rememberTextMeasurer(cacheSize = 0)
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
-        val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
-        val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
-        val emInPx = style.fontSizeSp * density.fontScale
-        val publisherFontsEnabled = style.fontFamilyName == null
-        val embeddedFontFamilies = if (style.fontFamilyName == null) embeddedFontFamiliesByHref else emptyMap()
-        val floatFitter = remember(measurer, readerTextStyle, widthPx, fontPx, lineWidthEm, maxHeightEm, emInPx, embeddedFontFamilies, publisherColorsEnabled, publisherFontsEnabled) {
-            readerFloatTextFitter(
-                measurer = measurer,
-                textStyle = readerTextStyle,
+        // The one derivation the breaker also uses — same struct, same numbers, so a page is drawn with
+        // exactly the values it was measured with.
+        val inputs = remember(style.layoutKey(), widthPx, heightPx, density, embeddedFontFamiliesByHref) {
+            readerLayoutInputs(
+                style = style,
                 widthPx = widthPx.toInt(),
-                fontPx = fontPx,
-                lineWidthEm = lineWidthEm,
-                maxHeightEm = maxHeightEm,
-                emInPx = emInPx,
-                embeddedFontFamiliesByHref = embeddedFontFamilies,
-                publisherColorsEnabled = publisherColorsEnabled,
-                publisherFontsEnabled = publisherFontsEnabled,
-                lineHeightMultiplier = style.lineHeightMultiplier,
+                heightPx = heightPx.toInt(),
+                density = density,
+                embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
             )
         }
-        val semanticText = remember(page.text, page.blocks, page.textRange, lineWidthEm, maxHeightEm, emInPx, embeddedFontFamilies, publisherColorsEnabled, publisherFontsEnabled, floatFitter, style.layoutKey()) {
+        val fontPx = inputs.fontPx
+        val floatFitter = remember(measurer, inputs, publisherColorsEnabled) {
+            readerFloatTextFitter(
+                measurer = measurer,
+                inputs = inputs,
+                publisherColorsEnabled = publisherColorsEnabled,
+            )
+        }
+        val semanticText = remember(page.text, page.blocks, page.textRange, inputs, publisherColorsEnabled, floatFitter, style.layoutKey()) {
             buildReaderSemanticText(
                 text = page.text,
                 blocks = page.blocks,
                 range = page.textRange ?: com.tedd.teddreader.core.common.model.TextRange(0, page.text.length.toLong()),
-                lineWidthEm = lineWidthEm,
-                maxHeightEm = maxHeightEm,
-                emInPx = emInPx,
-                embeddedFontFamiliesByHref = embeddedFontFamilies,
+                lineWidthEm = inputs.lineWidthEm,
+                maxHeightEm = inputs.maxHeightEm,
+                emInPx = inputs.emInPx,
+                embeddedFontFamiliesByHref = inputs.embeddedFontFamiliesByHref,
                 publisherColorsEnabled = publisherColorsEnabled,
-                publisherFontsEnabled = publisherFontsEnabled,
+                publisherFontsEnabled = inputs.publisherFontsEnabled,
                 floatTextFitter = floatFitter,
-                lineHeightMultiplier = style.lineHeightMultiplier,
+                lineHeightMultiplier = inputs.lineHeightMultiplier,
             )
         }
         val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs, readerTextStyle, baseTextColor, publisherColorsEnabled) {

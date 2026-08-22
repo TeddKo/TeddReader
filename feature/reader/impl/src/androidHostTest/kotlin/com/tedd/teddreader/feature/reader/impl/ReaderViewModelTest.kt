@@ -21,6 +21,7 @@ import com.tedd.teddreader.core.common.model.ReaderNavigationItem
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderSpan
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
@@ -570,7 +571,7 @@ class ReaderViewModelTest {
             range = TextRange(0, 4),
             style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
             spans = listOf(
-                ReaderSpan(range = TextRange(0, 4), cssStyle = ReaderBlockStyle(fontHref = "fonts/missing.otf")),
+                ReaderSpan(range = TextRange(0, 4), styleDelta = ReaderSpanStyle(fontHref = "fonts/missing.otf")),
             ),
         )
         val viewModel = createViewModel(
@@ -2765,7 +2766,7 @@ private class FakeDocumentRepository(
             .flatMap { window -> window.blocks.asSequence() }
             .flatMap { block ->
                 sequenceOf(block.style?.fontHref)
-                    .plus(block.spans.asSequence().map { span -> span.cssStyle?.fontHref })
+                    .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
             }
             .filterNotNull()
             .toSet()

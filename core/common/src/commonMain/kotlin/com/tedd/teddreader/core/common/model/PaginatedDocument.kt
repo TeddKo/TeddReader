@@ -215,7 +215,7 @@ class PaginatedDocument(
             .flatMap { page ->
                 pageWindows[page].blocks.asSequence().flatMap { block ->
                     sequenceOf(block.style?.fontHref)
-                        .plus(block.spans.asSequence().map { span -> span.cssStyle?.fontHref })
+                        .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
                 }
             }
             .filterNotNull()

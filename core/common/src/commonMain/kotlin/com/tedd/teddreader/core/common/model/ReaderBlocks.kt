@@ -26,7 +26,7 @@ enum class ReaderBlockKind {
  * The inline emphasis a book can ask for inside a block, as [ReaderSpan] applies it.
  *
  * A closed set for the semantic inline shapes the reader already knows how to draw. Extra inline CSS
- * that is still representable in reader-owned types rides alongside it through [ReaderSpan.cssStyle]
+ * that is still representable in reader-owned types rides alongside it through [ReaderSpan.styleDelta]
  * rather than expanding this enum into raw stylesheet vocabulary.
  */
 @Serializable
@@ -182,6 +182,49 @@ data class ReaderBlockStyle(
     }
 }
 
+/**
+ * Inline styling a span carries as the *difference* from whatever encloses it — never as absolutes.
+ *
+ * A span nests inside a block (and inside other spans), and the renderer applies its values on top of
+ * whatever is already in force at that position: an em font size multiplies the enclosing size. A span
+ * that re-stated its full inherited style applied everything its block already applied — a `0.9em`
+ * wrapper's text came out at `0.81`. This type makes that contract structural rather than a comment:
+ * only delta-safe properties exist here, and absolute lengths (margins, insets, line height, indent)
+ * are unrepresentable on a span by construction.
+ *
+ * @property fontScale multiple of the *enclosing* font size at the span's position, not of the reader's
+ * base; null when the span does not change the size.
+ * @property bold/italic/fontFamily/fontFamilyName/fontHref/foregroundColor overrides of the enclosing
+ * value; null means the enclosing value stands.
+ * @property underline whether decoration is painted across this span; false is a real answer (how a book
+ * turns a link's underline off) and null means the enclosing decoration stands.
+ * @property lineThrough strikethrough on the same terms as [underline].
+ */
+@Serializable
+data class ReaderSpanStyle(
+    val fontScale: Float? = null,
+    val bold: Boolean? = null,
+    val italic: Boolean? = null,
+    val fontFamily: ReaderFontFamily? = null,
+    val fontFamilyName: String? = null,
+    val fontHref: String? = null,
+    val underline: Boolean? = null,
+    val lineThrough: Boolean? = null,
+    val foregroundColor: ReaderColor? = null,
+) {
+    init {
+        require(fontScale == null || fontScale > 0f) { "fontScale must be positive." }
+    }
+
+    /** Whether this delta changes nothing at all, making it indistinguishable from [Empty]. */
+    fun isEmpty(): Boolean = this == Empty
+
+    /** Holds [Empty], the shared no-op instance. */
+    companion object {
+        val Empty = ReaderSpanStyle()
+    }
+}
+
 /** How a block's lines are aligned when the book's stylesheet says so; null on a block means the reader's
  *  own default stands. */
 @Serializable
@@ -196,7 +239,8 @@ enum class ReaderTextAlign {
  * @property range the run's span in absolute document offsets.
  * @property style the emphasis to apply over that run, or null for a pure CSS span with no semantic tag.
  * @property href the link target, required for [ReaderInlineStyle.LINK] and null otherwise.
- * @property cssStyle extra CSS-derived styling that rides with the span when [style] alone is not enough.
+ * @property styleDelta extra CSS-derived styling that rides with the span when [style] alone is not
+ * enough, always as a [ReaderSpanStyle] delta against the enclosing context.
  * @throws IllegalArgumentException if a link span carries no [href].
  */
 @Serializable
@@ -204,13 +248,13 @@ data class ReaderSpan(
     val range: TextRange,
     val style: ReaderInlineStyle? = null,
     val href: String? = null,
-    val cssStyle: ReaderBlockStyle? = null,
+    val styleDelta: ReaderSpanStyle? = null,
 ) {
     init {
         require(style != ReaderInlineStyle.LINK || href != null) { "A link span must carry an href." }
         require(
-            style != null || cssStyle?.isEmpty() == false,
-        ) { "A span must carry a semantic style or non-empty cssStyle." }
+            style != null || styleDelta?.isEmpty() == false,
+        ) { "A span must carry a semantic style or non-empty styleDelta." }
     }
 }
 
@@ -387,12 +431,18 @@ fun String.isBlankIgnoringObjects(): Boolean =
  * on — and no reading system moves it out of its paragraph. A picture that is the only thing in its
  * block has no paragraph enclosing it, and that is exactly what makes it a plate.
  *
+ * Only *text-carrying* blocks count as enclosure. A [ReaderBlockKind.CONTAINER] is a wrapper — it owns
+ * decoration and spacing, never a line of prose — and books routinely box a plate in one
+ * (`<div class="frame"><img/></div>`); counting the wrapper as text demoted every such plate to an
+ * inline glyph, which lost it its own centred line. A styled `body` recorded as a page container
+ * likewise encloses everything on the page and proved nothing about any picture inside it.
+ *
  * @receiver every block of the stretch of text being considered.
  * @return the standalone blocks that no text block encloses, i.e. the plates rather than the pictures set
  * inside a sentence.
  */
 fun List<ReaderBlock>.standaloneBlocks(): List<ReaderBlock> {
-    val textRanges = filter { !it.kind.isStandalone() }.map { it.range }
+    val textRanges = filter { !it.kind.isStandalone() && it.kind != ReaderBlockKind.CONTAINER }.map { it.range }
     if (textRanges.isEmpty()) return filter { it.kind.isStandalone() }
     return filter { block ->
         block.kind.isStandalone() &&

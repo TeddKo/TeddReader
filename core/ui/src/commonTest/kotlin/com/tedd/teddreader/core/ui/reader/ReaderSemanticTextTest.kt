@@ -7,6 +7,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.em
 import com.tedd.teddreader.core.common.model.ReaderSpan
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import com.tedd.teddreader.core.common.model.ReaderBlockStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
@@ -307,7 +308,7 @@ class ReaderSemanticTextTest {
                         ReaderSpan(
                             range = TextRange(6, 10),
                             style = null,
-                            cssStyle = ReaderBlockStyle(fontScale = 0.8f, italic = true),
+                            styleDelta = ReaderSpanStyle(fontScale = 0.8f, italic = true),
                         ),
                     ),
                 ),
@@ -554,22 +555,94 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A styled paragraph's container twin — the CONTAINER block the parser records over exactly the same
-     * range — adds nothing to the gap the paragraph's own margin already sizes. Counting both doubled
-     * every styled paragraph's spacing.
+     * A plate boxed in a wrapper CONTAINER still gets its own centred paragraph. The wrapper used to
+     * count as a text block enclosing the image, which cost the plate its standalone line and set it
+     * flush left while its caption centred beside it.
      */
     @Test
-    fun aParagraphsContainerTwinDoesNotDoubleItsGap() {
-        val text = "First.\n\nSecond."
+    fun aPlateInsideAWrapperContainerStillGetsItsCentredParagraph() {
+        val text = "before\n\n￼\ncaption"
+        val imageOffset = text.indexOf('￼').toLong()
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(ReaderBlockKind.PARAGRAPH, TextRange(0, 6)),
+                ReaderBlock(
+                    ReaderBlockKind.CONTAINER,
+                    TextRange(imageOffset, text.length.toLong()),
+                    level = 1,
+                    style = ReaderBlockStyle(marginTopEm = 7f),
+                ),
+                ReaderBlock(
+                    ReaderBlockKind.IMAGE,
+                    TextRange(imageOffset, imageOffset + 1),
+                    imageHref = "logo.jpg",
+                    align = ReaderTextAlign.CENTER,
+                ),
+                ReaderBlock(
+                    ReaderBlockKind.PARAGRAPH,
+                    TextRange(imageOffset + 2, text.length.toLong()),
+                    align = ReaderTextAlign.CENTER,
+                ),
+            ),
+        )
+
+        val placeholder = semantic.placeholders.single()
+        val paragraph = semantic.annotatedString.paragraphStyles
+            .single { it.start <= placeholder.start && placeholder.start < it.end }
+        assertEquals(TextAlign.Center, paragraph.item.textAlign)
+    }
+
+    /**
+     * A leaf block with its own box styling paints its own decoration — the box a styled paragraph used
+     * to get from its parse-time CONTAINER twin now comes straight from the leaf — and a genuine wrapper
+     * still paints beneath it.
+     */
+    @Test
+    fun aStyledLeafBlockPaintsItsOwnBoxDecoration() {
+        val text = "Boxed."
+        val leafBox = com.tedd.teddreader.core.common.model.ReaderBoxStyle(
+            borderTop = com.tedd.teddreader.core.common.model.ReaderBorder(widthPx = 1f),
+        )
+        val wrapperBox = com.tedd.teddreader.core.common.model.ReaderBoxStyle(
+            backgroundColor = com.tedd.teddreader.core.common.model.ReaderColor(0xFF112233),
+        )
         val semantic = buildReaderSemanticText(
             text = text,
             range = TextRange(0, text.length.toLong()),
             blocks = listOf(
                 ReaderBlock(
                     ReaderBlockKind.CONTAINER,
-                    TextRange(0, 6),
-                    style = ReaderBlockStyle(marginBottomEm = 1f),
+                    TextRange(0, text.length.toLong()),
+                    level = 1,
+                    style = ReaderBlockStyle(paddingStartEm = 1f, boxStyle = wrapperBox),
                 ),
+                ReaderBlock(
+                    ReaderBlockKind.PARAGRAPH,
+                    TextRange(0, text.length.toLong()),
+                    style = ReaderBlockStyle(boxStyle = leafBox),
+                ),
+            ),
+        )
+
+        assertEquals(listOf(wrapperBox, leafBox), semantic.containerDecorations.map { it.boxStyle })
+    }
+
+    /**
+     * A styled paragraph's own margin sizes the gap after it exactly once. The parser records no
+     * CONTAINER twin beside a styled leaf any more, so there is nothing left to double-count it with.
+     */
+    @Test
+    fun aStyledParagraphsGapCountsItsMarginExactlyOnce() {
+        // The parser no longer records a same-range-same-style CONTAINER twin beside a styled leaf —
+        // a CONTAINER is always a genuine wrapper now — so the leaf's own margins reach the gap exactly
+        // once, through blockGapEm, with nothing to re-add them.
+        val text = "First.\n\nSecond."
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
                 ReaderBlock(
                     ReaderBlockKind.PARAGRAPH,
                     TextRange(0, 6),
