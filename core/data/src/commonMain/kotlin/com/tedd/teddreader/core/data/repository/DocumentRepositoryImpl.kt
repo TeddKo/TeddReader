@@ -842,7 +842,7 @@ class DocumentRepositoryImpl(
                 .flatMap { sectionIndex -> cache.blocksFor(sectionIndex).asSequence() }
                 .flatMap { block ->
                     sequenceOf(block.style?.fontHref)
-                        .plus(block.spans.asSequence().map { span -> span.cssStyle?.fontHref })
+                        .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
                 }
                 .filterNotNull()
                 .toSet()
