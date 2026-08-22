@@ -555,6 +555,46 @@ class ReaderSemanticTextTest {
     }
 
     /**
+     * A plate boxed in a wrapper CONTAINER still gets its own centred paragraph. The wrapper used to
+     * count as a text block enclosing the image, which cost the plate its standalone line and set it
+     * flush left while its caption centred beside it.
+     */
+    @Test
+    fun aPlateInsideAWrapperContainerStillGetsItsCentredParagraph() {
+        val text = "before\n\n￼\ncaption"
+        val imageOffset = text.indexOf('￼').toLong()
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(ReaderBlockKind.PARAGRAPH, TextRange(0, 6)),
+                ReaderBlock(
+                    ReaderBlockKind.CONTAINER,
+                    TextRange(imageOffset, text.length.toLong()),
+                    level = 1,
+                    style = ReaderBlockStyle(marginTopEm = 7f),
+                ),
+                ReaderBlock(
+                    ReaderBlockKind.IMAGE,
+                    TextRange(imageOffset, imageOffset + 1),
+                    imageHref = "logo.jpg",
+                    align = ReaderTextAlign.CENTER,
+                ),
+                ReaderBlock(
+                    ReaderBlockKind.PARAGRAPH,
+                    TextRange(imageOffset + 2, text.length.toLong()),
+                    align = ReaderTextAlign.CENTER,
+                ),
+            ),
+        )
+
+        val placeholder = semantic.placeholders.single()
+        val paragraph = semantic.annotatedString.paragraphStyles
+            .single { it.start <= placeholder.start && placeholder.start < it.end }
+        assertEquals(TextAlign.Center, paragraph.item.textAlign)
+    }
+
+    /**
      * A leaf block with its own box styling paints its own decoration — the box a styled paragraph used
      * to get from its parse-time CONTAINER twin now comes straight from the leaf — and a genuine wrapper
      * still paints beneath it.
