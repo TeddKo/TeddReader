@@ -41,7 +41,7 @@ class ReaderEntityMapperTest {
     }
 
     @Test
-    fun searchIndexRowsUseParserVersion8() {
+    fun searchIndexRowsUseParserVersion9() {
         val entity = ReaderSection(
             index = 0,
             title = "Chapter",
@@ -52,6 +52,6 @@ class ReaderEntityMapperTest {
             blocks = listOf(ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 4))),
         )
 
-        assertEquals(8, entity.parserVersion)
+        assertEquals(9, entity.parserVersion)
     }
 }

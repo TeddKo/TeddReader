@@ -431,12 +431,18 @@ fun String.isBlankIgnoringObjects(): Boolean =
  * on — and no reading system moves it out of its paragraph. A picture that is the only thing in its
  * block has no paragraph enclosing it, and that is exactly what makes it a plate.
  *
+ * Only *text-carrying* blocks count as enclosure. A [ReaderBlockKind.CONTAINER] is a wrapper — it owns
+ * decoration and spacing, never a line of prose — and books routinely box a plate in one
+ * (`<div class="frame"><img/></div>`); counting the wrapper as text demoted every such plate to an
+ * inline glyph, which lost it its own centred line. A styled `body` recorded as a page container
+ * likewise encloses everything on the page and proved nothing about any picture inside it.
+ *
  * @receiver every block of the stretch of text being considered.
  * @return the standalone blocks that no text block encloses, i.e. the plates rather than the pictures set
  * inside a sentence.
  */
 fun List<ReaderBlock>.standaloneBlocks(): List<ReaderBlock> {
-    val textRanges = filter { !it.kind.isStandalone() }.map { it.range }
+    val textRanges = filter { !it.kind.isStandalone() && it.kind != ReaderBlockKind.CONTAINER }.map { it.range }
     if (textRanges.isEmpty()) return filter { it.kind.isStandalone() }
     return filter { block ->
         block.kind.isStandalone() &&

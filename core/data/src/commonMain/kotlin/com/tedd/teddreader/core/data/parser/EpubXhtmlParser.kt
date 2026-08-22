@@ -1155,7 +1155,15 @@ private fun resolveImageLayout(
     val float = (sequenceOf(ownDeclarations) + ancestorDeclarations.asSequence())
         .mapNotNull(CssDeclarations::floatOrNull)
         .firstOrNull()
-    val align = float?.toTextAlign() ?: ReaderTextAlign.CENTER
+    // A float claims an edge and wins outright. Otherwise a deliberate placement — the inherited
+    // `text-align` reaching the image being `center` or `right` — is honored; `left`/`justify` are how
+    // a book styles its *prose* (body/p defaults the image merely inherits), and reading systems still
+    // center a plate under those, so they fall through to the CENTER default rather than dragging the
+    // picture to the margin.
+    val inheritedAlign = ownDeclarations.textAlign?.toReaderTextAlign()
+    val align = float?.toTextAlign()
+        ?: inheritedAlign?.takeIf { it == ReaderTextAlign.CENTER || it == ReaderTextAlign.END }
+        ?: ReaderTextAlign.CENTER
     return ResolvedImageLayout(
         widthPercent = (width as? CssWidth.Percent)?.fraction,
         widthEm = (width as? CssWidth.Em)?.value,
