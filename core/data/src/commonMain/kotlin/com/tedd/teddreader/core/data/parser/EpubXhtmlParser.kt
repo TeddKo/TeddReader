@@ -305,7 +305,7 @@ private fun resolveComputedStyle(
     val effective = inheritedBase.mergedWith(own).resolvedInheritedKeywords(inheritedBase)
     val fontScale = own.fontSize.resolveFontScale(parent.fontScale)
     val lineHeight = when (val declared = own.lineHeight) {
-        is CssLineHeight.Factor -> ResolvedLineHeight.Factor(declared.value)
+        is CssLineHeight.Factor -> declared.value.takeIf { it > 0f }?.let(ResolvedLineHeight::Factor) ?: parent.lineHeight
         is CssLineHeight.Length -> declared.length.toResolvedLineHeightEm(fontScale)?.let(ResolvedLineHeight::BaseEm) ?: parent.lineHeight
         null -> parent.lineHeight
     }
