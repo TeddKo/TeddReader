@@ -163,6 +163,22 @@ class EpubXhtmlCssTest {
         assertEquals(1.6f, content.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }.style?.lineHeightScale)
     }
 
+    /**
+     * A `line-height: 0` (or negative) is a print-CSS collapsing hack this renderer cannot draw; it reads
+     * as unstated and inherits instead of failing the whole import on a non-positive scale.
+     */
+    @Test
+    fun aNonPositiveLineHeightFactorFallsBackToTheInheritedValue() {
+        val content = parse(
+            """<body><p class="squash">본문</p><p>다음</p></body>""",
+            "body { line-height: 1.6 } .squash { line-height: 0 }",
+        )
+
+        val blocks = content.blocks.filter { it.kind == ReaderBlockKind.PARAGRAPH }
+        assertEquals(1.6f, blocks[0].style?.lineHeightScale)
+        assertEquals(1.6f, blocks[1].style?.lineHeightScale)
+    }
+
     /** A `line-height` stated as a length computes once at its declaring element and inherits fixed. */
     @Test
     fun aLineHeightLengthComputesOnceAndInheritsFixed() {
