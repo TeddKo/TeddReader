@@ -5,9 +5,17 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins [TxtDocumentParser]'s single-section contract, including CRLF-to-LF line-ending normalization
+ * and the derived character/word counts a plain-text document reports.
+ */
 class TxtDocumentParserTest {
     private val parser = TxtDocumentParser()
 
+    /**
+     * A `.txt` file becomes one section holding its whole (line-ending-normalized) text, with the character
+     * and word counts it implies.
+     */
     @Test
     fun parsesTextAsSingleSectionReaderDocument() {
         val document = parser.parse(
@@ -25,7 +33,13 @@ class TxtDocumentParserTest {
     }
 }
 
+/**
+ * Pins [TxtTextDecoder]'s byte-to-text decoding across the encodings a plain-text file actually
+ * arrives in: UTF-8 with a byte-order mark, UTF-16LE with and without one, and legacy Korean
+ * MS949/CP949.
+ */
 class TxtTextDecoderTest {
+    /** A UTF-8 byte-order mark is recognized and stripped, decoding the rest as UTF-8. */
     @Test
     fun decodesUtf8BomText() {
         val bytes = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "가나다".encodeToByteArray()
@@ -33,6 +47,7 @@ class TxtTextDecoderTest {
         assertEquals("가나다", TxtTextDecoder.decode(bytes))
     }
 
+    /** A UTF-16 little-endian byte-order mark is recognized, decoding the rest as UTF-16LE. */
     @Test
  fun decodesUtf16LittleEndianBomText() {
  val bytes = byteArrayOf(
@@ -44,6 +59,10 @@ class TxtTextDecoderTest {
  assertEquals("가나", TxtTextDecoder.decode(bytes))
  }
 
+ /**
+  * With no byte-order mark at all, raw bytes are still detected and decoded as UTF-16LE, rather than
+  * defaulting to UTF-8 and producing mojibake.
+  */
  @Test
  fun decodesUtf16LittleEndianTextWithoutBom() {
  val bytes = byteArrayOf(
@@ -54,6 +73,10 @@ class TxtTextDecoderTest {
  assertEquals("가나", TxtTextDecoder.decode(bytes))
  }
 
+ /**
+  * Legacy Korean MS949/CP949-encoded bytes, with no byte-order mark to signal any Unicode encoding, are
+  * still decoded correctly.
+  */
  @Test
  fun decodesMs949KoreanText() {
  val bytes = byteArrayOf(

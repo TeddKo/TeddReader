@@ -17,6 +17,18 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * The app's placeholder for a screen or list with nothing in it (an empty library, no search
+ * results), centering a title, an optional description, and an optional action button so every such
+ * screen shares the same layout instead of each hand-centering its own [Column].
+ *
+ * @param title The primary message, shown in [teddReaderTypography]'s `documentTitle` style.
+ * @param modifier Modifier applied to the state's root.
+ * @param description Supporting text shown under [title] in a muted color; omitted when null.
+ * @param contentPadding Padding around the whole state.
+ * @param action Content shown below the description, typically a [TeddButton] prompting the next
+ * step; omitted when null.
+ */
 @Composable
 fun TeddEmptyState(
     title: String,
@@ -51,6 +63,7 @@ fun TeddEmptyState(
     }
 }
 
+/** Compose preview rendering [TeddEmptyState] with a title, description, and action button. */
 @Preview
 @Composable
 private fun TeddEmptyStatePreview() {

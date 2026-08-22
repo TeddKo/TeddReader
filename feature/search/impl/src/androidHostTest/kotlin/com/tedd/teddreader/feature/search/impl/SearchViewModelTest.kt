@@ -6,13 +6,15 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.SearchRepository
-import com.tedd.teddreader.core.domain.usecase.FindInDocumentUseCase
+import com.tedd.teddreader.core.domain.usecase.SearchDocumentUseCase
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +28,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -42,44 +46,133 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun pdfDocumentShowsUnsupportedStateAndSkipsSearchRepository() = runTest {
+    fun pdfSearchMarksUnsupportedAndSkipsSearchRepository() = runTest {
         val documentId = DocumentId("pdf-1")
         val searchRepository = FakeSearchRepository()
+        val documentRepository = FakeDocumentRepository(
+            metadata = DocumentMetadata(
+                id = documentId,
+                location = DocumentLocation(
+                    sourceUri = "file:///sample.pdf",
+                    displayName = "sample.pdf",
+                    mimeType = "application/pdf",
+                ),
+                format = DocumentFormat.PDF,
+                addedAtEpochMillis = 0L,
+                pageCount = 3,
+            ),
+        )
         val viewModel = SearchViewModel(
-            findInDocument = FindInDocumentUseCase(searchRepository),
-            documentRepository = FakeDocumentRepository(
-                metadata = DocumentMetadata(
-                    id = documentId,
-                    location = DocumentLocation(
-                        sourceUri = "file:///sample.pdf",
-                        displayName = "sample.pdf",
-                        mimeType = "application/pdf",
+            searchDocument = SearchDocumentUseCase(
+                documentRepository = documentRepository,
+                searchRepository = searchRepository,
+            ),
+        )
+
+        viewModel.setDocument(documentId.value)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isSearchUnsupported)
+
+        viewModel.updateQuery("needle")
+        viewModel.search()
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), viewModel.uiState.value.results)
+        assertEquals(0, searchRepository.searchCount)
+        assertTrue(viewModel.uiState.value.isSearchUnsupported)
+    }
+
+    @Test
+    fun setDocumentCapabilityCheckDoesNotOverwriteUserTypedQuery() = runTest {
+        val documentId = DocumentId("epub-1")
+        val gate = CompletableDeferred<Unit>()
+        val viewModel = SearchViewModel(
+            searchDocument = SearchDocumentUseCase(
+                documentRepository = FakeDocumentRepository(
+                    metadata = DocumentMetadata(
+                        id = documentId,
+                        location = DocumentLocation(
+                            sourceUri = "file:///sample.epub",
+                            displayName = "sample.epub",
+                            mimeType = "application/epub+zip",
+                        ),
+                        format = DocumentFormat.EPUB,
+                        addedAtEpochMillis = 0L,
                     ),
-                    format = DocumentFormat.PDF,
-                    addedAtEpochMillis = 0L,
-                    pageCount = 3,
+                    beforeGetDocument = { gate.await() },
+                ),
+                searchRepository = FakeSearchRepository(),
+            ),
+        )
+
+        viewModel.setDocument(documentId.value)
+        viewModel.updateQuery("typed while loading")
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("typed while loading", viewModel.uiState.value.query)
+        assertFalse(viewModel.uiState.value.isSearchUnsupported)
+    }
+
+    @Test
+    fun editingQueryCancelsInFlightSearchAndKeepsTypedText() = runTest {
+        val documentId = DocumentId("epub-2")
+        val searchGate = CompletableDeferred<Unit>()
+        val viewModel = SearchViewModel(
+            searchDocument = SearchDocumentUseCase(
+                documentRepository = FakeDocumentRepository(
+                    metadata = DocumentMetadata(
+                        id = documentId,
+                        location = DocumentLocation(
+                            sourceUri = "file:///sample.epub",
+                            displayName = "sample.epub",
+                            mimeType = "application/epub+zip",
+                        ),
+                        format = DocumentFormat.EPUB,
+                        addedAtEpochMillis = 0L,
+                    ),
+                ),
+                searchRepository = FakeSearchRepository(
+                    beforeSearch = { searchGate.await() },
+                    results = listOf(
+                        SearchResult(
+                            documentId = documentId,
+                            location = ReaderLocation.TextOffset(0L),
+                            snippet = "stale",
+                        ),
+                    ),
                 ),
             ),
         )
 
         viewModel.setDocument(documentId.value)
         advanceUntilIdle()
-        viewModel.updateQuery("needle")
+        viewModel.updateQuery("first")
         viewModel.search()
         advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isLoading)
 
-        assertEquals(true, viewModel.uiState.value.isSearchUnsupported)
-        assertEquals(emptyList(), viewModel.uiState.value.results)
-        assertEquals(0, searchRepository.searchCount)
+        viewModel.updateQuery("second")
+        advanceUntilIdle()
+        searchGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("second", viewModel.uiState.value.query)
+        assertTrue(viewModel.uiState.value.results.isEmpty())
+        assertFalse(viewModel.uiState.value.isLoading)
     }
 }
 
 private class FakeDocumentRepository(
     private val metadata: DocumentMetadata,
+    private val beforeGetDocument: suspend () -> Unit = {},
 ) : DocumentRepository {
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = flowOf(listOf(metadata))
-    override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
-        metadata.takeIf { it.id == documentId }
+
+    override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? {
+        beforeGetDocument()
+        return metadata.takeIf { it.id == documentId }
+    }
 
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
 
@@ -101,7 +194,10 @@ private class FakeDocumentRepository(
     override suspend fun deleteDocument(documentId: DocumentId) = Unit
 }
 
-private class FakeSearchRepository : SearchRepository {
+private class FakeSearchRepository(
+    private val beforeSearch: suspend () -> Unit = {},
+    private val results: List<SearchResult> = emptyList(),
+) : SearchRepository {
     var searchCount = 0
 
     override suspend fun findInDocument(
@@ -110,7 +206,7 @@ private class FakeSearchRepository : SearchRepository {
         limit: Int,
     ): List<SearchResult> {
         searchCount += 1
-        return emptyList()
+        beforeSearch()
+        return results
     }
-
 }

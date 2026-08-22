@@ -16,7 +16,20 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins [SearchRepositoryImpl]'s occurrence-search contract: given sections already indexed via
+ * [toSearchIndexEntity], [SearchRepositoryImpl.findInDocument] returns every non-overlapping
+ * occurrence of a query in reading order, case-insensitively, with the query trimmed of surrounding
+ * whitespace, a query that is blank once trimmed matching nothing, and a requested limit below one
+ * read as one. Backed by an in-memory [FakeSearchIndexDao] so these guarantees are exercised without
+ * Room.
+ */
 class SearchRepositoryImplTest {
+    /**
+     * Guards the basic path: a document indexed via [toSearchIndexEntity] and then searched finds the
+     * matching section and reports the correct absolute character offset, snippet, range, and the
+     * query it was found with.
+     */
     @Test
     fun indexesSectionsAndReturnsMatchingResults() = runTest {
         val dao = FakeSearchIndexDao()
@@ -52,6 +65,12 @@ class SearchRepositoryImplTest {
         assertEquals("reader", results.single().query)
     }
 
+    /**
+     * Guards that every occurrence — within one section and across several — comes back in document
+     * order and without overlaps: a scan advances past each match before looking for the next, so
+     * adjacent or repeated occurrences of the same word are all counted once each, never double
+     * counted or skipped.
+     */
     @Test
     fun returnsEveryNonOverlappingOccurrenceInDocumentOrder() = runTest {
         val dao = FakeSearchIndexDao()
@@ -100,6 +119,11 @@ class SearchRepositoryImplTest {
         assertEquals(listOf("Chapter 1", "Chapter 1", "Chapter 2", "Chapter 2"), results.map { it.sectionTitle })
     }
 
+    /**
+     * Guards that `limit` counts individual occurrences, not the sections the DAO fetched: three
+     * matches in one section plus one in another, asked for with `limit = 2`, must trim down to
+     * exactly the first two occurrences in document order rather than one per section or all four.
+     */
     @Test
     fun appliesGlobalLimitPerOccurrence() = runTest {
         val dao = FakeSearchIndexDao()
@@ -137,6 +161,10 @@ class SearchRepositoryImplTest {
         )
     }
 
+    /**
+     * Guards [toSearchResults] directly: an empty query string must return no results rather than
+     * matching every position in the text (which a naive zero-length-match scan would do).
+     */
     @Test
     fun mapperReturnsEmptyForBlankQuery() {
         val entry = SearchIndexEntity(
@@ -151,6 +179,10 @@ class SearchRepositoryImplTest {
         assertEquals(emptyList(), entry.toSearchResults(""))
     }
 
+    /**
+     * Guards the repository-level short-circuit: a query that is blank once trimmed returns empty
+     * immediately, without ever reaching the DAO.
+     */
     @Test
     fun blankQueryReturnsEmptyResults() = runTest {
         val dao = FakeSearchIndexDao()
@@ -160,10 +192,36 @@ class SearchRepositoryImplTest {
 
         assertEquals(emptyList(), results)
     }
+
+    /**
+     * Guards two argument-normalization rules at once, verified against the fake DAO's recorded
+     * arguments: leading/trailing whitespace around the query is trimmed before it ever reaches the
+     * DAO, and a `limit` of `0` is coerced up to `1`, since a caller asking for a search is asking for
+     * at least one result.
+     */
+    @Test
+    fun surroundingSpaceIsTrimmedAndAZeroLimitStillAsksForOneResult() = runTest {
+        val dao = FakeSearchIndexDao()
+        val repository = SearchRepositoryImpl(dao)
+
+        repository.findInDocument(DocumentId("doc-1"), "  reader  ", limit = 0)
+
+        assertEquals("reader", dao.lastQuery)
+        assertEquals(1, dao.lastLimit)
+    }
 }
 
+/**
+ * In-memory [SearchIndexDao] used only by this test file, filtering/sorting/limiting the same way the
+ * real Room-backed DAO does so [SearchRepositoryImpl]'s own logic — trimming, the limit floor,
+ * occurrence flattening — is exercised without pulling in Room. `lastQuery`/`lastLimit` record what
+ * [SearchRepositoryImpl] actually passed down, so a test can assert on the normalized arguments
+ * directly.
+ */
 private class FakeSearchIndexDao : SearchIndexDao {
     val entries = mutableListOf<SearchIndexEntity>()
+    var lastQuery: String? = null
+    var lastLimit: Int? = null
 
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) {
         this.entries.removeAll { old -> entries.any { new -> old.documentId == new.documentId && old.sectionIndex == new.sectionIndex } }
@@ -174,10 +232,14 @@ private class FakeSearchIndexDao : SearchIndexDao {
         documentId: String,
         query: String,
         limit: Int,
-    ): List<SearchIndexEntity> = entries
-        .filter { entry -> entry.documentId == documentId && entry.text.contains(query, ignoreCase = true) }
-        .sortedBy { entry -> entry.sectionIndex }
-        .take(limit)
+    ): List<SearchIndexEntity> {
+        lastQuery = query
+        lastLimit = limit
+        return entries
+            .filter { entry -> entry.documentId == documentId && entry.text.contains(query, ignoreCase = true) }
+            .sortedBy { entry -> entry.sectionIndex }
+            .take(limit)
+    }
 
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> =
         entries.filter { entry -> entry.documentId == documentId }.sortedBy { entry -> entry.sectionIndex }.map { entry ->

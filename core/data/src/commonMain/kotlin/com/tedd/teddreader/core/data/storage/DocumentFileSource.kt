@@ -4,11 +4,42 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import okio.ByteString.Companion.encodeUtf8
 import okio.Path
 
+/**
+ * How a document's bytes are actually reached on this platform — Android's SAF `content://` Uris and
+ * plain files versus iOS's sandboxed file paths — so [DocumentRepositoryImpl] can import, reopen, and
+ * copy a document without branching on platform itself.
+ */
 interface DocumentFileSource {
+    /**
+     * Reads a document's entire contents into memory.
+     *
+     * @param location The document to read.
+     * @return The document's raw bytes.
+     * @throws IllegalStateException if [location] can no longer be reached, e.g. a revoked SAF
+     *   permission on Android or a moved/deleted file on either platform.
+     */
     suspend fun readBytes(location: DocumentLocation): ByteArray
 
+    /**
+     * Copies a document's bytes to [destination] on the local filesystem.
+     *
+     * @param location The document to copy from.
+     * @param destination Where to write the copy.
+     * @throws IllegalStateException if [location] can no longer be reached.
+     */
     suspend fun copyTo(location: DocumentLocation, destination: Path)
 
+    /**
+     * Ensures a document has a durable, app-owned copy of [bytes] on disk, returning a [location]
+     * pointing at it. The default implementation is a no-op that returns [location] unchanged; the
+     * platform implementations override this to actually write [bytes] into app-private storage,
+     * named via [materializedDocumentFileName] so re-materializing the same source lands on the same
+     * file instead of writing a duplicate.
+     *
+     * @param location The document's current location.
+     * @param bytes The document's bytes, to be written if a durable copy does not already exist.
+     * @return [location], or an updated [DocumentLocation] pointing at the materialized copy.
+     */
     suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation = location
 
     /**
@@ -44,4 +75,9 @@ internal fun materializedDocumentFileName(sourceKey: String, displayName: String
     return if (extension == null) hash else "$hash.$extension"
 }
 
+/**
+ * Longest suffix [materializedDocumentFileName] will treat as a real file extension. A display name
+ * ending in a long run of letters/digits after its last dot is more likely a version string or an
+ * ID than an actual extension, so past this length it is dropped rather than kept.
+ */
 private const val MaxMaterializedExtensionLength = 8

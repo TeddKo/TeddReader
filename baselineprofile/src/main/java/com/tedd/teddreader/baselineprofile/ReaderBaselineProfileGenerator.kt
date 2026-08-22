@@ -23,18 +23,34 @@ import org.junit.Test
  * reached once a page actually moves, and those are the classes worth having compiled.
  */
 class ReaderBaselineProfileGenerator {
+    /**
+     * Runs the `BaselineProfileRule`'s instrumentation against the installed app to record which
+     * classes and methods each journey below touches.
+     */
     @get:Rule
     val rule = BaselineProfileRule()
 
+    /**
+     * The main reading journey this generator exists for: opens the sample book bundled with this
+     * module and turns a few pages, so the profile records the pager, the page surface, and the
+     * text layout classes that are only reached once a page actually moves.
+     *
+     * The book is carried by this module and published to the device fresh on every iteration,
+     * rather than looked for in whatever the device's library already holds. Generation uninstalls
+     * the app when it finishes, so an earlier run's imported book is gone by the next one — a
+     * journey that depended on finding one recorded only the library screen and nothing of the
+     * reader at all, and did so silently, since a profile with no reader classes in it still
+     * generates and still builds without complaint.
+     *
+     * Waiting on the page counter — the text containing `" / "` that shows the current page out of
+     * the total — works because it is the reader's own "I have a page" signal: reaching it means
+     * the import, the first measurement, and the first page have all completed, which is the whole
+     * of what this profile needs to have happened before it can start recording page turns.
+     */
     @Test
     fun openLibraryAndReadAFewPages() = rule.collect(packageName = PackageName) {
         pressHome()
 
-        // The book this opens is carried by this module and published to the device on every iteration,
-        // rather than looked for in whatever the device's library happens to hold. Generation uninstalls
-        // the app when it finishes, so an earlier run's imported book is gone by the next one — a journey
-        // that depended on finding one recorded the library screen and nothing of the reader at all, and
-        // did so silently, since a profile with no reader classes in it still generates and still builds.
         startActivityAndWait(
             Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(publishSampleBook(), EpubMimeType)
@@ -43,8 +59,6 @@ class ReaderBaselineProfileGenerator {
             },
         )
 
-        // The page counter is the reader's own "I have a page" signal, so waiting on it waits for the
-        // import, the first measurement and the first page — the whole of what this profile is for.
         device.wait(Until.hasObject(By.textContains(" / ")), 60_000)
         repeat(3) {
             device.click(device.displayWidth * 4 / 5, device.displayHeight / 2)
@@ -100,7 +114,21 @@ class ReaderBaselineProfileGenerator {
     }
 }
 
+/** The application id of the installed build this generator instruments and collects a profile for. */
 private const val PackageName = "com.tedd.teddreader"
+
+/** MIME type used both to publish the sample book to Downloads and to open it via `ACTION_VIEW`. */
 private const val EpubMimeType = "application/epub+zip"
+
+/**
+ * File name of the sample EPUB bundled as an asset with this module, read by
+ * [ReaderBaselineProfileGenerator.publishSampleBook].
+ */
 private const val SampleBookAsset = "sample.epub"
+
+/**
+ * Display name the sample book is published under in the device's Downloads, used by
+ * [ReaderBaselineProfileGenerator.publishSampleBook] both to delete any earlier copy under the same
+ * name before republishing and to name the new one.
+ */
 private const val SampleBookName = "tedd-reader-baseline-profile-sample.epub"

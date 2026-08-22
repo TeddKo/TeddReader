@@ -30,6 +30,7 @@
     <string name="reading_appearance_description">Text choices that affect comfort and readability.</string>
     <string name="font_size">Font size</string>
     <string name="line_height">Line height</string>
+    <string name="font_family_document">Document font</string>
     <string name="font_family_sans">Sans</string>
     <string name="font_family_serif">Serif</string>
     <string name="font_family_mono">Mono</string>
@@ -46,6 +47,9 @@
     <string name="dark">Dark</string>
     <string name="sepia">Sepia</string>
     <string name="custom">Custom</string>
+    <string name="document_style">Document style</string>
+    <string name="pdf_style">PDF style</string>
+    <string name="epub_style">EPUB style</string>
     <string name="horizontal">Horizontal</string>
     <string name="vertical">Vertical</string>
     <string name="animation_none">None</string>
@@ -196,6 +200,7 @@
     <string name="home_selection_count">%1$d selected</string>
     <string name="reader_battery_percentage">Battery %1$d%%</string>
     <string name="reader_battery_unavailable">Battery unavailable</string>
+    <string name="reader_read_progress_unavailable">Calculating read progress</string>
     <string name="reader_read_progress_percentage">Read %1$d%%</string>
     <string name="remove_from_library_multiple_message">%1$d documents and their reading data will be removed from TeddReader. The original files will stay on your device.</string>
     <string name="select_document">Select document</string>

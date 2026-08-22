@@ -4,6 +4,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+/**
+ * Pins the invariant that keeps a library row from claiming a folder it cannot name: folder id and folder
+ * name are either both present or both absent, and a half-filled pair is rejected at construction rather
+ * than rendered as a blank folder chip.
+ */
 class DocumentModelsTest {
     @Test
     fun documentMetadataAcceptsFolderMembershipPair() {

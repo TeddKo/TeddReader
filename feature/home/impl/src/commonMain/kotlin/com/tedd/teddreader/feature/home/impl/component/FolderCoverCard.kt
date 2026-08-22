@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,23 @@ import com.tedd.teddreader.feature.home.impl.LibraryFolder
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * A folder tile in the home library grid: a mosaic of its own documents' covers, its name and
+ * document count, and — when the caller allows either action — an overflow menu to rename or
+ * delete the folder.
+ *
+ * @param folder the folder this card represents.
+ * @param previewDocuments the leading documents to render as this folder's cover mosaic.
+ * @param remainingDocumentCount how many more documents the folder holds beyond [previewDocuments];
+ *   shown as a count overlay on the mosaic's last tile when greater than zero.
+ * @param documentCoverImages cover image bytes keyed by document id, looked up for each preview tile.
+ * @param onClick invoked when the card itself is tapped, to open the folder.
+ * @param modifier applied to the outer [Column].
+ * @param onRenameClick invoked to start renaming this folder, or null to omit the rename menu entry;
+ *   together with [onDeleteClick] being null, this also hides the overflow menu button entirely.
+ * @param onDeleteClick invoked to delete this folder, or null to omit the delete menu entry.
+ * @param onLoadCover invoked for preview documents that are visible without cached cover bytes yet.
+ */
 @Composable
 fun FolderCoverCard(
     folder: LibraryFolder,
@@ -58,6 +76,7 @@ fun FolderCoverCard(
     modifier: Modifier = Modifier,
     onRenameClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
+    onLoadCover: ((DocumentMetadata) -> Unit)? = null,
 ) {
     val shape = teddReaderShapes().medium
     val spacing = DefaultTeddReaderSpacing
@@ -87,6 +106,7 @@ fun FolderCoverCard(
                 remainingDocumentCount = remainingDocumentCount,
                 documentCoverImages = documentCoverImages,
                 modifier = Modifier.fillMaxSize(),
+                onLoadCover = onLoadCover,
             )
             if (canShowOverflow) {
                 Box(modifier = Modifier.align(Alignment.TopEnd)) {
@@ -148,12 +168,24 @@ fun FolderCoverCard(
     }
 }
 
+/**
+ * The grid of cover thumbnails [FolderCoverCard] shows for one folder: up to four documents laid
+ * out into a 1x1, 2xN, or 4xN grid depending on how many there are, sized to fit the available
+ * constraints while keeping each tile's own cover aspect ratio.
+ *
+ * @param previewDocuments the documents to render as tiles, in order.
+ * @param remainingDocumentCount how many further documents exist beyond [previewDocuments]; drawn
+ *   as a translucent count overlay on the last tile when greater than zero.
+ * @param documentCoverImages cover image bytes keyed by document id.
+ * @param modifier applied to the outer [BoxWithConstraints].
+ */
 @Composable
 private fun FolderCoverMosaic(
     previewDocuments: ImmutableList<DocumentMetadata>,
     remainingDocumentCount: Int,
     documentCoverImages: Map<String, ByteArray>,
     modifier: Modifier = Modifier,
+    onLoadCover: ((DocumentMetadata) -> Unit)? = null,
 ) {
     val spacing = DefaultTeddReaderSpacing.xSmall
     val previewSize = previewDocuments.size
@@ -190,6 +222,10 @@ private fun FolderCoverMosaic(
                 ) {
                     rowDocuments.forEachIndexed { columnIndex, document ->
                         val itemIndex = chunkIndex * columns + columnIndex
+                        val coverImageBytes = documentCoverImages[document.id.value]
+                        LaunchedEffect(document.id.value, coverImageBytes) {
+                            if (coverImageBytes == null && document.supportsRepositoryCover()) onLoadCover?.invoke(document)
+                        }
                         Box(
                             modifier = Modifier
                                 .width(tileWidth)
@@ -197,7 +233,7 @@ private fun FolderCoverMosaic(
                                 .clip(teddReaderShapes().small),
                         ) {
                             DocumentCover(
-                                coverImageBytes = documentCoverImages[document.id.value],
+                                coverImageBytes = coverImageBytes,
                                 sourceUri = document.location.sourceUri.takeIf {
                                     document.format == DocumentFormat.IMAGE
                                 },
@@ -227,3 +263,6 @@ private fun FolderCoverMosaic(
         }
     }
 }
+
+private fun DocumentMetadata.supportsRepositoryCover(): Boolean =
+    format == DocumentFormat.PDF || format == DocumentFormat.EPUB || format == DocumentFormat.CBZ

@@ -7,7 +7,16 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 
+/**
+ * Pins [PdfDocumentParser]'s delegation contract to its injected [PdfMetadataReader]: the reader's page
+ * count and cover bytes pass through unchanged, and an invalid (zero or negative) page count is
+ * floored to 1 rather than producing a page-less document.
+ */
 class PdfDocumentParserTest {
+    /**
+     * A fixed [DocumentLocation] fixture shared by every test in this file; its field values are not
+     * exercised by the parser itself, only passed through to the fake [PdfMetadataReader].
+     */
     private val location = DocumentLocation(
         sourceUri = "file:///book.pdf",
         displayName = "Book.pdf",
@@ -15,6 +24,10 @@ class PdfDocumentParserTest {
         sizeBytes = 12L,
     )
 
+    /**
+     * The parser's page count and format come straight from the injected [PdfMetadataReader], and no
+     * sections are produced.
+     */
     @Test
     fun usesPlatformMetadataReaderPageCount() {
         val bytes = byteArrayOf(1, 2, 3)
@@ -36,6 +49,10 @@ class PdfDocumentParserTest {
         assertEquals(0, document.sections.size)
     }
 
+    /**
+     * Regression guard: a platform reader reporting 0 pages (a malformed or unreadable PDF) must not
+     * produce a page-less document — the count is floored to 1.
+     */
     @Test
     fun coercesInvalidPlatformPageCountToOne() {
         val parser = PdfDocumentParser { _, _ -> 0 }
@@ -50,6 +67,7 @@ class PdfDocumentParserTest {
         assertEquals(1, document.pageCount)
     }
 
+    /** The platform reader's cover bytes pass through [PdfDocumentParser.coverImageBytes] unchanged. */
     @Test
     fun passesThroughPlatformCoverBytes() {
         val bytes = byteArrayOf(9, 8, 7)

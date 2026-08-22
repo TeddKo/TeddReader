@@ -5,9 +5,17 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins [DocumentFormatDetector]'s precedence rules across every input a source can give it — MIME
+ * type, file extension, and (as a last-resort confirmation) the file's own leading bytes — including
+ * its deliberate exclusions: a generic `.zip` (or a ZIP-based format like `.docx`/`.mobi`) must never
+ * be read as a comic just because it shares a CBZ's container format, and a vector `image/svg+xml`
+ * must never be read as a supported raster IMAGE.
+ */
 class DocumentFormatDetectorTest {
     private val detector = DocumentFormatDetector()
 
+    /** TXT is detected by either its MIME type or its `.txt` extension, independent of file content. */
     @Test
     fun detectsTxtByMimeAndExtension() {
         assertEquals(
@@ -20,6 +28,10 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /**
+     * PDF is detected by MIME type, by its `%PDF` byte signature, or by its `.pdf` extension — any one is
+     * sufficient.
+     */
     @Test
     fun detectsPdfByMimeHeaderAndExtension() {
         assertEquals(
@@ -36,6 +48,7 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /** EPUB is detected by either of its two MIME type spellings or its `.epub` extension. */
     @Test
     fun detectsEpubByMimeAndExtension() {
         assertEquals(
@@ -52,6 +65,12 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /**
+     * Regression guard: CBZ is detected only by a comic-specific MIME type or a `.cbz` extension —
+     * never by a generic `application/zip` MIME type alone, even on a file already named `.cbz`
+     * (case-insensitively) — and a plain `.zip` extension with that generic MIME type must resolve to
+     * UNKNOWN.
+     */
     @Test
     fun detectsCbzByComicMimeAndExtensionWithoutAcceptingGenericZip() {
         assertEquals(
@@ -68,6 +87,11 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /**
+     * Raster images are detected by MIME type, by extension (case-insensitively), or by magic-byte
+     * signature; an SVG (`image/svg+xml`, textual `<svg` content) is deliberately not one of them and
+     * must resolve to UNKNOWN.
+     */
     @Test
     fun detectsSupportedRasterImagesByMimeExtensionAndSignature() {
         assertEquals(
@@ -91,6 +115,10 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /**
+     * A plain ZIP, a Word `.docx`, and a Kindle `.mobi` — all container/binary formats this reader
+     * does not parse — must resolve to UNKNOWN rather than being mistaken for a supported format.
+     */
     @Test
     fun rejectsUnsupportedZipDocxAndMobi() {
         assertEquals(
@@ -113,6 +141,10 @@ class DocumentFormatDetectorTest {
         )
     }
 
+    /**
+     * A [DocumentLocation] fixture with the given display name and optional MIME type, at a fixed fake
+     * `file:///` URI.
+     */
     private fun location(
         name: String,
         mimeType: String? = null,

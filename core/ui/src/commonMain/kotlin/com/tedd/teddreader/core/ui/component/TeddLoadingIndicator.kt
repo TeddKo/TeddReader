@@ -17,6 +17,14 @@ import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A [LoadingIndicator] with an optional caption underneath (e.g. "Loading document"), so any screen
+ * that needs to explain what it is waiting for does not have to hand-assemble a [Column] pairing the
+ * spinner with a [Text].
+ *
+ * @param modifier Modifier applied to the indicator's root [Column].
+ * @param message Caption shown under the spinner in a muted color; omitted when null.
+ */
 @Composable
 fun TeddLoadingIndicator(
     modifier: Modifier = Modifier,
@@ -40,6 +48,13 @@ fun TeddLoadingIndicator(
     }
 }
 
+/**
+ * [TeddLoadingIndicator] centered in the full available space, for screens that are entirely blocked
+ * on a load (e.g. opening a document) rather than showing a spinner inline among other content.
+ *
+ * @param modifier Modifier applied before `fillMaxSize()` is added.
+ * @param message Caption shown under the spinner in a muted color; omitted when null.
+ */
 @Composable
 fun TeddFullScreenLoadingIndicator(
     modifier: Modifier = Modifier,
@@ -53,6 +68,7 @@ fun TeddFullScreenLoadingIndicator(
     }
 }
 
+/** Compose preview rendering [TeddLoadingIndicator] with a message and extra padding. */
 @Preview
 @Composable
 private fun TeddLoadingIndicatorPreview() {
