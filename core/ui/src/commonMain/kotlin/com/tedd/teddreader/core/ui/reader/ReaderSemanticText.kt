@@ -27,7 +27,9 @@ import com.tedd.teddreader.core.common.model.ReaderFloat
 import com.tedd.teddreader.core.common.model.ReaderFontFamily
 import com.tedd.teddreader.core.common.model.ReaderDefaultLineHeightMultiplier
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.ReaderTextAlign
+import com.tedd.teddreader.core.common.model.isStandalone
 import com.tedd.teddreader.core.common.model.readerImageSize
 import com.tedd.teddreader.core.common.model.standaloneBlocks
 import com.tedd.teddreader.core.common.model.TextRange
@@ -166,7 +168,7 @@ typealias ReaderFloatTextFitter = (ReaderFloatPlacementRequest) -> ReaderFloatPl
 fun readerReferencedFontHrefs(blocks: List<ReaderBlock>): Set<String> = buildSet {
     blocks.forEach { block ->
         block.style?.fontHref?.let(::add)
-        block.spans.forEach { span -> span.cssStyle?.fontHref?.let(::add) }
+        block.spans.forEach { span -> span.styleDelta?.fontHref?.let(::add) }
     }
 }
 
@@ -477,15 +479,24 @@ fun buildReaderSemanticText(
         annotations.forEach { (tag, value, rangeValue) -> addStringAnnotation(tag, value, rangeValue.first, rangeValue.last + 1) }
     }
 
+    // Wrappers paint first (outermost lowest), then styled leaf blocks paint their own boxes on top —
+    // the box a leaf used to get from its parse-time container twin now comes straight from the leaf.
+    // Standalone image kinds are excluded: the image box paints its own background and borders.
     val containerDecorations = clampedBlocks
         .asSequence()
-        .filter { it.block.kind == ReaderBlockKind.CONTAINER }
+        .filter { block ->
+            block.block.kind == ReaderBlockKind.CONTAINER || !block.block.kind.isStandalone()
+        }
         .mapNotNull { block ->
             block.block.style?.boxStyle
                 ?.takeUnless(ReaderBoxStyle::isEmpty)
                 ?.let { boxStyle -> block to boxStyle }
         }
-        .sortedWith(compareBy<Pair<ClampedBlock, ReaderBoxStyle>> { it.first.block.level }.thenBy { it.first.index })
+        .sortedWith(
+            compareBy<Pair<ClampedBlock, ReaderBoxStyle>> { if (it.first.block.kind == ReaderBlockKind.CONTAINER) 0 else 1 }
+                .thenBy { it.first.block.level }
+                .thenBy { it.first.index },
+        )
         .mapNotNull { (block, boxStyle) ->
             val start = blockDisplayStart[block.index] ?: sourceToDisplay[block.localStart]
             val end = sourceToDisplay[block.localEnd]
@@ -682,27 +693,23 @@ private fun containerEdgeEm(
     gapEnd: Int,
     emInPx: Float,
 ): Float {
-    // A styled block element records a container twin over exactly its own range *with the same style*,
-    // so its margins and padding already reach the gap through the leaf itself (see blockGapEm);
-    // counting the twin's too doubled every styled paragraph's spacing. Only its border — which no leaf
-    // accounts for — is added. A genuine wrapper whose range merely coincides with its single child's
-    // (a chapter-title box holding one heading, say) carries a different style, keeps its padding here,
-    // and the painter then grows the box by that same padding into the space this reserves.
-    val leafKeys = blocks
-        .filter { it.block.kind != ReaderBlockKind.CONTAINER }
-        .mapTo(HashSet()) { Triple(it.localStart, it.localEnd, it.block.style) }
+    // A CONTAINER is always a genuine wrapper (the parser suppresses same-range-same-style twins at the
+    // source), so its margins, padding and borders all need room of their own here — no leaf accounts
+    // for any of them. A leaf block's own padding and margins already reach the gap through blockGapEm,
+    // so a styled leaf only reserves the one thing blockGapEm cannot know about: its border strokes.
     var extra = 0f
     blocks.forEach { block ->
-        if (block.block.kind != ReaderBlockKind.CONTAINER || block.block.isPageContainer) return@forEach
         val style = block.block.style ?: return@forEach
-        val isLeafTwin = Triple(block.localStart, block.localEnd, block.block.style) in leafKeys
+        val isWrapper = block.block.kind == ReaderBlockKind.CONTAINER
+        if (isWrapper && block.block.isPageContainer) return@forEach
+        if (!isWrapper && block.block.kind.isStandalone()) return@forEach
         if (block.localStart in gapStart..gapEnd) {
             extra += style.boxStyle?.borderTop.widthEm(emInPx) +
-                (if (isLeafTwin) 0f else (style.paddingTopEm ?: 0f) + (style.marginTopEm ?: 0f))
+                (if (isWrapper) (style.paddingTopEm ?: 0f) + (style.marginTopEm ?: 0f) else 0f)
         }
         if (block.localEnd in gapStart..gapEnd) {
             extra += style.boxStyle?.borderBottom.widthEm(emInPx) +
-                (if (isLeafTwin) 0f else (style.paddingBottomEm ?: 0f) + (style.marginBottomEm ?: 0f))
+                (if (isWrapper) (style.paddingBottomEm ?: 0f) + (style.marginBottomEm ?: 0f) else 0f)
         }
     }
     return extra
@@ -958,26 +965,44 @@ private fun inlineSpanStyle(
         ReaderInlineStyle.LINK -> SpanStyle(textDecoration = TextDecoration.Underline)
         null -> null
     }
-    val cssStyle = span.cssStyle?.toComposeSpanStyle(embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled)
+    val deltaStyle = span.styleDelta?.toComposeSpanStyle(embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled)
     return when {
-        semanticStyle == null -> cssStyle
-        cssStyle == null -> semanticStyle
-        else -> semanticStyle.merge(cssStyle)
+        semanticStyle == null -> deltaStyle
+        deltaStyle == null -> semanticStyle
+        else -> semanticStyle.merge(deltaStyle)
     }
 }
 
-private fun ReaderBlockStyle.toComposeSpanStyle(
+private fun ReaderSpanStyle.toComposeSpanStyle(
     embeddedFontFamiliesByHref: Map<String, FontFamily>,
     publisherColorsEnabled: Boolean,
     publisherFontsEnabled: Boolean,
 ): SpanStyle = SpanStyle(
     fontWeight = bold?.let { if (it) FontWeight.Bold else FontWeight.Normal },
     fontStyle = italic?.let { if (it) FontStyle.Italic else FontStyle.Normal },
+    // A span's em is resolved by Compose against the size already in force at its position, which is
+    // exactly what a delta ratio means — no re-anchoring to the reader's base here.
     fontSize = fontScale?.em ?: TextUnit.Unspecified,
     fontFamily = toComposeFontFamily(embeddedFontFamiliesByHref).takeIf { publisherFontsEnabled },
     color = foregroundColor.takeIf { publisherColorsEnabled }?.toColor() ?: Color.Unspecified,
     textDecoration = toTextDecoration(),
 )
+
+/** The embedded or generic family this span delta asks for, on the same terms as the block resolver. */
+private fun ReaderSpanStyle.toComposeFontFamily(embeddedFontFamiliesByHref: Map<String, FontFamily>): FontFamily? =
+    fontHref?.let(embeddedFontFamiliesByHref::get)
+        ?: fontFamily?.toComposeFontFamily()
+        ?: fontFamilyName.toComposeFontFamilyOrNull()
+
+/** The decoration this span delta asks for, on the same terms as [ReaderBlockStyle.toTextDecoration]. */
+private fun ReaderSpanStyle.toTextDecoration(): TextDecoration? = when {
+    underline == true && lineThrough == true ->
+        TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+    underline == true -> TextDecoration.Underline
+    lineThrough == true -> TextDecoration.LineThrough
+    underline == false || lineThrough == false -> TextDecoration.None
+    else -> null
+}
 
 /**
  * The decoration this style asks for, or null when the book said nothing about it.

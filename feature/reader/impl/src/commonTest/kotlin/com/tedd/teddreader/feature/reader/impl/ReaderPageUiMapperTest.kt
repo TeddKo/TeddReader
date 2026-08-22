@@ -8,6 +8,7 @@ import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PaginatedDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderSpan
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,7 +45,7 @@ class ReaderPageUiMapperTest {
             range = TextRange(0, 4),
             style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
             spans = listOf(
-                ReaderSpan(range = TextRange(1, 3), cssStyle = ReaderBlockStyle(fontHref = "fonts/inline.otf")),
+                ReaderSpan(range = TextRange(1, 3), styleDelta = ReaderSpanStyle(fontHref = "fonts/inline.otf")),
             ),
         )
         val page = readerPageUi(

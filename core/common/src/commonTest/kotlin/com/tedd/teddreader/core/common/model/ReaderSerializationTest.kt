@@ -56,21 +56,17 @@ class ReaderSerializationTest {
     }
 
     @Test
-    fun readerSpanWithInlineCssStyleRoundTripsThroughJson() {
+    fun readerSpanWithInlineStyleDeltaRoundTripsThroughJson() {
         val span = ReaderSpan(
             range = TextRange(3, 7),
             style = null,
-            cssStyle = ReaderBlockStyle(
+            styleDelta = ReaderSpanStyle(
                 fontScale = 0.8f,
                 italic = true,
                 foregroundColor = ReaderColor(0xFF011689),
                 fontFamilyName = "KoPub",
                 fontHref = "OPS/fonts/KoPub.otf",
-                boxStyle = ReaderBoxStyle(
-                    backgroundColor = ReaderColor(0x00FFFFFF),
-                    borderBottom = ReaderBorder(widthPx = 2f, color = ReaderColor(0xFF011689)),
-                    borderRadiusPercent = 50f,
-                ),
+                underline = false,
             ),
         )
 

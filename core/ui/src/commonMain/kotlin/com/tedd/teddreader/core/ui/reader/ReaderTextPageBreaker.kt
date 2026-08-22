@@ -5,15 +5,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.sp
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.layoutKey
-import com.tedd.teddreader.core.designsystem.readerTextStyle
 import kotlin.math.roundToInt
 
 /**
@@ -75,24 +72,17 @@ fun rememberReaderPageBreaker(
     val density = LocalDensity.current
     return remember(measurer, style.layoutKey(), widthPx, heightPx, density, embeddedFontFamiliesByHref, canMeasure) {
         if (!canMeasure || widthPx <= 0 || heightPx <= 0) return@remember null
-        val embeddedFontFamilies = if (style.fontFamilyName == null) embeddedFontFamiliesByHref else emptyMap()
-        val textStyle = style.readerTextStyle()
-        val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
-        val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
-        val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
-        val emInPx = style.fontSizeSp * density.fontScale
+        val inputs = readerLayoutInputs(
+            style = style,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            density = density,
+            embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+        )
         val floatFitter = readerFloatTextFitter(
             measurer = measurer,
-            textStyle = textStyle,
-            widthPx = widthPx,
-            fontPx = fontPx,
-            lineWidthEm = lineWidthEm,
-            maxHeightEm = maxHeightEm,
-            emInPx = emInPx,
-            embeddedFontFamiliesByHref = embeddedFontFamilies,
+            inputs = inputs,
             publisherColorsEnabled = false,
-            publisherFontsEnabled = style.fontFamilyName == null,
-            lineHeightMultiplier = style.lineHeightMultiplier,
         )
         ReaderPageBreaker { text, blocks ->
             if (text.isEmpty()) {
@@ -101,18 +91,18 @@ fun rememberReaderPageBreaker(
                 val semanticText = buildReaderSemanticText(
                     text = text,
                     blocks = blocks,
-                    lineWidthEm = lineWidthEm,
-                    maxHeightEm = maxHeightEm,
-                    emInPx = emInPx,
-                    embeddedFontFamiliesByHref = embeddedFontFamilies,
+                    lineWidthEm = inputs.lineWidthEm,
+                    maxHeightEm = inputs.maxHeightEm,
+                    emInPx = inputs.emInPx,
+                    embeddedFontFamiliesByHref = inputs.embeddedFontFamiliesByHref,
                     publisherColorsEnabled = false,
-                    publisherFontsEnabled = style.fontFamilyName == null,
+                    publisherFontsEnabled = inputs.publisherFontsEnabled,
                     floatTextFitter = floatFitter,
-                    lineHeightMultiplier = style.lineHeightMultiplier,
+                    lineHeightMultiplier = inputs.lineHeightMultiplier,
                 )
                 val layout = measurer.measure(
                     text = semanticText.annotatedString,
-                    style = textStyle,
+                    style = inputs.textStyle,
                     constraints = Constraints(maxWidth = widthPx),
                     placeholders = semanticText.placeholders.map { placeholder ->
                         AnnotatedString.Range(
@@ -147,23 +137,15 @@ fun rememberReaderPageBreaker(
  */
 fun readerFloatTextFitter(
     measurer: TextMeasurer,
-    textStyle: TextStyle,
-    widthPx: Int,
-    fontPx: Float,
-    lineWidthEm: Float,
-    maxHeightEm: Float,
-    emInPx: Float,
-    embeddedFontFamiliesByHref: Map<String, androidx.compose.ui.text.font.FontFamily>,
+    inputs: ReaderLayoutInputs,
     publisherColorsEnabled: Boolean,
-    publisherFontsEnabled: Boolean,
-    lineHeightMultiplier: Float = 1f,
 ): ReaderFloatTextFitter = { request ->
     val paragraphStart = maxOf(request.paragraphRange.start, request.imageBlock.range.end)
     val paragraphEnd = request.paragraphRange.end
     if (paragraphEnd <= paragraphStart) {
         emptyFloatPlacement(paragraphStart)
     } else {
-        val availableWidthPx = (widthPx - request.imageSize.widthEm * fontPx).roundToInt().coerceAtLeast(0)
+        val availableWidthPx = (inputs.widthPx - request.imageSize.widthEm * inputs.fontPx).roundToInt().coerceAtLeast(0)
         if (availableWidthPx <= 0) {
             emptyFloatPlacement(paragraphStart)
         } else {
@@ -175,21 +157,21 @@ fun readerFloatTextFitter(
                 text = paragraphText,
                 blocks = request.blocks,
                 range = paragraphRange,
-                lineWidthEm = lineWidthEm,
-                maxHeightEm = maxHeightEm,
-                emInPx = emInPx,
-                embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+                lineWidthEm = inputs.lineWidthEm,
+                maxHeightEm = inputs.maxHeightEm,
+                emInPx = inputs.emInPx,
+                embeddedFontFamiliesByHref = inputs.embeddedFontFamiliesByHref,
                 publisherColorsEnabled = publisherColorsEnabled,
-                publisherFontsEnabled = publisherFontsEnabled,
+                publisherFontsEnabled = inputs.publisherFontsEnabled,
                 floatTextFitter = null,
-                lineHeightMultiplier = lineHeightMultiplier,
+                lineHeightMultiplier = inputs.lineHeightMultiplier,
             )
             if (paragraphSemantic.annotatedString.text.isEmpty()) {
                 emptyFloatPlacement(paragraphStart)
             } else {
                 val paragraphLayout = measurer.measure(
                     text = paragraphSemantic.annotatedString,
-                    style = textStyle,
+                    style = inputs.textStyle,
                     constraints = Constraints(maxWidth = availableWidthPx),
                     placeholders = paragraphSemantic.placeholders.map { placeholder ->
                         AnnotatedString.Range(placeholder.placeholder, placeholder.start, placeholder.end)
@@ -197,7 +179,7 @@ fun readerFloatTextFitter(
                 )
                 var lastLine = -1
                 for (line in 0 until paragraphLayout.lineCount) {
-                    if (paragraphLayout.getLineBottom(line) <= request.imageSize.heightEm * fontPx) lastLine = line else break
+                    if (paragraphLayout.getLineBottom(line) <= request.imageSize.heightEm * inputs.fontPx) lastLine = line else break
                 }
                 if (lastLine < 0) {
                     emptyFloatPlacement(paragraphStart)
@@ -210,14 +192,14 @@ fun readerFloatTextFitter(
                         text = paragraphText.substring(0, fittedLength.coerceAtMost(paragraphText.length)),
                         blocks = request.blocks,
                         range = fittedRange,
-                        lineWidthEm = lineWidthEm,
-                        maxHeightEm = maxHeightEm,
-                        emInPx = emInPx,
-                        embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+                        lineWidthEm = inputs.lineWidthEm,
+                        maxHeightEm = inputs.maxHeightEm,
+                        emInPx = inputs.emInPx,
+                        embeddedFontFamiliesByHref = inputs.embeddedFontFamiliesByHref,
                         publisherColorsEnabled = publisherColorsEnabled,
-                        publisherFontsEnabled = publisherFontsEnabled,
+                        publisherFontsEnabled = inputs.publisherFontsEnabled,
                         floatTextFitter = null,
-                        lineHeightMultiplier = lineHeightMultiplier,
+                        lineHeightMultiplier = inputs.lineHeightMultiplier,
                     )
                     ReaderFloatPlacement(fittedRange, fittedText)
                 }

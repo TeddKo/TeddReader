@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderBlockStyle
+import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.ReaderBorder
 import com.tedd.teddreader.core.common.model.ReaderBoxStyle
 import com.tedd.teddreader.core.common.model.ReaderColor
@@ -254,7 +255,6 @@ class EpubXhtmlParserTest {
             """.trimIndent()
         val content = parseXhtmlContent(
             xhtml = """<p><span class="frame"><img src="plate.jpg" style="width:90%"/></span></p>""",
-            styleSheet = parseEpubStyleSheet(stylesheetCss),
             css = EpubCss.parse(listOf(stylesheetCss)),
         )
 
@@ -464,7 +464,7 @@ class EpubXhtmlParserTest {
 
         val span = content.blocks.single().spans.single()
         assertEquals(null, span.style)
-        assertEquals(ReaderBlockStyle(fontScale = 0.8f, italic = true), span.cssStyle)
+        assertEquals(ReaderSpanStyle(fontScale = 0.8f, italic = true), span.styleDelta)
         assertEquals("soft", content.text.substring(span.range.start.toInt(), span.range.end.toInt()))
     }
 
@@ -643,7 +643,7 @@ class EpubXhtmlParserTest {
             block.style,
         )
         assertEquals(ReaderInlineStyle.LINK, link.style)
-        assertEquals(null, link.cssStyle)
+        assertEquals(null, link.styleDelta)
     }
 
     @Test
@@ -708,7 +708,7 @@ class EpubXhtmlParserTest {
         assertEquals(0f, quote.style?.marginBottomEm)
 
         val link = content.blocks.flatMap { it.spans }.first { it.style == ReaderInlineStyle.LINK }
-        assertEquals(false, link.cssStyle?.underline)
+        assertEquals(false, link.styleDelta?.underline)
     }
 
     /**

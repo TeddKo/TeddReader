@@ -271,11 +271,11 @@ class PaginatedDocumentTest {
                             spans = listOf(
                                 ReaderSpan(
                                     range = TextRange(0, 4),
-                                    cssStyle = ReaderBlockStyle(fontHref = "fonts/inline.otf"),
+                                    styleDelta = ReaderSpanStyle(fontHref = "fonts/inline.otf"),
                                 ),
                                 ReaderSpan(
                                     range = TextRange(5, 9),
-                                    cssStyle = ReaderBlockStyle(fontHref = "fonts/body.otf"),
+                                    styleDelta = ReaderSpanStyle(fontHref = "fonts/body.otf"),
                                 ),
                             ),
                         ),

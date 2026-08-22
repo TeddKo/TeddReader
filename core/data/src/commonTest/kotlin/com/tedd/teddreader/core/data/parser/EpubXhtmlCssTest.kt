@@ -218,8 +218,8 @@ class EpubXhtmlCssTest {
         assertEquals(true, paragraph.style?.underline)
         assertEquals(true, paragraph.style?.lineThrough)
         val link = paragraph.spans.single()
-        assertEquals(false, link.cssStyle?.underline)
-        assertEquals(false, link.cssStyle?.lineThrough)
+        assertEquals(false, link.styleDelta?.underline)
+        assertEquals(false, link.styleDelta?.lineThrough)
     }
 
     /**
@@ -235,7 +235,7 @@ class EpubXhtmlCssTest {
 
         val paragraph = content.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }
         assertEquals(0.9f, paragraph.style?.fontScale)
-        assertEquals(0.9f, paragraph.spans.single().cssStyle?.fontScale)
+        assertEquals(0.9f, paragraph.spans.single().styleDelta?.fontScale)
     }
 
     /**
@@ -299,5 +299,66 @@ class EpubXhtmlCssTest {
         val block = neutral.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }
         assertEquals(0.9f, block.style?.fontScale)
         assertTrue(content.blocks.isNotEmpty())
+    }
+
+    /**
+     * Contract: a CONTAINER block is always a genuine wrapper. A styled block element wrapping exactly
+     * one text run carries its whole style — box included — on the leaf block alone; recording a
+     * same-range-same-style CONTAINER twin beside it forced every renderer to re-detect the duplication
+     * to avoid double-counting its spacing, which is precisely the class of bug this suppression removes.
+     */
+    @Test
+    fun aStyledBlockElementRecordsNoContainerTwin() {
+        val content = parse(
+            """<p class="boxed">본문</p>""",
+            ".boxed { border: 1px solid black; padding: 1em; margin-bottom: 2em }",
+        )
+
+        assertTrue(content.blocks.none { it.kind == ReaderBlockKind.CONTAINER })
+        val leaf = content.blocks.single { it.kind == ReaderBlockKind.PARAGRAPH }
+        assertEquals(2f, leaf.style?.marginBottomEm)
+        assertTrue(leaf.style?.boxStyle?.borderTop != null)
+    }
+
+    /** A wrapper enclosing more than one block keeps its own CONTAINER — that box is genuinely its own. */
+    @Test
+    fun aWrapperAroundSeveralParagraphsKeepsItsContainer() {
+        val content = parse(
+            """<div class="frame"><p>하나</p><p>둘</p></div>""",
+            ".frame { border: 1px solid black; padding: 1em }",
+        )
+
+        val container = content.blocks.single { it.kind == ReaderBlockKind.CONTAINER }
+        val paragraphs = content.blocks.filter { it.kind == ReaderBlockKind.PARAGRAPH }
+        assertEquals(2, paragraphs.size)
+        assertTrue(container.range.start <= paragraphs.first().range.start)
+        assertTrue(container.range.end >= paragraphs.last().range.end)
+    }
+
+    /**
+     * A genuine wrapper whose range merely coincides with its single child's — a chapter-title box
+     * holding one heading — has a *different* style from the leaf, and must keep its CONTAINER: its
+     * padding and border are the box the book drew around the heading, not the heading's own.
+     */
+    @Test
+    fun aWrapperWithItsOwnStyleKeepsItsContainerEvenOverOneChild() {
+        val content = parse(
+            """<div class="titlebox"><h1>제목</h1></div>""",
+            ".titlebox { border: 1px solid black; padding: 1em }",
+        )
+
+        assertTrue(content.blocks.any { it.kind == ReaderBlockKind.CONTAINER })
+        assertTrue(content.blocks.any { it.kind == ReaderBlockKind.HEADING })
+    }
+
+    /** html/body page containers are always recorded — page margins and background are read off them. */
+    @Test
+    fun pageContainersAreAlwaysRecorded() {
+        val content = parse(
+            """<html><body><p>본문</p></body></html>""",
+            "body { margin: 2em }",
+        )
+
+        assertTrue(content.blocks.any { it.kind == ReaderBlockKind.CONTAINER && it.isPageContainer })
     }
 }

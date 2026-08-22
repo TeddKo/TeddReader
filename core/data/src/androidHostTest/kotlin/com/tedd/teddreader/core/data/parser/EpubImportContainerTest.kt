@@ -24,11 +24,8 @@ class EpubImportContainerTest {
             parseEpubSpineItem(container, spinePosition = 0, sectionIndex = 0, baseOffset = 0L)
             parseEpubSpineItem(container, spinePosition = 1, sectionIndex = 1, baseOffset = 100L)
 
-            assertEquals(setOf("OEBPS/styles/shared.css"), container.linkedStyleSheetCache.keys)
             assertEquals(setOf("OEBPS/styles/shared.css"), container.linkedCssCache.keys)
-            assertEquals(1, container.linkedStyleSheetCache.size)
             assertEquals(1, container.linkedCssCache.size)
-            assertTrue(container.linkedStyleSheetCache.values.first().widthFor(listOf("lead")) != null)
             assertTrue(container.linkedCssCache.values.first() != EpubCss.Empty)
         } finally {
             runCatching { fileSystem.delete(path) }
