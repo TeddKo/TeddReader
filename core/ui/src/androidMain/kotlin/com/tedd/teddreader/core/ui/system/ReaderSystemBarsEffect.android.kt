@@ -18,6 +18,28 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 
+/**
+ * Android's [ReaderSystemBarsEffect]: takes over the enclosing [android.app.Activity]'s [Window]
+ * chrome for as long as this composable stays on screen, then hands every mutated piece of window
+ * state back to what it was on [DisposableEffect]'s `onDispose` — bar colors, the decor view's
+ * background, contrast enforcement, and icon appearance are all captured with `remember(window)`
+ * before this effect touches anything, specifically so leaving the reader (or backgrounding the
+ * activity) cannot leave the rest of the app looking like the reader.
+ *
+ * The actual application runs from both [SideEffect] (so it lands after every successful
+ * recomposition, even ones that did not change [visible]/[backgroundColor]/[keepScreenOn]) and
+ * [LaunchedEffect] keyed on those three values plus `window`/`view` (so hiding the bars, which needs
+ * a second, deferred `view.post` call to take effect reliably, only re-runs when something the
+ * effect actually cares about changed). Running the visible bar-hide from both is intentional
+ * duplication that keeps the immediate frame and the settled state consistent.
+ *
+ * @param visible Whether the status/navigation bars should be shown; false also degrades contrast
+ * enforcement so the reader's own background can show through the bar areas.
+ * @param backgroundColor Colors the status/navigation bars and the decor view background to match
+ * the reader page, and its [luminance] decides whether system bar icons render light or dark.
+ * @param keepScreenOn Sets the reader's view `keepScreenOn` flag for as long as this effect is
+ * composed; always cleared back to false on dispose.
+ */
 @Composable
 actual fun ReaderSystemBarsEffect(
     visible: Boolean,
@@ -78,12 +100,31 @@ actual fun ReaderSystemBarsEffect(
     }
 }
 
+/**
+ * Unwraps a Compose [LocalView]'s [Context] to the [Activity] that owns its [Window], since Compose
+ * only guarantees the view's context is *some* [ContextWrapper] chain leading to an activity, not
+ * that it is the activity itself directly.
+ *
+ * @receiver A view context, potentially wrapped (e.g. by a `ContextThemeWrapper`).
+ * @return The owning [Activity], or null if none of the wrapper chain is one (which should not
+ * happen for a view actually attached to an activity window, but is handled defensively).
+ */
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
 
+/**
+ * Shows or hides the status and navigation bars, using [WindowInsetsController] from API 30 onward
+ * and falling back to the deprecated `systemUiVisibility` flags on older releases, since
+ * [WindowInsetsController] does not exist before API 30. Hiding also sets
+ * `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` so a swipe can still reveal the bars temporarily, matching
+ * the immersive-but-recoverable behavior the reader wants while its own chrome is hidden.
+ *
+ * @receiver The window whose system bars should be shown or hidden.
+ * @param visible Whether the bars should be shown (true) or hidden (false).
+ */
 @Suppress("DEPRECATION")
 private fun Window.setSystemBarsVisible(visible: Boolean) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -111,6 +152,18 @@ private fun Window.setSystemBarsVisible(visible: Boolean) {
     }
 }
 
+/**
+ * Toggles the platform's automatic scrim behind the status/navigation bars — the dimming Android
+ * applies by default to keep bar icons legible over arbitrary content — which is only available from
+ * API 29 onward and is a no-op below that. The reader turns this off because it already colors the
+ * bars to match the page background and computes its own icon appearance from that color, so the
+ * platform's own scrim would fight with a background the reader has already made legible on purpose.
+ *
+ * @receiver The window to change contrast enforcement on.
+ * @param statusBar Whether the platform's own contrast scrim is enforced behind the status bar.
+ * @param navigationBar Whether it is enforced behind the navigation bar; defaults to [statusBar]'s
+ * value when the two are not being set independently.
+ */
 private fun Window.setSystemBarContrastEnforced(
     statusBar: Boolean,
     navigationBar: Boolean = statusBar,
@@ -121,6 +174,17 @@ private fun Window.setSystemBarContrastEnforced(
     }
 }
 
+/**
+ * Switches the status/navigation bar icons and text between light and dark styling to stay legible
+ * against [lightBackground], using [WindowInsetsController]'s appearance flags from API 30 onward
+ * and the older `SYSTEM_UI_FLAG_LIGHT_*`/`systemUiVisibility` flags on earlier releases (status-bar
+ * light icons from API 23, navigation-bar light icons from API 26 — below those levels the icon
+ * color simply cannot be changed, so this silently has no visible effect there).
+ *
+ * @receiver The window to restyle system bar icons on.
+ * @param lightBackground Whether the bars now sit over a light background and therefore need dark
+ * icons for contrast.
+ */
 private fun Window.setSystemBarIconAppearance(lightBackground: Boolean) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         val appearance = if (lightBackground) {
@@ -155,6 +219,17 @@ private fun Window.setSystemBarIconAppearance(lightBackground: Boolean) {
     decorView.systemUiVisibility = flags
 }
 
+/**
+ * Reverses [setSystemBarIconAppearance] on dispose, restoring the exact icon-appearance bits this
+ * screen found in place before it started (captured as `originalSystemBarIconAppearance`), rather
+ * than assuming the app's default is "dark icons" — a caller that had already set light icons of its
+ * own would otherwise have that choice silently overwritten once the reader closes.
+ *
+ * @receiver The window to restore system bar icon appearance on.
+ * @param originalAppearance The pre-effect appearance bitmask, in the same encoding
+ * [setSystemBarIconAppearance] and this app's window originally used for the current API level
+ * (`WindowInsetsController` appearance flags from API 30, `systemUiVisibility` flags below it).
+ */
 private fun Window.restoreSystemBarIconAppearance(originalAppearance: Int) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
         insetsController?.setSystemBarsAppearance(

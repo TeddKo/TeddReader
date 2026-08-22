@@ -4,13 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.layoutKey
 import com.tedd.teddreader.core.designsystem.readerTextStyle
+import kotlin.math.roundToInt
 
 /**
  * Page breaker backed by the same text layout the reader page draws with.
@@ -21,30 +25,75 @@ import com.tedd.teddreader.core.designsystem.readerTextStyle
  *
  * ponytail: lays the whole document out once per style/size change. Fine for the documents this
  * reader opens; switch to chunked measurement if a book ever makes that layout too slow.
+ *
+ * The `remember` key is the style's layout key, not the whole style. Colour rides along in `TextStyle`, so
+ * keying on the style handed back a different breaker on every theme switch and measured every page in the
+ * book again for a change that cannot move a line. The captured style keeps whatever colour it was built
+ * with, which is harmless because nothing here draws.
+ *
+ * A pane of zero width or height yields null rather than a breaker. A breaker built before the pane is
+ * measured can only answer "I measured nothing", and handing that to the reader silently disables measured
+ * pagination for the whole book — every page then comes from the estimate, which cannot know the line
+ * height the book's stylesheet asks for. EPUB also waits until every referenced embedded font has either
+ * resolved or failed, so the first measurement uses the same font families the page surface will draw.
+ *
+ * Two em conversions appear inside, deliberately different. The text one goes through [LocalDensity] so a
+ * page is measured in the same pixels it will be drawn in (see EpubPageSurface). The image one uses the
+ * font size scaled only by the accessibility font scale, because an image's intrinsic size is in CSS
+ * pixels, which are density-independent.
+ *
+ * A page holds a line back from its usable height. The chapter is laid out once, in full, and split by line
+ * position; each page is then drawn on its own, and the two layouts never agree to the pixel — justified
+ * text, and an opening line that is a middle line here but a first line there, shift things a little — so a
+ * page filled to the last hairline loses the bottom of its final line. One line is the smallest slack that
+ * absorbs that rather than most of it: it costs a page a line where the fit was that tight, and a clipped
+ * line costs the reader a line of the book. The first line's height is only a sample, since a chapter mixes
+ * heading, quote and picture lines and the line landing on the boundary may be taller, so [PageSlack]
+ * floors the slack at a share of the page instead of trusting whichever line happened to be measured.
+ *
+ * A page then breaks at the first line whose *measured box bottom* passes that usable height, which stays
+ * correct when line boxes are not uniform.
+ *
+ * @param style the reading style; only its layout key affects where pages break.
+ * @param widthPx the drawn text area's width in pixels — the pane minus its margins, not the pane.
+ * @param heightPx the drawn text area's height in pixels, on the same terms.
+ * @param embeddedFontFamiliesByHref resolved embedded font families keyed by href, shared with the page surface.
+ * @param canMeasure whether the caller has enough viewport/font state to trust a first measurement yet.
+ * @return a breaker that measures with the reader's own text layout, or null while the pane has no real
+ * size or the caller is still waiting on required font resolution — in which case the caller must not treat
+ * the absence as "no pages".
  */
 @Composable
-fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): ReaderPageBreaker? {
+fun rememberReaderPageBreaker(
+    style: ReaderStyle,
+    widthPx: Int,
+    heightPx: Int,
+    embeddedFontFamiliesByHref: Map<String, androidx.compose.ui.text.font.FontFamily> = emptyMap(),
+    canMeasure: Boolean = true,
+): ReaderPageBreaker? {
     val measurer = rememberTextMeasurer(cacheSize = 0)
-    val textStyle = style.readerTextStyle()
     val density = LocalDensity.current
-    // Keyed on the type rather than the whole text style: the colour rides along in TextStyle, so a
-    // theme switch handed back a different instance and every page in the book was measured again for
-    // a change that cannot move a line. The captured style keeps whatever colour it was built with,
-    // which is fine because nothing here draws.
-    return remember(measurer, style.layoutKey(), widthPx, heightPx, density) {
-        // No pane, no measurement. A breaker built before the pane is measured can only answer "I
-        // measured nothing", and announcing it hands the reader something that silently disables
-        // measured pagination for the whole book — every page then comes from the estimate, which
-        // cannot know the line height the book's stylesheet sets.
-        if (widthPx <= 0 || heightPx <= 0) return@remember null
-        // Same em conversion the render side uses (see EpubPageSurface), so a standalone image is
-        // paginated with the exact box it will actually be drawn into.
+    return remember(measurer, style.layoutKey(), widthPx, heightPx, density, embeddedFontFamiliesByHref, canMeasure) {
+        if (!canMeasure || widthPx <= 0 || heightPx <= 0) return@remember null
+        val embeddedFontFamilies = if (style.fontFamilyName == null) embeddedFontFamiliesByHref else emptyMap()
+        val textStyle = style.readerTextStyle()
         val fontPx = with(density) { style.fontSizeSp.sp.toPx() }
         val lineWidthEm = if (fontPx > 0f) widthPx / fontPx else 0f
         val maxHeightEm = if (fontPx > 0f) heightPx / fontPx else 0f
-        // An image's intrinsic size is in CSS pixels, which are density-independent, so one em is the
-        // font size in dp rather than in device pixels.
         val emInPx = style.fontSizeSp * density.fontScale
+        val floatFitter = readerFloatTextFitter(
+            measurer = measurer,
+            textStyle = textStyle,
+            widthPx = widthPx,
+            fontPx = fontPx,
+            lineWidthEm = lineWidthEm,
+            maxHeightEm = maxHeightEm,
+            emInPx = emInPx,
+            embeddedFontFamiliesByHref = embeddedFontFamilies,
+            publisherColorsEnabled = false,
+            publisherFontsEnabled = style.fontFamilyName == null,
+            lineHeightMultiplier = style.lineHeightMultiplier,
+        )
         ReaderPageBreaker { text, blocks ->
             if (text.isEmpty()) {
                 IntArray(0)
@@ -55,6 +104,11 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
                     lineWidthEm = lineWidthEm,
                     maxHeightEm = maxHeightEm,
                     emInPx = emInPx,
+                    embeddedFontFamiliesByHref = embeddedFontFamilies,
+                    publisherColorsEnabled = false,
+                    publisherFontsEnabled = style.fontFamilyName == null,
+                    floatTextFitter = floatFitter,
+                    lineHeightMultiplier = style.lineHeightMultiplier,
                 )
                 val layout = measurer.measure(
                     text = semanticText.annotatedString,
@@ -70,22 +124,9 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
                 )
                 val starts = mutableListOf(0)
                 var pageTop = layout.getLineTop(0)
-                // The chapter is laid out once, in full, and split by line position; each page is then
-                // drawn on its own. The two layouts never agree to the pixel — justified text, and an
-                // opening line that is a middle line here but a first line there, shift things a
-                // little — so a page filled to the last hairline loses the bottom of its final line.
-                // One line is held back, which is the smallest amount that absorbs any disagreement
-                // rather than most of it. It costs a page a line where the fit was that tight, and
-                // a clipped line costs the reader a line of the book.
-                // The first line is only a sample; a chapter mixes heading lines, quote lines and
-                // picture lines, and the line that lands on a page boundary may be taller than it.
-                // A slack of one page-relative step covers that without depending on which line
-                // happened to be measured.
                 val firstLineHeight = layout.getLineBottom(0) - layout.getLineTop(0)
                 val usableHeight = heightPx - maxOf(firstLineHeight * LineSlack, heightPx * PageSlack)
                 for (line in 1 until layout.lineCount) {
-                    // A line that would reach past the bottom of the pane starts the next page. Using
-                    // the measured box bottom keeps this correct when line boxes are not uniform.
                     if (layout.getLineBottom(line) - pageTop > usableHeight) {
                         starts += semanticText.sourceOffsetFor(layout.getLineStart(line))
                         pageTop = layout.getLineTop(line)
@@ -97,8 +138,102 @@ fun rememberReaderPageBreaker(style: ReaderStyle, widthPx: Int, heightPx: Int): 
     }
 }
 
-/** Lines held back from each page, so the drawn page can differ from the measured one. */
+/**
+ * Builds the shared float fitter used by both pagination and rendering.
+ *
+ * The fitter measures the remaining paragraph beside a floated image once, finds the last full line that fits
+ * under the image height, then rebuilds only that consumed prefix as semantic text. Sharing the callback is
+ * what keeps the placeholder's consumed source range identical in the breaker and the page surface.
+ */
+fun readerFloatTextFitter(
+    measurer: TextMeasurer,
+    textStyle: TextStyle,
+    widthPx: Int,
+    fontPx: Float,
+    lineWidthEm: Float,
+    maxHeightEm: Float,
+    emInPx: Float,
+    embeddedFontFamiliesByHref: Map<String, androidx.compose.ui.text.font.FontFamily>,
+    publisherColorsEnabled: Boolean,
+    publisherFontsEnabled: Boolean,
+    lineHeightMultiplier: Float = 1f,
+): ReaderFloatTextFitter = { request ->
+    val paragraphStart = maxOf(request.paragraphRange.start, request.imageBlock.range.end)
+    val paragraphEnd = request.paragraphRange.end
+    if (paragraphEnd <= paragraphStart) {
+        emptyFloatPlacement(paragraphStart)
+    } else {
+        val availableWidthPx = (widthPx - request.imageSize.widthEm * fontPx).roundToInt().coerceAtLeast(0)
+        if (availableWidthPx <= 0) {
+            emptyFloatPlacement(paragraphStart)
+        } else {
+            val paragraphStartLocal = (paragraphStart - request.range.start).toInt()
+            val paragraphEndLocal = (paragraphEnd - request.range.start).toInt()
+            val paragraphText = request.text.substring(paragraphStartLocal, paragraphEndLocal)
+            val paragraphRange = TextRange(paragraphStart, paragraphEnd)
+            val paragraphSemantic = buildReaderSemanticText(
+                text = paragraphText,
+                blocks = request.blocks,
+                range = paragraphRange,
+                lineWidthEm = lineWidthEm,
+                maxHeightEm = maxHeightEm,
+                emInPx = emInPx,
+                embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+                publisherColorsEnabled = publisherColorsEnabled,
+                publisherFontsEnabled = publisherFontsEnabled,
+                floatTextFitter = null,
+                lineHeightMultiplier = lineHeightMultiplier,
+            )
+            if (paragraphSemantic.annotatedString.text.isEmpty()) {
+                emptyFloatPlacement(paragraphStart)
+            } else {
+                val paragraphLayout = measurer.measure(
+                    text = paragraphSemantic.annotatedString,
+                    style = textStyle,
+                    constraints = Constraints(maxWidth = availableWidthPx),
+                    placeholders = paragraphSemantic.placeholders.map { placeholder ->
+                        AnnotatedString.Range(placeholder.placeholder, placeholder.start, placeholder.end)
+                    },
+                )
+                var lastLine = -1
+                for (line in 0 until paragraphLayout.lineCount) {
+                    if (paragraphLayout.getLineBottom(line) <= request.imageSize.heightEm * fontPx) lastLine = line else break
+                }
+                if (lastLine < 0) {
+                    emptyFloatPlacement(paragraphStart)
+                } else {
+                    val displayEnd = paragraphLayout.getLineEnd(lastLine, visibleEnd = false)
+                    val sourceEnd = paragraphSemantic.sourceOffsetFor(displayEnd)
+                    val fittedRange = TextRange(paragraphStart, sourceEnd.toLong())
+                    val fittedLength = (sourceEnd - paragraphStart.toInt()).coerceAtLeast(0)
+                    val fittedText = buildReaderSemanticText(
+                        text = paragraphText.substring(0, fittedLength.coerceAtMost(paragraphText.length)),
+                        blocks = request.blocks,
+                        range = fittedRange,
+                        lineWidthEm = lineWidthEm,
+                        maxHeightEm = maxHeightEm,
+                        emInPx = emInPx,
+                        embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+                        publisherColorsEnabled = publisherColorsEnabled,
+                        publisherFontsEnabled = publisherFontsEnabled,
+                        floatTextFitter = null,
+                        lineHeightMultiplier = lineHeightMultiplier,
+                    )
+                    ReaderFloatPlacement(fittedRange, fittedText)
+                }
+            }
+        }
+    }
+}
+
+/** Lines held back from each page, so the drawn page may differ from the measured one by that much. */
 private const val LineSlack = 1.0f
 
 /** Floor on that slack as a share of the page, for pages whose lines vary in height. */
 private const val PageSlack = 0.04f
+
+private fun emptyFloatPlacement(sourceStart: Long): ReaderFloatPlacement =
+    ReaderFloatPlacement(
+        nestedRange = TextRange(sourceStart, sourceStart),
+        nestedText = ReaderSemanticText(AnnotatedString(""), intArrayOf(sourceStart.toInt()), emptyList()),
+    )

@@ -15,6 +15,9 @@ import androidx.sqlite.execSQL
  * The journal mode itself stays WAL. Switching to a rollback journal would cap the file too, but it
  * makes every write fsync twice and leaves a single connection for readers and the writer to share —
  * and this reader writes a progress row on every page turn.
+ *
+ * @receiver the database builder being configured, so this chains inside the platform builders.
+ * @return the same builder, with an open callback that applies the limit to every connection.
  */
 internal fun RoomDatabase.Builder<TeddReaderDatabase>.withWalSizeLimit(): RoomDatabase.Builder<TeddReaderDatabase> =
     addCallback(
@@ -25,4 +28,5 @@ internal fun RoomDatabase.Builder<TeddReaderDatabase>.withWalSizeLimit(): RoomDa
         },
     )
 
+/** 4 MB: large enough that an ordinary transaction never spills past it, small enough to hand back. */
 private const val WalSizeLimitBytes = 4 * 1024 * 1024

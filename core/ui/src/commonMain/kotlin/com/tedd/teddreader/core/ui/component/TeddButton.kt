@@ -28,13 +28,41 @@ import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * Visual weight of a [TeddButton], chosen by how much attention the action deserves rather than by
+ * which Material button type backs it. A screen picks one value per action instead of reaching for
+ * `Button`/`OutlinedButton`/`TextButton` directly, so emphasis stays a design decision rather than a
+ * component choice made at each call site.
+ */
 enum class TeddButtonEmphasis {
+    /** The filled, highest-weight action on a screen — solid background color. */
     Primary,
+
+    /** A secondary action alongside a primary one — outlined, same shape and padding as [Primary]. */
     Secondary,
+
+    /** A low-emphasis action with no border or fill, for dismissive or optional actions. */
     Text,
+
+    /** A `Text`-styled action that signals an irreversible choice by rendering in the error color. */
     Destructive,
 }
 
+/**
+ * The app's single button surface: one composable that switches between Material's `Button`,
+ * `OutlinedButton`, and `TextButton` depending on [emphasis], so every screen gets the same minimum
+ * touch target, corner shape, and label style no matter which Material button type ends up backing
+ * it. Without this wrapper, every call site would have to remember on its own to pin a 48dp minimum
+ * height, swap in the app's shape scale, and flatten the primary button's elevation to zero.
+ *
+ * @param text The button's label, rendered with [teddReaderTypography]'s `labelLarge` style.
+ * @param onClick Invoked when the button is tapped; never invoked while [enabled] is false.
+ * @param modifier Modifier applied to the underlying Material button, after the enforced 48dp
+ * minimum height is applied.
+ * @param enabled Whether the button responds to taps; false also switches it to its disabled colors.
+ * @param emphasis Which visual treatment to render — see [TeddButtonEmphasis].
+ * @param contentPadding Padding between the button's edge and its label.
+ */
 @Composable
 fun TeddButton(
     text: String,
@@ -100,6 +128,23 @@ fun TeddButton(
     }
 }
 
+/**
+ * A pill-shaped tag used for filters and inline labels. Renders as a tappable [Surface] when
+ * [onClick] is supplied; when it is not, the same border, background, and pill shape are drawn by
+ * hand on plain [Text] instead, because a non-clickable [Surface] would still take part in
+ * touch/semantics handling that a purely informational chip should not. [selected] swaps the
+ * fill/content colors to the secondary-container pair, and on the non-interactive path also marks
+ * the semantics as selected so accessibility services announce the state that would otherwise come
+ * for free from [Surface]'s own `selected` parameter.
+ *
+ * @param text The chip's label, shown on a single line with ellipsis truncation.
+ * @param onClick Invoked when the chip is tapped; when null, the chip renders as static, unclickable
+ * text instead of a [Surface].
+ * @param modifier Modifier applied to the chip's root.
+ * @param enabled Whether the chip responds to taps; only meaningful when [onClick] is non-null.
+ * @param selected Whether the chip is drawn in its selected (secondary-container) colors.
+ * @param contentPadding Padding between the chip's edge and its label.
+ */
 @Composable
 fun TeddChip(
     text: String,
@@ -162,6 +207,7 @@ fun TeddChip(
     }
 }
 
+/** Compose preview rendering [TeddButton] at its default (primary-emphasis) styling. */
 @Preview
 @Composable
 private fun TeddButtonPreview() {

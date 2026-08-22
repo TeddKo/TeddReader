@@ -5,6 +5,7 @@ import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
+import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.sepiaReaderStyle
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
@@ -13,7 +14,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Pins what a reader's settings file may contain and what it must read back as.
+ *
+ * Every case here is an upgrade path: a file written by an older build, a key a newer build added, a value
+ * out of range. Getting one wrong loses a reader's settings on update — which is silent, and only visible
+ * as "the app forgot my font size".
+ */
 class ReaderPreferencesSerializerTest {
+    /** Everything stored survives a write and read unchanged. */
     @Test
     fun preferencesRoundTripThroughJson() = runTest {
         val preferences = ReaderPreferences(
@@ -28,6 +37,7 @@ class ReaderPreferencesSerializerTest {
         assertEquals(preferences, ReaderPreferencesSerializer.readFrom(buffer))
     }
 
+    /** An empty file is a fresh install, not a corrupt one: it reads as the defaults. */
     @Test
     fun blankJsonReturnsDefaultPreferences() = runTest {
         assertEquals(
@@ -36,6 +46,12 @@ class ReaderPreferencesSerializerTest {
         )
     }
 
+    @Test
+    fun defaultPreferencesUsePublisherTheme() = runTest {
+        assertEquals(ReaderThemeMode.PUBLISHER, ReaderPreferencesSerializer.readFrom(Buffer()).style.themeMode)
+    }
+
+    /** Values from replaced pagers and page modes read back as what replaced them. */
     @Test
     fun legacyJsonValuesReadBackAsCanonicalValues() = runTest {
         val legacyContinuousJson = """{"pageTurnMode":"CONTINUOUS"}"""
@@ -64,6 +80,7 @@ class ReaderPreferencesSerializerTest {
         )
     }
 
+    /** A legacy value read from disk is not written straight back out; the file heals itself. */
     @Test
     fun legacyValuesWriteBackAsCanonicalJson() = runTest {
         val buffer = Buffer()
@@ -98,6 +115,7 @@ class ReaderPreferencesSerializerTest {
         assertTrue(sheetFlipJson.contains("SLIDE"))
     }
 
+    /** A key a newer build added is absent from an older file, and falls back rather than failing. */
     @Test
     fun missingAppLanguageDefaultsToSystem() = runTest {
         assertEquals(
@@ -106,6 +124,7 @@ class ReaderPreferencesSerializerTest {
         )
     }
 
+    /** A speed outside the supported range is clamped on read, so no screen has to defend against it. */
     @Test
     fun outOfRangeAutoScrollSpeedReadBackWithinSupportedRange() = runTest {
         assertEquals(

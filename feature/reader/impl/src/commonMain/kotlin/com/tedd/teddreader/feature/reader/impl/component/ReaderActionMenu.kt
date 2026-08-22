@@ -21,6 +21,20 @@ import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.tedd.teddreader.feature.reader.impl.ReaderMenuAction
 
+/**
+ * The reader's top-bar overflow menu: a "more" icon button that, when tapped, opens a dropdown
+ * grouped into navigation, appearance, and reading-tools sections, each rendered by
+ * [ReaderMenuSection]. Every item forwards the [ReaderMenuAction] it represents to
+ * [onActionSelected] and closes itself; this composable only presents the choices, it does not
+ * interpret what an action means.
+ *
+ * @param expanded Whether the dropdown is currently open.
+ * @param isCurrentPageSaved Whether the current page already has a saved place, used to pick the
+ * "save"/"remove saved place" wording for the toggle action.
+ * @param onExpandedChange Invoked when the menu should open or close.
+ * @param onActionSelected Invoked with the action the user picked, after the menu has closed.
+ * @param modifier Applied to the menu's anchor [Box].
+ */
 @Composable
 fun ReaderActionMenu(
     expanded: Boolean,
@@ -82,6 +96,19 @@ fun ReaderActionMenu(
     }
 }
 
+/**
+ * One titled group of menu items inside [ReaderActionMenu]'s dropdown: a section header followed
+ * by one row per [ReaderMenuAction] in [actions], each labeled via [label].
+ *
+ * @param title The section's header text.
+ * @param actions The actions to list, in display order.
+ * @param isCurrentPageSaved Forwarded to [label] for whichever action's wording depends on it;
+ * unused by actions that do not.
+ * @param onActionSelected Invoked with the action the user tapped.
+ * @param onDismiss Invoked alongside [onActionSelected] to close the parent dropdown.
+ * @param modifier Applied to this section's column.
+ * @param headerPadding Padding around the section header text.
+ */
 @Composable
 private fun ReaderMenuSection(
     title: String,
@@ -116,6 +143,14 @@ private fun ReaderMenuSection(
     }
 }
 
+/**
+ * The display label for this action in the reader's action menu.
+ *
+ * @receiver The action to label.
+ * @param isCurrentPageSaved Whether the current page already has a saved place; only
+ * [ReaderMenuAction.ToggleSavedPlace] uses this to pick "save" vs. "remove" wording.
+ * @return The localized label shown for this action.
+ */
 @Composable
 private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (this) {
     ReaderMenuAction.Search -> stringResource(Res.string.search_in_document)
@@ -133,6 +168,7 @@ private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (
     ReaderMenuAction.DocumentInfo -> stringResource(Res.string.document_details)
 }
 
+/** Compose preview of [ReaderActionMenu] in its default, closed state, for the IDE preview pane. */
 @Preview
 @Composable
 private fun ReaderActionMenuPreview() {

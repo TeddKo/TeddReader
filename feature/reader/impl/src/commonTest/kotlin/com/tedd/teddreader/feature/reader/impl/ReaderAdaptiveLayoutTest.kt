@@ -1,6 +1,7 @@
 package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.ui.system.DisplayFold
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
@@ -88,10 +89,19 @@ class ReaderAdaptiveLayoutTest {
     }
 
     @Test
-    fun readProgressCountsTheCurrentPageAndCompletesOnTheLastPage() {
-        assertEquals(0, readerReadProgressPercent(PageIndex(current = 0, total = 0)))
-        assertEquals(5, readerReadProgressPercent(PageIndex(current = 0, total = 20)))
-        assertEquals(50, readerReadProgressPercent(PageIndex(current = 9, total = 20)))
-        assertEquals(100, readerReadProgressPercent(PageIndex(current = 19, total = 20)))
+    fun textReadProgressUsesAbsoluteOffsetAndKeepsTheCurrentValueUntilCharacterCountIsKnown() {
+        assertEquals(0, readerReadProgressPercent(ReaderLocation.TextOffset(12), characterCount = null))
+        assertEquals(37, readerReadProgressPercent(ReaderLocation.TextOffset(12), characterCount = null, currentPercent = 37))
+        assertEquals(0, readerReadProgressPercent(ReaderLocation.TextOffset(0), characterCount = 31))
+        assertEquals(52, readerReadProgressPercent(ReaderLocation.TextOffset(16), characterCount = 31))
+        assertEquals(100, readerReadProgressPercent(ReaderLocation.TextOffset(31), characterCount = 31))
+    }
+
+    @Test
+    fun visualReadProgressStillUsesCurrentPageOverTotalPages() {
+        assertEquals(0, readerVisualReadProgressPercent(PageIndex(current = 0, total = 0)))
+        assertEquals(5, readerVisualReadProgressPercent(PageIndex(current = 0, total = 20)))
+        assertEquals(50, readerVisualReadProgressPercent(PageIndex(current = 9, total = 20)))
+        assertEquals(100, readerVisualReadProgressPercent(PageIndex(current = 19, total = 20)))
     }
 }
