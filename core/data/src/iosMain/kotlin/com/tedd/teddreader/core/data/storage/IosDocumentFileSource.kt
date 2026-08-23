@@ -22,13 +22,38 @@ import platform.posix.memcpy
 class IosDocumentFileSource : DocumentFileSource {
     /**
      * @param location The document to read.
-     * @return The document's raw bytes, read via `NSData` from [location]'s path.
-     * @throws IllegalStateException if no file exists at [location]'s path.
+     * @return The document's raw bytes, read via `NSData` from [location]'s resolved path.
+     * @throws IllegalStateException if no file exists at [location]'s stored path or at the same file
+     *   name under the current container's `Documents`.
      */
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
-        val path = location.sourceUri.removePrefix("file://")
-        val data = NSData.dataWithContentsOfFile(path) ?: error("Cannot open document: ${location.sourceUri}")
+        val path = resolveExistingPath(location) ?: error("Cannot open document: ${location.sourceUri}")
+        val data = NSData.dataWithContentsOfFile(path) ?: error("Cannot open document: $path")
         return data.toByteArray()
+    }
+
+    /**
+     * The filesystem path [location] is actually readable at *now*.
+     *
+     * A stored `sourceUri` is an absolute path, and on iOS an absolute path into the app's own sandbox
+     * does not survive: every reinstall — an Xcode/Studio rebuild onto the simulator, an App Store
+     * update on a device — moves the data container to a new UUID, so the path recorded at import time
+     * points into a container that no longer exists. The file itself does survive: iOS migrates the
+     * container's *contents*, so the same materialized copy sits under the new container's `Documents`
+     * with the same name. Resolving at read time — stored path first, then the same file name under the
+     * current `Documents` — is what keeps every book readable across updates without a stored-row
+     * migration.
+     *
+     * @param location The document whose readable path is wanted.
+     * @return The stored path when it still exists, else the current-container fallback, else null.
+     */
+    private fun resolveExistingPath(location: DocumentLocation): String? {
+        val stored = location.sourceUri.removePrefix("file://")
+        if (fileSize(stored) > 0L) return stored
+        val fileName = stored.substringAfterLast('/')
+        if (fileName.isEmpty()) return null
+        val fallback = "${NSHomeDirectory()}/Documents/$fileName"
+        return fallback.takeIf { fileSize(it) > 0L }
     }
 
     /**
