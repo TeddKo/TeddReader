@@ -25,6 +25,7 @@ import com.tedd.teddreader.core.data.mapper.toDocumentEntity
 import com.tedd.teddreader.core.data.mapper.toDocumentMetadata
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.pagination.RestoredPageWindows
+import com.tedd.teddreader.core.data.pagination.ReaderPageMeasureDispatcher
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
@@ -574,7 +575,7 @@ class DocumentRepositoryImpl(
         )
         if (resolved.contentSections.isNotEmpty()) {
             val anchorSection = resolved.contentSections[anchorPosition]
-            val anchorStarts = textPageLayoutEngine.pageStartsForSection(
+            val anchorStarts = measuredPageStartsForSection(
                 section = anchorSection,
                 sectionBlocks = session.blocksFor(anchorSection),
                 style = style,
@@ -589,7 +590,7 @@ class DocumentRepositoryImpl(
                 val previousSection = resolved.contentSections[anchorPosition - 1]
                 session.putMeasured(
                     anchorPosition - 1,
-                    textPageLayoutEngine.pageStartsForSection(
+                    measuredPageStartsForSection(
                         section = previousSection,
                         sectionBlocks = session.blocksFor(previousSection),
                         style = style,
@@ -609,7 +610,7 @@ class DocumentRepositoryImpl(
                 val nextSection = resolved.contentSections[nextPosition]
                 session.putMeasured(
                     nextPosition,
-                    textPageLayoutEngine.pageStartsForSection(
+                    measuredPageStartsForSection(
                         section = nextSection,
                         sectionBlocks = session.blocksFor(nextSection),
                         style = style,
@@ -700,7 +701,7 @@ class DocumentRepositoryImpl(
                 val nextSection = session.contentSections[nextPosition]
                 session.putMeasured(
                     nextPosition,
-                    textPageLayoutEngine.pageStartsForSection(
+                    measuredPageStartsForSection(
                         section = nextSection,
                         sectionBlocks = session.blocksFor(nextSection),
                         style = style,
@@ -1774,6 +1775,27 @@ class DocumentRepositoryImpl(
      *   (nothing was actually measured to append).
      * @param newSections The sections [importNextSections] just imported, each paired with its blocks.
      */
+    /**
+     * [TextPageLayoutEngine.pageStartsForSection], run on the one dispatcher a real measurement is
+     * allowed on ([ReaderPageMeasureDispatcher]) — the single funnel every measuring call site goes
+     * through, so no platform's text-stack threading rule depends on which caller measured. An
+     * estimate-only call (null [pageBreaker]) lays out no text and stays on the caller's dispatcher.
+     */
+    private suspend fun measuredPageStartsForSection(
+        section: ReaderSection,
+        sectionBlocks: List<ReaderBlock>,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+        pageBreaker: ReaderPageBreaker?,
+        viewportDensity: Float = 1f,
+    ): LongArray = if (pageBreaker == null) {
+        textPageLayoutEngine.pageStartsForSection(section, sectionBlocks, style, viewportSize, null, viewportDensity)
+    } else {
+        withContext(ReaderPageMeasureDispatcher) {
+            textPageLayoutEngine.pageStartsForSection(section, sectionBlocks, style, viewportSize, pageBreaker, viewportDensity)
+        }
+    }
+
     private suspend fun appendMeasuredPageStarts(
         documentId: DocumentId,
         style: ReaderStyle,
@@ -1797,7 +1819,7 @@ class DocumentRepositoryImpl(
             return
         }
         val appendedStarts = newSections.flatMap { (section, blocks) ->
-            textPageLayoutEngine.pageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity).toList()
+            measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity).toList()
         }
         if (appendedStarts.isEmpty()) {
             pageLayoutDao.deletePageLayouts(documentId.value)
