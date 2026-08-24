@@ -1,9 +1,9 @@
 package com.tedd.teddreader.app.reader
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -17,6 +17,7 @@ import com.tedd.teddreader.app.reader.importer.rememberDocumentImporter
 import com.tedd.teddreader.app.reader.navigation.ReaderNavHost
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.domain.repository.ReaderSettings
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.ui.ProvideTeddLocalization
@@ -42,7 +43,7 @@ import org.koin.dsl.koinConfiguration
  *   exchange the result for an access token, or null when the current platform/build has no Drive
  *   integration configured. Forwarded to [rememberDocumentImporter] so the resulting
  *   [DocumentImporter] only advertises Drive import as available when a working bridge exists.
- * @param modifier applied to the [Surface] that hosts [ReaderNavHost], letting a caller size or
+ * @param modifier applied to the [Box] that hosts [ReaderNavHost], letting a caller size or
  *   position the whole app content.
  * @param darkTheme the platform's system dark-theme signal; consulted when the user's saved theme
  *   mode is [ReaderThemeMode.SYSTEM] or [ReaderThemeMode.PUBLISHER] — see [appUsesDarkTheme] for how
@@ -73,9 +74,8 @@ fun TeddReaderApp(
             TeddReaderTheme(
                 darkTheme = appDarkTheme,
             ) {
-                Surface(
-                    modifier = modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                Box(
+                    modifier = modifier.fillMaxSize().background(teddReaderColors().background),
                 ) {
                     ReaderNavHost(
                         modifier = Modifier.fillMaxSize(),

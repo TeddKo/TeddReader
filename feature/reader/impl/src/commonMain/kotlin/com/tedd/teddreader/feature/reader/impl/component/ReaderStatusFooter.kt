@@ -5,9 +5,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,12 +13,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.ReaderStyle
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderIconography
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddIcon
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.reader_battery_percentage
 import com.tedd.teddreader.core.ui.generated.resources.reader_battery_unavailable
@@ -68,8 +66,8 @@ fun ReaderStatusFooter(
         style = style,
         modifier = modifier,
         contentPadding = PaddingValues(
-            horizontal = DefaultTeddReaderSpacing.medium,
-            vertical = DefaultTeddReaderSpacing.xxSmall,
+            horizontal = spacing.medium,
+            vertical = spacing.xxSmall,
         ),
         windowInsets = windowInsets,
         dividerAtTop = true,
@@ -85,18 +83,18 @@ fun ReaderStatusFooter(
                 horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
+                TeddIcon(
                     imageVector = TeddIcons.Battery,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    size = teddReaderIconography().extraSmall,
                 )
-                Text(
+                TeddText(
                     text = boundedBatteryPercent?.let { "$it%" } ?: "--%",
                     maxLines = 1,
                     style = typography.readerCaption,
                 )
             }
-            Text(
+            TeddText(
                 text = title,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
@@ -104,7 +102,7 @@ fun ReaderStatusFooter(
                 textAlign = TextAlign.Center,
                 style = typography.readerCaption,
             )
-            Text(
+            TeddText(
                 text = boundedReadProgressPercent?.let { "$it%" } ?: "--%",
                 modifier = Modifier
                     .weight(1f)

@@ -1,10 +1,12 @@
 package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 
 /**
  * The app's screen frame: a Material `Scaffold` with the app's own background already applied.
@@ -23,13 +25,17 @@ fun TeddScaffold(
     modifier: Modifier = Modifier,
     topBar: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
+    contentWindowInsets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    val colors = teddReaderColors()
     Scaffold(
         modifier = modifier,
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = colors.background,
+        contentColor = colors.onBackground,
         topBar = topBar,
         bottomBar = bottomBar,
+        contentWindowInsets = contentWindowInsets,
         content = content,
     )
 }

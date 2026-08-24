@@ -6,6 +6,7 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.ReaderDocument
+import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
@@ -686,8 +687,9 @@ private class FakeDocumentRepository(
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize?,
-        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
+        pageBreaker: ReaderPageBreaker?,
         anchorOffset: Long?,
+        viewportDensity: Float,
     ): List<PageWindow> = emptyList()
 
     /** Not exercised by these tests; fails loudly if called, since importing is out of scope for
@@ -789,8 +791,9 @@ private class SuspendingCoverDocumentRepository : DocumentRepository {
         documentId: DocumentId,
         style: ReaderStyle,
         viewportSize: ViewportSize?,
-        pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
+        pageBreaker: ReaderPageBreaker?,
         anchorOffset: Long?,
+        viewportDensity: Float,
     ): List<PageWindow> = emptyList()
 
     /** Not exercised by these tests; fails loudly if called, since importing is out of scope for

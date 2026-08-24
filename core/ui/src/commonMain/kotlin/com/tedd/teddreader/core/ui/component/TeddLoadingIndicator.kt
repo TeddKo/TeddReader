@@ -7,20 +7,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
  * A [LoadingIndicator] with an optional caption underneath (e.g. "Loading document"), so any screen
  * that needs to explain what it is waiting for does not have to hand-assemble a [Column] pairing the
- * spinner with a [Text].
+ * spinner with a [TeddText].
  *
  * @param modifier Modifier applied to the indicator's root [Column].
  * @param message Caption shown under the spinner in a muted color; omitted when null.
@@ -39,10 +38,10 @@ fun TeddLoadingIndicator(
     ) {
         LoadingIndicator()
         if (message != null) {
-            Text(
+            TeddText(
                 text = message,
                 style = typography.settingDescription,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = teddReaderColors().onSurfaceVariant,
             )
         }
     }

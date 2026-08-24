@@ -6,18 +6,18 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.common.model.sepiaReaderStyle
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.designsystem.readerTextStyle
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
  * The three page margins a reader can choose between, named rather than passed as numbers so a screen and a
@@ -44,24 +44,22 @@ enum class ReaderContentPaddingPreset {
  * @param modifier applied to the page; the page fills whatever it is given.
  * @param contentPadding the page margins, defaulting to the reader's own margin and a generous vertical
  * inset. Whatever is passed must match what the page breaker measured with, or the drawn page holds a
- * different number of lines than the measured one.
+ * different number of lines than the measured one. Null resolves to the theme's readerMargin/xLarge
+ * combination.
  */
 @Composable
 fun ReaderPageSurface(
     text: String,
     style: ReaderStyle,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.readerMargin,
-        vertical = DefaultTeddReaderSpacing.xLarge,
-    ),
+    contentPadding: PaddingValues? = null,
 ) {
     ReaderPageSurface(
         style = style,
         contentPadding = contentPadding,
         modifier = modifier,
     ) {
-        Text(
+        TeddText(
             text = text,
             style = style.readerTextStyle(),
         )
@@ -99,24 +97,27 @@ fun ReaderPageSurface(
  *
  * @param style the reader's style, which supplies the paper colour.
  * @param modifier applied to the page.
- * @param contentPadding the page margins.
+ * @param contentPadding the page margins. Null resolves to the theme's readerMargin/xLarge
+ * combination.
  * @param content what to draw on the page, in the page's own box scope so it can align itself.
  */
 @Composable
 fun ReaderPageSurface(
     style: ReaderStyle,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.readerMargin,
-        vertical = DefaultTeddReaderSpacing.xLarge,
-    ),
+    contentPadding: PaddingValues? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.readerMargin,
+        vertical = spacing.xLarge,
+    )
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(style.readerColors().background)
-            .padding(contentPadding),
+            .padding(resolvedContentPadding),
     ) {
         content()
     }
@@ -124,27 +125,31 @@ fun ReaderPageSurface(
 
 /**
  * @receiver the named margin.
- * @param spacing the spacing scale to resolve it against; defaults to the app's own so a preview needs no
- * theme.
+ * @param spacing the spacing scale to resolve it against; null resolves to the app's own theme scale so a
+ * preview needs no explicit override.
  * @return the concrete insets, drawn from the design system rather than from literals.
  */
+@Composable
 private fun ReaderContentPaddingPreset.toPaddingValues(
-    spacing: TeddReaderSpacing = DefaultTeddReaderSpacing,
-): PaddingValues = when (this) {
-    ReaderContentPaddingPreset.Compact -> PaddingValues(
-        horizontal = spacing.medium,
-        vertical = spacing.large,
-    )
+    spacing: TeddReaderSpacing? = null,
+): PaddingValues {
+    val resolvedSpacing = spacing ?: teddReaderSpacing()
+    return when (this) {
+        ReaderContentPaddingPreset.Compact -> PaddingValues(
+            horizontal = resolvedSpacing.medium,
+            vertical = resolvedSpacing.large,
+        )
 
-    ReaderContentPaddingPreset.Comfortable -> PaddingValues(
-        horizontal = spacing.readerMargin,
-        vertical = spacing.xLarge,
-    )
+        ReaderContentPaddingPreset.Comfortable -> PaddingValues(
+            horizontal = resolvedSpacing.readerMargin,
+            vertical = resolvedSpacing.xLarge,
+        )
 
-    ReaderContentPaddingPreset.Wide -> PaddingValues(
-        horizontal = spacing.sheetPadding,
-        vertical = spacing.xxLarge,
-    )
+        ReaderContentPaddingPreset.Wide -> PaddingValues(
+            horizontal = resolvedSpacing.sheetPadding,
+            vertical = resolvedSpacing.xxLarge,
+        )
+    }
 }
 
 /** Mixed Korean and Latin text, so a preview shows line height and spacing for both scripts at once. */

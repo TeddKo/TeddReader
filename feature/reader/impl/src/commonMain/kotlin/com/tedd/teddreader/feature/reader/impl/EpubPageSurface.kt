@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +45,11 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.layoutKey
 import com.tedd.teddreader.core.designsystem.readerTextStyle
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.designsystem.toColor
+import com.tedd.teddreader.core.ui.component.TeddDivider
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.visual_page_unavailable
 import com.tedd.teddreader.core.ui.reader.ReaderContainerDecoration
@@ -138,7 +140,7 @@ internal fun EpubPageSurface(
         }
         val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs, readerTextStyle, baseTextColor, publisherColorsEnabled) {
             semanticText.placeholders.associate { placeholder ->
-                placeholder.id to androidx.compose.foundation.text.InlineTextContent(placeholder.placeholder) {
+                placeholder.id to InlineTextContent(placeholder.placeholder) {
                     EpubInlinePlaceholder(
                         placeholder = placeholder,
                         imageBytes = placeholder.href?.let(page.embeddedImages::get),
@@ -260,7 +262,7 @@ private fun EpubInlinePlaceholder(
             currentColor = placeholder.foregroundColor.takeIf { publisherColorsEnabled }?.toColor() ?: baseTextColor,
             usePublisherColors = publisherColorsEnabled,
         )
-        placeholder.kind == ReaderBlockKind.SEPARATOR -> HorizontalDivider(modifier = Modifier.fillMaxSize())
+        placeholder.kind == ReaderBlockKind.SEPARATOR -> TeddDivider(modifier = Modifier.fillMaxSize())
         placeholder.kind == ReaderBlockKind.IMAGE || placeholder.kind == ReaderBlockKind.COVER_IMAGE -> EpubImageBox(
             imageBytes = imageBytes,
             label = placeholder.label,
@@ -361,6 +363,8 @@ private fun EpubImageBox(
     usePublisherColors: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val colors = teddReaderColors()
+    val typography = teddReaderTypography()
     val platformContext = LocalPlatformContext.current
     val request = remember(imageBytes, platformContext) {
         imageBytes?.let { bytes ->
@@ -374,7 +378,7 @@ private fun EpubImageBox(
     val radiusPercent = boxStyle?.borderRadiusPercent?.toInt()?.coerceIn(0, 100)
     val decoratedModifier = modifier
         .fillMaxSize()
-        .then(if (radiusPercent != null && radiusPercent > 0) Modifier.clip(RoundedCornerShape(percent = radiusPercent)) else Modifier)
+        .run { if (radiusPercent != null && radiusPercent > 0) clip(RoundedCornerShape(percent = radiusPercent)) else this }
         .drawWithContent {
             val rect = Rect(Offset.Zero, size)
             drawReaderBoxBackground(boxStyle, rect, usePublisherColors)
@@ -391,17 +395,17 @@ private fun EpubImageBox(
                 contentScale = ContentScale.Fit,
                 loading = {},
                 error = {
-                    Text(
+                    TeddText(
                         text = label ?: stringResource(Res.string.visual_page_unavailable),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = typography.bodySmall,
+                        color = colors.onSurfaceVariant,
                     )
                 },
             )
-            isFailed -> Text(
+            isFailed -> TeddText(
                 text = label ?: stringResource(Res.string.visual_page_unavailable),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = typography.bodySmall,
+                color = colors.onSurfaceVariant,
             )
         }
     }

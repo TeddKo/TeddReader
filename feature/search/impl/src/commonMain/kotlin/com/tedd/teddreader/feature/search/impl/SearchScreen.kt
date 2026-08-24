@@ -11,55 +11,46 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.common.model.TextRange
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddScaffold
 import com.tedd.teddreader.core.ui.component.TeddSearchField
+import com.tedd.teddreader.core.ui.component.TeddSection
+import com.tedd.teddreader.core.ui.component.TeddSectionKind
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTopBar
+import com.tedd.teddreader.core.ui.extension.clearFocusOnBackgroundTap
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-
-/** Caps [SearchScreen]'s list width so the search field, results, and messages stay a readable
- * column and do not stretch edge-to-edge on a tablet-width screen; the surrounding [Box] centers
- * it within that cap. */
-private val ScreenMaxWidth = 720.dp
-
-/** Below this width, [SearchForm] stacks the search field above a full-width search button
- * instead of placing them side by side, since a shared row would leave either too little space to
- * type in or too little to tap. */
-private val CompactContentWidth = 320.dp
 
 /**
  * Entry point that wires [SearchViewModel] into [SearchScreen] for one document's in-document
@@ -110,9 +101,25 @@ fun SearchRouteScreen(
  * followed by whichever of the unsupported/error/loading/empty-query/no-results/results states
  * [uiState] currently describes. This composable is a pure state-and-callback pass-through to the
  * view model — every value it renders comes from [uiState] or one of its other parameters, and it
- * holds no search state of its own; `isFieldEnabled`, `canSearch`, and the padding values computed
- * at the top of the body are all derived fresh from the parameters on every call, not stored
- * state.
+ * holds no search state of its own; `isFieldEnabled`, `canSearch`, and `resultContentPadding` are
+ * all derived fresh from the parameters on every call, not stored state.
+ *
+ * Every block is one [TeddSection], which is what makes the states mutually exclusive by
+ * construction: exactly one of the unsupported/error/loading/blank/no-results branches supplies a
+ * [TeddSectionKind.Status] section, and the results branch supplies a [TeddSectionKind.Collection]
+ * section instead. The results heading is rendered through an otherwise-empty
+ * [TeddSectionKind.Collection] section — `fullBleed` on it costs nothing since it has no body —
+ * immediately followed by the result rows as their own flat [LazyColumn] items rather than as that
+ * section's body, so the results keep true row-level laziness and each row supplies the screen's
+ * horizontal inset itself through `resultContentPadding`. That is what lets the divider and ripple
+ * each row draws run the full bounded column width with no section gap breaking them apart, per the
+ * search screen's contiguous-results contract.
+ *
+ * The content [Box] carries `clearFocusOnBackgroundTap` so a tap outside every result row's own
+ * clickable bounds — the margin beside a width-capped list on a wide window, or the empty space
+ * below the last result — drops focus and dismisses the soft keyboard the search field raised. A
+ * tap that lands on the field or on a result row is consumed by that row's own click handling
+ * first, so this never intercepts the taps a caller relies on.
  *
  * @param uiState The search screen's current state, as published by the view model.
  * @param onQueryChange Invoked as the user types in the search field.
@@ -122,7 +129,9 @@ fun SearchRouteScreen(
  * @param onResultClick Invoked with a search result's location when the user taps it.
  * @param listState Scroll state for the search form and results list.
  * @param modifier Applied to the scaffold.
- * @param contentPadding Padding applied around the list's content.
+ * @param contentPadding Vertical padding applied above and below the list's content; any
+ * horizontal component is ignored because horizontal inset is owned by each [TeddSection] and the
+ * result rows themselves. Null resolves to the theme's screenPadding for both edges.
  */
 @Composable
 fun SearchScreen(
@@ -133,32 +142,28 @@ fun SearchScreen(
     onResultClick: (ReaderLocation) -> Unit,
     listState: LazyListState,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.screenPadding)
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
     val isFieldEnabled = !uiState.isSearchUnsupported
     val canSearch = isFieldEnabled && uiState.query.isNotBlank() && !uiState.isLoading
-    val startPadding = contentPadding.calculateLeftPadding(LayoutDirection.Ltr)
-    val endPadding = contentPadding.calculateRightPadding(LayoutDirection.Ltr)
-    val horizontalContentPadding = PaddingValues(start = startPadding, end = endPadding)
     val resultContentPadding = PaddingValues(
-        start = startPadding,
-        top = DefaultTeddReaderSpacing.small,
-        end = endPadding,
-        bottom = DefaultTeddReaderSpacing.small,
+        horizontal = spacing.screenPadding,
+        vertical = spacing.small,
     )
 
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TeddTopBar(
                 title = stringResource(Res.string.search_in_document),
                 navigationIcon = {
                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
             )
@@ -168,81 +173,75 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding)
-                .imePadding(),
+                .imePadding()
+                .clearFocusOnBackgroundTap(focusManager = LocalFocusManager.current),
             contentAlignment = Alignment.TopCenter,
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
-                    .widthIn(max = ScreenMaxWidth)
+                    .widthIn(max = breakpoints.readableMaxWidth)
                     .fillMaxSize(),
                 contentPadding = PaddingValues(
-                    top = contentPadding.calculateTopPadding(),
-                    bottom = contentPadding.calculateBottomPadding(),
+                    top = resolvedContentPadding.calculateTopPadding(),
+                    bottom = resolvedContentPadding.calculateBottomPadding(),
                 ),
             ) {
                 item {
-                    SearchForm(
-                        query = uiState.query,
-                        isFieldEnabled = isFieldEnabled,
-                        canSearch = canSearch,
-                        onQueryChange = onQueryChange,
-                        onSearchClick = onSearchClick,
-                        modifier = Modifier
-                            .padding(horizontalContentPadding)
-                            .padding(bottom = spacing.large),
-                    )
+                    TeddSection(kind = TeddSectionKind.Form) {
+                        SearchForm(
+                            query = uiState.query,
+                            isFieldEnabled = isFieldEnabled,
+                            canSearch = canSearch,
+                            onQueryChange = onQueryChange,
+                            onSearchClick = onSearchClick,
+                        )
+                    }
                 }
 
                 when {
                     uiState.isSearchUnsupported -> item {
-                        TeddErrorBanner(
-                            message = stringResource(Res.string.search_pdf_unsupported),
-                            modifier = Modifier.padding(horizontalContentPadding),
-                        )
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = stringResource(Res.string.search_pdf_unsupported))
+                        }
                     }
                     uiState.errorMessage != null -> item {
-                        TeddErrorBanner(
-                            message = uiState.errorMessage,
-                            modifier = Modifier.padding(horizontalContentPadding),
-                        )
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = uiState.errorMessage)
+                        }
                     }
                     uiState.isLoading -> item {
-                        TeddLoadingIndicator(
-                            message = stringResource(Res.string.search_loading),
-                            modifier = Modifier.padding(horizontalContentPadding),
-                        )
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddLoadingIndicator(message = stringResource(Res.string.search_loading))
+                        }
                     }
                     uiState.query.isBlank() -> Unit
                     uiState.results.isEmpty() -> item {
-                        Column(
-                            modifier = Modifier.padding(horizontalContentPadding),
-                            verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
-                        ) {
-                            Text(text = stringResource(Res.string.search_no_results_title), style = typography.titleMedium)
-                            Text(
-                                text = stringResource(Res.string.search_no_results_description),
-                                style = typography.settingDescription,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
+                                TeddText(text = stringResource(Res.string.search_no_results_title), style = typography.titleMedium)
+                                TeddText(
+                                    text = stringResource(Res.string.search_no_results_description),
+                                    style = typography.settingDescription,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     else -> {
                         item {
-                            Text(
-                                text = stringResource(Res.string.search_matches_count, uiState.results.size),
-                                modifier = Modifier
-                                    .padding(horizontalContentPadding)
-                                    .padding(bottom = spacing.small),
-                                style = typography.settingTitle,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            TeddSection(
+                                kind = TeddSectionKind.Collection,
+                                title = stringResource(Res.string.search_matches_count, uiState.results.size),
+                                fullBleed = true,
+                            ) {}
                         }
                         items(uiState.results) { result ->
                             TeddListItem(
                                 title = result.snippet,
                                 supportingText = buildSearchSupportingText(result),
                                 onClick = { onResultClick(result.location) },
+                                singleClick = true,
                                 contentPadding = resultContentPadding,
                             )
                         }
@@ -256,7 +255,8 @@ fun SearchScreen(
 /**
  * The search input: an explanatory line above a responsive layout that either stacks the search
  * field over a full-width button (narrow container) or places them side by side (wide container),
- * switching at [CompactContentWidth].
+ * switching at
+ * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth].
  *
  * @param query The search field's current text.
  * @param isFieldEnabled Whether the field accepts input; false while search is unsupported for
@@ -278,16 +278,18 @@ private fun SearchForm(
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-        Text(
+        TeddText(
             text = stringResource(Res.string.search_find_passage_description),
             style = typography.settingDescription,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            if (maxWidth < CompactContentWidth) {
+            if (maxWidth < breakpoints.compactControlWidth) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
                     SearchField(
                         query = query,
@@ -320,7 +322,7 @@ private fun SearchForm(
                         text = stringResource(Res.string.search),
                         onClick = onSearchClick,
                         enabled = canSearch,
-                        modifier = Modifier.defaultMinSize(minHeight = 56.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = spacing.rowHeight),
                     )
                 }
             }
@@ -356,19 +358,8 @@ private fun SearchField(
         placeholder = stringResource(Res.string.search_text_placeholder),
         enabled = isFieldEnabled,
         onSearch = { if (canSearch) onSearchClick() },
-        trailingContent = if (query.isNotEmpty()) {
-            {
-                TeddIconButton(
-                    onClick = { onQueryChange("") },
-                    enabled = isFieldEnabled,
-                    contentDescription = stringResource(Res.string.clear_search_query),
-                ) {
-                    Icon(imageVector = TeddIcons.Close, contentDescription = null)
-                }
-            }
-        } else {
-            null
-        },
+        onClearClick = { onQueryChange("") },
+        clearDescription = stringResource(Res.string.clear_search_query),
     )
 }
 

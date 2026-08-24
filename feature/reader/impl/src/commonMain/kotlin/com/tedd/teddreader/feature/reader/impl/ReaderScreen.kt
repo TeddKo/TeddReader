@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.tedd.teddreader.feature.reader.impl
 
 import androidx.compose.animation.AnimatedVisibility
@@ -12,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.ModalNavigationDrawer
@@ -37,9 +35,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.DrawerValue
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -85,13 +80,15 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.common.model.darkReaderStyle
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.designsystem.toColor
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
@@ -100,6 +97,7 @@ import com.tedd.teddreader.core.ui.component.TeddOptionGroup
 import com.tedd.teddreader.core.ui.component.TeddRadioRow
 import com.tedd.teddreader.core.ui.component.TeddSliderRow
 import com.tedd.teddreader.core.ui.component.TeddSwitchRow
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.extension.pxToSp
 import com.tedd.teddreader.core.ui.reader.ReaderOptionPreview
@@ -193,7 +191,6 @@ fun ReaderRouteScreen(
     }
     var isActionMenuExpanded by rememberSaveable(documentId) { mutableStateOf(false) }
     val activeSheetScrollState = key(uiState.activeSheet) { rememberScrollState() }
-    val modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(documentId) {
         viewModel.openDocument(documentId)
@@ -270,7 +267,6 @@ fun ReaderRouteScreen(
         isActionMenuExpanded = isActionMenuExpanded,
         onActionMenuExpandedChange = { isActionMenuExpanded = it },
         activeSheetScrollState = activeSheetScrollState,
-        modalSheetState = modalSheetState,
         batteryPercent = rememberReaderBatteryPercent(),
         modifier = modifier,
     )
@@ -325,7 +321,6 @@ fun ReaderRouteScreen(
  * @param isActionMenuExpanded Whether the top bar's overflow action menu is open.
  * @param onActionMenuExpandedChange Invoked when the action menu is opened or dismissed.
  * @param activeSheetScrollState Scroll state for the active option sheet's content.
- * @param modalSheetState The shared bottom sheet state used by every option sheet.
  * @param batteryPercent The device's battery percentage, shown in the status footer, or null if
  * unavailable.
  * @param modifier Applied to whichever of the three states is shown.
@@ -373,7 +368,6 @@ fun ReaderScreen(
     isActionMenuExpanded: Boolean,
     onActionMenuExpandedChange: (Boolean) -> Unit,
     activeSheetScrollState: ScrollState,
-    modalSheetState: SheetState,
     batteryPercent: Int? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -431,7 +425,6 @@ fun ReaderScreen(
             isActionMenuExpanded = isActionMenuExpanded,
             onActionMenuExpandedChange = onActionMenuExpandedChange,
             activeSheetScrollState = activeSheetScrollState,
-            modalSheetState = modalSheetState,
             batteryPercent = batteryPercent,
             modifier = modifier,
         )
@@ -495,7 +488,6 @@ fun ReaderScreen(
  * @param isActionMenuExpanded Whether the top bar's overflow action menu is open.
  * @param onActionMenuExpandedChange Invoked when the action menu is opened or dismissed.
  * @param activeSheetScrollState Scroll state for the active option sheet's content.
- * @param modalSheetState The shared bottom sheet state used by every option sheet.
  * @param batteryPercent The device's battery percentage, shown in the status footer, or null if
  * unavailable.
  * @param modifier Applied to the root of the reading surface.
@@ -544,7 +536,6 @@ private fun ReaderContent(
     isActionMenuExpanded: Boolean,
     onActionMenuExpandedChange: (Boolean) -> Unit,
     activeSheetScrollState: ScrollState,
-    modalSheetState: SheetState,
     batteryPercent: Int?,
     modifier: Modifier = Modifier,
 ) {
@@ -812,7 +803,7 @@ private fun ReaderContent(
                             Row(
                                 modifier = contentTransformModifier
                                     .background(uiState.style.readerColors().background),
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(spreadGutter),
+                                horizontalArrangement = Arrangement.spacedBy(spreadGutter),
                             ) {
                                 ReaderPagePane(
                                     uiState = uiState,
@@ -858,7 +849,7 @@ private fun ReaderContent(
                                 titleLabel = null,
                                 navigationIcon = {
                                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                                     }
                                 },
                                 actions = {
@@ -870,7 +861,7 @@ private fun ReaderContent(
                                             stringResource(Res.string.add_to_favorites)
                                         },
                                     ) {
-                                        Icon(
+                                        TeddIcon(
                                             imageVector = if (uiState.isFavorite) {
                                                 TeddIcons.BookmarkFilled
                                             } else {
@@ -1007,7 +998,6 @@ private fun ReaderContent(
                 autoScrollSpeedDraft = autoScrollSpeedDraft,
                 onAutoScrollSpeedDraftChange = onAutoScrollSpeedDraftChange,
                 scrollState = activeSheetScrollState,
-                sheetState = modalSheetState,
             )
         }
     }
@@ -1061,7 +1051,9 @@ private fun ReaderContent(
  * [onPageBreakerChanged] at all; false for a spread's non-primary pane, which shares the primary
  * pane's pagination rather than measuring and reporting its own.
  * @param windowInsets Insets applied around this pane's content.
- * @param contentPadding Padding applied inside [windowInsets], around the rendered page content.
+ * @param contentPadding Padding applied inside [windowInsets], around the rendered page content;
+ * null resolves to the theme's `readerPageHorizontal` horizontal and `readerPageVertical`
+ * vertical insets (see `TeddReaderSpacing`), the reader text-page contract `DESIGN.md` specifies.
  * @param modifier Applied to this pane's root.
  */
 @Composable
@@ -1074,13 +1066,15 @@ private fun ReaderPagePane(
     failedResolvedFontHrefs: Set<String>,
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = 12.dp,
-        vertical = DefaultTeddReaderSpacing.small,
-    ),
+    contentPadding: PaddingValues? = null,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.readerPageHorizontal,
+        vertical = spacing.readerPageVertical,
+    )
     if (page !in 0 until uiState.pageIndex.total) {
         Box(modifier = modifier.fillMaxSize().background(uiState.style.readerColors().background))
         return
@@ -1146,7 +1140,7 @@ private fun ReaderPagePane(
                             ?: uiState.style.readerColors().background,
                     )
                     .windowInsetsPadding(windowInsets)
-                    .padding(contentPadding)
+                    .padding(resolvedContentPadding)
                     .padding(publisherPageMargins.toPaddingValues(uiState.style.fontSizeSp, density.fontScale))
                     .run {
                         if (!reportViewportSize) {
@@ -1284,7 +1278,6 @@ private fun ReaderAutoScrollEffect(
  * @param autoScrollSpeedDraft Forwarded to [AutoScrollOptionsSheet].
  * @param onAutoScrollSpeedDraftChange Forwarded to [AutoScrollOptionsSheet].
  * @param scrollState Scroll state for the sheet's content column.
- * @param sheetState The shared bottom sheet state driving open/close/drag behavior.
  * @param modifier Applied to the sheet's content column.
  */
 @Composable
@@ -1320,15 +1313,15 @@ private fun ReaderActiveSheet(
     autoScrollSpeedDraft: Float,
     onAutoScrollSpeedDraftChange: (Float) -> Unit,
     scrollState: ScrollState,
-    sheetState: SheetState,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
+
     TeddModalBottomSheet(
         title = sheet.title(),
         onDismissRequest = onDismiss,
         modifier = modifier,
-        sheetState = sheetState,
-        contentPadding = PaddingValues(bottom = DefaultTeddReaderSpacing.large),
+        contentPadding = PaddingValues(bottom = spacing.large),
     ) {
         Column(
             modifier = Modifier
@@ -1421,38 +1414,41 @@ private fun TableOfContentsDrawerContent(
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
+    val typography = teddReaderTypography()
+
     LazyColumn(modifier = modifier.fillMaxWidth()) {
         item {
-            Text(
+            TeddText(
                 text = stringResource(Res.string.table_of_contents),
                 modifier = Modifier.padding(
-                    start = DefaultTeddReaderSpacing.medium,
-                    end = DefaultTeddReaderSpacing.medium,
-                    top = DefaultTeddReaderSpacing.medium,
-                    bottom = DefaultTeddReaderSpacing.small,
+                    start = spacing.medium,
+                    end = spacing.medium,
+                    top = spacing.medium,
+                    bottom = spacing.small,
                 ),
-                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                style = typography.titleMedium,
             )
         }
         if (uiState.outlineItems.isEmpty()) {
             item {
-                Text(
+                TeddText(
                     text = stringResource(Res.string.no_table_of_contents),
-                    modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = spacing.medium),
+                    style = typography.bodyMedium,
                 )
             }
         } else {
             itemsIndexed(uiState.outlineItems) { index, item ->
                 NavigationDrawerItem(
-                    label = { Text(item.displayTitle()) },
+                    label = { TeddText(text = item.displayTitle()) },
                     selected = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = DefaultTeddReaderSpacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
-                            end = DefaultTeddReaderSpacing.medium,
-                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else DefaultTeddReaderSpacing.small,
+                            start = spacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
+                            end = spacing.medium,
+                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else spacing.small,
                         ),
                     onClick = { onLocationClick(item.location) },
                 )
@@ -1478,15 +1474,18 @@ private fun TableOfContentsSheet(
     onLocationClick: (com.tedd.teddreader.core.common.model.ReaderLocation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
+    val typography = teddReaderTypography()
+
     TeddOptionGroup(
         title = uiState.outlineHeading?.takeIf { it.isNotBlank() },
         modifier = modifier,
     ) {
         if (uiState.outlineItems.isEmpty()) {
-            Text(
+            TeddText(
                 text = stringResource(Res.string.no_table_of_contents),
-                modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
-                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = spacing.medium),
+                style = typography.bodyMedium,
             )
         } else {
             uiState.outlineItems.forEachIndexed { index, item ->
@@ -1495,9 +1494,9 @@ private fun TableOfContentsSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
-                            start = DefaultTeddReaderSpacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
-                            end = DefaultTeddReaderSpacing.medium,
-                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else DefaultTeddReaderSpacing.small,
+                            start = spacing.medium + ((item.level.coerceAtLeast(1) - 1) * 12).dp,
+                            end = spacing.medium,
+                            bottom = if (index == uiState.outlineItems.lastIndex) 0.dp else spacing.small,
                         ),
                     onClick = { onLocationClick(item.location) },
                 )
@@ -1572,6 +1571,7 @@ private fun GoToPageSheet(
     onGoToPage: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
     val totalPages = uiState.pageIndex.total.coerceAtLeast(1)
     val targetPage = pageText.toIntOrNull()?.coerceIn(1, totalPages)
 
@@ -1583,8 +1583,8 @@ private fun GoToPageSheet(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = DefaultTeddReaderSpacing.medium),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(DefaultTeddReaderSpacing.small),
+                .padding(horizontal = spacing.medium),
+            horizontalArrangement = Arrangement.spacedBy(spacing.small),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TeddTextField(
@@ -1596,7 +1596,7 @@ private fun GoToPageSheet(
             )
             TeddButton(
                 text = stringResource(Res.string.go),
-                modifier = Modifier.heightIn(min = 56.dp),
+                modifier = Modifier.heightIn(min = spacing.rowHeight),
                 enabled = targetPage != null,
                 onClick = { targetPage?.let { onGoToPage(it - 1) } },
             )
@@ -1719,6 +1719,7 @@ private fun FontOptionsSheet(
     onFontFamilyChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
     val previewStyle = uiState.style.copy(
         fontSizeSp = fontSizeDraft,
         lineHeightMultiplier = lineHeightPercentDraft / 100f,
@@ -1770,7 +1771,7 @@ private fun FontOptionsSheet(
             enabled = !uiState.isSavingSettings,
         )
         ReaderOptionPreview(
-            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
+            modifier = Modifier.padding(horizontal = spacing.medium),
             style = previewStyle,
             title = stringResource(Res.string.typography_preview_title),
             description = stringResource(Res.string.typography_preview_description),
@@ -1795,9 +1796,11 @@ private fun ThemeOptionsSheet(
     onThemeModeChange: (ReaderThemeMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val spacing = teddReaderSpacing()
+
     Column(modifier = modifier) {
         ReaderOptionPreview(
-            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.medium),
+            modifier = Modifier.padding(horizontal = spacing.medium),
             style = uiState.style,
             title = stringResource(Res.string.theme_preview_title),
             description = stringResource(Res.string.theme_preview_description),
@@ -2370,7 +2373,7 @@ private fun ReaderError(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = message)
+        TeddText(text = message)
     }
 }
 
@@ -2507,7 +2510,6 @@ private fun ReaderScreenCompactPreview() {
             isActionMenuExpanded = false,
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
-            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             batteryPercent = 73,
         )
     }
@@ -2565,7 +2567,6 @@ private fun ReaderScreenHiddenChromePreview() {
             isActionMenuExpanded = false,
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
-            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             batteryPercent = 73,
         )
     }
@@ -2622,7 +2623,6 @@ private fun ReaderScreenDarkPreview() {
             isActionMenuExpanded = false,
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
-            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             batteryPercent = 73,
         )
     }
@@ -2686,7 +2686,6 @@ private fun ReaderScreenPreview() {
             isActionMenuExpanded = false,
             onActionMenuExpandedChange = {},
             activeSheetScrollState = rememberScrollState(),
-            modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             batteryPercent = 73,
         )
     }

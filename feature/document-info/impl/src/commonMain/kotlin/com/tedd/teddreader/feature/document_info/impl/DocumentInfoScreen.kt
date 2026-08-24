@@ -9,22 +9,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
@@ -33,16 +29,21 @@ import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReadingStats
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
-import com.tedd.teddreader.core.ui.component.TeddOptionGroup
 import com.tedd.teddreader.core.ui.component.TeddScaffold
+import com.tedd.teddreader.core.ui.component.TeddSection
+import com.tedd.teddreader.core.ui.component.TeddSectionKind
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
@@ -50,14 +51,6 @@ import org.jetbrains.compose.resources.stringResource
 import kotlinx.collections.immutable.persistentListOf
 import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
-
-/** The content column's maximum width, so the screen stays readable rather than stretching text
- *  edge-to-edge on a tablet or a wide multi-pane window. */
-private val ScreenMaxWidth = 720.dp
-
-/** The width threshold above which [ReadingStatsContent] lays its four stats out as two
- *  side-by-side columns instead of stacking them one per row. */
-private val ReadingStatsTwoColumnMinWidth = 320.dp
 
 /**
  * The stateful entry point for the document-info screen: obtains [DocumentInfoViewModel] through
@@ -96,13 +89,22 @@ fun DocumentInfoRouteScreen(
  * The document-info screen's stateless layout: an overview of the document's metadata, its
  * reading statistics, and its most recent reading sessions, driven entirely by [uiState].
  *
+ * The overview and sessions sections are bounded to [TeddReaderBreakpoints.readableMaxWidth] and
+ * centered through [BoundedWidthContent], since both read as prose-like label/value lists. The
+ * reading-stats section instead uses [TeddReaderBreakpoints.collectionMaxWidth] — wider, because it
+ * is the one block that needs room past the expanded breakpoint to lay its grid out at up to four
+ * columns (see [ReadingStatsContent]) — so the surrounding [LazyColumn] itself carries no width
+ * cap; only the sections that want one apply it themselves.
+ *
  * @param uiState The screen's current data and loading/error state.
  * @param onBack Called when the user taps the back navigation action.
  * @param listState The scroll state for the screen's content list, hoisted so a caller can
  *   observe or restore scroll position.
  * @param modifier The modifier applied to the screen's root.
- * @param contentPadding Padding applied inside the scrolling content, beyond the screen's own
- *   system-bar and top-bar insets.
+ * @param contentPadding Vertical padding applied above and below the scrolling content, beyond
+ *   the screen's own system-bar and top-bar insets; any horizontal component is ignored because
+ *   horizontal inset is owned by each [TeddSection] (through [BoundedWidthContent] for the
+ *   width-capped ones). Null resolves to the theme's screenPadding for both edges.
  */
 @Composable
 fun DocumentInfoScreen(
@@ -110,59 +112,75 @@ fun DocumentInfoScreen(
     onBack: () -> Unit,
     listState: LazyListState,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.screenPadding)
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
     val metadata = uiState.metadata
 
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TeddTopBar(
                 title = stringResource(Res.string.document_info),
                 navigationIcon = {
                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
             )
         },
     ) { scaffoldPadding ->
-        Box(
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding),
-            contentAlignment = Alignment.TopCenter,
+            contentPadding = PaddingValues(
+                top = resolvedContentPadding.calculateTopPadding(),
+                bottom = resolvedContentPadding.calculateBottomPadding(),
+            ),
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .widthIn(max = ScreenMaxWidth)
-                    .fillMaxSize(),
-                contentPadding = contentPadding,
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
-            ) {
-                uiState.errorMessage?.let { message ->
-                    item { TeddErrorBanner(message = message) }
-                }
-
-                if (uiState.isLoading) {
-                    item {
-                        TeddLoadingIndicator(message = stringResource(Res.string.loading_document_info))
-                    }
-                } else {
-                    metadata?.let {
-                        item {
-                            Text(text = it.location.displayName, style = typography.titleMedium)
+            uiState.errorMessage?.let { message ->
+                item {
+                    BoundedWidthContent(maxWidth = breakpoints.readableMaxWidth) {
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = message)
                         }
-                        item {
-                            TeddOptionGroup(
+                    }
+                }
+            }
+
+            if (uiState.isLoading) {
+                item {
+                    BoundedWidthContent(maxWidth = breakpoints.readableMaxWidth) {
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddLoadingIndicator(message = stringResource(Res.string.loading_document_info))
+                        }
+                    }
+                }
+            } else {
+                metadata?.let {
+                    item {
+                        BoundedWidthContent(maxWidth = breakpoints.readableMaxWidth) {
+                            TeddText(
+                                text = it.location.displayName,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = spacing.screenPadding),
+                                style = typography.titleMedium,
+                            )
+                        }
+                    }
+                    item {
+                        BoundedWidthContent(maxWidth = breakpoints.readableMaxWidth) {
+                            TeddSection(
+                                kind = TeddSectionKind.Form,
                                 title = stringResource(Res.string.overview),
                                 description = stringResource(Res.string.overview_description),
-                                headerPadding = PaddingValues(),
                             ) {
                                 SelectionContainer {
                                     MetadataRow(label = stringResource(Res.string.location), value = it.location.sourceUri)
@@ -174,12 +192,14 @@ fun DocumentInfoScreen(
                             }
                         }
                     }
+                }
 
-                    item {
-                        TeddOptionGroup(
+                item {
+                    BoundedWidthContent(maxWidth = breakpoints.collectionMaxWidth) {
+                        TeddSection(
+                            kind = TeddSectionKind.Collection,
                             title = stringResource(Res.string.reading_stats),
                             description = stringResource(Res.string.reading_stats_description),
-                            headerPadding = PaddingValues(),
                         ) {
                             ReadingStatsContent(
                                 readingTime = formatDuration(uiState.stats?.activeMillis, unavailable = stringResource(Res.string.not_available)),
@@ -189,18 +209,20 @@ fun DocumentInfoScreen(
                             )
                         }
                     }
+                }
 
-                    item {
-                        TeddOptionGroup(
+                item {
+                    BoundedWidthContent(maxWidth = breakpoints.readableMaxWidth) {
+                        TeddSection(
+                            kind = TeddSectionKind.Collection,
                             title = stringResource(Res.string.recent_sessions),
                             description = stringResource(Res.string.recent_sessions_description),
-                            headerPadding = PaddingValues(),
                         ) {
                             if (uiState.sessions.isEmpty()) {
-                                Text(
+                                TeddText(
                                     text = stringResource(Res.string.no_reading_sessions),
                                     style = typography.settingDescription,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = colors.onSurfaceVariant,
                                 )
                             } else {
                                 uiState.sessions.take(10).forEachIndexed { index, session ->
@@ -219,8 +241,34 @@ fun DocumentInfoScreen(
 }
 
 /**
- * Lays the four reading-stat values out as label/value pairs, switching between one column and
- * two side by side once the available width crosses [ReadingStatsTwoColumnMinWidth].
+ * Bounds [content] to [maxWidth] and centers it within the full [LazyColumn] width, so a block
+ * that reads as a bounded column — the overview, the document-name line, the sessions list, or
+ * (at its own wider [TeddReaderBreakpoints.collectionMaxWidth]) the reading-stats grid — stays that
+ * width regardless of how wide the surrounding expanded window actually is.
+ *
+ * @param maxWidth The content's width cap; typically [TeddReaderBreakpoints.readableMaxWidth] for a
+ * prose-like block or [TeddReaderBreakpoints.collectionMaxWidth] for a grid that wants more room.
+ * @param modifier Applied to the outer, full-width centering box.
+ * @param content The bounded content.
+ */
+@Composable
+private fun BoundedWidthContent(
+    maxWidth: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        Box(modifier = Modifier.widthIn(max = maxWidth).fillMaxWidth()) {
+            content()
+        }
+    }
+}
+
+/**
+ * Lays the four reading-stat values out as label/value pairs in a grid whose column count follows
+ * [TeddReaderBreakpoints]: one column below [TeddReaderBreakpoints.compact], two from there up to
+ * [TeddReaderBreakpoints.expanded], and four at or above it — the document-info screen's adaptive
+ * stats contract.
  *
  * @param readingTime The formatted total active reading time.
  * @param readingPace The formatted words-per-minute reading pace.
@@ -235,6 +283,7 @@ private fun ReadingStatsContent(
     words: String,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
     val stats = listOf(
         stringResource(Res.string.reading_time) to readingTime,
         stringResource(Res.string.reading_pace) to readingPace,
@@ -243,24 +292,21 @@ private fun ReadingStatsContent(
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        if (maxWidth >= ReadingStatsTwoColumnMinWidth) {
-            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                stats.chunked(2).forEach { rowItems ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        rowItems.forEach { (label, value) ->
-                            MetadataRow(label = label, value = value, modifier = Modifier.weight(1f))
-                        }
+        val columns = when {
+            maxWidth < breakpoints.compact -> 1
+            maxWidth < breakpoints.expanded -> 2
+            else -> 4
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(spacing.itemGap)) {
+            stats.chunked(columns).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    rowItems.forEach { (label, value) ->
+                        MetadataRow(label = label, value = value, modifier = Modifier.weight(1f))
                     }
-                }
-            }
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                stats.forEach { (label, value) ->
-                    MetadataRow(label = label, value = value)
                 }
             }
         }
@@ -283,13 +329,14 @@ private fun MetadataRow(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
     ) {
-        Text(text = label, style = typography.settingDescription, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, style = typography.settingTitle)
+        TeddText(text = label, style = typography.settingDescription, color = colors.onSurfaceVariant)
+        TeddText(text = value, style = typography.settingTitle)
     }
 }
 
@@ -415,7 +462,7 @@ private fun DocumentFormat.displayName(unknown: String = "Unknown format"): Stri
 /**
  * A design-time preview of [DocumentInfoScreen] with representative sample data, rendered at
  * three widths chosen to exercise both the narrow single-column stats layout and the wider
- * two-column one plus [ScreenMaxWidth]'s clamp.
+ * two-column one plus the readable-width clamp applied to the overview and sessions sections.
  */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)

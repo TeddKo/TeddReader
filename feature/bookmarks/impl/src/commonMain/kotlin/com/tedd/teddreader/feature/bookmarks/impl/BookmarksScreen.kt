@@ -9,22 +9,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -32,23 +24,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderLocation
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.domain.repository.Bookmark
+import com.tedd.teddreader.core.ui.component.TeddAlertDialog
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddModalBottomSheet
 import com.tedd.teddreader.core.ui.component.TeddScaffold
+import com.tedd.teddreader.core.ui.component.TeddSection
+import com.tedd.teddreader.core.ui.component.TeddSectionKind
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.*
@@ -56,14 +53,6 @@ import com.tedd.teddreader.core.ui.icon.TeddIcons
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-
-/** Caps [BookmarksScreen]'s list width so it stays a readable column and does not stretch
- * edge-to-edge on a tablet-width screen; the surrounding [Box] centers it within that cap. */
-private val ScreenMaxWidth = 720.dp
-
-/** Below this width, the empty-state message in [BookmarksScreen] switches from centered to
- * start-aligned text, since centering reads cramped once the container itself is this narrow. */
-private val CompactContentWidth = 320.dp
 
 /**
  * Entry point that wires [BookmarksViewModel] into [BookmarksScreen] for one document's saved
@@ -87,7 +76,6 @@ private val CompactContentWidth = 320.dp
  * @param modifier Applied to the resulting [BookmarksScreen].
  * @param viewModel The bookmarks screen's view model; defaults to one resolved through Koin.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksRouteScreen(
     documentId: String,
@@ -98,7 +86,6 @@ fun BookmarksRouteScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var note by rememberSaveable(documentId) { mutableStateOf("") }
     var pendingDeleteBookmarkId by rememberSaveable(documentId) { mutableStateOf<String?>(null) }
     var pendingDeleteFromEditSheet by rememberSaveable(documentId) { mutableStateOf(false) }
@@ -135,7 +122,6 @@ fun BookmarksRouteScreen(
         onDismissEdit = viewModel::dismissEdit,
         onSaveNote = viewModel::saveNote,
         listState = listState,
-        editSheetState = sheetState,
         modifier = modifier,
     )
 }
@@ -146,6 +132,14 @@ fun BookmarksRouteScreen(
  * pure state-and-callback pass-through to the view model — every value it renders comes from
  * [uiState] or one of its other parameters, and every user action is reported back through a
  * callback; it holds no saved-place state of its own.
+ *
+ * The empty explanation and the bookmark list are each one [TeddSectionKind.Status] or
+ * [TeddSectionKind.Collection] section, mutually exclusive by construction. The empty state names
+ * no CTA of its own — the top bar's back action already provides the only navigation a reader
+ * needs from an empty saved-places screen. Below
+ * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth]
+ * the empty state's message switches from centered to start-aligned text, since centering reads
+ * cramped once the container itself is that narrow.
  *
  * @param uiState The saved-places screen's current state, as published by the view model.
  * @param onBack Invoked when the user asks to leave the screen.
@@ -165,11 +159,11 @@ fun BookmarksRouteScreen(
  * @param onSaveNote Invoked with the note text to commit when the user saves it from the edit
  * sheet.
  * @param listState Scroll state for the saved-places list.
- * @param editSheetState The edit sheet's bottom sheet state.
  * @param modifier Applied to the scaffold.
- * @param contentPadding Padding applied around the list's content.
+ * @param contentPadding Vertical padding applied above and below the list's content; any
+ * horizontal component is ignored because horizontal inset is owned by each [TeddSection]. Null
+ * resolves to the theme's screenPadding for both edges.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksScreen(
     uiState: BookmarksUiState,
@@ -185,23 +179,34 @@ fun BookmarksScreen(
     onDismissEdit: () -> Unit,
     onSaveNote: (String) -> Unit,
     listState: LazyListState,
-    editSheetState: SheetState,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.screenPadding)
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
+
+    val subtitle = if (uiState.bookmarks.isNotEmpty()) {
+        if (uiState.bookmarks.size == 1) {
+            stringResource(Res.string.saved_places_single)
+        } else {
+            stringResource(Res.string.saved_places_count, uiState.bookmarks.size)
+        }
+    } else {
+        null
+    }
 
     TeddScaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
+        modifier = modifier.fillMaxSize(),
         topBar = {
             TeddTopBar(
                 title = stringResource(Res.string.saved_places),
+                subtitle = subtitle,
                 navigationIcon = {
                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
             )
@@ -216,52 +221,59 @@ fun BookmarksScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier
-                    .widthIn(max = ScreenMaxWidth)
+                    .widthIn(max = breakpoints.readableMaxWidth)
                     .fillMaxSize(),
-                contentPadding = contentPadding,
-                verticalArrangement = Arrangement.spacedBy(spacing.medium),
+                contentPadding = PaddingValues(
+                    top = resolvedContentPadding.calculateTopPadding(),
+                    bottom = resolvedContentPadding.calculateBottomPadding(),
+                ),
             ) {
-                if (uiState.bookmarks.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = if (uiState.bookmarks.size == 1) stringResource(Res.string.saved_places_single) else stringResource(Res.string.saved_places_count, uiState.bookmarks.size),
-                            style = typography.settingDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
                 uiState.errorMessage?.let { message ->
-                    item { TeddErrorBanner(message = message) }
+                    item {
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = message)
+                        }
+                    }
                 }
                 when {
                     uiState.isLoading -> item {
-                        TeddLoadingIndicator(message = stringResource(Res.string.loading_saved_places))
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddLoadingIndicator(message = stringResource(Res.string.loading_saved_places))
+                        }
                     }
                     uiState.bookmarks.isEmpty() -> item {
-                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                            val compact = maxWidth < CompactContentWidth
-                            val textAlign = if (compact) TextAlign.Start else TextAlign.Center
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
-                                horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally,
-                            ) {
-                                Text(text = stringResource(Res.string.saved_places_empty_title), style = typography.titleMedium, textAlign = textAlign)
-                                Text(
-                                    text = stringResource(Res.string.saved_places_empty_description),
-                                    style = typography.settingDescription,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = textAlign,
-                                )
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val compact = maxWidth < breakpoints.compactControlWidth
+                                val textAlign = if (compact) TextAlign.Start else TextAlign.Center
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
+                                    horizontalAlignment = if (compact) Alignment.Start else Alignment.CenterHorizontally,
+                                ) {
+                                    TeddText(text = stringResource(Res.string.saved_places_empty_title), style = typography.titleMedium, textAlign = textAlign)
+                                    TeddText(
+                                        text = stringResource(Res.string.saved_places_empty_description),
+                                        style = typography.settingDescription,
+                                        color = colors.onSurfaceVariant,
+                                        textAlign = textAlign,
+                                    )
+                                }
                             }
                         }
                     }
-                    else -> items(uiState.bookmarks, key = { it.id }) { bookmark ->
-                        BookmarkRow(
-                            bookmark = bookmark,
-                            onBookmarkClick = { onBookmarkClick(bookmark.location) },
-                            onEditClick = { onEditClick(bookmark) },
-                        )
+                    else -> item {
+                        TeddSection(kind = TeddSectionKind.Collection) {
+                            uiState.bookmarks.forEach { bookmark ->
+                                key(bookmark.id) {
+                                    BookmarkRow(
+                                        bookmark = bookmark,
+                                        onBookmarkClick = { onBookmarkClick(bookmark.location) },
+                                        onEditClick = { onEditClick(bookmark) },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -271,15 +283,14 @@ fun BookmarksScreen(
             TeddModalBottomSheet(
                 title = stringResource(Res.string.edit_saved_place),
                 onDismissRequest = onDismissEdit,
-                sheetState = editSheetState,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.medium)) {
-                    Text(text = bookmark.displayTitle(), style = typography.titleMedium)
+                    TeddText(text = bookmark.displayTitle(), style = typography.titleMedium)
                     if (bookmark.hasCustomLabel()) {
-                        Text(
+                        TeddText(
                             text = bookmark.location.displayLabel(),
                             style = typography.settingDescription,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.onSurfaceVariant,
                         )
                     }
                     TeddTextField(
@@ -315,10 +326,10 @@ fun BookmarksScreen(
             uiState.bookmarks.firstOrNull { it.id == bookmarkId } ?: uiState.editingBookmark?.takeIf { it.id == bookmarkId }
         }
         if (pendingDeleteBookmark != null) {
-            AlertDialog(
+            TeddAlertDialog(
                 onDismissRequest = onDismissDeleteConfirmation,
-                title = { Text(stringResource(Res.string.delete_saved_place_title)) },
-                text = { Text(stringResource(Res.string.delete_saved_place_message, pendingDeleteBookmark.displayTitle())) },
+                title = stringResource(Res.string.delete_saved_place_title),
+                text = { TeddText(text = stringResource(Res.string.delete_saved_place_message, pendingDeleteBookmark.displayTitle())) },
                 confirmButton = {
                     TeddButton(
                         text = stringResource(Res.string.delete),
@@ -330,7 +341,7 @@ fun BookmarksScreen(
                     TeddButton(
                         text = stringResource(Res.string.cancel),
                         onClick = onDismissDeleteConfirmation,
-                        emphasis = TeddButtonEmphasis.Secondary,
+                        emphasis = TeddButtonEmphasis.Text,
                     )
                 },
             )
@@ -358,10 +369,11 @@ private fun BookmarkRow(
         title = bookmark.displayTitle(),
         supportingText = buildBookmarkSupportingText(bookmark),
         onClick = onBookmarkClick,
+        singleClick = true,
         modifier = modifier,
         trailingContent = {
             TeddIconButton(onClick = onEditClick, contentDescription = stringResource(Res.string.edit_saved_place)) {
-                Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
+                TeddIcon(imageVector = TeddIcons.MoreVert, contentDescription = null)
             }
         },
     )
@@ -424,7 +436,6 @@ private fun ReaderLocation.displayLabel(): String = when (this) {
  * Preview of [BookmarksScreen] at three widths, with one sample saved place, exercising the
  * compact, default, and wide layouts the screen's content can render at.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
 @Preview(widthDp = 840)
@@ -457,7 +468,6 @@ private fun BookmarksScreenPreview() {
             onDismissEdit = {},
             onSaveNote = {},
             listState = rememberLazyListState(),
-            editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         )
     }
 }
