@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,13 +25,15 @@ import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddSlider
+import com.tedd.teddreader.core.ui.component.TeddText
+import com.tedd.teddreader.core.ui.generated.resources.*
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.reader.ReaderBottomControls
-import com.tedd.teddreader.core.ui.generated.resources.*
-import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The reader's bottom chrome: the page-position slider/label and the previous/next/auto-scroll
@@ -134,7 +134,7 @@ fun ReaderBottomActionBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
                     ) {
-                        Text(
+                        TeddText(
                             text = pageLabel,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -163,20 +163,20 @@ fun ReaderBottomActionBar(
                     enabled = canGoPrevious && !isAutoScrollEnabled,
                     contentDescription = stringResource(Res.string.previous_page),
                 ) {
-                    Icon(imageVector = TeddIcons.Previous, contentDescription = null)
+                    TeddIcon(imageVector = TeddIcons.Previous, contentDescription = null)
                 }
                 TeddIconButton(
                     onClick = onNextPage,
                     enabled = canGoNext && !isAutoScrollEnabled,
                     contentDescription = stringResource(Res.string.next_page),
                 ) {
-                    Icon(imageVector = TeddIcons.Next, contentDescription = null)
+                    TeddIcon(imageVector = TeddIcons.Next, contentDescription = null)
                 }
                 TeddIconButton(
                     onClick = onAutoScrollToggle,
                     contentDescription = if (isAutoScrollEnabled) stringResource(Res.string.pause_auto_scroll) else stringResource(Res.string.start_auto_scroll),
                 ) {
-                    Icon(
+                    TeddIcon(
                         imageVector = if (isAutoScrollEnabled) TeddIcons.Pause else TeddIcons.Play,
                         contentDescription = null,
                     )

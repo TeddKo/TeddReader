@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.home.impl
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -16,10 +17,6 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,16 +33,22 @@ import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.ui.component.TeddAlertDialog
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
 import com.tedd.teddreader.core.ui.component.TeddChip
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
 import com.tedd.teddreader.core.ui.component.TeddScaffold
+import com.tedd.teddreader.core.ui.component.TeddSection
+import com.tedd.teddreader.core.ui.component.TeddSectionKind
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTextField
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.Res
@@ -80,12 +83,6 @@ import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-
-/**
- * Caps how wide the library's document/folder grid grows on a tablet or an unfolded foldable, so
- * cards stay a readable size instead of stretching edge-to-edge on a wide screen.
- */
-private val ScreenMaxWidth = 720.dp
 
 /**
  * Entry point that wires [HomeViewModel] into [LibraryScreen]. Like [ReaderRouteScreen] in the
@@ -137,6 +134,10 @@ fun LibraryRouteScreen(
  * documents. Like [LibraryRouteScreen], this composable is a pure state-and-callback pass-through
  * to the view model; the `remember`/`rememberSaveable` state declared here (selection, dialog
  * visibility, the folder-name draft) is local UI bookkeeping, not a second copy of library state.
+ * The document/folder grid's own width is capped at
+ * [TeddReaderBreakpoints.readableMaxWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.readableMaxWidth]
+ * so its cards stay a readable size instead of stretching edge-to-edge on a tablet or an unfolded
+ * foldable.
  *
  * @param uiState The home feature's current state, as published by the view model.
  * @param folderId The folder whose documents are shown, or null for the whole library.
@@ -153,7 +154,9 @@ fun LibraryRouteScreen(
  * @param gridState Scroll state for the document/folder grid, hoisted so the caller can control or
  * observe scroll position.
  * @param modifier Applied to the screen's root.
- * @param contentPadding Padding applied inside the grid, around its items.
+ * @param contentPadding Vertical padding placed above the grid's first row and below its last one;
+ * null resolves to the theme's screenPadding for both edges. Horizontal inset is owned by the grid's
+ * own modifier and by the All/Folders selector's [TeddSection] instead, not by this parameter.
  */
 @Composable
 fun LibraryScreen(
@@ -171,9 +174,11 @@ fun LibraryScreen(
     onLoadCover: (DocumentId) -> Unit,
     gridState: LazyGridState,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(vertical = spacing.screenPadding)
     val displayFold = rememberDisplayFold()
     val currentFolder = remember(uiState.libraryFolders, folderId) {
         uiState.libraryFolders.firstOrNull { it.id == folderId }
@@ -246,7 +251,7 @@ fun LibraryScreen(
                     title = currentFolder?.name ?: stringResource(Res.string.library),
                     navigationIcon = {
                         TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                            Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                            TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                         }
                     },
                 )
@@ -262,8 +267,9 @@ fun LibraryScreen(
             val previewLimit = libraryPreviewLimit(
                 shortestSide = shortestSide,
                 displayFold = displayFold,
+                tabletMinWidth = breakpoints.medium,
             )
-            val useAdaptiveGrid = shortestSide >= 600.dp || (displayFold?.isVertical == true && displayFold.isSeparating)
+            val useAdaptiveGrid = shortestSide >= breakpoints.medium || (displayFold?.isVertical == true && displayFold.isSeparating)
 
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -273,27 +279,30 @@ fun LibraryScreen(
                     state = gridState,
                     columns = if (useAdaptiveGrid) GridCells.Adaptive(140.dp) else GridCells.Fixed(2),
                     modifier = Modifier
-                        .widthIn(max = ScreenMaxWidth)
-                        .fillMaxSize(),
-                    contentPadding = contentPadding,
+                        .widthIn(max = breakpoints.readableMaxWidth)
+                        .fillMaxSize()
+                        .padding(horizontal = spacing.screenPadding),
+                    contentPadding = resolvedContentPadding,
                     horizontalArrangement = Arrangement.spacedBy(spacing.medium),
                     verticalArrangement = Arrangement.spacedBy(spacing.medium),
                 ) {
                     if (folderId == null) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(spacing.small),
-                            ) {
-                                TeddChip(
-                                    text = stringResource(Res.string.all),
-                                    selected = mode == LibraryCollectionMode.All,
-                                    onClick = { mode = LibraryCollectionMode.All },
-                                )
-                                TeddChip(
-                                    text = stringResource(Res.string.folders),
-                                    selected = mode == LibraryCollectionMode.Folders,
-                                    onClick = { mode = LibraryCollectionMode.Folders },
-                                )
+                            TeddSection(kind = TeddSectionKind.Form, fullBleed = true) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                                ) {
+                                    TeddChip(
+                                        text = stringResource(Res.string.all),
+                                        selected = mode == LibraryCollectionMode.All,
+                                        onClick = { mode = LibraryCollectionMode.All },
+                                    )
+                                    TeddChip(
+                                        text = stringResource(Res.string.folders),
+                                        selected = mode == LibraryCollectionMode.Folders,
+                                        onClick = { mode = LibraryCollectionMode.Folders },
+                                    )
+                                }
                             }
                         }
                     }
@@ -323,6 +332,7 @@ fun LibraryScreen(
                                         ),
                                         documentCoverImages = uiState.documentCoverImages,
                                         onClick = { onFolderClick(folder.id) },
+                                        singleClick = true,
                                         onRenameClick = {
                                             folderNameDraft = folder.name
                                             editingFolder = folder
@@ -361,6 +371,7 @@ fun LibraryScreen(
                                         onDocumentClick(document.id)
                                     }
                                 },
+                                singleClick = selectedDocumentIds.isEmpty(),
                                 onLongClick = {
                                     actionDocumentId = null
                                     selectedDocumentIds = selectedDocumentIds.toggle(document.id.value)
@@ -433,10 +444,10 @@ fun LibraryScreen(
     }
 
     deletingFolder?.let { folder ->
-        AlertDialog(
+        TeddAlertDialog(
             onDismissRequest = { deletingFolder = null },
-            title = { Text(stringResource(Res.string.delete_folder_title)) },
-            text = { Text(stringResource(Res.string.delete_folder_message, folder.name)) },
+            title = stringResource(Res.string.delete_folder_title),
+            text = { TeddText(text = stringResource(Res.string.delete_folder_message, folder.name)) },
             confirmButton = {
                 TeddButton(
                     text = stringResource(Res.string.delete),
@@ -458,12 +469,12 @@ fun LibraryScreen(
     }
 
     if (pendingDeleteDocuments.isNotEmpty()) {
-        AlertDialog(
+        TeddAlertDialog(
             onDismissRequest = { pendingDeleteDocumentIds = emptySet() },
-            title = { Text(stringResource(Res.string.remove_from_library_title)) },
+            title = stringResource(Res.string.remove_from_library_title),
             text = {
-                Text(
-                    if (pendingDeleteDocuments.size == 1) {
+                TeddText(
+                    text = if (pendingDeleteDocuments.size == 1) {
                         stringResource(
                             Res.string.remove_from_library_message,
                             pendingDeleteDocuments.single().location.displayName,
@@ -539,7 +550,7 @@ private fun LibrarySelectionTopBar(
         title = stringResource(Res.string.files_in_folder_count, selectedCount),
         navigationIcon = {
             TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
             }
         },
         actions = {
@@ -548,9 +559,9 @@ private fun LibrarySelectionTopBar(
                     onClick = { onMenuExpandedChange(true) },
                     contentDescription = stringResource(Res.string.library),
                 ) {
-                    Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
+                    TeddIcon(imageVector = TeddIcons.MoreVert, contentDescription = null)
                 }
-                DropdownMenu(
+                TeddDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { onMenuExpandedChange(false) },
                 ) {
@@ -593,9 +604,9 @@ private fun FolderNameDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    TeddAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = title,
         text = {
             TeddTextField(
                 value = name,
@@ -634,14 +645,14 @@ private fun MoveToFolderDialog(
     onDismiss: () -> Unit,
     onMove: (String) -> Unit,
 ) {
-    AlertDialog(
+    TeddAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(Res.string.move_to_folder)) },
+        title = stringResource(Res.string.move_to_folder),
         text = {
             if (folders.isEmpty()) {
-                Text(stringResource(Res.string.no_folders_available))
+                TeddText(text = stringResource(Res.string.no_folders_available))
             } else {
-                androidx.compose.foundation.layout.Column {
+                Column {
                     folders.forEachIndexed { index, folder ->
                         TeddListItem(
                             title = folder.name,

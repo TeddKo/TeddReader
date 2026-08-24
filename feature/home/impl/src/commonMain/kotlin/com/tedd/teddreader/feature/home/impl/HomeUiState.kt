@@ -2,7 +2,6 @@ package com.tedd.teddreader.feature.home.impl
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.ui.system.DisplayFold
 import kotlinx.collections.immutable.ImmutableList
@@ -172,15 +171,24 @@ internal fun homeLibraryPreviewLimit(
  * measured shortest side and `hasSeparatingFold` from the device's own fold reporting, leaving
  * `isExpanded` always false since the home screen has no expanded-window case of its own.
  *
+ * This is a non-`@Composable` pure function, so it cannot read the theme's breakpoints itself
+ * (`teddReaderBreakpoints()` requires composition, and reaching for the static
+ * `DefaultTeddReaderBreakpoints` instead would silently ignore a theme override). [tabletMinWidth]
+ * exists so the caller — which does compose in a theme — supplies that threshold instead, keeping
+ * this function themable without becoming `@Composable` itself.
+ *
  * @param shortestSide The window's shortest side, as measured by the caller.
  * @param displayFold The device's current fold state, or null on a device that does not fold.
+ * @param tabletMinWidth The shortest-side width at or above which the caller should be treated as
+ * tablet-sized; the caller passes the theme's own `TeddReaderBreakpoints.medium`.
  */
 internal fun libraryPreviewLimit(
     shortestSide: Dp,
     displayFold: DisplayFold?,
+    tabletMinWidth: Dp,
 ): Int = homeLibraryPreviewLimit(
     isExpanded = false,
-    isTablet = shortestSide >= 600.dp,
+    isTablet = shortestSide >= tabletMinWidth,
     hasSeparatingFold = displayFold?.isVertical == true && displayFold.isSeparating,
 )
 

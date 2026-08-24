@@ -69,6 +69,18 @@ val EmberError = Color(0xFFB24C3B)
  * @property outline a visible border.
  * @property outlineVariant a divider or a quieter border.
  * @property scrim the dim behind a modal surface.
+ * @property ripple The reference colour for all ripple indications throughout the app. Material's
+ * default ripple derives from `LocalContentColor`, which makes the pressed feedback vary from
+ * component to component. This role pins the ripple to one deliberate colour so the app has a
+ * single, consistent tactile signal regardless of which surface is pressed.
+ * @property outlineSubtle A quiet border for cards and containers. Today this carries the same
+ * value as [outlineVariant], which is intentional: the two roles serve different purposes —
+ * [outlineVariant] marks dividers and separators, while [outlineSubtle] frames cards and containers
+ * — so they can diverge independently when the palette evolves without renaming either call site.
+ * @property shadow The spot-and-ambient colour passed to `Modifier.shadow`. The alpha is baked
+ * into this value so callers do not multiply it a second time; multiplying again would make
+ * shadows either too transparent or fully opaque depending on the blend mode, rather than the
+ * designed depth.
  */
 @Immutable
 data class TeddReaderColors(
@@ -107,6 +119,9 @@ data class TeddReaderColors(
     val outline: Color,
     val outlineVariant: Color,
     val scrim: Color,
+    val ripple: Color,
+    val outlineSubtle: Color,
+    val shadow: Color,
 )
 
 /** The app's day palette: warm paper surfaces with clay and sage accents. */
@@ -146,6 +161,9 @@ val LightTeddReaderColors = TeddReaderColors(
     outline = Color(0xFF8A8177),
     outlineVariant = Color(0xFFD1C7BA),
     scrim = Color.Black,
+    ripple = InkNearBlack,
+    outlineSubtle = Color(0xFFD1C7BA),
+    shadow = InkNearBlack.copy(alpha = 0.20f),
 )
 
 /** The app's night palette: charcoal surfaces carrying the same accents at their dark-theme tones. */
@@ -185,4 +203,7 @@ val DarkTeddReaderColors = TeddReaderColors(
     outline = Color(0xFF9B9389),
     outlineVariant = Color(0xFF48433D),
     scrim = Color.Black,
+    ripple = Color(0xFFF0E8DC),
+    outlineSubtle = Color(0xFF48433D),
+    shadow = Color.Black.copy(alpha = 0.40f),
 )

@@ -15,9 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -29,7 +27,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
@@ -49,7 +48,8 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
  * @param enabled Whether the slider responds to drags.
  * @param onValueChangeFinished Invoked once, after a drag gesture ends, distinct from the continuous
  * [onValueChange] — the value passed to [onValueChange] is not repeated here.
- * @param contentPadding Padding between the row's edge and its content.
+ * @param contentPadding Padding between the row's edge and its content; null means the theme's
+ * medium (all sides) value is used.
  */
 @Composable
 fun TeddSliderRow(
@@ -62,28 +62,31 @@ fun TeddSliderRow(
     steps: Int = 0,
     enabled: Boolean = true,
     onValueChangeFinished: (() -> Unit)? = null,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.medium),
+    contentPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.medium)
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(contentPadding),
+            .background(colors.surface)
+            .padding(resolvedContentPadding),
     ) {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        CompositionLocalProvider(LocalContentColor provides teddReaderColors().onSurface) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                TeddText(
                     text = title,
                     modifier = Modifier.weight(1f),
                     style = typography.settingTitle,
                 )
                 if (valueLabel != null) {
-                    Text(
+                    TeddText(
                         text = valueLabel,
                         style = typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.onSurfaceVariant,
                     )
                 }
             }
@@ -132,8 +135,9 @@ fun TeddSlider(
     val isPressed by interactionSource.collectIsPressedAsState()
     val isDragged by interactionSource.collectIsDraggedAsState()
     val showThumb = enabled && (isPressed || isDragged)
-    val activeTrackColor = MaterialTheme.colorScheme.primary
-    val inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)
+    val colors = teddReaderColors()
+    val activeTrackColor = colors.primary
+    val inactiveTrackColor = colors.onSurface.copy(alpha = 0.18f)
 
     Slider(
         value = value,

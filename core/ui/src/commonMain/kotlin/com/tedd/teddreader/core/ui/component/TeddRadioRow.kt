@@ -6,29 +6,31 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.extension.teddSelectable
 
 /**
  * A settings row that pairs a title/description with a trailing [RadioButton], where the whole row
- * (not just the radio dot) is the tap target — the row itself carries the `selectable` modifier with
+ * (not just the radio dot) is the tap target — the row itself carries [teddSelectable] with
  * `role = Role.RadioButton`, and the [RadioButton] passed `onClick = null` so it renders visually but
  * does not register its own, smaller, tap target. Meant to be used in a group (see
- * [TeddOptionGroup]) where each row's [onClick] selects that row's option.
+ * [TeddOptionGroup]) where each row's [onClick] selects that row's option. [RadioButton] itself is
+ * kept rather than rebuilt — a null `onClick` already removes its own ripple — with only its `colors`
+ * pinned to this app's tokens instead of the ambient Material scheme.
  *
  * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
  * @param selected Whether this row's radio button is drawn selected.
@@ -38,7 +40,9 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
  * @param description A second line shown under [title] in a muted color; omitted when null.
  * @param enabled Whether the row responds to taps; false also switches the radio button to disabled
  * colors.
- * @param contentPadding Padding between the row's edge and its content.
+ * @param contentPadding Padding between the row's edge and its content; null means the theme's
+ * screenPadding/small combination is used, so the row's horizontal inset lines up with
+ * [TeddSection]'s screen padding instead of sitting 4dp inside it.
  */
 @Composable
 fun TeddRadioRow(
@@ -48,34 +52,37 @@ fun TeddRadioRow(
     modifier: Modifier = Modifier,
     description: String? = null,
     enabled: Boolean = true,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.medium,
-        vertical = DefaultTeddReaderSpacing.small,
-    ),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.screenPadding,
+        vertical = spacing.small,
+    )
     val typography = teddReaderTypography()
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+    val colors = teddReaderColors()
+    CompositionLocalProvider(LocalContentColor provides teddReaderColors().onSurface) {
         Row(
             modifier = modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .selectable(
+                .heightIn(min = spacing.rowHeight)
+                .background(colors.surface)
+                .teddSelectable(
                     selected = selected,
+                    onClick = onClick,
                     enabled = enabled,
                     role = Role.RadioButton,
-                    onClick = onClick,
                 )
-                .padding(contentPadding),
+                .padding(resolvedContentPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, style = typography.settingTitle)
+                TeddText(text = title, style = typography.settingTitle)
                 if (description != null) {
-                    Text(
+                    TeddText(
                         text = description,
                         style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.onSurfaceVariant,
                     )
                 }
             }
@@ -84,6 +91,10 @@ fun TeddRadioRow(
                 selected = selected,
                 onClick = null,
                 enabled = enabled,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = colors.primary,
+                    unselectedColor = colors.onSurfaceVariant,
+                ),
             )
         }
     }

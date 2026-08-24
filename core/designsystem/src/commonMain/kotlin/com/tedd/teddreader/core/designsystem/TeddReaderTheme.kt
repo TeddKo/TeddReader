@@ -38,6 +38,9 @@ private val LocalTeddReaderMotion = staticCompositionLocalOf { DefaultTeddReader
 /** The app's icon sizes, read through [teddReaderIconography]. */
 private val LocalTeddReaderIconography = staticCompositionLocalOf { DefaultTeddReaderIconography }
 
+/** The app's adaptive layout breakpoints, read through [teddReaderBreakpoints]. */
+private val LocalTeddReaderBreakpoints = staticCompositionLocalOf { DefaultTeddReaderBreakpoints }
+
 /** The palette the reading page draws with, read through [readerColors] — not the app's chrome palette. */
 private val LocalReaderColors = staticCompositionLocalOf { LightReaderColors }
 
@@ -75,6 +78,11 @@ fun teddReaderMotion(): TeddReaderMotion = LocalTeddReaderMotion.current
 @Composable
 @ReadOnlyComposable
 fun teddReaderIconography(): TeddReaderIconography = LocalTeddReaderIconography.current
+
+/** The app's adaptive layout breakpoints at this point in the tree. */
+@Composable
+@ReadOnlyComposable
+fun teddReaderBreakpoints(): TeddReaderBreakpoints = LocalTeddReaderBreakpoints.current
 
 /** The palette the *reading page* draws with, which is not the app's chrome palette. */
 @Composable
@@ -187,6 +195,7 @@ fun TeddReaderTheme(
         LocalTeddReaderElevation provides DefaultTeddReaderElevation,
         LocalTeddReaderMotion provides DefaultTeddReaderMotion,
         LocalTeddReaderIconography provides DefaultTeddReaderIconography,
+        LocalTeddReaderBreakpoints provides DefaultTeddReaderBreakpoints,
         LocalReaderColors provides readerColors,
     ) {
         MaterialTheme(

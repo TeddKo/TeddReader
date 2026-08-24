@@ -1,12 +1,6 @@
 package com.tedd.teddreader.core.ui.extension
 
-import androidx.compose.foundation.Indication
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material3.ripple
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -15,19 +9,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.coroutineScope
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.TimeMark
-import kotlin.time.TimeSource
-
-/**
- * Minimum gap enforced between two accepted taps by [singleClickable]. 300ms sits comfortably above
- * a real double-tap (which fires within the platform's own ~40-300ms double-tap window depending on
- * device) while staying short enough that a deliberate second, separate tap is never dropped.
- */
-private val SingleClickInterval = 300.milliseconds
 
 /**
  * The [NestedScrollConnection] behind [consumeUnconsumedVerticalScroll]: it reports back as consumed
@@ -67,6 +50,11 @@ fun Modifier.consumeUnconsumedVerticalScroll(): Modifier =
  * each independently drive whatever gesture detector sits above this modifier (for example firing a
  * click twice, once per finger). No call site currently applies this modifier in this codebase; it
  * exists as an available building block for a region that turns out to need single-touch semantics.
+ *
+ * Must not be applied anywhere inside the reader's page tree. The reader's own multi-touch handling
+ * claims the [PointerEventPass.Initial] pass to keep pinch-zoom ahead of page navigation, and this
+ * modifier consumes on that same pass — the two would fight over the second finger, and pinch would
+ * stop reaching the page.
  *
  * @receiver The [Modifier] to restrict to one active pointer.
  * @return The receiver with the single-pointer tracking installed via `pointerInput`.
@@ -117,50 +105,6 @@ private class PointerTracker {
                 !change.pressed && currentId == change.id.value -> currentId = -1L
                 change.id.value != currentId -> change.consume()
             }
-        }
-    }
-}
-
-/**
- * [clickable] with debouncing built in: a second tap within [SingleClickInterval] of an
- * accepted one is swallowed instead of invoking [onClick] again. Exists for actions where a
- * double-invocation is actually harmful (e.g. a navigation or a one-shot mutation firing twice from
- * a bouncy touch or an accidental double-tap), rather than merely a visual double-ripple. No call
- * site currently applies this modifier in this codebase; it exists as an available building block for
- * an action that turns out to need this protection.
- *
- * @receiver The [Modifier] to attach the debounced click handling to.
- * @param enabled Whether the modifier responds to taps at all.
- * @param onClickLabel Accessibility label describing the click action.
- * @param interactionSource Interaction source reported to [clickable]; when null, one is remembered
- * internally.
- * @param indication Visual feedback shown on press; defaults to the platform ripple.
- * @param role Accessibility role reported for this element.
- * @param onClick Invoked at most once per [SingleClickInterval] window.
- * @return The receiver wrapped in a debounced [clickable].
- */
-fun Modifier.singleClickable(
-    enabled: Boolean = true,
-    onClickLabel: String? = null,
-    interactionSource: MutableInteractionSource? = null,
-    indication: Indication? = null,
-    role: Role? = null,
-    onClick: () -> Unit,
-): Modifier = composed {
-    val source = interactionSource ?: remember { MutableInteractionSource() }
-    var lastClickMark: TimeMark? = remember { null }
-
-    clickable(
-        enabled = enabled,
-        onClickLabel = onClickLabel,
-        role = role,
-        interactionSource = source,
-        indication = indication ?: ripple(),
-    ) {
-        val mark = lastClickMark
-        if (mark == null || mark.elapsedNow() >= SingleClickInterval) {
-            lastClickMark = TimeSource.Monotonic.markNow()
-            onClick()
         }
     }
 }

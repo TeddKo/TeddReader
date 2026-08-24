@@ -2,9 +2,6 @@ package com.tedd.teddreader.feature.reader.impl.image
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -13,6 +10,9 @@ import androidx.compose.ui.layout.ContentScale
 import coil3.compose.LocalPlatformContext
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.visual_page_content_description
 import com.tedd.teddreader.core.ui.generated.resources.visual_page_unavailable
@@ -38,6 +38,7 @@ internal fun ImagePageSurface(
     isFailed: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val colors = teddReaderColors()
     val platformContext = LocalPlatformContext.current
     val request = remember(imageBytes, sourceUri, platformContext) {
         (imageBytes ?: sourceUri)?.let { data ->
@@ -59,20 +60,20 @@ internal fun ImagePageSurface(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
                 loading = {
-                    CircularProgressIndicator()
+                    TeddLoadingIndicator()
                 },
                 error = {
-                    Text(
+                    TeddText(
                         text = stringResource(Res.string.visual_page_unavailable),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.onSurfaceVariant,
                     )
                 },
             )
-            isFailed -> Text(
+            isFailed -> TeddText(
                 text = stringResource(Res.string.visual_page_unavailable),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
             )
-            else -> CircularProgressIndicator()
+            else -> TeddLoadingIndicator()
         }
     }
 }

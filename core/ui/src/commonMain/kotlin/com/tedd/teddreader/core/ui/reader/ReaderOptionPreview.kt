@@ -4,15 +4,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.tedd.teddreader.core.common.model.ReaderStyle
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
  * A live sample of the reading page, shown beside a type or theme control so a reader sees the effect of a
@@ -26,7 +25,8 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
  * @param title the control's name, shown above the sample.
  * @param description an optional line explaining the control, shown under the title.
  * @param previewText the sample text; mixes Korean and Latin by default so line height is visible for both.
- * @param contentPadding margins for the sample page, smaller than a real page's so the sample fits a sheet.
+ * @param contentPadding margins for the sample page, smaller than a real page's so the sample fits a sheet;
+ * null means the theme's readerMargin/large combination is used.
  */
 @Composable
 fun ReaderOptionPreview(
@@ -35,20 +35,21 @@ fun ReaderOptionPreview(
     title: String = "Reader preview",
     description: String? = null,
     previewText: String = "Preview text\n가나다 ABC 123",
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.readerMargin,
-        vertical = DefaultTeddReaderSpacing.large,
-    ),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.readerMargin,
+        vertical = spacing.large,
+    )
     val typography = teddReaderTypography()
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
+        TeddText(
             text = title,
             style = typography.settingTitle,
         )
         if (description != null) {
-            Text(
+            TeddText(
                 text = description,
                 modifier = Modifier.padding(top = spacing.xxSmall),
                 style = typography.settingDescription,
@@ -58,7 +59,7 @@ fun ReaderOptionPreview(
             text = previewText,
             style = style,
             modifier = Modifier.padding(top = spacing.small),
-            contentPadding = contentPadding,
+            contentPadding = resolvedContentPadding,
         )
     }
 }

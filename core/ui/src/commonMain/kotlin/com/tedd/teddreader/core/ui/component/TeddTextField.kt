@@ -4,16 +4,14 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.dp
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 
@@ -44,23 +42,24 @@ fun TeddTextField(
     minLines: Int = 1,
     maxLines: Int = Int.MAX_VALUE,
 ) {
+    val colors = teddReaderColors()
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp),
-        label = label?.let { { Text(it) } },
-        placeholder = placeholder?.let { { Text(it) } },
+            .defaultMinSize(minHeight = teddReaderSpacing().touchTarget),
+        label = label?.let { { TeddText(text = it) } },
+        placeholder = placeholder?.let { { TeddText(text = it) } },
         enabled = enabled,
         minLines = minLines,
         maxLines = maxLines,
         shape = teddReaderShapes().medium,
         textStyle = teddReaderTypography().bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            focusedContainerColor = colors.surface,
+            unfocusedContainerColor = colors.surface,
+            disabledContainerColor = colors.surfaceContainerLow,
         ),
     )
 }
@@ -97,6 +96,7 @@ fun TeddSearchField(
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
 ) {
+    val colors = teddReaderColors()
     val resolvedTrailingContent: (@Composable () -> Unit)? = when {
         trailingContent != null -> trailingContent
         onClearClick != null && value.isNotEmpty() -> {
@@ -105,10 +105,10 @@ fun TeddSearchField(
                     onClick = onClearClick,
                     contentDescription = clearDescription ?: "Clear search",
                 ) {
-                    Icon(
+                    TeddIcon(
                         imageVector = TeddIcons.Close,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = colors.onSurfaceVariant,
                     )
                 }
             }
@@ -121,8 +121,8 @@ fun TeddSearchField(
         onValueChange = onValueChange,
         modifier = modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp),
-        placeholder = { Text(placeholder) },
+            .defaultMinSize(minHeight = teddReaderSpacing().touchTarget),
+        placeholder = { TeddText(text = placeholder) },
         leadingIcon = leadingContent,
         trailingIcon = resolvedTrailingContent,
         singleLine = true,
@@ -132,9 +132,9 @@ fun TeddSearchField(
         shape = teddReaderShapes().medium,
         textStyle = teddReaderTypography().bodyLarge,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            focusedContainerColor = colors.surface,
+            unfocusedContainerColor = colors.surface,
+            disabledContainerColor = colors.surfaceContainerLow,
         ),
     )
 }

@@ -19,7 +19,6 @@ import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.withThemeMode
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
@@ -97,7 +96,7 @@ fun ReaderSettingsSheet(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(spacing.medium),
+        verticalArrangement = Arrangement.spacedBy(spacing.sectionGap),
     ) {
         ReaderOptionPreview(
             style = previewStyle,
@@ -105,12 +104,13 @@ fun ReaderSettingsSheet(
             description = stringResource(Res.string.reader_preview_description),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+                .padding(horizontal = spacing.screenPadding),
         )
 
         TeddOptionGroup(
             title = stringResource(Res.string.app_language),
             description = stringResource(Res.string.app_language_description),
+            isSelectableGroup = true,
         ) {
             AppLanguage.entries.forEach { language ->
                 TeddRadioRow(
@@ -187,6 +187,7 @@ fun ReaderSettingsSheet(
         TeddOptionGroup(
             title = stringResource(Res.string.page_direction),
             description = stringResource(Res.string.page_movement_description),
+            isSelectableGroup = true,
         ) {
             listOf(PageTurnMode.HORIZONTAL, PageTurnMode.VERTICAL).forEach { mode ->
                 TeddRadioRow(
@@ -199,6 +200,7 @@ fun ReaderSettingsSheet(
 
         TeddOptionGroup(
             title = stringResource(Res.string.default_transition),
+            isSelectableGroup = true,
         ) {
             settingsDefaultTransitionOptions.forEach { animation ->
                 TeddRadioRow(
@@ -211,6 +213,7 @@ fun ReaderSettingsSheet(
 
         TeddOptionGroup(
             title = stringResource(Res.string.page_effects),
+            isSelectableGroup = true,
         ) {
             settingsPageEffectOptions.forEach { animation ->
                 TeddRadioRow(

@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.ui.reader
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,8 +8,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.Surface
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -19,6 +21,7 @@ import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
  * The surface the reader's own bars and sheets sit on, over the page.
@@ -50,14 +53,11 @@ fun ReaderChromeSurface(
 ) {
     val colors = style.readerColors()
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = colors.controls,
-        contentColor = colors.controlsContent,
-    ) {
+    CompositionLocalProvider(LocalContentColor provides colors.controlsContent) {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
+                .background(colors.controls)
                 .drawBehind {
                     val strokeWidth = 1.dp.toPx()
                     val y = if (dividerAtTop) {
@@ -94,7 +94,7 @@ private fun ReaderChromeSurfacePreview() {
                 vertical = spacing.xxSmall,
             ),
         ) {
-            androidx.compose.material3.Text("Transient chrome")
+            TeddText(text = "Transient chrome")
         }
     }
 }
@@ -113,7 +113,7 @@ private fun ReaderChromeSurfaceDarkPreview() {
                 vertical = spacing.xxSmall,
             ),
         ) {
-            androidx.compose.material3.Text("Transient chrome")
+            TeddText(text = "Transient chrome")
         }
     }
 }

@@ -4,22 +4,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddDivider
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
-import com.tedd.teddreader.core.ui.icon.TeddIcons
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.*
-import org.jetbrains.compose.resources.stringResource
+import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.feature.reader.impl.ReaderMenuAction
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The reader's top-bar overflow menu: a "more" icon button that, when tapped, opens a dropdown
@@ -48,9 +49,9 @@ fun ReaderActionMenu(
             onClick = { onExpandedChange(true) },
             contentDescription = stringResource(Res.string.reader_actions),
         ) {
-            Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
+            TeddIcon(imageVector = TeddIcons.MoreVert, contentDescription = null)
         }
-        DropdownMenu(
+        TeddDropdownMenu(
             expanded = expanded,
             onDismissRequest = { onExpandedChange(false) },
         ) {
@@ -67,7 +68,7 @@ fun ReaderActionMenu(
                 onActionSelected = onActionSelected,
                 onDismiss = { onExpandedChange(false) },
             )
-            HorizontalDivider()
+            TeddDivider()
             ReaderMenuSection(
                 title = stringResource(Res.string.appearance),
                 actions = listOf(
@@ -80,7 +81,7 @@ fun ReaderActionMenu(
                 onActionSelected = onActionSelected,
                 onDismiss = { onExpandedChange(false) },
             )
-            HorizontalDivider()
+            TeddDivider()
             ReaderMenuSection(
                 title = stringResource(Res.string.reading_tools),
                 actions = listOf(
@@ -107,7 +108,8 @@ fun ReaderActionMenu(
  * @param onActionSelected Invoked with the action the user tapped.
  * @param onDismiss Invoked alongside [onActionSelected] to close the parent dropdown.
  * @param modifier Applied to this section's column.
- * @param headerPadding Padding around the section header text.
+ * @param headerPadding Padding around the section header text; null resolves to the theme's
+ * medium/small/xxSmall spacing.
  */
 @Composable
 private fun ReaderMenuSection(
@@ -117,19 +119,22 @@ private fun ReaderMenuSection(
     onActionSelected: (ReaderMenuAction) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    headerPadding: PaddingValues = PaddingValues(
-        start = DefaultTeddReaderSpacing.medium,
-        top = DefaultTeddReaderSpacing.small,
-        end = DefaultTeddReaderSpacing.medium,
-        bottom = DefaultTeddReaderSpacing.xxSmall,
-    ),
+    headerPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedHeaderPadding = headerPadding ?: PaddingValues(
+        start = spacing.medium,
+        top = spacing.small,
+        end = spacing.medium,
+        bottom = spacing.xxSmall,
+    )
+
     Column(modifier = modifier) {
-        Text(
+        TeddText(
             text = title,
-            modifier = Modifier.padding(headerPadding),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(resolvedHeaderPadding),
+            style = teddReaderTypography().labelSmall,
+            color = teddReaderColors().onSurfaceVariant,
         )
         actions.forEach { action ->
             TeddDropdownMenuItem(

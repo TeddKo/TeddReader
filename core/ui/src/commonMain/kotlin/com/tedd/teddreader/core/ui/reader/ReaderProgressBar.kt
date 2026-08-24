@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +16,7 @@ import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
  * How far through the book the reader is: a bar, optionally with the page count and the percentage.
@@ -62,7 +62,7 @@ fun ReaderProgressBar(
             )
 
             if (showPercentLabel) {
-                Text(
+                TeddText(
                     text = pageIndex.percentLabel(),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -87,7 +87,7 @@ fun ReaderProgressBar(
         )
 
         if (showPercentLabel) {
-            Text(
+            TeddText(
                 text = pageIndex.percentLabel(),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -111,7 +111,7 @@ fun ReaderPageLabel(
     val typography = teddReaderTypography()
     val current = if (pageIndex.total == 0) 0 else pageIndex.current.toOneBasedPageNumber()
 
-    Text(
+    TeddText(
         text = pageIndex.pageLabel(current),
         modifier = modifier,
         maxLines = 1,
