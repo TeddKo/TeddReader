@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.settings.impl
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,7 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
+import com.tedd.teddreader.core.common.model.resolveSystemTheme
 import com.tedd.teddreader.core.common.model.withThemeMode
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
@@ -89,10 +91,12 @@ fun ReaderSettingsSheet(
     var autoScrollSpeedDraft by remember(uiState.autoScrollConfig.speed) {
         mutableFloatStateOf(uiState.autoScrollConfig.speed)
     }
-    val previewStyle = uiState.style.copy(
-        fontSizeSp = fontSizeDraft,
-        lineHeightMultiplier = lineHeightPercentDraft / 100f,
-    )
+    val previewStyle = uiState.style
+        .copy(
+            fontSizeSp = fontSizeDraft,
+            lineHeightMultiplier = lineHeightPercentDraft / 100f,
+        )
+        .resolveSystemTheme(isSystemInDarkTheme())
 
     Column(
         modifier = modifier,
@@ -149,6 +153,13 @@ fun ReaderSettingsSheet(
                 steps = LineHeightSliderSteps,
                 valueLabel = "${lineHeightPercentDraft.roundToInt()}%",
             )
+        }
+
+        TeddOptionGroup(
+            title = stringResource(Res.string.font_family),
+            description = stringResource(Res.string.font_family_description),
+            isSelectableGroup = true,
+        ) {
             TeddRadioRow(
                 title = stringResource(Res.string.font_family_document),
                 selected = uiState.style.fontFamilyName == null,
@@ -169,6 +180,13 @@ fun ReaderSettingsSheet(
                 selected = uiState.style.fontFamilyName == "mono",
                 onClick = { onStyleChange(uiState.style.copy(fontFamilyName = "mono")) },
             )
+        }
+
+        TeddOptionGroup(
+            title = stringResource(Res.string.theme),
+            description = stringResource(Res.string.theme_description),
+            isSelectableGroup = true,
+        ) {
             listOf(
                 ReaderThemeMode.PUBLISHER,
                 ReaderThemeMode.SYSTEM,

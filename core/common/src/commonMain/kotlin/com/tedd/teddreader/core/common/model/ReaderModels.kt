@@ -380,7 +380,6 @@ private const val LayoutAlgorithmVersionSuffix = "#layout7"
  */
 fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) {
     ReaderThemeMode.PUBLISHER,
-    ReaderThemeMode.SYSTEM,
     ReaderThemeMode.LIGHT,
         -> copy(
             textColor = ReaderColor(ReaderLightTextArgb),
@@ -388,6 +387,13 @@ fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) 
             backgroundImage = null,
             themeMode = mode,
         )
+
+    ReaderThemeMode.SYSTEM -> copy(
+        textColor = ReaderColor(ReaderLightTextArgb),
+        backgroundColor = ReaderColor(ReaderLightBackgroundArgb),
+        backgroundImage = null,
+        themeMode = ReaderThemeMode.SYSTEM,
+    )
 
     ReaderThemeMode.DARK -> copy(
         textColor = ReaderColor(ReaderDarkTextArgb),
@@ -407,6 +413,40 @@ fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) 
         themeMode = ReaderThemeMode.CUSTOM,
     )
 }
+
+/**
+ * Applies the platform's current dark-theme setting to a style that asked to follow it.
+ *
+ * [ReaderThemeMode.SYSTEM] cannot be resolved at the moment it is chosen, because the answer changes
+ * later — the user flips the system switch, or the device crosses into its night schedule, without ever
+ * reopening this app's settings. So the stored style keeps the light page colours as a resting value
+ * and the real decision is deferred to here, where the live system flag is available.
+ *
+ * Without this step the app read as two halves under `SYSTEM` on a dark device: chrome resolved through
+ * the system flag and went dark, while the page kept the light colours that were persisted when the mode
+ * was picked. Only the page colours move; the mode itself is preserved so the setting still reads back as
+ * "follow system" rather than silently rewriting itself to dark.
+ *
+ * Every other mode is returned untouched — an explicit light, dark, or sepia choice is a decision to
+ * ignore the system setting, and [ReaderThemeMode.PUBLISHER] keeps the document's own colours.
+ *
+ * Page layout is unaffected: [layoutKey] covers type size, line height and family, so changing colour
+ * never invalidates a stored pagination.
+ *
+ * @receiver the persisted style, whose [ReaderStyle.themeMode] decides whether anything changes.
+ * @param systemInDarkTheme the platform's live dark-theme flag, sampled by the UI layer.
+ * @return this style with the page colours the system currently calls for, or unchanged when the mode
+ * does not follow the system.
+ */
+fun ReaderStyle.resolveSystemTheme(systemInDarkTheme: Boolean): ReaderStyle =
+    if (themeMode == ReaderThemeMode.SYSTEM && systemInDarkTheme) {
+        copy(
+            textColor = ReaderColor(ReaderDarkTextArgb),
+            backgroundColor = ReaderColor(ReaderDarkBackgroundArgb),
+        )
+    } else {
+        this
+    }
 
 /** A whole style in the dark theme, for a caller that has no existing style to convert. *
  * @return a complete style in the dark theme, with default type.

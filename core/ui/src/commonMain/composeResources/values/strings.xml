@@ -30,6 +30,9 @@
     <string name="reading_appearance_description">Text choices that affect comfort and readability.</string>
     <string name="font_size">Font size</string>
     <string name="line_height">Line height</string>
+    <string name="font_family">Font</string>
+    <string name="font_family_description">Which typeface the page is set in.</string>
+    <string name="theme_description">Page colours for the reading surface.</string>
     <string name="font_family_document">Document font</string>
     <string name="font_family_sans">Sans</string>
     <string name="font_family_serif">Serif</string>
