@@ -122,4 +122,69 @@ class ReaderModelsTest {
     fun layoutKeyCarriesTheLayoutAlgorithmVersion() {
         assertEquals("#layout7", ReaderStyle().layoutKey().fontFamilyName)
     }
+
+    /**
+     * A style following the system draws dark page colours on a dark device.
+     *
+     * The regression this covers shipped as a half-dark app: chrome resolved the system flag and went
+     * dark while the page kept the light colours that were persisted when `SYSTEM` was chosen, so the
+     * reader showed light paper inside a dark frame.
+     */
+    @Test
+    fun systemThemeTakesDarkPageColoursOnADarkDevice() {
+        val resolved = ReaderStyle().withThemeMode(ReaderThemeMode.SYSTEM).resolveSystemTheme(true)
+
+        assertEquals(ReaderColor(ReaderDarkBackgroundArgb), resolved.backgroundColor)
+        assertEquals(ReaderColor(ReaderDarkTextArgb), resolved.textColor)
+    }
+
+    /**
+     * Resolving for the system keeps the mode as `SYSTEM`, so the setting still reads back as
+     * "follow system" rather than appearing to have rewritten itself to an explicit dark choice.
+     */
+    @Test
+    fun resolvingForTheSystemDoesNotRewriteTheChosenMode() {
+        val resolved = ReaderStyle().withThemeMode(ReaderThemeMode.SYSTEM).resolveSystemTheme(true)
+
+        assertEquals(ReaderThemeMode.SYSTEM, resolved.themeMode)
+    }
+
+    /**
+     * On a light device the same style stays light, which is also what the persisted value already held.
+     */
+    @Test
+    fun systemThemeStaysLightOnALightDevice() {
+        val resolved = ReaderStyle().withThemeMode(ReaderThemeMode.SYSTEM).resolveSystemTheme(false)
+
+        assertEquals(ReaderColor(ReaderLightBackgroundArgb), resolved.backgroundColor)
+        assertEquals(ReaderColor(ReaderLightTextArgb), resolved.textColor)
+    }
+
+    /**
+     * An explicit theme ignores the system flag — choosing light *is* the decision not to follow it.
+     *
+     * Checked on a dark device specifically, because that is the direction where a stray resolution
+     * would show up as the user's explicit choice being overridden.
+     */
+    @Test
+    fun anExplicitThemeIgnoresTheSystemSetting() {
+        val light = ReaderStyle().withThemeMode(ReaderThemeMode.LIGHT).resolveSystemTheme(true)
+        val sepia = ReaderStyle().withThemeMode(ReaderThemeMode.SEPIA).resolveSystemTheme(true)
+
+        assertEquals(ReaderColor(ReaderLightBackgroundArgb), light.backgroundColor)
+        assertEquals(ReaderColor(ReaderSepiaBackgroundArgb), sepia.backgroundColor)
+    }
+
+    /**
+     * Resolving colours never invalidates a stored pagination.
+     *
+     * Page breaks are keyed on type size, line height and family; if colour ever leaked into that key,
+     * every system theme flip would silently repaginate the open document.
+     */
+    @Test
+    fun resolvingForTheSystemLeavesThePaginationKeyAlone() {
+        val stored = ReaderStyle().withThemeMode(ReaderThemeMode.SYSTEM)
+
+        assertEquals(stored.layoutKey(), stored.resolveSystemTheme(true).layoutKey())
+    }
 }
