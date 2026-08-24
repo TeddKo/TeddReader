@@ -2,36 +2,32 @@ package com.tedd.teddreader.feature.home.impl
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,8 +35,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,11 +48,14 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderIconography
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddAlertDialog
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
 import com.tedd.teddreader.core.ui.component.TeddCard
@@ -63,8 +63,13 @@ import com.tedd.teddreader.core.ui.component.TeddChip
 import com.tedd.teddreader.core.ui.component.TeddEmptyState
 import com.tedd.teddreader.core.ui.component.TeddErrorBanner
 import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddListItem
+import com.tedd.teddreader.core.ui.component.TeddScaffold
+import com.tedd.teddreader.core.ui.component.TeddSection
+import com.tedd.teddreader.core.ui.component.TeddSectionKind
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.add_documents
@@ -154,7 +159,7 @@ fun HomeRouteScreen(
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scrollState = rememberScrollState()
+    val scrollState = rememberLazyListState()
 
     HomeScreen(
         uiState = uiState.copy(
@@ -182,10 +187,41 @@ fun HomeRouteScreen(
  * The home screen's UI: masthead, favourites/recent-reading carousels, a library preview grid, and
  * the dialogs (add-documents, delete-confirmation) and multi-select top bar that overlay it.
  *
+ * The screen's scrolling body is one [LazyColumn] whose every child is a [TeddSection] — a masthead,
+ * zero or more status blocks (error banners, empty states), a form block (sort/filter), and the
+ * three document collections. Routing every block through [TeddSection] is what replaced an
+ * anonymous header `Column` plus three differently-shaped section composables that used to disagree
+ * on gaps and horizontal inset; see [TeddSection] for why that mattered.
+ *
  * Library-grid multi-select is owned entirely inside this composable rather than in the view
  * model — [selectedDocumentIds] never outlives navigation away from this screen, and the system
  * back gesture is wired (via [NavigationBackHandler]) to clear a selection before it does anything
  * else, the same way a picker UI elsewhere in the app would.
+ *
+ * The top inset the `LazyColumn` receives is read from `TeddScaffold`'s own `scaffoldPadding`
+ * alone, never from a second, independent `WindowInsets` read. That works because the selection
+ * top bar's slot is wrapped in `AnimatedVisibility`, and Compose's animation runtime stops emitting
+ * any layout node for an `AnimatedVisibility` once it is fully hidden and no longer animating —
+ * so once a selection ends and its exit animation settles, that slot becomes genuinely empty rather
+ * than merely zero-height. Material's `Scaffold` treats an empty bar slot as "no bar," and falls
+ * back to measuring `contentWindowInsets` (`TeddScaffold`'s default, `WindowInsets.safeDrawing`) for
+ * that edge instead — which is why `scaffoldPadding.calculateTopPadding()` already equals the
+ * status bar's height while idle, without this composable reading `WindowInsets.statusBars` a
+ * second time. While a selection is active, the same value instead reports the selection top bar's
+ * real measured height, which already accounts for its own internal status-bar consumption. The one
+ * piece `scaffoldPadding` cannot supply on its own is the masthead's extra breathing room below the
+ * status bar, which is why [contentPadding] is still added on top of it while idle — the selection
+ * top bar needs no such margin beneath it, so that addition is skipped once a selection is active.
+ *
+ * That measured height has to change smoothly across the whole transition rather than snapping once
+ * it finishes, which is why the selection top bar's `enter`/`exit` combine `fadeIn`/`fadeOut` and
+ * `slideInVertically`/`slideOutVertically` with `expandVertically`/`shrinkVertically`, sharing each
+ * phase's own `tween` duration. Fade and slide alone never shrink the size an `AnimatedVisibility`
+ * reports to its parent, so without the size animation `Scaffold`'s `topBarPlaceables` would hold the
+ * bar's full height for the entire fade/slide and only collapse to nothing in the single frame the
+ * node is finally removed — which, combined with [contentPadding] switching on or off
+ * `resolvedTopPadding` the instant the selection set becomes empty or non-empty, used to jump the
+ * scrolling content by the bar's whole height (about 56dp) in one frame, in both directions.
  *
  * @param uiState The screen's data: documents, sections, sort/filter, loading and error state.
  * @param onOpenFilesClick Called when the user chooses to add documents by picking files.
@@ -195,8 +231,8 @@ fun HomeRouteScreen(
  * @param onSettingsClick Called when the settings action is tapped.
  * @param onDocumentClick Called with the id of a document the user tapped to open, unless a
  *   library selection is active, in which case a tap toggles selection instead.
- * @param scrollState The scroll state for the screen's main vertical content, owned by the caller
- *   so it can survive recomposition/navigation the same way any other hoisted scroll state does.
+ * @param scrollState The scroll state for the screen's [LazyColumn], owned by the caller so it can
+ *   survive recomposition/navigation the same way any other hoisted scroll state does.
  * @param onOpenLibraryClick Called when the user asks to see the full library beyond the preview.
  * @param onOpenLibraryFolderClick Called with a folder id when the user opens a library folder.
  * @param onDocumentBookmarkChange Called with a document id and the bookmark state to set for it.
@@ -206,7 +242,11 @@ fun HomeRouteScreen(
  * @param onSortChange Called when the library sort order changes.
  * @param onFormatFilterChange Called when the library format filter changes.
  * @param modifier The modifier applied to the screen's root.
- * @param contentPadding Padding applied around the masthead/sort-filter content block.
+ * @param contentPadding Extra vertical spacing placed above the masthead and below the screen's
+ *   last section, on top of the safe-area/top-bar inset [TeddScaffold] already contributes through
+ *   its `scaffoldPadding`; null resolves to the theme's screenPadding for both the top and the
+ *   bottom. Only the vertical components are read here — horizontal inset around every section's
+ *   content is owned by [TeddSection], not by this parameter.
  */
 @Composable
 fun HomeScreen(
@@ -216,7 +256,7 @@ fun HomeScreen(
     onOpenGoogleDriveClick: (() -> Unit)? = null,
     onSettingsClick: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
-    scrollState: ScrollState,
+    scrollState: LazyListState,
     onOpenLibraryClick: () -> Unit = {},
     onOpenLibraryFolderClick: (String) -> Unit = {},
     onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit = { _, _ -> },
@@ -226,9 +266,11 @@ fun HomeScreen(
     onFormatFilterChange: (HomeFormatFilter) -> Unit = {},
     onLoadCover: (DocumentId) -> Unit,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(all = DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(vertical = spacing.screenPadding)
     val motion = teddReaderMotion()
     val displayFold = rememberDisplayFold()
     var actionDocumentTarget by remember { mutableStateOf<HomeDocumentActionTarget?>(null) }
@@ -237,17 +279,6 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var previewMode by rememberSaveable { mutableStateOf(LibraryCollectionMode.All) }
     val selectionBackState = rememberNavigationEventState(NavigationEventInfo.None)
-    val visibleDocumentIds = remember(
-        uiState.favoriteDocuments,
-        uiState.recentDocuments,
-        uiState.libraryDocuments,
-    ) {
-        buildSet {
-            uiState.favoriteDocuments.forEach { add(it.id.value) }
-            uiState.recentDocuments.forEach { add(it.id.value) }
-            uiState.libraryDocuments.forEach { add(it.id.value) }
-        }
-    }
 
     NavigationBackHandler(
         state = selectionBackState,
@@ -257,10 +288,11 @@ fun HomeScreen(
         },
     )
 
-    LaunchedEffect(visibleDocumentIds) {
-        selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
-        pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet() }
-        if (actionDocumentTarget?.documentId !in uiState.libraryDocuments.map(DocumentMetadata::id).map(DocumentId::value).toSet()) {
+    LaunchedEffect(uiState.libraryDocuments) {
+        val libraryDocumentIds = uiState.libraryDocuments.mapTo(hashSetOf()) { it.id.value }
+        selectedDocumentIds = selectedDocumentIds.filterTo(linkedSetOf()) { it in libraryDocumentIds }
+        pendingDeleteDocumentIds = pendingDeleteDocumentIds.filterTo(linkedSetOf()) { it in libraryDocumentIds }
+        if (actionDocumentTarget?.documentId !in libraryDocumentIds) {
             actionDocumentTarget = null
         }
     }
@@ -273,76 +305,92 @@ fun HomeScreen(
         return
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .systemBarsPadding(),
-    ) {
-        AnimatedVisibility(
-            visible = selectedDocumentIds.isNotEmpty(),
-            enter = fadeIn(tween(motion.mediumDurationMs)) +
-                slideInVertically(tween(motion.mediumDurationMs)) { -it },
-            exit = fadeOut(tween(motion.shortDurationMs)) +
-                slideOutVertically(tween(motion.shortDurationMs)) { -it },
-        ) {
-            val selectedDocuments = uiState.libraryDocuments.filter { it.id.value in selectedDocumentIds }
-            val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
-            SelectionTopBar(
-                selectedCount = selectedDocumentIds.size,
-                bookmarkTarget = bookmarkTarget,
-                onCancelClick = {
-                    selectedDocumentIds = emptySet()
-                },
-                onBookmarkClick = {
-                    val documentIds = selectedDocumentIds.map(::DocumentId)
-                    actionDocumentTarget = null
-                    selectedDocumentIds = emptySet()
-                    onSelectionBookmarkChange(documentIds, bookmarkTarget)
-                },
-                onDeleteClick = {
-                    actionDocumentTarget = null
-                    pendingDeleteDocumentIds = selectedDocumentIds
-                },
-            )
-        }
+    TeddScaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            AnimatedVisibility(
+                visible = selectedDocumentIds.isNotEmpty(),
+                enter = fadeIn(tween(motion.mediumDurationMs)) +
+                    slideInVertically(tween(motion.mediumDurationMs)) { -it } +
+                    expandVertically(tween(motion.mediumDurationMs)),
+                exit = fadeOut(tween(motion.shortDurationMs)) +
+                    slideOutVertically(tween(motion.shortDurationMs)) { -it } +
+                    shrinkVertically(tween(motion.shortDurationMs)),
+            ) {
+                val selectedDocuments = uiState.libraryDocuments.filter { it.id.value in selectedDocumentIds }
+                val bookmarkTarget = homeSelectionBookmarkTarget(selectedDocuments)
+                SelectionTopBar(
+                    selectedCount = selectedDocumentIds.size,
+                    bookmarkTarget = bookmarkTarget,
+                    onCancelClick = {
+                        selectedDocumentIds = emptySet()
+                    },
+                    onBookmarkClick = {
+                        val documentIds = selectedDocumentIds.map(::DocumentId)
+                        actionDocumentTarget = null
+                        selectedDocumentIds = emptySet()
+                        onSelectionBookmarkChange(documentIds, bookmarkTarget)
+                    },
+                    onDeleteClick = {
+                        actionDocumentTarget = null
+                        pendingDeleteDocumentIds = selectedDocumentIds
+                    },
+                )
+            }
+        },
+    ) { scaffoldPadding ->
+        val resolvedTopPadding = scaffoldPadding.calculateTopPadding() +
+            if (selectedDocumentIds.isEmpty()) resolvedContentPadding.calculateTopPadding() else spacing.none
+        val resolvedBottomPadding = scaffoldPadding.calculateBottomPadding() +
+            resolvedContentPadding.calculateBottomPadding()
 
         BoxWithConstraints(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
         ) {
             val shortestDp = if (maxWidth <= maxHeight) maxWidth else maxHeight
             val previewLimit = libraryPreviewLimit(
                 shortestSide = shortestDp,
                 displayFold = displayFold,
+                tabletMinWidth = breakpoints.medium,
             )
             val previewDocuments = remember(uiState.libraryDocuments, previewLimit) {
                 homeLibraryPreviewDocuments(uiState.libraryDocuments, previewLimit)
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(spacing.large),
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = scrollState,
+                contentPadding = PaddingValues(top = resolvedTopPadding, bottom = resolvedBottomPadding),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(contentPadding),
-                    verticalArrangement = Arrangement.spacedBy(spacing.large),
-                ) {
-                    HomeMasthead(
-                        showAddAction = uiState.hasDocuments,
-                        onAddDocumentsClick = { showAddDialog = true },
-                        onSettingsClick = onSettingsClick,
-                    )
+                item {
+                    TeddSection(kind = TeddSectionKind.Masthead) {
+                        HomeMasthead(
+                            showAddAction = uiState.hasDocuments,
+                            onAddDocumentsClick = { showAddDialog = true },
+                            onSettingsClick = onSettingsClick,
+                        )
+                    }
+                }
 
-                    uiState.errorMessage?.let { TeddErrorBanner(message = it) }
-                    uiState.unsupportedFormatMessage?.let { TeddErrorBanner(message = it) }
+                uiState.errorMessage?.let { message ->
+                    item {
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = message)
+                        }
+                    }
+                }
 
-                    when {
-                        !uiState.hasDocuments -> {
+                uiState.unsupportedFormatMessage?.let { message ->
+                    item {
+                        TeddSection(kind = TeddSectionKind.Status) {
+                            TeddErrorBanner(message = message)
+                        }
+                    }
+                }
+
+                if (!uiState.hasDocuments) {
+                    item {
+                        TeddSection(kind = TeddSectionKind.Status) {
                             TeddEmptyState(
                                 title = stringResource(Res.string.home_no_documents_title),
                                 description = stringResource(Res.string.home_no_documents_description),
@@ -355,15 +403,21 @@ fun HomeScreen(
                                 },
                             )
                         }
-
-                        else -> {
+                    }
+                } else {
+                    item {
+                        TeddSection(kind = TeddSectionKind.Form) {
                             HomeSortFilterControls(
                                 sort = uiState.sort,
                                 formatFilter = uiState.formatFilter,
                                 onSortChange = onSortChange,
                                 onFormatFilterChange = onFormatFilterChange,
                             )
-                            if (uiState.libraryDocuments.isEmpty()) {
+                        }
+                    }
+                    if (uiState.libraryDocuments.isEmpty()) {
+                        item {
+                            TeddSection(kind = TeddSectionKind.Status) {
                                 HomeFilteredEmptyState(
                                     onShowAllClick = { onFormatFilterChange(HomeFormatFilter.All) },
                                 )
@@ -373,101 +427,105 @@ fun HomeScreen(
                 }
 
                 if (uiState.favoriteDocuments.isNotEmpty()) {
-                    HomeDocumentSection(
-                        section = HomeDocumentSection.Favorites,
-                        title = stringResource(Res.string.favorites),
-                        description = if (uiState.favoriteDocuments.size == 1) {
-                            stringResource(Res.string.favorite_documents_single)
-                        } else {
-                            stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
-                        },
-                        documents = uiState.favoriteDocuments,
-                        actionDocumentTarget = actionDocumentTarget,
-                        showFavoriteIcon = true,
-                        onDocumentClick = onDocumentClick,
-                        onShowActions = {
-                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Favorites, it)
-                        },
-                        onDismissActions = { actionDocumentTarget = null },
-                        onBookmarkClick = { document ->
-                            actionDocumentTarget = null
-                            onDocumentBookmarkChange(document.id, false)
-                        },
-                        onDeleteClick = { document ->
-                            actionDocumentTarget = null
-                            pendingDeleteDocumentIds = setOf(document.id.value)
-                        },
-                        documentCoverImages = uiState.documentCoverImages,
-                        onLoadCover = onLoadCover,
-                    )
+                    item {
+                        HomeDocumentCollection(
+                            section = HomeDocumentSection.Favorites,
+                            title = stringResource(Res.string.favorites),
+                            description = if (uiState.favoriteDocuments.size == 1) {
+                                stringResource(Res.string.favorite_documents_single)
+                            } else {
+                                stringResource(Res.string.favorite_documents_count, uiState.favoriteDocuments.size)
+                            },
+                            documents = uiState.favoriteDocuments,
+                            actionDocumentTarget = actionDocumentTarget,
+                            showFavoriteIcon = true,
+                            onDocumentClick = onDocumentClick,
+                            onShowActions = {
+                                actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Favorites, it)
+                            },
+                            onDismissActions = { actionDocumentTarget = null },
+                            onBookmarkClick = { document ->
+                                actionDocumentTarget = null
+                                onDocumentBookmarkChange(document.id, false)
+                            },
+                            onDeleteClick = { document ->
+                                actionDocumentTarget = null
+                                pendingDeleteDocumentIds = setOf(document.id.value)
+                            },
+                            documentCoverImages = uiState.documentCoverImages,
+                            onLoadCover = onLoadCover,
+                        )
+                    }
                 }
 
                 if (uiState.recentDocuments.isNotEmpty()) {
-                    HomeDocumentSection(
-                        section = HomeDocumentSection.Recent,
-                        title = stringResource(Res.string.recent_reading),
-                        description = stringResource(Res.string.recent_reading_description),
-                        documents = uiState.recentDocuments,
-                        actionDocumentTarget = actionDocumentTarget,
-                        onDocumentClick = onDocumentClick,
-                        onShowActions = {
-                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Recent, it)
-                        },
-                        onDismissActions = { actionDocumentTarget = null },
-                        onBookmarkClick = { document ->
-                            actionDocumentTarget = null
-                            onDocumentBookmarkChange(document.id, true)
-                        },
-                        onDeleteClick = { document ->
-                            actionDocumentTarget = null
-                            pendingDeleteDocumentIds = setOf(document.id.value)
-                        },
-                        modifier = Modifier,
-                        documentCoverImages = uiState.documentCoverImages,
-                        onLoadCover = onLoadCover,
-                    )
+                    item {
+                        HomeDocumentCollection(
+                            section = HomeDocumentSection.Recent,
+                            title = stringResource(Res.string.recent_reading),
+                            description = stringResource(Res.string.recent_reading_description),
+                            documents = uiState.recentDocuments,
+                            actionDocumentTarget = actionDocumentTarget,
+                            onDocumentClick = onDocumentClick,
+                            onShowActions = {
+                                actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Recent, it)
+                            },
+                            onDismissActions = { actionDocumentTarget = null },
+                            onBookmarkClick = { document ->
+                                actionDocumentTarget = null
+                                onDocumentBookmarkChange(document.id, true)
+                            },
+                            onDeleteClick = { document ->
+                                actionDocumentTarget = null
+                                pendingDeleteDocumentIds = setOf(document.id.value)
+                            },
+                            documentCoverImages = uiState.documentCoverImages,
+                            onLoadCover = onLoadCover,
+                        )
+                    }
                 }
 
                 if (uiState.libraryDocuments.isNotEmpty()) {
-                    HomeLibraryPreviewSection(
-                        previewMode = previewMode,
-                        onPreviewModeChange = { previewMode = it },
-                        previewDocuments = previewDocuments,
-                        allDocuments = uiState.libraryDocuments,
-                        folders = uiState.libraryFolders,
-                        previewLimit = previewLimit,
-                        selectedDocumentIds = selectedDocumentIds,
-                        actionDocumentTarget = actionDocumentTarget,
-                        documentCoverImages = uiState.documentCoverImages,
-                        onDocumentClick = { documentId ->
-                            if (selectedDocumentIds.isNotEmpty()) {
+                    item {
+                        HomeLibraryPreviewSection(
+                            previewMode = previewMode,
+                            onPreviewModeChange = { previewMode = it },
+                            previewDocuments = previewDocuments,
+                            allDocuments = uiState.libraryDocuments,
+                            folders = uiState.libraryFolders,
+                            previewLimit = previewLimit,
+                            selectedDocumentIds = selectedDocumentIds,
+                            actionDocumentTarget = actionDocumentTarget,
+                            documentCoverImages = uiState.documentCoverImages,
+                            onDocumentClick = { documentId ->
+                                if (selectedDocumentIds.isNotEmpty()) {
+                                    actionDocumentTarget = null
+                                    selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
+                                } else {
+                                    onDocumentClick(documentId)
+                                }
+                            },
+                            onStartSelection = { documentId ->
                                 actionDocumentTarget = null
-                                selectedDocumentIds = selectedDocumentIds.toggle(documentId.value)
-                            } else {
-                                onDocumentClick(documentId)
-                            }
-                        },
-                        onStartSelection = { documentId ->
-                            actionDocumentTarget = null
-                            selectedDocumentIds = selectedDocumentIds + documentId.value
-                        },
-                        onShowActions = {
-                            actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Library, it)
-                        },
-                        onDismissActions = { actionDocumentTarget = null },
-                        onBookmarkClick = { document ->
-                            actionDocumentTarget = null
-                            onDocumentBookmarkChange(document.id, !document.isBookmarked)
-                        },
-                        onDeleteClick = { document ->
-                            actionDocumentTarget = null
-                            pendingDeleteDocumentIds = setOf(document.id.value)
-                        },
-                        onFolderClick = onOpenLibraryFolderClick,
-                        onViewAllClick = onOpenLibraryClick,
-                        onLoadCover = onLoadCover,
-                        modifier = Modifier.padding(bottom = DefaultTeddReaderSpacing.large),
-                    )
+                                selectedDocumentIds = selectedDocumentIds + documentId.value
+                            },
+                            onShowActions = {
+                                actionDocumentTarget = HomeDocumentActionTarget(HomeDocumentSection.Library, it)
+                            },
+                            onDismissActions = { actionDocumentTarget = null },
+                            onBookmarkClick = { document ->
+                                actionDocumentTarget = null
+                                onDocumentBookmarkChange(document.id, !document.isBookmarked)
+                            },
+                            onDeleteClick = { document ->
+                                actionDocumentTarget = null
+                                pendingDeleteDocumentIds = setOf(document.id.value)
+                            },
+                            onFolderClick = onOpenLibraryFolderClick,
+                            onViewAllClick = onOpenLibraryClick,
+                            onLoadCover = onLoadCover,
+                        )
+                    }
                 }
             }
         }
@@ -497,12 +555,12 @@ fun HomeScreen(
         uiState.libraryDocuments.filter { it.id.value in pendingDeleteDocumentIds }
     }
     if (pendingDeleteDocuments.isNotEmpty()) {
-        AlertDialog(
+        TeddAlertDialog(
             onDismissRequest = { pendingDeleteDocumentIds = emptySet() },
-            title = { Text(stringResource(Res.string.remove_from_library_title)) },
+            title = stringResource(Res.string.remove_from_library_title),
             text = {
-                Text(
-                    if (pendingDeleteDocuments.size == 1) {
+                TeddText(
+                    text = if (pendingDeleteDocuments.size == 1) {
                         stringResource(
                             Res.string.remove_from_library_message,
                             pendingDeleteDocuments.single().location.displayName,
@@ -572,6 +630,7 @@ private fun SelectionTopBar(
     onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = teddReaderColors()
     val bookmarkDescription = if (bookmarkTarget) {
         stringResource(Res.string.add_to_favorites)
     } else {
@@ -585,7 +644,7 @@ private fun SelectionTopBar(
                 onClick = onCancelClick,
                 contentDescription = stringResource(Res.string.cancel),
             ) {
-                Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
             }
         },
         actions = {
@@ -593,20 +652,20 @@ private fun SelectionTopBar(
                 onClick = onBookmarkClick,
                 contentDescription = bookmarkDescription,
             ) {
-                Icon(
+                TeddIcon(
                     imageVector = if (bookmarkTarget) TeddIcons.BookmarkFilled else TeddIcons.BookmarkOutline,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = colors.primary,
                 )
             }
             TeddIconButton(
                 onClick = onDeleteClick,
                 contentDescription = stringResource(Res.string.delete),
             ) {
-                Icon(
+                TeddIcon(
                     imageVector = TeddIcons.Delete,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = colors.error,
                 )
             }
         },
@@ -614,58 +673,12 @@ private fun SelectionTopBar(
 }
 
 /**
- * The title/description header shared by every home section (favourites, recent reading,
- * library preview), with room for trailing actions such as the library's "show all" button.
- *
- * @param title The section's title.
- * @param description The section's supporting description text.
- * @param modifier The modifier applied to the header's root.
- * @param showFavoriteIcon Whether to show a bookmark icon before the title, used to mark the
- *   favourites section specifically.
- * @param actions Trailing content laid out after the title/description, scoped to the row so it
- *   can use [RowScope] alignment/weight.
- */
-@Composable
-private fun HomeSectionHeader(
-    title: String,
-    description: String,
-    modifier: Modifier = Modifier,
-    showFavoriteIcon: Boolean = false,
-    actions: @Composable RowScope.() -> Unit = {},
-) {
-    val spacing = teddReaderSpacing()
-    val typography = teddReaderTypography()
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(spacing.small),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (showFavoriteIcon) {
-            Icon(
-                imageVector = TeddIcons.BookmarkFilled,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
-        ) {
-            Text(text = title, style = typography.titleMedium)
-            Text(
-                text = description,
-                style = typography.documentMeta,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        actions()
-    }
-}
-
-/**
  * The library section of the home screen: an All/Folders toggle plus a bounded grid preview of
  * either loose documents or folder covers, with a "show all" action into the full library.
+ *
+ * Rendered as a [TeddSectionKind.Collection] with `fullBleed = false`: the preview is a fixed-column
+ * grid rather than a horizontally scrolling shelf, so it has no reason to ignore the screen's
+ * horizontal inset the way [HomeDocumentCollection]'s pager-backed shelves do.
  *
  * @param previewMode Whether the grid currently shows all documents or folders.
  * @param onPreviewModeChange Called when the All/Folders chip selection changes.
@@ -686,6 +699,7 @@ private fun HomeSectionHeader(
  * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
  * @param onFolderClick Called with a folder id when a folder tile is tapped.
  * @param onViewAllClick Called when the "show all" action is tapped.
+ * @param onLoadCover Called with a document id whose cover should be decoded and cached.
  * @param modifier The modifier applied to the section's root.
  */
 @Composable
@@ -713,26 +727,21 @@ private fun HomeLibraryPreviewSection(
     val spacing = teddReaderSpacing()
     val previewFolders = remember(folders, previewLimit) { folders.take(previewLimit) }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(spacing.small),
+    TeddSection(
+        kind = TeddSectionKind.Collection,
+        modifier = modifier,
+        title = stringResource(Res.string.library),
+        description = stringResource(Res.string.library_preview_description),
+        action = {
+            TeddButton(
+                text = stringResource(Res.string.show_all),
+                onClick = onViewAllClick,
+                emphasis = TeddButtonEmphasis.Secondary,
+            )
+        },
     ) {
-        HomeSectionHeader(
-            title = stringResource(Res.string.library),
-            description = stringResource(Res.string.library_preview_description),
-            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
-            actions = {
-                TeddButton(
-                    text = stringResource(Res.string.show_all),
-                    onClick = onViewAllClick,
-                    emphasis = TeddButtonEmphasis.Secondary,
-                )
-            },
-        )
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             TeddChip(
@@ -747,9 +756,7 @@ private fun HomeLibraryPreviewSection(
             )
         }
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
             val columns = if (previewLimit > 4) 4 else 2
@@ -773,6 +780,7 @@ private fun HomeLibraryPreviewSection(
                                         document.id.value,
                                     ),
                                     onClick = { onDocumentClick(document.id) },
+                                    singleClick = selectedDocumentIds.isEmpty(),
                                     onLongClick = { onStartSelection(document.id) },
                                     onShowActions = { onShowActions(document.id.value) },
                                     onDismissActions = onDismissActions,
@@ -818,6 +826,7 @@ private fun HomeLibraryPreviewSection(
                                         ),
                                         documentCoverImages = documentCoverImages,
                                         onClick = { onFolderClick(folder.id) },
+                                        singleClick = true,
                                         modifier = Modifier.weight(1f),
                                         onLoadCover = { previewDocument -> onLoadCover(previewDocument.id) },
                                     )
@@ -833,8 +842,14 @@ private fun HomeLibraryPreviewSection(
 
 /**
  * A titled, horizontally-paged shelf of documents — used for both the favourites and recent-
- * reading sections, which share this layout and differ only in their title/description/icon and
+ * reading collections, which share this layout and differ only in their title/description/icon and
  * the documents they carry.
+ *
+ * Rendered as a [TeddSectionKind.Collection] with `fullBleed = true`, so the pager's cards can scroll
+ * to the screen edge while the heading above it stays aligned with every other section on the
+ * screen; see [TeddSection] for why the two need different insets. [showFavoriteIcon] moves what
+ * used to be a leading bookmark glyph before the title into [TeddSection]'s trailing `action` slot,
+ * since a plain heading has no leading-icon slot of its own to reuse.
  *
  * @param section Which shelf this is (favourites vs. recent), passed through to
  *   [HomeDocumentPager] and combined with a document id to identify which card's overflow menu is
@@ -850,10 +865,12 @@ private fun HomeLibraryPreviewSection(
  * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
  * @param modifier The modifier applied to the section's root.
  * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
- * @param showFavoriteIcon Whether the section header shows a bookmark icon before its title.
+ * @param onLoadCover Called with a document id whose cover should be decoded and cached.
+ * @param showFavoriteIcon Whether a bookmark icon is shown in the section heading's trailing slot,
+ *   used to mark the favourites collection specifically.
  */
 @Composable
-private fun HomeDocumentSection(
+private fun HomeDocumentCollection(
     section: HomeDocumentSection,
     title: String,
     description: String,
@@ -869,18 +886,26 @@ private fun HomeDocumentSection(
     onLoadCover: (DocumentId) -> Unit,
     showFavoriteIcon: Boolean = false,
 ) {
-    val spacing = teddReaderSpacing()
+    val colors = teddReaderColors()
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(spacing.small),
+    TeddSection(
+        kind = TeddSectionKind.Collection,
+        modifier = modifier,
+        title = title,
+        description = description,
+        action = if (showFavoriteIcon) {
+            {
+                TeddIcon(
+                    imageVector = TeddIcons.BookmarkFilled,
+                    contentDescription = null,
+                    tint = colors.primary,
+                )
+            }
+        } else {
+            null
+        },
+        fullBleed = true,
     ) {
-        HomeSectionHeader(
-            title = title,
-            description = description,
-            showFavoriteIcon = showFavoriteIcon,
-            modifier = Modifier.padding(horizontal = DefaultTeddReaderSpacing.screenPadding),
-        )
         HomeDocumentPager(
             section = section,
             documents = documents,
@@ -898,7 +923,7 @@ private fun HomeDocumentSection(
 
 /**
  * A fixed-width [HorizontalPager] of [DocumentCard]s, used to render a shelf's document list for
- * [HomeDocumentSection].
+ * [HomeDocumentCollection].
  *
  * Cards here are never selectable: [DocumentCard.selected] is hard-wired to false, and no
  * long-press starts a selection. Favourites and recent reading are shortcuts into a book, not a
@@ -916,6 +941,7 @@ private fun HomeDocumentSection(
  * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
  * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
  * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
+ * @param onLoadCover Called with a document id whose cover should be decoded and cached.
  * @param modifier The modifier applied to the pager's root.
  */
 @Composable
@@ -943,7 +969,7 @@ private fun HomeDocumentPager(
         pageSize = PageSize.Fixed(HomeDocumentCardWidth),
         pageSpacing = spacing.medium,
         userScrollEnabled = documents.size > 1,
-        contentPadding = PaddingValues(horizontal = DefaultTeddReaderSpacing.screenPadding),
+        contentPadding = PaddingValues(horizontal = spacing.screenPadding),
     ) { page ->
         val document = documents[page]
         DocumentCard(
@@ -952,6 +978,7 @@ private fun HomeDocumentPager(
             selected = false,
             actionsExpanded = actionDocumentTarget == HomeDocumentActionTarget(section, document.id.value),
             onClick = { onDocumentClick(document.id) },
+            singleClick = true,
             onShowActions = { onShowActions(document.id.value) },
             onDismissActions = onDismissActions,
             onBookmarkClick = { onBookmarkClick(document) },
@@ -984,24 +1011,25 @@ private fun HomeMasthead(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
-        Text(
+        TeddText(
             text = stringResource(Res.string.library),
             style = typography.documentMeta,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
-        Text(
+        TeddText(
             text = "TeddReader",
             style = typography.headlineSmall,
         )
-        Text(
+        TeddText(
             text = stringResource(Res.string.masthead_description),
             style = typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(spacing.small),
@@ -1041,27 +1069,28 @@ private fun HomeAddDocumentsDialog(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
     val trailingIcon: @Composable RowScope.() -> Unit = {
-        Icon(
+        TeddIcon(
             imageVector = TeddIcons.Next,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            size = teddReaderIconography().small,
+            tint = colors.onSurfaceVariant,
         )
     }
 
-    AlertDialog(
+    TeddAlertDialog(
         onDismissRequest = onDismissRequest,
-        title = { Text(stringResource(Res.string.add_documents)) },
+        title = stringResource(Res.string.add_documents),
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(spacing.medium)) {
-                Text(stringResource(Res.string.home_add_documents_description))
+                TeddText(text = stringResource(Res.string.home_add_documents_description))
 
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                    Text(
+                    TeddText(
                         text = stringResource(Res.string.local_documents),
                         style = typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = colors.onSurfaceVariant,
                     )
                     TeddCard(modifier = Modifier.fillMaxWidth()) {
                         TeddListItem(
@@ -1082,10 +1111,10 @@ private fun HomeAddDocumentsDialog(
 
                 onSelectGoogleDriveClick?.let { onClick ->
                     Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-                        Text(
+                        TeddText(
                             text = stringResource(Res.string.cloud_documents),
                             style = typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = colors.onSurfaceVariant,
                         )
                         TeddCard(modifier = Modifier.fillMaxWidth()) {
                             TeddListItem(
@@ -1119,19 +1148,20 @@ private fun HomeFilteredEmptyState(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
-        Text(
+        TeddText(
             text = stringResource(Res.string.home_no_matching_documents),
             style = typography.titleMedium,
         )
-        Text(
+        TeddText(
             text = stringResource(Res.string.home_no_matching_documents_description),
             style = typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
         TeddButton(
             text = stringResource(Res.string.show_all),
@@ -1161,6 +1191,7 @@ private fun HomeSortFilterControls(
 ) {
     val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -1169,7 +1200,7 @@ private fun HomeSortFilterControls(
         HomeChipGroup(
             label = stringResource(Res.string.sort),
             style = typography.documentMeta,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            contentColor = colors.onSurfaceVariant,
         ) {
             HomeSort.entries.forEach { option ->
                 TeddChip(
@@ -1182,7 +1213,7 @@ private fun HomeSortFilterControls(
         HomeChipGroup(
             label = stringResource(Res.string.format),
             style = typography.documentMeta,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            contentColor = colors.onSurfaceVariant,
         ) {
             HomeFormatFilter.entries.forEach { option ->
                 TeddChip(
@@ -1208,14 +1239,14 @@ private fun HomeSortFilterControls(
 @Composable
 private fun HomeChipGroup(
     label: String,
-    style: androidx.compose.ui.text.TextStyle,
-    contentColor: androidx.compose.ui.graphics.Color,
+    style: TextStyle,
+    contentColor: Color,
     content: @Composable () -> Unit,
 ) {
     val spacing = teddReaderSpacing()
 
     Column(verticalArrangement = Arrangement.spacedBy(spacing.small)) {
-        Text(
+        TeddText(
             text = label,
             style = style,
             color = contentColor,
@@ -1282,6 +1313,7 @@ private fun DocumentMetadata.supportingText(): String =
     pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name
 
 /** Compose preview of [HomeScreen] with no documents in the library yet. */
+@Preview(widthDp = 240)
 @Preview(widthDp = 280)
 @Composable
 private fun HomeScreenEmptyPreview() {
@@ -1296,7 +1328,7 @@ private fun HomeScreenEmptyPreview() {
             onSettingsClick = {},
             onDocumentClick = {},
             onLoadCover = {},
-            scrollState = rememberScrollState(),
+            scrollState = rememberLazyListState(),
         )
     }
 }
@@ -1305,6 +1337,7 @@ private fun HomeScreenEmptyPreview() {
  * Compose preview of [HomeScreen] with favourites, recent reading, and a library folder
  * populated, across compact/medium/expanded widths.
  */
+@Preview(widthDp = 240)
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
 @Preview(widthDp = 840)
@@ -1374,7 +1407,7 @@ private fun HomeScreenRecentPreview() {
             onSettingsClick = {},
             onDocumentClick = {},
             onLoadCover = {},
-            scrollState = rememberScrollState(),
+            scrollState = rememberLazyListState(),
         )
     }
 }

@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +19,10 @@ import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -38,7 +40,7 @@ import org.jetbrains.compose.resources.stringResource
  * "renderer not connected" message.
  * @param contentPadding Padding passed through to the platform surface around a rendered page.
  * @param placeholderContentPadding Padding passed through to the platform surface around
- * placeholder content.
+ * placeholder content; null resolves to the theme's `large` spacing on all sides.
  */
 @Composable
 fun PdfPageSurface(
@@ -50,8 +52,11 @@ fun PdfPageSurface(
     rotationDegrees: Float = 0f,
     message: String? = null,
     contentPadding: PaddingValues = PaddingValues(12.dp),
-    placeholderContentPadding: PaddingValues = PaddingValues(24.dp),
+    placeholderContentPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedPlaceholderContentPadding = placeholderContentPadding ?: PaddingValues(spacing.large)
+
     PlatformPdfPageSurface(
         documentUri = documentUri,
         pageIndex = pageIndex,
@@ -63,7 +68,7 @@ fun PdfPageSurface(
         ),
         message = message ?: stringResource(Res.string.pdf_renderer_not_connected),
         contentPadding = contentPadding,
-        placeholderContentPadding = placeholderContentPadding,
+        placeholderContentPadding = resolvedPlaceholderContentPadding,
     )
 }
 
@@ -151,35 +156,40 @@ internal expect fun PlatformPdfPageSurface(
  * against.
  * @param modifier Applied to this placeholder's root.
  * @param message Explains to the user why no real page is shown.
- * @param contentPadding Padding around the placeholder's content.
+ * @param contentPadding Padding around the placeholder's content; null resolves to the theme's
+ * `large` spacing on all sides.
  */
 @Composable
 internal fun PdfPlaceholderSurface(
     pageIndex: PageIndex,
     modifier: Modifier = Modifier,
     message: String,
-    contentPadding: PaddingValues = PaddingValues(24.dp),
+    contentPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.large)
+    val colors = teddReaderColors()
+    val typography = teddReaderTypography()
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .padding(contentPadding),
+            .background(colors.surfaceContainerLow)
+            .padding(resolvedContentPadding),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("PDF", style = MaterialTheme.typography.headlineMedium)
-            Text(
+            TeddText(text = "PDF", style = typography.headlineMedium)
+            TeddText(
                 text = stringResource(Res.string.pdf_page_fraction, pageIndex.current + 1, pageIndex.total),
-                style = MaterialTheme.typography.bodyMedium,
+                style = typography.bodyMedium,
             )
-            Text(
+            TeddText(
                 text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = typography.bodySmall,
+                color = colors.onSurfaceVariant,
             )
         }
     }

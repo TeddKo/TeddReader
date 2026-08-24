@@ -6,33 +6,33 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.extension.teddClickable
+import com.tedd.teddreader.core.ui.extension.teddSelectable
 
 /**
  * Visual weight of a [TeddButton], chosen by how much attention the action deserves rather than by
- * which Material button type backs it. A screen picks one value per action instead of reaching for
- * `Button`/`OutlinedButton`/`TextButton` directly, so emphasis stays a design decision rather than a
- * component choice made at each call site.
+ * which background/border/content combination backs it. A screen picks one value per action instead
+ * of hand-assembling that combination itself, so emphasis stays a design decision rather than a
+ * choice repeated at each call site.
  */
 enum class TeddButtonEmphasis {
     /** The filled, highest-weight action on a screen — solid background color. */
@@ -49,19 +49,33 @@ enum class TeddButtonEmphasis {
 }
 
 /**
- * The app's single button surface: one composable that switches between Material's `Button`,
- * `OutlinedButton`, and `TextButton` depending on [emphasis], so every screen gets the same minimum
- * touch target, corner shape, and label style no matter which Material button type ends up backing
- * it. Without this wrapper, every call site would have to remember on its own to pin a 48dp minimum
- * height, swap in the app's shape scale, and flatten the primary button's elevation to zero.
+ * The app's single button surface: a [TeddText] label built directly on [teddClickable] instead of
+ * Material's `Button`/`OutlinedButton`/`TextButton`. Every one of those three derives its ripple's
+ * colour from the button's own content colour, which is exactly what this app's ripple policy forbids
+ * — a consistent tactile colour across the whole app, regardless of which surface is pressed (see
+ * [teddClickable]). Building the button by hand is the only way to keep that one ripple colour while
+ * still letting each [emphasis] choose its own background, border, and content colour. The touch
+ * target, corner shape, and label style are pinned once here so no [emphasis] branch can drift from
+ * the others by accident.
+ *
+ * The label is the button's root instead of sitting inside a `Row` or `Box` kept only to center it:
+ * with one child and no overlay, the alignment such a wrapper would give for free is exactly what the
+ * label's own modifier and parameters already express — `TextAlign.Center` centers it horizontally,
+ * and `Modifier.wrapContentHeight(Alignment.CenterVertically)` centers it vertically — so a second
+ * layout node buys nothing. That vertical centering has to be the innermost modifier, applied after
+ * `padding`, because `defaultMinSize` only ever raises the *constraint* handed to whatever it wraps;
+ * it does not itself center a child that ends up smaller than that minimum. Left off, a short label
+ * would sit at the top of the 48dp touch target instead of its middle. `background`, the border, and
+ * [teddClickable] all sit further out in the chain than `padding`, so the fill, the outline, and the
+ * ripple all cover the full enforced height instead of shrinking down to the label's own natural size.
  *
  * @param text The button's label, rendered with [teddReaderTypography]'s `labelLarge` style.
  * @param onClick Invoked when the button is tapped; never invoked while [enabled] is false.
- * @param modifier Modifier applied to the underlying Material button, after the enforced 48dp
- * minimum height is applied.
+ * @param modifier Modifier applied to the button's root, before the enforced 48dp minimum height.
  * @param enabled Whether the button responds to taps; false also switches it to its disabled colors.
  * @param emphasis Which visual treatment to render — see [TeddButtonEmphasis].
- * @param contentPadding Padding between the button's edge and its label.
+ * @param contentPadding Padding between the button's edge and its label; null means the theme's
+ * large/small combination is used.
  */
 @Composable
 fun TeddButton(
@@ -70,80 +84,100 @@ fun TeddButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     emphasis: TeddButtonEmphasis = TeddButtonEmphasis.Primary,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.large,
-        vertical = DefaultTeddReaderSpacing.small,
-    ),
+    contentPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.large,
+        vertical = spacing.small,
+    )
     val typography = teddReaderTypography()
-    val shapedModifier = modifier.defaultMinSize(minHeight = 48.dp)
+    val colors = teddReaderColors()
     val shape = teddReaderShapes().medium
-    val label: @Composable () -> Unit = {
-        Text(text = text, style = typography.labelLarge)
-    }
+
+    val backgroundColor: Color
+    val contentColor: Color
+    val borderColor: Color?
 
     when (emphasis) {
-        TeddButtonEmphasis.Primary -> Button(
-            onClick = onClick,
-            modifier = shapedModifier,
-            enabled = enabled,
-            shape = shape,
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-            contentPadding = contentPadding,
-            content = { label() },
-        )
+        TeddButtonEmphasis.Primary -> {
+            backgroundColor = if (enabled) colors.primary else colors.onSurface.copy(alpha = 0.1f)
+            contentColor = if (enabled) colors.onPrimary else colors.onSurfaceVariant.copy(alpha = 0.38f)
+            borderColor = null
+        }
 
-        TeddButtonEmphasis.Secondary -> OutlinedButton(
-            onClick = onClick,
-            modifier = shapedModifier,
-            enabled = enabled,
-            shape = shape,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            contentPadding = contentPadding,
-            content = { label() },
-        )
+        TeddButtonEmphasis.Secondary -> {
+            backgroundColor = Color.Transparent
+            contentColor = if (enabled) {
+                colors.onSurfaceVariant
+            } else {
+                colors.onSurfaceVariant.copy(alpha = 0.38f)
+            }
+            borderColor = colors.outlineVariant
+        }
 
-        TeddButtonEmphasis.Text -> TextButton(
-            onClick = onClick,
-            modifier = shapedModifier,
-            enabled = enabled,
-            shape = shape,
-            contentPadding = contentPadding,
-            colors = ButtonDefaults.textButtonColors(),
-            content = { label() },
-        )
+        TeddButtonEmphasis.Text -> {
+            backgroundColor = Color.Transparent
+            contentColor = if (enabled) colors.primary else colors.onSurfaceVariant.copy(alpha = 0.38f)
+            borderColor = null
+        }
 
-        TeddButtonEmphasis.Destructive -> TextButton(
-            onClick = onClick,
-            modifier = shapedModifier,
-            enabled = enabled,
-            shape = shape,
-            contentPadding = contentPadding,
-            colors = ButtonDefaults.textButtonColors(
-                contentColor = MaterialTheme.colorScheme.error,
-                disabledContentColor = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
-            ),
-            content = { label() },
-        )
+        TeddButtonEmphasis.Destructive -> {
+            backgroundColor = Color.Transparent
+            contentColor = if (enabled) colors.error else colors.error.copy(alpha = 0.6f)
+            borderColor = null
+        }
     }
+
+    TeddText(
+        text = text,
+        modifier = modifier
+            .defaultMinSize(minHeight = spacing.touchTarget)
+            .background(color = backgroundColor, shape = shape)
+            .run { if (borderColor != null) border(BorderStroke(1.dp, borderColor), shape) else this }
+            .teddClickable(onClick = onClick, shape = shape, enabled = enabled, role = Role.Button)
+            .padding(resolvedContentPadding)
+            .wrapContentHeight(Alignment.CenterVertically),
+        style = typography.labelLarge,
+        color = contentColor,
+        textAlign = TextAlign.Center,
+    )
 }
 
 /**
- * A pill-shaped tag used for filters and inline labels. Renders as a tappable [Surface] when
- * [onClick] is supplied; when it is not, the same border, background, and pill shape are drawn by
- * hand on plain [Text] instead, because a non-clickable [Surface] would still take part in
- * touch/semantics handling that a purely informational chip should not. [selected] swaps the
- * fill/content colors to the secondary-container pair, and on the non-interactive path also marks
- * the semantics as selected so accessibility services announce the state that would otherwise come
- * for free from [Surface]'s own `selected` parameter.
+ * A pill-shaped tag used for filters and inline labels. Renders as a tappable pill built on
+ * [teddSelectable] when [onClick] is supplied, rather than Material's `Surface(selected = ...)`: that
+ * surface's ripple derives its colour from `contentColor` like every other Material clickable, which
+ * this app's ripple policy forbids (see [teddClickable]), and its own minimum-touch-target handling
+ * grows the visible pill along with the tap target, which would misalign a compact filter row.
+ *
+ * `minimumInteractiveComponentSize` reserves the 48dp touch floor without touching what is drawn, which
+ * is the whole reason it sits outermost in the chain. Measured on the semantics tree: with it, the text
+ * node stays 25dp — the pill's own height, a `labelLarge` line plus 4dp of padding either side — while
+ * the node that owns the interaction measures 48dp square. Without it both collapse to 25dp. The
+ * background, border and ripple all attach inside it, so they follow the pill rather than the floor:
+ * the ripple stays clipped to the visible shape and the pill never inflates.
+ *
+ * Relying on Compose stretching the hit test on its own is not enough here. That fallback only applies
+ * where no node claims the inbound touch, and it competes with siblings by distance — in the filter
+ * rows these chips live in, spaced 8dp apart, adjacent chips split the gap between them and the
+ * effective target lands well under 48dp. Reserving the space is what makes the floor real.
+ *
+ * When [onClick] is null, the same border, background, and pill
+ * shape are drawn by hand on plain [TeddText] instead, because even a non-clickable interactive
+ * modifier would still take part in touch/semantics handling that a purely informational chip should
+ * not. [selected] swaps the fill/content colors to the secondary-container pair, and on the
+ * non-interactive path also marks the semantics as selected so accessibility services announce the
+ * state that would otherwise come for free from a selectable container's own `selected` parameter.
  *
  * @param text The chip's label, shown on a single line with ellipsis truncation.
  * @param onClick Invoked when the chip is tapped; when null, the chip renders as static, unclickable
- * text instead of a [Surface].
+ * text instead of a tappable pill.
  * @param modifier Modifier applied to the chip's root.
  * @param enabled Whether the chip responds to taps; only meaningful when [onClick] is non-null.
  * @param selected Whether the chip is drawn in its selected (secondary-container) colors.
- * @param contentPadding Padding between the chip's edge and its label.
+ * @param contentPadding Padding between the chip's edge and its label; null means the theme's
+ * medium/xSmall combination is used.
  */
 @Composable
 fun TeddChip(
@@ -152,53 +186,53 @@ fun TeddChip(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.medium,
-        vertical = DefaultTeddReaderSpacing.xSmall,
-    ),
+    contentPadding: PaddingValues? = null,
 ) {
+    val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.medium,
+        vertical = spacing.xSmall,
+    )
+    val colors = teddReaderColors()
     val backgroundColor = if (selected) {
-        MaterialTheme.colorScheme.secondaryContainer
+        colors.secondaryContainer
     } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
+        colors.surfaceContainerHigh
     }
     val contentColor = if (selected) {
-        MaterialTheme.colorScheme.onSecondaryContainer
+        colors.onSecondaryContainer
     } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+        colors.onSurfaceVariant
     }
     val shape = RoundedCornerShape(percent = 50)
 
     if (onClick != null) {
-        Surface(
-            selected = selected,
-            onClick = onClick,
-            modifier = modifier.semantics {
-                role = Role.Button
-            },
-            enabled = enabled,
-            shape = shape,
-            color = backgroundColor,
-            contentColor = contentColor,
-            tonalElevation = 0.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        ) {
-            Text(
-                text = text,
-                modifier = Modifier.padding(contentPadding),
-                style = teddReaderTypography().labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        TeddText(
+            text = text,
+            modifier = modifier
+                .minimumInteractiveComponentSize()
+                .background(backgroundColor, shape)
+                .border(BorderStroke(1.dp, colors.outlineVariant), shape)
+                .teddSelectable(
+                    selected = selected,
+                    onClick = onClick,
+                    shape = shape,
+                    enabled = enabled,
+                )
+                .padding(resolvedContentPadding),
+            color = contentColor,
+            style = teddReaderTypography().labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     } else {
-        Text(
+        TeddText(
             text = text,
             modifier = (if (selected) modifier.semantics { this.selected = true } else modifier)
                 .clip(shape)
                 .background(backgroundColor)
-                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
-                .padding(contentPadding),
+                .border(BorderStroke(1.dp, colors.outlineVariant), shape)
+                .padding(resolvedContentPadding),
             color = contentColor,
             style = teddReaderTypography().labelLarge,
             maxLines = 1,

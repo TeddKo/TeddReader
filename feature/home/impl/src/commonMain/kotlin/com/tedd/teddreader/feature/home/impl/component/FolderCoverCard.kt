@@ -1,9 +1,6 @@
 package com.tedd.teddreader.feature.home.impl.component
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,10 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,15 +22,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentMetadata
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
+import com.tedd.teddreader.core.ui.component.TeddText
+import com.tedd.teddreader.core.ui.extension.teddClickable
+import com.tedd.teddreader.core.ui.extension.teddSurface
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.delete
 import com.tedd.teddreader.core.ui.generated.resources.folder_actions
@@ -60,6 +60,10 @@ import org.jetbrains.compose.resources.stringResource
  *   shown as a count overlay on the mosaic's last tile when greater than zero.
  * @param documentCoverImages cover image bytes keyed by document id, looked up for each preview tile.
  * @param onClick invoked when the card itself is tapped, to open the folder.
+ * @param singleClick whether this tap joins the app-wide single-click navigation guard (see
+ *   `teddClickable`'s own `singleClick` parameter). Opening a folder is a destination push with no
+ *   toggle counterpart the way a document card's tap has, so every caller of this card can safely
+ *   pass true.
  * @param modifier applied to the outer [Column].
  * @param onRenameClick invoked to start renaming this folder, or null to omit the rename menu entry;
  *   together with [onDeleteClick] being null, this also hides the overflow menu button entirely.
@@ -73,14 +77,16 @@ fun FolderCoverCard(
     remainingDocumentCount: Int,
     documentCoverImages: Map<String, ByteArray>,
     onClick: () -> Unit,
+    singleClick: Boolean = false,
     modifier: Modifier = Modifier,
     onRenameClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
     onLoadCover: ((DocumentMetadata) -> Unit)? = null,
 ) {
     val shape = teddReaderShapes().medium
-    val spacing = DefaultTeddReaderSpacing
+    val spacing = teddReaderSpacing()
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
     val actionsDescription = stringResource(Res.string.folder_actions, folder.name)
     val canShowOverflow = onRenameClick != null || onDeleteClick != null
     var menuExpanded by remember { mutableStateOf(false) }
@@ -89,10 +95,12 @@ fun FolderCoverCard(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(3f / 4f)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
-            .clickable(onClick = onClick)
+            .teddSurface(
+                shape = shape,
+                borderColor = colors.outlineVariant,
+                backgroundColor = colors.surfaceContainerLow,
+            )
+            .teddClickable(onClick = onClick, shape = shape, role = Role.Button, singleClick = singleClick)
             .padding(spacing.small),
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
@@ -113,14 +121,14 @@ fun FolderCoverCard(
                     TeddIconButton(
                         onClick = { menuExpanded = true },
                         contentDescription = actionsDescription,
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(spacing.touchTarget),
                     ) {
-                        Icon(
+                        TeddIcon(
                             imageVector = TeddIcons.MoreVert,
                             contentDescription = null,
                         )
                     }
-                    DropdownMenu(
+                    TeddDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
                     ) {
@@ -151,16 +159,16 @@ fun FolderCoverCard(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
         ) {
-            Text(
+            TeddText(
                 text = folder.name,
                 style = typography.settingTitle,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
+            TeddText(
                 text = stringResource(Res.string.folder_row_description, folder.documentCount),
                 style = typography.documentMeta,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -187,7 +195,8 @@ private fun FolderCoverMosaic(
     modifier: Modifier = Modifier,
     onLoadCover: ((DocumentMetadata) -> Unit)? = null,
 ) {
-    val spacing = DefaultTeddReaderSpacing.xSmall
+    val spacing = teddReaderSpacing().xSmall
+    val colors = teddReaderColors()
     val previewSize = previewDocuments.size
     val columns = when {
         previewSize == 0 -> 1
@@ -246,12 +255,12 @@ private fun FolderCoverMosaic(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.56f)),
+                                        .background(colors.scrim.copy(alpha = 0.56f)),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(
+                                    TeddText(
                                         text = stringResource(Res.string.folder_cover_more_documents, remainingDocumentCount),
-                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        color = colors.onPrimary,
                                         style = teddReaderTypography().titleMedium,
                                     )
                                 }

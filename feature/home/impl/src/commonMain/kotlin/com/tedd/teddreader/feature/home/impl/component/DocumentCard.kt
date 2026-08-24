@@ -1,38 +1,24 @@
 package com.tedd.teddreader.feature.home.impl.component
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,12 +31,19 @@ import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
+import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddChip
+import com.tedd.teddreader.core.ui.component.TeddDropdownMenu
 import com.tedd.teddreader.core.ui.component.TeddDropdownMenuItem
+import com.tedd.teddreader.core.ui.component.TeddIcon
+import com.tedd.teddreader.core.ui.component.TeddIconButton
+import com.tedd.teddreader.core.ui.component.TeddText
+import com.tedd.teddreader.core.ui.extension.teddClickable
+import com.tedd.teddreader.core.ui.extension.teddSurface
 import com.tedd.teddreader.core.ui.generated.resources.Res
 import com.tedd.teddreader.core.ui.generated.resources.add_to_favorites
 import com.tedd.teddreader.core.ui.generated.resources.delete_from_library
@@ -85,6 +78,14 @@ internal const val DocumentMosaicCoverHeightPx = 160
  *   (see [SelectedCoverDimAlpha]) because the border alone never showed against a cover that fills
  *   the whole card, the way a picker in a gallery dims its chosen items.
  * @param onClick Called on a plain tap.
+ * @param singleClick Whether this card's tap joins the app-wide single-click navigation guard (see
+ *   `teddClickable`'s own `singleClick` parameter). The card cannot decide this for itself because
+ *   the very same [onClick] slot serves two different jobs depending on the caller: opening the
+ *   document in the reader (a destination push, where a duplicate tap must be swallowed) while no
+ *   selection is active, or toggling this card's membership in a multi-select (where a caller may
+ *   legitimately tap several different cards in quick succession, and the guard's app-wide sharing
+ *   would otherwise eat the second of two intentional taps) once one is. The caller passes true only
+ *   for the former.
  * @param onLongClick Called on a long press; null where the surrounding section does not offer
  *   selection, which leaves the long press unhandled rather than starting a selection nothing can
  *   act on.
@@ -101,6 +102,7 @@ fun DocumentCard(
     coverImageBytes: ByteArray? = null,
     selected: Boolean,
     onClick: () -> Unit,
+    singleClick: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     actionsExpanded: Boolean,
     onShowActions: () -> Unit,
@@ -111,14 +113,15 @@ fun DocumentCard(
     onLoadCover: (() -> Unit)? = null,
 ) {
     val typography = teddReaderTypography()
+    val colors = teddReaderColors()
     val shape = teddReaderShapes().medium
-    val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+    val spacing = teddReaderSpacing()
+    val borderColor = if (selected) colors.primary else colors.outlineVariant
     val backgroundColor = if (selected) {
-        MaterialTheme.colorScheme.secondaryContainer
+        colors.secondaryContainer
     } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
+        colors.surfaceContainerLow
     }
-    val interactionSource = remember { MutableInteractionSource() }
     val actionsDescription = stringResource(Res.string.document_actions)
 
     LaunchedEffect(document.id.value, coverImageBytes) {
@@ -128,19 +131,17 @@ fun DocumentCard(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(shape)
-            .background(backgroundColor)
-            .border(BorderStroke(1.dp, borderColor), shape)
+            .teddSurface(shape = shape, borderColor = borderColor, backgroundColor = backgroundColor)
             .semantics {
                 this.selected = selected
             }
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = ripple(),
-                role = Role.Button,
+            .teddClickable(
                 onClick = onClick,
-                onLongClickLabel = onLongClick?.let { stringResource(Res.string.select_document) },
+                shape = shape,
+                role = Role.Button,
                 onLongClick = onLongClick,
+                onLongClickLabel = onLongClick?.let { stringResource(Res.string.select_document) },
+                singleClick = singleClick,
             ),
     ) {
         DocumentCover(
@@ -157,9 +158,9 @@ fun DocumentCard(
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to MaterialTheme.colorScheme.scrim.copy(alpha = 0.08f),
-                        0.48f to MaterialTheme.colorScheme.scrim.copy(alpha = 0.05f),
-                        1f to MaterialTheme.colorScheme.scrim.copy(alpha = 0.78f),
+                        0f to colors.scrim.copy(alpha = 0.08f),
+                        0.48f to colors.scrim.copy(alpha = 0.05f),
+                        1f to colors.scrim.copy(alpha = 0.78f),
                     ),
                 ),
         )
@@ -168,33 +169,27 @@ fun DocumentCard(
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = SelectedCoverDimAlpha)),
+                    .background(colors.scrim.copy(alpha = SelectedCoverDimAlpha)),
             )
         }
 
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(DefaultTeddReaderSpacing.small),
+                .padding(spacing.small),
         ) {
-            IconButton(
+            TeddIconButton(
                 onClick = onShowActions,
-                modifier = Modifier.semantics {
-                    contentDescription = actionsDescription
-                },
-                shape = CircleShape,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
+                contentDescription = actionsDescription,
             ) {
-                Icon(
+                TeddIcon(
                     imageVector = TeddIcons.MoreVert,
                     contentDescription = null,
+                    tint = colors.onSurface,
                 )
             }
 
-            DropdownMenu(
+            TeddDropdownMenu(
                 expanded = actionsExpanded,
                 onDismissRequest = onDismissActions,
             ) {
@@ -206,7 +201,7 @@ fun DocumentCard(
                     },
                     onClick = onBookmarkClick,
                     leadingIcon = {
-                        Icon(
+                        TeddIcon(
                             imageVector = if (document.isBookmarked) {
                                 TeddIcons.BookmarkFilled
                             } else {
@@ -227,18 +222,18 @@ fun DocumentCard(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(DefaultTeddReaderSpacing.medium),
-            verticalArrangement = Arrangement.spacedBy(DefaultTeddReaderSpacing.xSmall),
+                .padding(spacing.medium),
+            verticalArrangement = Arrangement.spacedBy(spacing.xSmall),
         ) {
             TeddChip(text = document.format.name)
-            Text(
+            TeddText(
                 text = document.location.displayName,
                 style = typography.settingTitle,
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
+            TeddText(
                 text = buildDocumentMeta(document),
                 style = typography.documentMeta,
                 color = Color.White.copy(alpha = 0.82f),
@@ -311,16 +306,17 @@ internal fun BookCoverFallback(
     selected: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val colors = teddReaderColors()
     val spineColor = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+        colors.primary.copy(alpha = 0.72f)
     } else {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.58f)
+        colors.primary.copy(alpha = 0.58f)
     }
-    val lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val lineColor = colors.onSurface.copy(alpha = 0.12f)
     val surfaceColor = if (selected) {
-        MaterialTheme.colorScheme.secondaryContainer
+        colors.secondaryContainer
     } else {
-        MaterialTheme.colorScheme.surfaceContainerHigh
+        colors.surfaceContainerHigh
     }
 
     Box(

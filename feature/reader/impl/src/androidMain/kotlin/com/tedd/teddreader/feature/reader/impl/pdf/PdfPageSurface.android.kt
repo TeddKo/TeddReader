@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,11 +25,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.generated.resources.*
-import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The Android actual of `PlatformPdfPageSurface`: renders one PDF page as a bitmap through Android's
@@ -60,6 +60,7 @@ internal actual fun PlatformPdfPageSurface(
     contentPadding: PaddingValues,
     placeholderContentPadding: PaddingValues,
 ) {
+    val colors = teddReaderColors()
     val context = LocalContext.current
     var state by remember(documentUri, pageIndex.current) {
         mutableStateOf<PdfRenderState>(PdfRenderState.Loading)
@@ -77,15 +78,15 @@ internal actual fun PlatformPdfPageSurface(
         PdfRenderState.Loading -> Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceContainerLow),
+                .background(colors.surfaceContainerLow),
             contentAlignment = Alignment.Center,
         ) {
-            CircularProgressIndicator()
+            TeddLoadingIndicator()
         }
         is PdfRenderState.Rendered -> Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .background(colors.surfaceContainerLow)
                 .padding(contentPadding),
             contentAlignment = Alignment.Center,
         ) {
