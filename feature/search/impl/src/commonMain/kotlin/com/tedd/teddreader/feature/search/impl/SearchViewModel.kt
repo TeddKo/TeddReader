@@ -3,11 +3,10 @@ package com.tedd.teddreader.feature.search.impl
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.model.DocumentId
-import com.tedd.teddreader.core.common.model.isVisualPageFormat
-import com.tedd.teddreader.core.domain.repository.DocumentRepository
-import com.tedd.teddreader.core.domain.usecase.FindInDocumentUseCase
+import com.tedd.teddreader.core.domain.usecase.SearchDocumentUseCase
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -16,100 +15,93 @@ import org.koin.core.annotation.KoinViewModel
 
 @KoinViewModel
 class SearchViewModel(
-    private val findInDocument: FindInDocumentUseCase,
-    private val documentRepository: DocumentRepository,
+    private val searchDocument: SearchDocumentUseCase,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState
 
+    private var searchJob: Job? = null
+
     fun setDocument(documentId: String) {
+        if (_uiState.value.documentId == documentId) return
+        searchJob?.cancel()
         _uiState.update {
             it.copy(
                 documentId = documentId,
+                query = "",
                 results = persistentListOf(),
+                isLoading = false,
                 errorMessage = null,
                 isSearchUnsupported = false,
             )
         }
-        viewModelScope.launch {
-            runCatching { documentRepository.getDocument(DocumentId(documentId)) }
-                .onSuccess { metadata ->
-                    _uiState.update {
-                        it.copy(
-                            isSearchUnsupported = metadata?.format?.isVisualPageFormat() == true,
-                        )
+        searchJob = viewModelScope.launch {
+            val result = runCatching { searchDocument(DocumentId(documentId), "") }
+                .getOrElse { throwable ->
+                    if (_uiState.value.documentId == documentId) {
+                        _uiState.update {
+                            it.copy(errorMessage = throwable.message ?: MetadataLoadFailedMessage)
+                        }
                     }
+                    return@launch
                 }
-                .onFailure { throwable ->
-                    _uiState.update {
-                        it.copy(errorMessage = throwable.message ?: "Failed to load document metadata.")
-                    }
+            if (_uiState.value.documentId == documentId) {
+                _uiState.update {
+                    it.copy(isSearchUnsupported = result.isUnsupported)
                 }
+            }
         }
     }
 
     fun updateQuery(query: String) {
-        _uiState.update { state -> state.copy(query = query, errorMessage = null) }
+        if (_uiState.value.isLoading) {
+            searchJob?.cancel()
+        }
+        _uiState.update { state ->
+            state.copy(
+                query = query,
+                errorMessage = null,
+                isLoading = false,
+            )
+        }
     }
 
     fun search() {
         val state = _uiState.value
         if (state.query.isBlank()) {
-            _uiState.update { it.copy(results = persistentListOf(), errorMessage = null) }
+            searchJob?.cancel()
+            _uiState.update { it.copy(results = persistentListOf(), errorMessage = null, isLoading = false) }
             return
         }
 
-        viewModelScope.launch {
+        searchJob?.cancel()
+        val requestedQuery = state.query
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val documentId = runCatching { DocumentId(state.documentId) }
+            val result = runCatching { searchDocument(DocumentId(state.documentId), requestedQuery) }
                 .getOrElse { throwable ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = throwable.message ?: "Invalid document.",
-                        )
+                    if (_uiState.value.documentId == state.documentId && _uiState.value.query == requestedQuery) {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = throwable.message ?: "Search failed.",
+                            )
+                        }
                     }
                     return@launch
                 }
-            val metadata = runCatching { documentRepository.getDocument(documentId) }
-                .getOrElse { throwable ->
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = throwable.message ?: "Failed to load document metadata.",
-                        )
-                    }
-                    return@launch
-                }
-            if (metadata?.format?.isVisualPageFormat() == true) {
+            if (_uiState.value.documentId == state.documentId && _uiState.value.query == requestedQuery) {
                 _uiState.update {
                     it.copy(
-                        results = persistentListOf(),
+                        query = result.query,
+                        results = result.results.toImmutableList(),
                         isLoading = false,
-                        isSearchUnsupported = true,
-                    )
-                }
-                return@launch
-            }
-
-            runCatching {
-                findInDocument(documentId, state.query)
-            }.onSuccess { results ->
-                _uiState.update {
-                    it.copy(
-                        results = results.toImmutableList(),
-                        isLoading = false,
-                        isSearchUnsupported = false,
-                    )
-                }
-            }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        errorMessage = throwable.message ?: "Search failed.",
+                        isSearchUnsupported = result.isUnsupported,
                     )
                 }
             }
         }
     }
 }
+
+private const val MetadataLoadFailedMessage = "Failed to load document metadata."

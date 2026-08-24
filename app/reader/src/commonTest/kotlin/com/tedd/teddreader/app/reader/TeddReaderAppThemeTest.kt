@@ -7,7 +7,9 @@ import kotlin.test.assertTrue
 
 class TeddReaderAppThemeTest {
     @Test
-    fun systemThemeModeFollowsSystemDarkTheme() {
+    fun systemLikeThemeModesFollowSystemDarkTheme() {
+        assertTrue(appUsesDarkTheme(ReaderThemeMode.PUBLISHER, systemInDarkTheme = true))
+        assertFalse(appUsesDarkTheme(ReaderThemeMode.PUBLISHER, systemInDarkTheme = false))
         assertTrue(appUsesDarkTheme(ReaderThemeMode.SYSTEM, systemInDarkTheme = true))
         assertFalse(appUsesDarkTheme(ReaderThemeMode.SYSTEM, systemInDarkTheme = false))
     }

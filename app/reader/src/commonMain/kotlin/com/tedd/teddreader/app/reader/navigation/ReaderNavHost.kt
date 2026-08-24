@@ -54,19 +54,70 @@ import com.tedd.teddreader.feature.settings.api.SettingsRoute
 import com.tedd.teddreader.feature.search.impl.SearchRouteScreen
 import com.tedd.teddreader.feature.settings.impl.ReaderSettingsRouteScreen
 
+/**
+ * Storage token for [HomeRoute] in the back-stack encoding [navKeyToStorageToken] and
+ * [storageTokenToNavKey] convert between.
+ */
 private const val HOME_ROUTE_TOKEN = "home"
+
+/**
+ * Storage token prefix for a [LibraryRoute] in the back-stack encoding [navKeyToStorageToken] and
+ * [storageTokenToNavKey] convert between; the route's optional folder id, if any, follows the
+ * prefix.
+ */
 private const val LIBRARY_ROUTE_PREFIX = "library:"
+
+/**
+ * Storage token prefix for a [ReaderRoute] in the back-stack encoding [navKeyToStorageToken] and
+ * [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ */
 private const val READER_ROUTE_PREFIX = "reader:"
+
+/**
+ * Storage token prefix for a [SearchRoute] in the back-stack encoding [navKeyToStorageToken] and
+ * [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ */
 private const val SEARCH_ROUTE_PREFIX = "search:"
+
+/**
+ * Storage token prefix for a [BookmarksRoute] in the back-stack encoding [navKeyToStorageToken]
+ * and [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ */
 private const val BOOKMARKS_ROUTE_PREFIX = "bookmarks:"
+
+/**
+ * Storage token prefix for a [DocumentInfoRoute] in the back-stack encoding [navKeyToStorageToken]
+ * and [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ */
 private const val DOCUMENT_INFO_ROUTE_PREFIX = "document-info:"
+
+/**
+ * Storage token for [SettingsRoute] in the back-stack encoding [navKeyToStorageToken] and
+ * [storageTokenToNavKey] convert between.
+ */
 private const val SETTINGS_ROUTE_TOKEN = "settings"
 
+/**
+ * Lets the navigation back stack survive process death and configuration changes: each entry's
+ * navigation-key object (e.g. [com.tedd.teddreader.feature.reader.api.ReaderRoute]) is not itself
+ * `Parcelable`/serializable, so [rememberSaveable] cannot save the [SnapshotStateList] directly —
+ * this saver converts every entry to and from the plain string tokens [navKeyToStorageToken] and
+ * [storageTokenToNavKey] define instead.
+ */
 private val navBackStackSaver = listSaver<SnapshotStateList<Any>, String>(
     save = { backStack -> backStack.map(::navKeyToStorageToken) },
     restore = { tokens -> tokens.mapTo(mutableStateListOf(), ::storageTokenToNavKey) },
 )
 
+/**
+ * Encodes one back-stack entry's navigation key as the plain string [navBackStackSaver] persists,
+ * pairing with [storageTokenToNavKey] to decode it back.
+ *
+ * @param key a navigation key present in [ReaderNavHost]'s back stack.
+ * @return the key's string encoding.
+ * @throws IllegalStateException if [key] is not one of the navigation key types this navigation
+ *   host recognizes.
+ */
 internal fun navKeyToStorageToken(key: Any): String = when (key) {
     HomeRoute -> HOME_ROUTE_TOKEN
     is LibraryRoute -> if (key.folderId == null) LIBRARY_ROUTE_PREFIX else LIBRARY_ROUTE_PREFIX + key.folderId
@@ -78,6 +129,14 @@ internal fun navKeyToStorageToken(key: Any): String = when (key) {
     else -> error("Unsupported navigation key: $key")
 }
 
+/**
+ * Decodes a back-stack entry from the string [navKeyToStorageToken] produced, reversing its
+ * per-route-type prefix scheme.
+ *
+ * @param token a string previously produced by [navKeyToStorageToken].
+ * @return the navigation key the token encodes.
+ * @throws IllegalStateException if [token] matches none of the recognized route prefixes/tokens.
+ */
 internal fun storageTokenToNavKey(token: String): Any = when {
     token == HOME_ROUTE_TOKEN -> HomeRoute
     token == LIBRARY_ROUTE_PREFIX -> LibraryRoute()
@@ -91,9 +150,40 @@ internal fun storageTokenToNavKey(token: String): Any = when {
     else -> error("Unsupported navigation token: $token")
 }
 
+/**
+ * Decides whether a completed import should jump straight into the reader: only when the picker
+ * imported exactly one document, since a multi-file or folder import has no single obvious
+ * document to open and the user is left on the screen they imported from to pick one themselves.
+ *
+ * @param documentIds the [DocumentId]s an import batch produced.
+ * @return a [ReaderRoute] for the sole imported document, or null when zero or more than one
+ *   document was imported.
+ */
 internal fun importedDocumentRoute(documentIds: List<DocumentId>): ReaderRoute? =
     documentIds.singleOrNull()?.let { documentId -> ReaderRoute(documentId.value) }
 
+/**
+ * The composition root's navigation host: owns the back stack for every screen in the app (home,
+ * library, reader, search, bookmarks, document info, settings) and is the single place import
+ * results and cross-screen navigation events are translated into back-stack changes. Mounted once
+ * by [com.tedd.teddreader.app.reader.TeddReaderApp] for the lifetime of the app.
+ *
+ * Handles the app's one piece of cross-screen state that does not belong to any single screen:
+ * a location picked from search or bookmarks ([pendingReaderLocation]) needs to reach the reader
+ * screen being popped back onto, and an import's success/failure message
+ * ([homeImportMessage]) needs to reach the home screen being popped back onto — both are held here
+ * rather than in a screen's own ViewModel because the screen that produces the value and the
+ * screen that consumes it are never on screen at the same time.
+ *
+ * @param documentImporter the platform importer used both for on-demand imports triggered from the
+ *   home screen and for handling [externalImportRequest] on first composition.
+ * @param modifier applied to the underlying [NavDisplay].
+ * @param externalImportRequest a document import to run once, typically one the OS handed the app
+ *   through an incoming intent or share target; null when the app was opened with no document
+ *   attached. Importing it always opens the resulting document in the reader, unlike an on-demand
+ *   multi-file import which only does so for a single imported file (see
+ *   [importedDocumentRoute]).
+ */
 @Composable
 fun ReaderNavHost(
     documentImporter: DocumentImporter,
@@ -252,6 +342,19 @@ fun ReaderNavHost(
     )
 }
 
+/**
+ * Fallback content for a navigation key [ReaderNavHost]'s `entryProvider` does not recognize —
+ * reachable only if a route type is added to the back stack without a matching `entryProvider`
+ * branch, or a persisted back-stack token from an older app version no longer decodes to a route
+ * this version defines. Shows an explanatory message with a way back rather than crashing.
+ *
+ * @param title the heading shown for the unrecognized destination.
+ * @param description explains to the user why nothing more specific could be shown.
+ * @param onBack invoked when the user taps the back action to leave this placeholder.
+ * @param modifier applied to the destination's root layout.
+ * @param contentPadding padding around the description and back button, defaulting to the
+ *   design system's standard screen padding.
+ */
 @Composable
 private fun PlaceholderDestination(
     title: String,

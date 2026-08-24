@@ -3,6 +3,10 @@ package com.tedd.teddreader.core.room.entity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins the invariants the entities enforce at construction, so a row that could not be rendered — a folder
+ * id with no name, a blank folder label — cannot be written in the first place.
+ */
 class RoomEntityTest {
     @Test
     fun documentEntityStoresStableMetadata() {

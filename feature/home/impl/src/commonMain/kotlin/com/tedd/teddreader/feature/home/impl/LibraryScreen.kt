@@ -81,8 +81,25 @@ import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/**
+ * Caps how wide the library's document/folder grid grows on a tablet or an unfolded foldable, so
+ * cards stay a readable size instead of stretching edge-to-edge on a wide screen.
+ */
 private val ScreenMaxWidth = 720.dp
 
+/**
+ * Entry point that wires [HomeViewModel] into [LibraryScreen]. Like [ReaderRouteScreen] in the
+ * reader feature, this composable is a pure state-and-callback pass-through to the view model: it
+ * collects [HomeUiState] and hoists the grid's scroll state, and forwards every user action
+ * straight to a view model call.
+ *
+ * @param folderId The folder to show documents for, or null to show the whole library.
+ * @param onBack Invoked when the user asks to leave the library screen.
+ * @param onDocumentClick Invoked when the user opens a document.
+ * @param onFolderClick Invoked when the user opens a folder.
+ * @param modifier Applied to the resulting [LibraryScreen].
+ * @param viewModel The home feature's view model; defaults to one resolved through Koin.
+ */
 @Composable
 fun LibraryRouteScreen(
     folderId: String?,
@@ -107,11 +124,37 @@ fun LibraryRouteScreen(
         onDeleteFolder = viewModel::deleteFolder,
         onDocumentBookmarkChange = viewModel::setDocumentBookmarked,
         onDeleteDocuments = viewModel::deleteDocuments,
+        onLoadCover = viewModel::loadCover,
         gridState = gridState,
         modifier = modifier,
     )
 }
 
+/**
+ * Renders the library's document/folder grid: an "All"/"Folders" toggle for the whole-library
+ * view, a folder's own document grid when [folderId] is set, multi-select with a dedicated
+ * selection top bar, and the dialogs for creating, renaming, and deleting a folder or removing
+ * documents. Like [LibraryRouteScreen], this composable is a pure state-and-callback pass-through
+ * to the view model; the `remember`/`rememberSaveable` state declared here (selection, dialog
+ * visibility, the folder-name draft) is local UI bookkeeping, not a second copy of library state.
+ *
+ * @param uiState The home feature's current state, as published by the view model.
+ * @param folderId The folder whose documents are shown, or null for the whole library.
+ * @param onBack Invoked when the user asks to leave the library screen.
+ * @param onDocumentClick Invoked when the user opens a document outside of selection mode.
+ * @param onFolderClick Invoked when the user opens a folder from the "Folders" tab.
+ * @param onCreateFolder Invoked with a new folder's name and the documents to seed it with.
+ * @param onMoveDocumentsToFolder Invoked with the documents to move and the target folder's id.
+ * @param onRenameFolder Invoked with a folder's id and its new name.
+ * @param onDeleteFolder Invoked with the id of the folder to delete.
+ * @param onDocumentBookmarkChange Invoked with a document's id and its new favorite state.
+ * @param onDeleteDocuments Invoked with the documents the user confirmed removing from the
+ * library.
+ * @param gridState Scroll state for the document/folder grid, hoisted so the caller can control or
+ * observe scroll position.
+ * @param modifier Applied to the screen's root.
+ * @param contentPadding Padding applied inside the grid, around its items.
+ */
 @Composable
 fun LibraryScreen(
     uiState: HomeUiState,
@@ -119,12 +162,13 @@ fun LibraryScreen(
     onBack: () -> Unit,
     onDocumentClick: (DocumentId) -> Unit,
     onFolderClick: (String) -> Unit,
-    onCreateFolder: (String, Collection<DocumentId>) -> String,
+    onCreateFolder: (String, Collection<DocumentId>) -> Unit,
     onMoveDocumentsToFolder: (Collection<DocumentId>, String) -> Unit,
     onRenameFolder: (String, String) -> Unit,
     onDeleteFolder: (String) -> Unit,
     onDocumentBookmarkChange: (DocumentId, Boolean) -> Unit,
     onDeleteDocuments: (Collection<DocumentId>) -> Unit,
+    onLoadCover: (DocumentId) -> Unit,
     gridState: LazyGridState,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
@@ -284,6 +328,7 @@ fun LibraryScreen(
                                             editingFolder = folder
                                         },
                                         onDeleteClick = { deletingFolder = folder },
+                                        onLoadCover = { previewDocument -> onLoadCover(previewDocument.id) },
                                     )
                                 }
                             }
@@ -306,6 +351,7 @@ fun LibraryScreen(
                             DocumentCard(
                                 document = document,
                                 coverImageBytes = uiState.documentCoverImages[document.id.value],
+                                onLoadCover = { onLoadCover(document.id) },
                                 selected = document.id.value in selectedDocumentIds,
                                 onClick = {
                                     if (selectedDocumentIds.isNotEmpty()) {
@@ -453,9 +499,32 @@ fun LibraryScreen(
     }
 }
 
+/**
+ * Flips whether [value] is a member of this set, used to add or remove a document id from the
+ * current multi-selection with a single call at each tap site instead of a separate add/remove
+ * branch.
+ *
+ * @receiver The selection set to toggle [value]'s membership in.
+ * @param value The element to add if absent, or remove if present.
+ * @return A new set with [value]'s membership flipped; this set is left unchanged.
+ */
 private fun Set<String>.toggle(value: String): Set<String> =
     if (value in this) this - value else this + value
 
+/**
+ * Top bar shown in place of the library's normal title bar once one or more documents are
+ * selected: a count of the selection, a back action that clears it, and an overflow menu for
+ * creating a new folder from the selection or moving it into an existing one.
+ *
+ * @param selectedCount The number of currently selected documents, shown in the title.
+ * @param hasFolders Whether any folder exists yet; disables the "move to folder" menu item when
+ * false, since there is nowhere to move the selection to.
+ * @param onBack Invoked when the user taps back, to clear the selection.
+ * @param onCreateFolder Invoked when the user picks "create folder" from the overflow menu.
+ * @param onMoveToFolder Invoked when the user picks "move to folder" from the overflow menu.
+ * @param menuExpanded Whether the overflow menu is currently open.
+ * @param onMenuExpandedChange Invoked when the overflow menu is opened or dismissed.
+ */
 @Composable
 private fun LibrarySelectionTopBar(
     selectedCount: Int,
@@ -500,6 +569,20 @@ private fun LibrarySelectionTopBar(
     )
 }
 
+/**
+ * A single text-field dialog for entering a folder name, shared by both the create-folder and
+ * rename-folder flows in [LibraryScreen] — [title] and [confirmLabel] carry the wording that
+ * distinguishes the two call sites; the dialog itself has no notion of which flow it is in.
+ *
+ * @param title The dialog's title, distinguishing create from rename.
+ * @param name The text field's current value.
+ * @param onNameChange Invoked as the user types.
+ * @param confirmLabel The confirm button's label, distinguishing create from rename.
+ * @param confirmEnabled Whether the confirm button is enabled; false while the name is blank, or
+ * (for creation) while no document is selected to seed the new folder with.
+ * @param onDismiss Invoked when the dialog is dismissed without confirming.
+ * @param onConfirm Invoked when the user confirms the entered name.
+ */
 @Composable
 private fun FolderNameDialog(
     title: String,
@@ -537,6 +620,14 @@ private fun FolderNameDialog(
     )
 }
 
+/**
+ * Dialog listing every existing folder so the user can pick one to move the current selection
+ * into; shows a fallback message instead of the list when no folder exists yet.
+ *
+ * @param folders The folders available to move documents into.
+ * @param onDismiss Invoked when the dialog is dismissed without picking a folder.
+ * @param onMove Invoked with the id of the folder the user picked.
+ */
 @Composable
 private fun MoveToFolderDialog(
     folders: ImmutableList<LibraryFolder>,

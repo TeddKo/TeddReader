@@ -12,11 +12,15 @@ import kotlin.test.assertSame
  * (android/ios) call `.addMigrations(*TeddReaderMigrationList.toTypedArray())` against this one
  * shared list instead of each spelling out its own — so there is only one list left to get wrong.
  * This test guards that shared list instead of the unreachable builder internals.
+ *
+ * Guards the migration chain itself, which is the one thing a schema mistake breaks silently: an install
+ * upgrading from an old version follows this list step by step, so a missing or overlapping link crashes on
+ * a user's device and never in a test that only opens a fresh database.
  */
 class TeddReaderMigrationListTest {
+    /** `currentDatabaseVersion` below is kept in sync by hand with `@Database(version = ...)` in TeddReaderDatabase. */
     @Test
     fun migrationListCoversEveryVersionUpToTheCurrentDatabaseVersionWithNoGaps() {
-        // Keep in sync with @Database(version = ...) in TeddReaderDatabase.kt.
         val currentDatabaseVersion = 8
         val versions = TeddReaderMigrationList.map { it.startVersion to it.endVersion }
 

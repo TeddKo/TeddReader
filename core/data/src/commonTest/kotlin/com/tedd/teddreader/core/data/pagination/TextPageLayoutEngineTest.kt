@@ -20,9 +20,26 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Pins [TextPageLayoutEngine]'s pagination contract: a page never spans two sections, a cover image
+ * gets a page of its own, an estimate reserves real room for wide glyphs, wrapped words and inline
+ * images the same way the renderer does, a real measurement is used verbatim over the estimate, and
+ * [TextPageLayoutEngine.reconstruct] rebuilds from stored page starts the exact page list
+ * [TextPageLayoutEngine.paginate] produced — whether the caller's block lookup answers with absolute
+ * or section-relative ranges. Several of these tests exist because one of those guarantees broke in
+ * production: a clipped inline image, a chapter heading stranded mid-page, or blocks corrupted by a
+ * double rebase once storage started handing sections' blocks over section-relative.
+ */
 class TextPageLayoutEngineTest {
+    /** The pagination engine under test. */
     private val engine = TextPageLayoutEngine()
 
+    /**
+     * [TextPageLayoutEngine.defaultSectionBlocks] rebases a section's blocks to that section's own start
+     * before handing them to the [ReaderPageBreaker] — this pins that the rebase reaches into a block's
+     * own [ReaderSpan]s too, not just the block's outer range, once the section is not section 0 (a cover
+     * image occupies section 0 here, so the body section's absolute start is 2, not 0).
+     */
     @Test
     fun pageBreakerBlockShiftAlsoShiftsInlineSpanRangesAfterCover() {
         val document = ReaderDocument(
@@ -67,11 +84,19 @@ class TextPageLayoutEngineTest {
         )
     }
 
+    /**
+     * When pagination has no real measurement to use — here because no [ReaderPageBreaker] was
+     * supplied, the same estimate a section past [TextPageLayoutEngine]'s measurement cap falls back
+     * to — a tall inline image has to reserve real vertical room. An image used to count as only the
+     * single newline character it carries in the text, so the estimate packed a whole page of text
+     * around it and the renderer clipped the image by the pane it overflowed; this pins that the
+     * image's own page now holds far less text than a text-only page does, because the image claims
+     * real height on its page rather than the single line a newline would. The fixture's image is a
+     * portrait plate, half as wide as it is tall (`imageAspectRatio = 0.5f`), deliberately too tall to
+     * share a page with text.
+     */
     @Test
     fun estimatedPaginationReservesRoomForATallInlineImage() {
-        // A document past the measurement cap falls back to estimated pagination. A tall image there
-        // used to count as the single newline it carries, so a whole page of text was packed around it
-        // and the image was clipped by the pane it overflowed.
         val paragraph = "가".repeat(400)
         val text = "$paragraph\n \n$paragraph"
         val imageOffset = paragraph.length + 1
@@ -86,7 +111,6 @@ class TextPageLayoutEngineTest {
                     kind = ReaderBlockKind.IMAGE,
                     range = TextRange(imageOffset.toLong(), imageOffset + 1L),
                     imageHref = "Images/plate.jpg",
-                    // Portrait plate: half as wide as it is tall, so it cannot share a page with text.
                     imageAspectRatio = 0.5f,
                 ),
             ),
@@ -108,13 +132,16 @@ class TextPageLayoutEngineTest {
             .filter { it !== imagePage }
             .maxOf { (it.textRange!!.end - it.textRange!!.start).toInt() }
 
-        // The image claims real height, so its page carries far less text than a text-only page does.
         assertTrue(
             imagePageLength < textOnlyPageLength,
             "image page held $imagePageLength chars, text page held $textOnlyPageLength",
         )
     }
 
+    /**
+     * A cover image section becomes page 0 on its own, at [ReaderLocation.EpubOffset] `(0, 0)`, even when
+     * pagination falls back to the estimate because no [ReaderPageBreaker] was supplied.
+     */
     @Test
     fun coverSectionGetsItsOwnFirstPageWithoutPageBreaker() {
         val document = ReaderDocument(
@@ -142,6 +169,13 @@ class TextPageLayoutEngineTest {
         assertTrue(pages[1].text.startsWith("Body"))
     }
 
+    /**
+     * The same cover-gets-its-own-page split as
+     * [coverSectionGetsItsOwnFirstPageWithoutPageBreaker], now with a real [ReaderPageBreaker]: the
+     * cover still becomes page 0 by itself, and the first measured content page starts the body section
+     * at its own relative offset 0 ([ReaderLocation.EpubOffset] `(1, 0)`), not the document's absolute
+     * offset.
+     */
     @Test
     fun coverSectionGetsItsOwnFirstPageWithPageBreaker() {
         val document = ReaderDocument(
@@ -173,6 +207,10 @@ class TextPageLayoutEngineTest {
         assertEquals(ReaderLocation.EpubOffset(1, 0), pages[1].location)
     }
 
+    /**
+     * Baseline: a plain TXT document too long for one page splits into more than one, the first page is
+     * numbered 0, and its location is [ReaderLocation.TextOffset] `0`.
+     */
     @Test
     fun paginatesTextByViewportAndStyle() {
         val document = ReaderDocument(
@@ -195,6 +233,11 @@ class TextPageLayoutEngineTest {
         assertEquals(ReaderLocation.TextOffset(0), pages.first().location)
     }
 
+    /**
+     * Adjoining pages must not gap or overlap: each page's [PageWindow.textRange] ends exactly where
+     * the next one starts, and concatenating every page's text in order reproduces the section's
+     * original text verbatim.
+     */
     @Test
     fun paginatedPagesKeepTextContinuous() {
         val text = "abcdefghijklmnopqrstuvwxyz".repeat(20)
@@ -218,6 +261,12 @@ class TextPageLayoutEngineTest {
         }
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
+    /**
+     * A page of wide (CJK) glyphs holds far fewer characters than the same viewport would hold of
+     * narrow Latin ones once line height is 1x: the estimate must charge a full-width glyph its whole
+     * line-width budget instead of the fractional advance a Latin letter gets, so this bounds the
+     * wide-glyph page at 25 characters for a 100x100 viewport at 20sp.
+     */
     @Test
     fun usesConservativePageSizeForWideGlyphs() {
         val text = "가".repeat(100)
@@ -239,6 +288,13 @@ class TextPageLayoutEngineTest {
         assertTrue(pages.first().text.length <= 25)
     }
 
+    /**
+     * A narrow glyph's estimated advance is a measured proportional fraction of an em (~0.45em), not
+     * half an em. At 480px/20sp/line-height 1 the line holds 24 em: a wide glyph takes a whole em and a
+     * narrow one 0.45em, so the first page holds 265 narrow-glyph (English) characters and 120
+     * wide-glyph (Korean) ones over 5 lines — the old half-em budget would have stopped English at only
+     * 240 characters.
+     */
     @Test
     fun narrowGlyphsUseTheProportionalAdvanceInsteadOfHalfAnEm() {
         val english = "a".repeat(400)
@@ -262,18 +318,20 @@ class TextPageLayoutEngineTest {
         val englishPages = paginate(english)
         val koreanPages = paginate(korean)
 
-        // 24 em per line over 5 lines: a wide glyph takes one em, a narrow glyph 0.45 em. The old
-        // half-em budget would have stopped at 240 narrow glyphs.
         assertEquals(265, englishPages.first().text.length)
         assertEquals(120, koreanPages.first().text.length)
         assertEquals(english, englishPages.joinToString(separator = "") { page -> page.text })
         assertEquals(korean, koreanPages.joinToString(separator = "") { page -> page.text })
     }
 
+    /**
+     * The estimate wraps at spaces the same way the renderer does: at 10 narrow-glyph units per line,
+     * "aaaa bbbb cccc ..." breaks the line after "aaaa bbbb" rather than mid-word, so the estimate has
+     * to hold back the word that would have split and start the next line with it instead — and no page
+     * may start with the leading space a wrap left behind.
+     */
     @Test
     fun estimatedLinesWrapAtSpacesLikeTheRendererDoes() {
-        // "aaaa bbbb cccc ..." at 10 narrow glyphs per line: a renderer breaks after "aaaa bbbb",
-        // never mid-word, so the estimate has to leave the split word for the next line.
         val text = List(20) { index -> ('a' + index % 26).toString().repeat(4) }.joinToString(" ")
         val document = ReaderDocument(
             id = DocumentId("txt-wrap"),
@@ -295,6 +353,12 @@ class TextPageLayoutEngineTest {
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
+    /**
+     * A real [ReaderPageBreaker] is used exactly as it reports its breaks — modeled here with a fake
+     * standing in for the reader's own text layout that reports a page break every 150 characters — so
+     * every page but the last comes out exactly that long, and joining every page back together
+     * reproduces the original text untouched.
+     */
     @Test
     fun measuredPageBreaksAreUsedVerbatim() {
         val text = "abcdefghij".repeat(60)
@@ -306,7 +370,6 @@ class TextPageLayoutEngineTest {
                 ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
             ),
         )
-        // Stands in for the reader's own text layout: it reports a page break every 150 characters.
         val renderedPageLength = 150
         val pageBreaker = ReaderPageBreaker { measured, _ ->
             IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
@@ -325,6 +388,13 @@ class TextPageLayoutEngineTest {
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
+    /**
+     * A real measurement's page starts do not have to line up with any arithmetic line count — the
+     * fake [ReaderPageBreaker] here reports breaks every 137 characters, deliberately farther apart than
+     * any real layout would produce, specifically to prove the estimate plays no part once a
+     * measurement exists: pagination gives the exact same page ranges whether it is asked for at an
+     * 8sp/1x style or a 40sp/3x one.
+     */
     @Test
     fun measuredPagesIgnoreTheEstimatedLineCountAcrossFontSizes() {
         val text = "abcdefghij".repeat(60)
@@ -336,8 +406,6 @@ class TextPageLayoutEngineTest {
                 ReaderSection(0, text = text, range = TextRange(0, text.length.toLong())),
             ),
         )
-        // A real measurement's page starts do not have to line up with any arithmetic line count;
-        // this one grows farther apart than a real layout would, to prove the estimate is ignored.
         val renderedPageLength = 137
         val pageBreaker = ReaderPageBreaker { measured, _ ->
             IntArray((measured.length + renderedPageLength - 1) / renderedPageLength) { page ->
@@ -362,6 +430,11 @@ class TextPageLayoutEngineTest {
         )
     }
 
+    /**
+     * A section longer than [TextPageLayoutEngine]'s measurement cap (200,000 characters) never reaches
+     * the supplied [ReaderPageBreaker] at all — pagination falls straight back to the estimate, which
+     * still covers the whole text without dropping any of it.
+     */
     @Test
     fun oversizedContentSkipsPageBreakerAndFallsBackToEstimatedRanges() {
         val text = "a".repeat(200_001)
@@ -391,6 +464,11 @@ class TextPageLayoutEngineTest {
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
+    /**
+     * An explicit `\n` counts as a line the same way a wrapped line does: a page never holds more
+     * non-empty lines than its estimated line capacity, however many of them come from real newlines
+     * in the source text rather than from wrapping.
+     */
     @Test
     fun explicitLineBreaksDoNotOverflowPageLineCapacity() {
         val text = (1..20).joinToString(separator = "\n") { "x" }
@@ -413,12 +491,17 @@ class TextPageLayoutEngineTest {
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
 
+    /**
+     * A chapter never shares a page with the one before it, however generous the viewport — the rule
+     * [TextPageLayoutEngine] rests every entry point on: one EPUB spine item is a document of its own,
+     * and no reading system runs two of them together on a screen. Paginating the whole book as one
+     * long string used to put a chapter's title halfway down the previous chapter's last page, which is
+     * exactly where the table of contents then jumped a reader to; here the viewport is deliberately
+     * large enough to fit the whole book on one screen by measurement alone, and the chapters must
+     * still land on separate pages.
+     */
     @Test
     fun everyChapterStartsItsOwnPageSoItsHeadingSitsAtTheTop() {
-        // One EPUB spine item is a document of its own, and no reading system runs two of them
-        // together on a screen. Paginating the book as one long string put a chapter's title halfway
-        // down the previous chapter's last page, which is exactly what the table of contents then
-        // jumped to.
         val first = "먼저 읽는 장의 본문"
         val second = "2화 기회\n뒤에 오는 장의 본문"
         val document = ReaderDocument(
@@ -450,7 +533,6 @@ class TextPageLayoutEngineTest {
             viewportSize = ViewportSize(widthPx = 4_000, heightPx = 4_000),
         )
 
-        // The whole book fits one screen by measurement, yet the chapters never share a page.
         assertEquals(listOf(first, second), pages.map { it.text })
         val chapterPage = pages[1]
         assertEquals(ReaderLocation.EpubOffset(1, 0), chapterPage.location)
@@ -458,6 +540,11 @@ class TextPageLayoutEngineTest {
         assertEquals(ReaderBlockKind.HEADING, chapterPage.blocks.first().kind)
     }
 
+    /**
+     * A page's [PageWindow.blocks] holds exactly the blocks whose range intersects that page's
+     * [PageWindow.textRange] — including a block that straddles the boundary between two pages, which
+     * therefore appears in both pages' lists rather than being dropped from either.
+     */
     @Test
     fun pageWindowsKeepOnlyIntersectingBlocks() {
         val text = "abcdefghij"
@@ -494,11 +581,18 @@ class TextPageLayoutEngineTest {
         assertEquals(listOf(blocks[1], blocks[2]), pages[1].blocks)
     }
 
+    /**
+     * [TextPageLayoutEngine.reconstruct] rebuilds, from nothing but the absolute page starts a real
+     * measurement produced, the exact same page list [TextPageLayoutEngine.paginate] gave it — for a
+     * book shaped like a stored layout actually has to survive: a cover section that is a single image,
+     * followed by two ordinary chapters. The fake [ReaderPageBreaker] used to measure (a page break
+     * every 3 characters of whichever section is being measured, standing in for the reader's own text
+     * layout) only ever produces the content pages' starts; the cover page is never stored at all — it
+     * is always rebuilt the same way, with no measurement involved — yet [TextPageLayoutEngine.reconstruct]
+     * still has to reproduce it identically.
+     */
     @Test
     fun reconstructFromStoredStartsMatchesMeasuredPaginateExactly() {
-        // A cover section that is a single image, then two ordinary chapters — the shape a stored
-        // layout has to survive: a cover page rebuilt fresh, and content pages rebuilt purely from the
-        // absolute offsets a real measurement produced earlier.
         val document = ReaderDocument(
             id = DocumentId("epub-reconstruct"),
             format = DocumentFormat.EPUB,
@@ -514,8 +608,6 @@ class TextPageLayoutEngineTest {
                 ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(9, 18)),
             ),
         )
-        // Stands in for the reader's own text layout: a page break every 3 characters of whichever
-        // section is being measured.
         val breaker = ReaderPageBreaker { measured, _ ->
             IntArray((measured.length + 2) / 3) { page -> page * 3 }
         }
@@ -526,7 +618,6 @@ class TextPageLayoutEngineTest {
             viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
             pageBreaker = breaker,
         )
-        // The cover page is never stored — it is always rebuilt the same way, with no measurement.
         val contentPageStarts = measuredPages.drop(1).map { it.textRange!!.start }.toLongArray()
 
         val reconstructedPages = engine.reconstruct(document, contentPageStarts)
@@ -534,10 +625,20 @@ class TextPageLayoutEngineTest {
         assertEquals(measuredPages, reconstructedPages)
     }
 
+    /**
+     * [TextPageLayoutEngine.reconstruct] decodes a section's blocks only once a page belonging to it is
+     * actually read. Three ordinary chapters, no cover, one page per chapter is enough sections to
+     * prove that reading the third page (which belongs to "Chapter 3", `contentPageStarts[2]`) must not
+     * also decode "Chapter 2" in between — a bug that decoded every section eagerly would be
+     * indistinguishable from correct behaviour on a page that only ever needs its own section.
+     * `sectionBlocks` is passed by name because [TextPageLayoutEngine.reconstruct] takes two trailing
+     * functional parameters; an unnamed lambda would bind to `isSectionReady` instead of the block
+     * lookup this test is watching. Cover detection always checks section 0 up front — nothing else has
+     * been asked for yet at that point — so constructing the list alone already decodes `{0}` before
+     * any page is read.
+     */
     @Test
     fun reconstructOnlyDecodesSectionsItsRequestedPagesTouch() {
-        // Three ordinary chapters, no cover, one page per chapter — enough sections that reading one
-        // page must not decode the others.
         val document = ReaderDocument(
             id = DocumentId("epub-lazy-sections"),
             format = DocumentFormat.EPUB,
@@ -555,8 +656,6 @@ class TextPageLayoutEngineTest {
         )
         val contentPageStarts = longArrayOf(0L, 4L, 8L)
         val decodedSections = mutableSetOf<Int>()
-        // Named: reconstruct's trailing parameter is the readiness predicate, so an unnamed lambda
-        // would bind there instead of to the block lookup this test is watching.
         val windows = engine.reconstruct(
             document = document,
             contentPageStarts = contentPageStarts,
@@ -566,27 +665,30 @@ class TextPageLayoutEngineTest {
             },
         )
 
-        // Finding a cover always checks the first section — nothing else has been asked for yet.
         assertEquals(setOf(0), decodedSections, "constructing the list must not decode beyond cover detection")
 
         windows[2]
         assertEquals(setOf(0, 2), decodedSections, "chapter 2 was never asked for and must stay undecoded")
     }
 
-    // --- Step 10: section-relative block storage ---
-    //
-    // SectionBlocksCache.blocksFor now hands paginate()/reconstruct() blocks already shifted to their
-    // own section's start (see DocumentRepositoryImpl.persistParsedDocument), not absolute document
-    // offsets. These are the tests that had to fail against the pre-change code: sectionPageRanges used
-    // to rebase its sectionBlocks argument itself, on the assumption it was always absolute — fed a
-    // block that was already section-relative, it rebased a second time and corrupted it.
-
+    /**
+     * Section-relative block storage (see [DocumentRepositoryImpl.persistParsedDocument]) shifts each
+     * section's blocks to read relative to that section's own start before they are ever handed to
+     * [TextPageLayoutEngine.paginate]/[TextPageLayoutEngine.reconstruct] — this and the following three
+     * tests are exactly the tests that had to fail against the pre-change code: `sectionPageRanges` used
+     * to rebase its `sectionBlocks` argument itself, on the assumption it was always absolute, so a
+     * block that arrived already section-relative got rebased a second time and corrupted.
+     *
+     * [TextPageLayoutEngine.paginate] must always hand back blocks in absolute document offsets
+     * regardless of which shape its `sectionBlocks` lookup answers with. Section 1's absolute start
+     * here is 6, not 0: a cover section always starts at 0, the one place a forgotten un-rebase would
+     * still look correct by accident, so this deliberately exercises a section that would expose the
+     * bug. A page's blocks have to stay absolute because `ReaderSemanticText` locates a block within
+     * `page.text` by subtracting the page's own absolute `textRange.start` from the block's
+     * `range.start`.
+     */
     @Test
     fun paginateReturnsAbsoluteBlockRangesEvenWhenSectionBlocksArriveSectionRelative() {
-        // Section 1 sits at a non-zero absolute start (6), unlike a cover section — which always sits
-        // at 0, the one place a forgotten un-rebase would still look correct by accident. A page's
-        // blocks have to stay absolute regardless: ReaderSemanticText locates a block within page.text
-        // by subtracting page.textRange.start (absolute) from block.range.start.
         val document = ReaderDocument(
             id = DocumentId("relative-input-absolute-output"),
             format = DocumentFormat.EPUB,
@@ -620,12 +722,16 @@ class TextPageLayoutEngineTest {
         assertEquals(TextRange(12, 16), bodyBlock.spans.single().range, "a span has to shift with its block, not stay behind")
     }
 
+    /**
+     * [TextPageLayoutEngine.paginate]'s default path — no explicit `sectionBlocks` lambda, so it groups
+     * [ReaderDocument.blocks] itself, which a fresh parse still hands over as absolute ranges — and the
+     * cache-backed path a stored book takes, which hands over blocks already section-relative, must
+     * produce exactly the same pages either way. The cover section is included deliberately: it always
+     * starts at absolute offset 0, which is exactly the one case where a forgotten rebase would still
+     * look correct by accident, so proving equality there is the point, not an afterthought.
+     */
     @Test
     fun paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
-        // The default path (no explicit sectionBlocks lambda) groups document.blocks, which a fresh
-        // parse still hands over absolute, once per section. The cache-backed path a stored book takes
-        // now hands over blocks already section-relative. Both must produce the exact same pages —
-        // cover section included, since it is exactly the case that can look right for the wrong reason.
         val document = ReaderDocument(
             id = DocumentId("relative-vs-default"),
             format = DocumentFormat.EPUB,
@@ -660,6 +766,13 @@ class TextPageLayoutEngineTest {
         assertEquals(defaultPages, relativePages)
     }
 
+    /**
+     * The same guarantee as
+     * [paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath],
+     * for [TextPageLayoutEngine.reconstruct]: the default grouping path (absolute blocks) and a lookup
+     * that already answers section-relative must reconstruct exactly the same pages, cover section
+     * included.
+     */
     @Test
     fun reconstructProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
         val document = ReaderDocument(
@@ -695,6 +808,13 @@ class TextPageLayoutEngineTest {
         assertEquals(defaultReconstructed, relativeReconstructed)
     }
 
+    /**
+     * Restoring a document from stored page-start boundaries must not change either the total page
+     * count or which page any character offset lands on: for every offset across the document,
+     * rebuilding pages from [TextPageLayoutEngine.reconstruct] must land it on the same page index a
+     * linear scan of the freshly measured pages would, checked here via [pageOfOffset] — the same
+     * binary search `ReaderViewModel.pageOfOffset` runs against a book's page windows.
+     */
     @Test
     fun reconstructTotalPageCountAndOffsetLookupMatchMeasuredPagination() {
         val document = ReaderDocument(
@@ -731,13 +851,22 @@ class TextPageLayoutEngineTest {
                 val range = page.textRange!!
                 offset >= range.start && offset < range.end
             }.takeIf { it >= 0 }
-            // Same binary search ReaderViewModel.pageOfOffset runs against pageWindows.
             assertEquals(expected, windows.pageOfOffset(offset), "offset $offset landed on a different page after reconstruct")
         }
     }
 
 }
 
+/**
+ * The index of the page whose [PageWindow.textRange] contains [offset], found by binary search since
+ * the receiver's ranges are ascending and non-overlapping — the same lookup `ReaderViewModel` runs
+ * against a book's page windows to answer "which page is this offset on."
+ *
+ * @receiver the page windows to search, in ascending, non-overlapping [PageWindow.textRange] order.
+ * @param offset an absolute document offset to locate.
+ * @return the index of the page containing [offset], or null when no page's range covers it (a page
+ * with no [PageWindow.textRange] at all, or an offset outside every page).
+ */
 private fun List<PageWindow>.pageOfOffset(offset: Long): Int? {
     var low = 0
     var high = lastIndex
