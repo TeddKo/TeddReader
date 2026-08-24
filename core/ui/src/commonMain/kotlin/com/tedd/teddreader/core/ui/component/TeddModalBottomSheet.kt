@@ -8,15 +8,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
@@ -31,14 +28,24 @@ import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
  * where scrolling to the end of a sheet's content caused the sheet itself to jump closed. Consuming
  * the leftover here keeps sheet-drag and content-scroll gestures independent.
  *
+ * The expand/collapse state is remembered here rather than accepted as a parameter. Callers used to
+ * create it and thread it down through every intermediate composable, but none of them ever called a
+ * method on it — the state was pure pass-through to this composable. Owning it here removes that
+ * parameter chain, and it keeps Material's experimental sheet-state API from leaking opt-in
+ * requirements into every screen that shows a sheet, which a type alias could not do because Kotlin
+ * expands an alias back to the annotated original.
+ *
+ * Sheets in this app open one at a time, so a per-sheet state behaves the same as the shared one it
+ * replaced: only the sheet currently in composition has a state at all.
+ *
  * @param title The sheet's header text, shown in [teddReaderTypography]'s `titleLarge` style.
  * @param onDismissRequest Invoked when the user dismisses the sheet (tap outside, swipe down, or
- * back gesture).
- * @param sheetState The sheet's expand/collapse/hide state; owned and remembered by the caller so it
- * can also trigger dismissal programmatically.
+ * back gesture). This is the only way the sheet closes, so it must clear whatever state decides to
+ * compose the sheet at all.
  * @param modifier Modifier applied to the underlying [ModalBottomSheet].
  * @param description A second header line shown under [title] in a muted color; omitted when null.
- * @param contentPadding Padding around [content], below the header.
+ * @param contentPadding Padding around [content], below the header; null means the theme's
+ * sheetPadding/sheetPadding/large (start/end/bottom) combination is used.
  * @param content The sheet's body.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,22 +53,22 @@ import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
 fun TeddModalBottomSheet(
     title: String,
     onDismissRequest: () -> Unit,
-    sheetState: SheetState,
     modifier: Modifier = Modifier,
     description: String? = null,
-    contentPadding: PaddingValues = PaddingValues(
-        start = DefaultTeddReaderSpacing.sheetPadding,
-        end = DefaultTeddReaderSpacing.sheetPadding,
-        bottom = DefaultTeddReaderSpacing.large,
-    ),
+    contentPadding: PaddingValues? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        start = spacing.sheetPadding,
+        end = spacing.sheetPadding,
+        bottom = spacing.large,
+    )
     val typography = teddReaderTypography()
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        sheetState = sheetState,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
             modifier = Modifier
@@ -70,21 +77,21 @@ fun TeddModalBottomSheet(
         ) {
             Column(
                 modifier = Modifier.padding(
-                    start = DefaultTeddReaderSpacing.sheetPadding,
-                    top = DefaultTeddReaderSpacing.large,
-                    end = DefaultTeddReaderSpacing.sheetPadding,
+                    start = spacing.sheetPadding,
+                    top = spacing.large,
+                    end = spacing.sheetPadding,
                 ),
             ) {
-                Text(
+                TeddText(
                     text = title,
                     style = typography.titleLarge,
                 )
                 if (description != null) {
-                    Text(
+                    TeddText(
                         text = description,
                         modifier = Modifier.padding(top = spacing.xxSmall),
                         style = typography.settingDescription,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = teddReaderColors().onSurfaceVariant,
                     )
                 }
             }
@@ -92,7 +99,7 @@ fun TeddModalBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(contentPadding),
+                    .padding(resolvedContentPadding),
                 content = content,
             )
         }
@@ -101,15 +108,12 @@ fun TeddModalBottomSheet(
 
 /** Compose preview rendering [TeddModalBottomSheet] expanded, with one [TeddButton] as its content. */
 @Preview
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TeddModalBottomSheetContentPreview() {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     TeddPreviewSurface {
         TeddModalBottomSheet(
             title = "Sort by",
             onDismissRequest = {},
-            sheetState = sheetState,
             content = {
                 TeddButton(text = "Recent", onClick = {})
             },

@@ -10,23 +10,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.darkReaderStyle
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
+import com.tedd.teddreader.core.designsystem.teddReaderBreakpoints
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 
 /**
@@ -43,7 +42,8 @@ import com.tedd.teddreader.core.ui.icon.TeddIcons
  * @param titleLabel the quiet line above [title]; null or blank omits it entirely rather than leaving a gap.
  * @param navigationIcon the leading control, normally back; null leaves the space to the title.
  * @param windowInsets the system insets the bar must keep clear — the status bar on a top bar.
- * @param contentPadding inset around the bar's row, inside those insets.
+ * @param contentPadding inset around the bar's row, inside those insets; null means the theme's
+ * small/xxSmall combination is used.
  * @param actions trailing controls, laid out in a row at the bar's end.
  * @param titleAtEnd true aligns both lines of text to the end instead of the start, for a right-to-left
  * arrangement of the same bar.
@@ -56,20 +56,21 @@ fun ReaderTopControls(
     titleLabel: String? = "Reading",
     navigationIcon: (@Composable () -> Unit)? = null,
     windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.small,
-        vertical = DefaultTeddReaderSpacing.xxSmall,
-    ),
+    contentPadding: PaddingValues? = null,
     actions: @Composable RowScope.() -> Unit = {},
     titleAtEnd: Boolean = false,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.small,
+        vertical = spacing.xxSmall,
+    )
     val typography = teddReaderTypography()
 
     ReaderChromeSurface(
         style = style,
         modifier = modifier.fillMaxWidth(),
-        contentPadding = contentPadding,
+        contentPadding = resolvedContentPadding,
         windowInsets = windowInsets,
     ) {
         Row(
@@ -87,7 +88,7 @@ fun ReaderTopControls(
                 horizontalAlignment = if (titleAtEnd) Alignment.End else Alignment.Start,
             ) {
                 if (!titleLabel.isNullOrBlank()) {
-                    Text(
+                    TeddText(
                         text = titleLabel,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -96,7 +97,7 @@ fun ReaderTopControls(
                         style = typography.readerCaption,
                     )
                 }
-                Text(
+                TeddText(
                     text = title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -127,7 +128,8 @@ fun ReaderTopControls(
  * @param progress the progress indicator to draw, in the bar's own box scope so it can size itself; null for
  * a bar that shows only actions.
  * @param windowInsets the system insets the bar must keep clear — the navigation bar on a bottom bar.
- * @param contentPadding inset around the bar's content, inside those insets.
+ * @param contentPadding inset around the bar's content, inside those insets; null means the theme's
+ * small/xxSmall combination is used.
  * @param actions the bar's controls, laid out in a row.
  */
 @Composable
@@ -136,23 +138,25 @@ fun ReaderBottomControls(
     modifier: Modifier = Modifier,
     progress: (@Composable BoxScope.() -> Unit)? = null,
     windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = DefaultTeddReaderSpacing.small,
-        vertical = DefaultTeddReaderSpacing.xxSmall,
-    ),
+    contentPadding: PaddingValues? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val spacing = teddReaderSpacing()
+    val breakpoints = teddReaderBreakpoints()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(
+        horizontal = spacing.small,
+        vertical = spacing.xxSmall,
+    )
 
     ReaderChromeSurface(
         style = style,
         modifier = modifier.fillMaxWidth(),
-        contentPadding = contentPadding,
+        contentPadding = resolvedContentPadding,
         windowInsets = windowInsets,
         dividerAtTop = true,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            if (maxWidth < 360.dp) {
+            if (maxWidth < breakpoints.compact) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(spacing.small),
@@ -223,15 +227,15 @@ private fun ReaderControlsPreviewContent(style: ReaderStyle, darkTheme: Boolean 
                 style = style,
                 navigationIcon = {
                     TeddIconButton(onClick = {}, contentDescription = "Back") {
-                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
                 actions = {
                     TeddIconButton(onClick = {}, contentDescription = "Toggle bookmark") {
-                        Icon(imageVector = TeddIcons.BookmarkOutline, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.BookmarkOutline, contentDescription = null)
                     }
                     TeddIconButton(onClick = {}, contentDescription = "More options") {
-                        Icon(imageVector = TeddIcons.MoreVert, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.MoreVert, contentDescription = null)
                     }
                 },
             )
@@ -248,13 +252,13 @@ private fun ReaderControlsPreviewContent(style: ReaderStyle, darkTheme: Boolean 
                 },
                 actions = {
                     TeddIconButton(onClick = {}, contentDescription = "Previous page") {
-                        Icon(imageVector = TeddIcons.Previous, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Previous, contentDescription = null)
                     }
                     TeddIconButton(onClick = {}, contentDescription = "Next page") {
-                        Icon(imageVector = TeddIcons.Next, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Next, contentDescription = null)
                     }
                     TeddIconButton(onClick = {}, contentDescription = "Enable auto-scroll") {
-                        Icon(imageVector = TeddIcons.Play, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Play, contentDescription = null)
                     }
                 },
             )

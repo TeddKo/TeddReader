@@ -6,14 +6,12 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
@@ -25,7 +23,8 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
  * @param title The primary message, shown in [teddReaderTypography]'s `documentTitle` style.
  * @param modifier Modifier applied to the state's root.
  * @param description Supporting text shown under [title] in a muted color; omitted when null.
- * @param contentPadding Padding around the whole state.
+ * @param contentPadding Padding around the whole state; null means the theme's large (all sides)
+ * value is used.
  * @param action Content shown below the description, typically a [TeddButton] prompting the next
  * step; omitted when null.
  */
@@ -34,28 +33,29 @@ fun TeddEmptyState(
     title: String,
     modifier: Modifier = Modifier,
     description: String? = null,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.large),
+    contentPadding: PaddingValues? = null,
     action: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.large)
     val typography = teddReaderTypography()
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(contentPadding),
+            .padding(resolvedContentPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
-        Text(
+        TeddText(
             text = title,
             style = typography.documentTitle,
             textAlign = TextAlign.Center,
         )
         if (description != null) {
-            Text(
+            TeddText(
                 text = description,
                 style = typography.settingDescription,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = teddReaderColors().onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }

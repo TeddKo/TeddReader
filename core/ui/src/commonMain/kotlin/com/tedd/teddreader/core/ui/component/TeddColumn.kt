@@ -10,14 +10,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
@@ -38,14 +36,15 @@ fun TeddCard(
     content: @Composable () -> Unit,
 ) {
     val shape = teddReaderShapes().medium
+    val colors = teddReaderColors()
 
     Column(
         modifier = modifier
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape),
+            .background(colors.surfaceContainerLow)
+            .border(BorderStroke(1.dp, colors.outlineVariant), shape),
     ) {
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        CompositionLocalProvider(LocalContentColor provides teddReaderColors().onSurface) {
             content()
         }
     }
@@ -60,7 +59,8 @@ fun TeddCard(
  *
  * @param message what went wrong, in the reader's language.
  * @param modifier applied to the banner; it fills its parent's width by default.
- * @param contentPadding inset around the message and action.
+ * @param contentPadding inset around the message and action; null means the theme's medium (all
+ * sides) value is used.
  * @param action an optional retry or dismiss control, composed under the message inside the banner's own
  * column scope.
  */
@@ -68,24 +68,26 @@ fun TeddCard(
 fun TeddErrorBanner(
     message: String,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.medium),
+    contentPadding: PaddingValues? = null,
     action: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.medium)
     val typography = teddReaderTypography()
     val shape = teddReaderShapes().small
+    val colors = teddReaderColors()
 
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onErrorContainer) {
+    CompositionLocalProvider(LocalContentColor provides teddReaderColors().onErrorContainer) {
         Column(
             modifier = modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(MaterialTheme.colorScheme.errorContainer)
-                .border(BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)), shape)
-                .padding(contentPadding),
+                .background(colors.errorContainer)
+                .border(BorderStroke(1.dp, colors.error.copy(alpha = 0.15f)), shape)
+                .padding(resolvedContentPadding),
             verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {
-            Text(text = message, style = typography.settingTitle)
+            TeddText(text = message, style = typography.settingTitle)
             action?.invoke(this)
         }
     }

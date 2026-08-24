@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,13 +25,16 @@ import com.tedd.teddreader.app.reader.importer.DocumentImporter
 import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.parseReaderLocation
-import com.tedd.teddreader.core.designsystem.DefaultTeddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderMotion
+import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddButton
 import com.tedd.teddreader.core.ui.component.TeddButtonEmphasis
+import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.component.TeddScaffold
+import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.component.TeddTopBar
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.core.ui.generated.resources.*
@@ -352,7 +352,7 @@ fun ReaderNavHost(
  * @param description explains to the user why nothing more specific could be shown.
  * @param onBack invoked when the user taps the back action to leave this placeholder.
  * @param modifier applied to the destination's root layout.
- * @param contentPadding padding around the description and back button, defaulting to the
+ * @param contentPadding padding around the description and back button; null resolves to the
  *   design system's standard screen padding.
  */
 @Composable
@@ -361,9 +361,10 @@ private fun PlaceholderDestination(
     description: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(DefaultTeddReaderSpacing.screenPadding),
+    contentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
+    val resolvedContentPadding = contentPadding ?: PaddingValues(spacing.screenPadding)
 
     TeddScaffold(
         modifier = modifier.fillMaxSize(),
@@ -372,7 +373,7 @@ private fun PlaceholderDestination(
                 title = title,
                 navigationIcon = {
                     TeddIconButton(onClick = onBack, contentDescription = stringResource(Res.string.back)) {
-                        Icon(imageVector = TeddIcons.Back, contentDescription = null)
+                        TeddIcon(imageVector = TeddIcons.Back, contentDescription = null)
                     }
                 },
             )
@@ -382,13 +383,13 @@ private fun PlaceholderDestination(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding)
-                .padding(contentPadding),
+                .padding(resolvedContentPadding),
             verticalArrangement = Arrangement.spacedBy(spacing.medium),
         ) {
-            Text(
+            TeddText(
                 text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = teddReaderTypography().bodyMedium,
+                color = teddReaderColors().onSurfaceVariant,
             )
             TeddButton(
                 text = stringResource(Res.string.back),
