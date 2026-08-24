@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -78,6 +79,7 @@ import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
+import com.tedd.teddreader.core.common.model.resolveSystemTheme
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -166,7 +168,18 @@ fun ReaderRouteScreen(
     onJumpLocationConsumed: () -> Unit = {},
     viewModel: ReaderViewModel = koinViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val persistedUiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // A style set to follow the system keeps light page colours in storage, because the system setting
+    // it defers to can change long after the choice was made. Resolving it here, once, means every
+    // colour the reader draws with agrees with the app chrome around it — without this the page stayed
+    // light while the chrome went dark. Only colours move, and page layout is keyed on type rather than
+    // colour, so no pagination is invalidated.
+    val systemInDarkTheme = isSystemInDarkTheme()
+    val uiState = remember(persistedUiState, systemInDarkTheme) {
+        persistedUiState.copy(style = persistedUiState.style.resolveSystemTheme(systemInDarkTheme))
+    }
+
     var goToPageText by rememberSaveable(documentId, uiState.pageIndex.current) {
         mutableStateOf((uiState.pageIndex.current + 1).toString())
     }
@@ -1806,7 +1819,7 @@ private fun ThemeOptionsSheet(
             description = stringResource(Res.string.theme_preview_description),
             previewText = stringResource(Res.string.theme_preview_text),
         )
-        TeddOptionGroup(title = null) {
+        TeddOptionGroup(title = null, isSelectableGroup = true) {
             listOf(ReaderThemeMode.PUBLISHER, ReaderThemeMode.SYSTEM, ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
                 TeddRadioRow(
                     title = mode.themeLabel(uiState.documentFormat),

@@ -30,6 +30,9 @@
     <string name="reading_appearance_description">읽기 편안함과 가독성에 영향을 주는 텍스트 설정입니다.</string>
     <string name="font_size">글자 크기</string>
     <string name="line_height">줄 높이</string>
+    <string name="font_family">글꼴</string>
+    <string name="font_family_description">본문에 사용할 서체입니다.</string>
+    <string name="theme_description">읽는 화면의 페이지 색입니다.</string>
     <string name="font_family_document">문서 글꼴</string>
     <string name="font_family_sans">고딕</string>
     <string name="font_family_serif">세리프</string>
