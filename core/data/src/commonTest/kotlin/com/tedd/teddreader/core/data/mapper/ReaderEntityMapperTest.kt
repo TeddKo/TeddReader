@@ -2,7 +2,11 @@ package com.tedd.teddreader.core.data.mapper
 
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.PageIndex
+import com.tedd.teddreader.core.common.model.ReaderBlock
+import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderSection
+import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.repository.ReadingSession
 import kotlin.test.Test
@@ -34,5 +38,20 @@ class ReaderEntityMapperTest {
         )
 
         assertEquals(session, session.toReadingSessionEntity().toReadingSession())
+    }
+
+    @Test
+    fun searchIndexRowsUseParserVersion9() {
+        val entity = ReaderSection(
+            index = 0,
+            title = "Chapter",
+            text = "Body",
+            range = TextRange(0, 4),
+        ).toSearchIndexEntity(
+            documentId = DocumentId("doc"),
+            blocks = listOf(ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(0, 4))),
+        )
+
+        assertEquals(9, entity.parserVersion)
     }
 }

@@ -4,6 +4,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+/**
+ * Pins the storage form of a reading position, per format, in both directions.
+ *
+ * This round trip is what a resume depends on: [parseReaderLocation] has to return exactly what
+ * [ReaderLocation.asStorageString] wrote, or a reader is put back somewhere other than where they stopped.
+ * The rejection case is here for the same reason — a negative offset means a corrupt row, and reading it
+ * as page one would hide that while losing the reader's place.
+ */
 class ReaderLocationTest {
     @Test
     fun textLocationRoundTripsThroughStorageString() {

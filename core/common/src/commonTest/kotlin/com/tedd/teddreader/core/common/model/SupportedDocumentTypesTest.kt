@@ -5,6 +5,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Pins that the picker filters and the format list still cover all four kinds of document this reader
+ * opens — reflowable text, fixed pages, comics, raster images — so adding a format cannot silently leave
+ * the file pickers unable to select it.
+ */
 class SupportedDocumentTypesTest {
     @Test
     fun supportedDocumentTypesExposeTextFixedPageComicAndRasterImages() {

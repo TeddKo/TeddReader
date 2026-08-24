@@ -18,6 +18,13 @@ import com.tedd.teddreader.core.room.entity.ReadingSessionEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import kotlinx.serialization.json.Json
 
+/**
+ * Rehydrates a stored reading position into the domain [ReadingProgress] the reader actually works
+ * with, parsing the flat [ReaderLocation] string Room stores back into its typed form.
+ *
+ * @receiver The Room row for one document's saved reading position.
+ * @return The equivalent [ReadingProgress].
+ */
 fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress(
     documentId = DocumentId(documentId),
     location = parseReaderLocation(readerLocation),
@@ -25,6 +32,14 @@ fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress
     updatedAtEpochMillis = updatedAtEpochMillis,
 )
 
+/**
+ * Flattens a [ReadingProgress] into the row shape Room stores it as, the inverse of
+ * [toReadingProgress]. [ReaderLocation] has no Room-friendly representation of its own, so it is
+ * serialized to a plain string via [asStorageString] before it can become a column.
+ *
+ * @receiver The reading position to persist.
+ * @return The equivalent [ReadingProgressEntity] row.
+ */
 fun ReadingProgress.toReadingProgressEntity(): ReadingProgressEntity = ReadingProgressEntity(
     documentId = documentId.value,
     readerLocation = location.asStorageString(),
@@ -33,6 +48,12 @@ fun ReadingProgress.toReadingProgressEntity(): ReadingProgressEntity = ReadingPr
     updatedAtEpochMillis = updatedAtEpochMillis,
 )
 
+/**
+ * Rehydrates a stored bookmark row into the domain [Bookmark] the reader displays.
+ *
+ * @receiver The Room row for one saved bookmark.
+ * @return The equivalent [Bookmark].
+ */
 fun BookmarkEntity.toBookmark(): Bookmark = Bookmark(
     id = id,
     documentId = DocumentId(documentId),
@@ -42,6 +63,12 @@ fun BookmarkEntity.toBookmark(): Bookmark = Bookmark(
     createdAtEpochMillis = createdAtEpochMillis,
 )
 
+/**
+ * Flattens a [Bookmark] into the row shape Room stores it as, the inverse of [toBookmark].
+ *
+ * @receiver The bookmark to persist.
+ * @return The equivalent [BookmarkEntity] row.
+ */
 fun Bookmark.toBookmarkEntity(): BookmarkEntity = BookmarkEntity(
     id = id,
     documentId = documentId.value,
@@ -51,6 +78,14 @@ fun Bookmark.toBookmarkEntity(): BookmarkEntity = BookmarkEntity(
     createdAtEpochMillis = createdAtEpochMillis,
 )
 
+/**
+ * Rehydrates one logged reading session into the domain [ReadingSession] reading stats are computed
+ * from. `endLocation` stays `null` for a session that has no recorded end position rather than being
+ * parsed into some placeholder value.
+ *
+ * @receiver The Room row for one reading session.
+ * @return The equivalent [ReadingSession].
+ */
 fun ReadingSessionEntity.toReadingSession(): ReadingSession = ReadingSession(
     id = id,
     documentId = DocumentId(documentId),
@@ -61,6 +96,13 @@ fun ReadingSessionEntity.toReadingSession(): ReadingSession = ReadingSession(
     endLocation = endLocation?.let(::parseReaderLocation),
 )
 
+/**
+ * Flattens a [ReadingSession] into the row shape Room stores it as, the inverse of
+ * [toReadingSession].
+ *
+ * @receiver The reading session to persist.
+ * @return The equivalent [ReadingSessionEntity] row.
+ */
 fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessionEntity(
     id = id,
     documentId = documentId.value,
@@ -71,6 +113,24 @@ fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessi
     endLocation = endLocation?.asStorageString(),
 )
 
+/**
+ * Builds the search-index row a section is stored as, at the moment a document is imported or
+ * repaired. The section's own text and offsets carry over as-is; [blocks] and [navigation] are
+ * serialized to JSON because Room has no column type for them, and [documentTitle] is duplicated onto
+ * every section's row (rather than looked up separately) so a search result can show which book it
+ * came from without a join. The row is tagged with [CurrentReaderParserVersion] so a later parser
+ * upgrade can tell which rows were written by an older parser and need re-importing.
+ *
+ * @receiver The section being indexed.
+ * @param documentId The document this section belongs to.
+ * @param blocks This section's block structure, serialized into the row as JSON.
+ * @param documentTitle The owning document's title, denormalized onto this row for display; `null`
+ *   when the caller does not have it at hand yet.
+ * @param navigation The document's table of contents, serialized into the row as JSON; `null` when the
+ *   caller does not have it at hand yet, which is stored as an empty string rather than as JSON `null`.
+ * @param json The [Json] instance used to serialize [blocks] and [navigation].
+ * @return The [SearchIndexEntity] row to upsert for this section.
+ */
 fun ReaderSection.toSearchIndexEntity(
     documentId: DocumentId,
     blocks: List<ReaderBlock> = emptyList(),
@@ -102,13 +162,39 @@ fun ReaderSection.toSearchIndexEntity(
  * a newly picked EPUB takes, so a book below this version shows its first chapter as fast as a fresh one
  * and finishes in the background — which is what makes a bump cost about as little as it ever will.
  *
+ * Version 3 adds inline-CSS span preservation and float-image fallback/width repair, so stale stored
+ * blocks must be reparsed before an already-imported EPUB can render those fixes.
+ *
+ * Version 4 adds publisher color/font/box styling, hidden-subtree stripping, decorated container ranges,
+ * and inline floated-image preservation, so older stored sections must be reparsed to recover those
+ * richer blocks and spans.
+ *
+ * Version 5 bumps that richer schema again now that body/html background containers and publisher float/
+ * border/color decoding changed shape; stored rows below this version must be repaired before those
+ * blocks can surface consistently.
+ *
  * A repair does re-read the book's text, so character offsets can move; stored page layouts are dropped
  * on the character-count mismatch that follows (see DocumentRepositoryImpl.restorePageWindows) and the
  * reading position lands on the nearest page rather than the exact one. That is the price of a bump and
  * the reason not to make one for anything the reader does not actually need.
  */
-const val CurrentReaderParserVersion: Int = 2
+const val CurrentReaderParserVersion: Int = 9
 
+/**
+ * Every non-overlapping occurrence of [query] in this section's stored text, in document order.
+ *
+ * A section's row can hold the same word many times over, and each occurrence is its own
+ * [SearchResult] rather than one result per section, so a caller can jump straight to any of them.
+ * Matching is case-insensitive and advances past each match before looking for the next one, so an
+ * occurrence never overlaps the one before it (searching "aa" in "aaa" finds one match, not two). An
+ * empty [query] would otherwise loop forever advancing by zero characters each time, so it is rejected
+ * up front and yields no results instead.
+ *
+ * @receiver The stored section row to search within.
+ * @param query The text to find; must be non-empty for any results to come back.
+ * @return Matching [SearchResult]s in the order they occur in [text], or an empty list if [query] is
+ *   empty or does not occur.
+ */
 fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
     if (query.isEmpty()) return emptyList()
     return buildList {
@@ -134,10 +220,21 @@ fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
     }
 }
 
+/**
+ * The window of surrounding text a search result shows around its match, so a result reads as a
+ * snippet of context rather than either the bare matched word or the section's entire text.
+ *
+ * @receiver The section text the match was found in.
+ * @param matchIndex Index into this string where the match starts.
+ * @param matchLength Length of the matched text.
+ * @return Up to [SNIPPET_RADIUS] characters on either side of the match, clipped to this string's
+ *   bounds rather than padded when the match is near either end.
+ */
 private fun String.snippetAround(matchIndex: Int, matchLength: Int): String {
     val start = (matchIndex - SNIPPET_RADIUS).coerceAtLeast(0)
     val end = (matchIndex + matchLength + SNIPPET_RADIUS).coerceAtMost(length)
     return substring(start, end)
 }
 
+/** Characters of context [snippetAround] keeps on each side of a match. */
 private const val SNIPPET_RADIUS = 40

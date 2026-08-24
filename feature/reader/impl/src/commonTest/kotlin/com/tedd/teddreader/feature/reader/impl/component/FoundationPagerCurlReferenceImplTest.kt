@@ -8,7 +8,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/**
+ * Unit tests for the pure geometry behind [FoundationPagerCurlReferenceImpl]'s pagecurl
+ * interaction: fold-edge construction, drag direction/completion thresholds, the spread-mode
+ * leaf-offset scaling that maps full-viewport pointer travel onto the narrower folding leaf, and
+ * tap-zone resolution. All of it is plain math with no Compose dependency, so it is tested
+ * directly rather than through a composable harness.
+ */
 class FoundationPagerCurlReferenceImplTest {
+    /**
+     * Verifies [foundationReferenceCurlEdge] builds the fold's top/bottom edge points as the
+     * current pointer position plus and minus a vector rotated 90 degrees from the line to the
+     * viewport's near corner.
+     */
     @Test
     fun defaultEdgeUsesCurrentPlusAndMinusRotatedVector() {
         val edge = foundationReferenceCurlEdge(
@@ -21,6 +33,12 @@ class FoundationPagerCurlReferenceImplTest {
         assertTrue((edge.bottom - Offset(80f, 110f)).getDistance() < 0.001f)
     }
 
+    /**
+     * Verifies [foundationReferenceCurlDirection] reads direction purely from which way the
+     * pointer moved — leftward anywhere on the page means forward, rightward means backward —
+     * and returns null both when there is no movement and when the implied direction has no page
+     * to turn to.
+     */
     @Test
     fun dragDirectionComesFromMovementAnywhereOnThePage() {
         assertEquals(
@@ -44,6 +62,13 @@ class FoundationPagerCurlReferenceImplTest {
         assertNull(foundationReferenceCurlDirection(Offset(50f, 0f), Offset(40f, 0f), true, false))
     }
 
+    /**
+     * Verifies [spreadLeafOffset] (via [foundationReferenceCurlLeafOffset] in spread mode) maps
+     * the full viewport width onto the leaf's own narrower width: the far viewport edge in the
+     * fold's direction always means "fully folded" ([SpreadLeafWidth]) and the opposite edge
+     * always means "at rest" (0), regardless of which physical side of the viewport that is for
+     * forward vs. backward.
+     */
     @Test
     fun spreadSwipeSpansTheWholeViewportInBothDirections() {
         val forward = FoundationReferenceCurlDirection.Forward
@@ -55,6 +80,15 @@ class FoundationPagerCurlReferenceImplTest {
         assertEquals(Offset(0f, 80f), spreadLeafOffset(SpreadViewportWidth, backward))
     }
 
+    /**
+     * Verifies the spread-mode leaf offset's fold progress (as a fraction of leaf width) matches
+     * exactly what a single-pane curl would report as a fraction of viewport width, at every
+     * pointer position tested — the scaling in [foundationReferenceCurlLeafOffset] must not
+     * change how much the page has folded for a given amount of pointer travel, only where that
+     * travel is measured. A backward swipe's progress is the forward swipe's complement, since
+     * the spread reuses forward curl geometry for a backward turn (see
+     * [foundationReferenceCurlGeometryDirection]).
+     */
     @Test
     fun spreadFoldProgressMatchesTheSinglePaneCurlAtEveryPointerPosition() {
         listOf(0f, 250f, 500f, 750f, 1000f).forEach { x ->
@@ -80,6 +114,12 @@ class FoundationPagerCurlReferenceImplTest {
         }
     }
 
+    /**
+     * Verifies [foundationReferenceCurlDragSucceeds] requires the same 20%-of-viewport
+     * directional travel to complete a spread swipe as it does a single-pane one, even though the
+     * spread's leaf itself is narrower — completion is measured against the full viewport the
+     * pointer actually travelled across, not the leaf's own width.
+     */
     @Test
     fun spreadSwipeCompletesAtTheSameViewportTravelAsTheSinglePaneCurl() {
         val leafSize = IntSize(SpreadLeafWidth.toInt(), 200)
@@ -98,6 +138,11 @@ class FoundationPagerCurlReferenceImplTest {
         assertTrue(succeedsAfterViewportTravel(SpreadViewportWidth * 0.21f))
     }
 
+    /**
+     * Verifies [foundationReferenceCurlGeometryDirection] reuses forward curl geometry for a
+     * spread's backward (previous-page) swipe, since the spread's only folding leaf is the one on
+     * the right, while a single-pane backward swipe keeps its own backward geometry.
+     */
     @Test
     fun spreadPreviousSwipeReusesForwardCurlGeometry() {
         assertEquals(
@@ -116,6 +161,11 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /**
+     * Verifies [foundationReferenceVisibleCurlEdge] shows the resting edge, not the animated
+     * one, once [pageKey] has moved on but [renderedPageKey] has not yet caught up — the window
+     * between a turn completing and the reset effect running for the new page.
+     */
     @Test
     fun changedPageKeyUsesRestingEdgesBeforeTheResetEffectRuns() {
         assertEquals(
@@ -129,6 +179,11 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /**
+     * Verifies [foundationReferenceCurlDragSucceeds] on the horizontal axis requires at least 20%
+     * of the viewport width of directional travel, in either direction, just under that threshold
+     * failing and just at or over it succeeding.
+     */
     @Test
     fun horizontalDragCompletesAtTwentyPercentDirectionalTravel() {
         val size = IntSize(100, 200)
@@ -171,6 +226,11 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /**
+     * Verifies [foundationReferenceCurlDragSucceeds] on the vertical axis measures its 20%
+     * threshold against the shorter of the viewport's two sides, in both portrait and landscape
+     * orientations, rather than always against one fixed dimension.
+     */
     @Test
     fun verticalDragUsesTwentyPercentOfTheShorterViewportSide() {
         val portrait = FoundationReferenceCurlAxis.Vertical.canonicalSize(IntSize(100, 200))
@@ -214,12 +274,22 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /**
+     * Verifies [foundationReferenceCurlZIndex] ranks the previous page above the current page,
+     * and the current page above the next page, so the folding leaf's stacking order matches a
+     * real book's page order.
+     */
     @Test
     fun previousCurlPageIsLayeredAboveCurrentPage() {
         assertTrue(foundationReferenceCurlZIndex(-1) > foundationReferenceCurlZIndex(0))
         assertTrue(foundationReferenceCurlZIndex(0) > foundationReferenceCurlZIndex(1))
     }
 
+    /**
+     * Verifies [foundationReferenceCurlTapAction] always resolves to toggling the controls while
+     * auto-scroll is enabled, regardless of which zone was tapped or which pages are available —
+     * a manual tap must not compete with the automatic turn.
+     */
     @Test
     fun autoScrollTapsAlwaysToggleControlsRegardlessOfZoneOrAvailablePages() {
         val size = IntSize(100, 200)
@@ -259,6 +329,12 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /**
+     * Verifies [foundationReferenceCurlTapAction]'s quarter-zone resolution along the primary
+     * axis for both orientations, including the F16 fix: a tap in a zone with no page to turn to
+     * (start or end of the book) falls through to toggling the controls instead of doing nothing
+     * at all, the same as the middle zone.
+     */
     @Test
     fun tapsUsePrimaryAxisQuarterZonesAndRespectAvailablePages() {
         val size = IntSize(100, 200)
@@ -279,14 +355,25 @@ class FoundationPagerCurlReferenceImplTest {
             FoundationReferenceCurlTapAction.Forward,
             foundationReferenceCurlTapAction(Offset(50f, 151f), size, FoundationReferenceCurlAxis.Vertical, true, true),
         )
-        assertNull(
+        assertEquals(
+            FoundationReferenceCurlTapAction.ToggleControls,
             foundationReferenceCurlTapAction(Offset(10f, 100f), size, FoundationReferenceCurlAxis.Horizontal, false, true),
         )
-        assertNull(
+        assertEquals(
+            FoundationReferenceCurlTapAction.ToggleControls,
             foundationReferenceCurlTapAction(Offset(90f, 100f), size, FoundationReferenceCurlAxis.Horizontal, true, false),
         )
     }
 
+    /**
+     * Builds the spread-mode leaf offset a pointer at viewport x-coordinate [x] maps to, for
+     * [direction], using this test file's fixed [SpreadViewportWidth]/[SpreadLeafWidth] — the
+     * shared setup behind the spread-scaling assertions above.
+     *
+     * @param x The pointer's x position within the full viewport.
+     * @param direction Which fold direction the offset is being computed for.
+     * @return The corresponding offset in the folding leaf's own coordinate space.
+     */
     private fun spreadLeafOffset(
         x: Float,
         direction: FoundationReferenceCurlDirection,
@@ -300,7 +387,10 @@ class FoundationPagerCurlReferenceImplTest {
     )
 
     private companion object {
+        /** The fixed full-viewport width used by every spread-mode assertion in this class. */
         const val SpreadViewportWidth = 1000f
+
+        /** The fixed folding-leaf width (half the viewport) used by every spread-mode assertion. */
         const val SpreadLeafWidth = 500f
     }
 }

@@ -3,12 +3,17 @@ package com.tedd.teddreader.core.room
 import androidx.room3.migration.Migration
 import androidx.sqlite.execSQL
 
+/** Adds the library's favourite flag, which had no column before books could be starred. */
 internal val TeddReaderMigration1To2 = Migration(1, 2) { connection ->
     connection.execSQL(
         "ALTER TABLE documents ADD COLUMN isBookmarked INTEGER NOT NULL DEFAULT 0",
     )
 }
 
+/**
+ * Adds folder membership to the library. Both columns are nullable and are only ever written together —
+ * a row in a folder knows the folder's name, a row outside one has neither.
+ */
 internal val TeddReaderMigration2To3 = Migration(2, 3) { connection ->
     connection.execSQL(
         "ALTER TABLE documents ADD COLUMN folderId TEXT",
@@ -18,12 +23,20 @@ internal val TeddReaderMigration2To3 = Migration(2, 3) { connection ->
     )
 }
 
+/**
+ * Adds the per-section block structure that styles stored text. Defaulted to an empty array so books
+ * imported by an earlier build stay readable as plain text until something re-parses them.
+ */
 internal val TeddReaderMigration3To4 = Migration(3, 4) { connection ->
     connection.execSQL(
         "ALTER TABLE search_index ADD COLUMN blocksJson TEXT NOT NULL DEFAULT '[]'",
     )
 }
 
+/**
+ * Adds the document title and table of contents to the search index, which is where a reader reads them
+ * back from: they belong to the book as a whole, but the section rows are what an open already loads.
+ */
 internal val TeddReaderMigration4To5 = Migration(4, 5) { connection ->
     connection.execSQL(
         "ALTER TABLE search_index ADD COLUMN documentTitle TEXT",
@@ -33,6 +46,11 @@ internal val TeddReaderMigration4To5 = Migration(4, 5) { connection ->
     )
 }
 
+/**
+ * Creates the page-layout cache. Keyed by document, type and viewport together, because that whole tuple
+ * is what a measurement is valid for; `ON DELETE CASCADE` ties the rows to their document so deleting a
+ * book cannot leave its measurements behind.
+ */
 internal val TeddReaderMigration5To6 = Migration(5, 6) { connection ->
     connection.execSQL(
         "CREATE TABLE IF NOT EXISTS `page_layouts` (`documentId` TEXT NOT NULL, `fontSizeSp` REAL NOT NULL, " +
@@ -47,6 +65,11 @@ internal val TeddReaderMigration5To6 = Migration(5, 6) { connection ->
     )
 }
 
+/**
+ * Adds the parser version stored text was written by. Comparing a number is how a later build knows that
+ * stored text predates a parser change; the alternative was inspecting the blocks themselves, which on a
+ * book whose first illustration sits in chapter 292 meant decoding 293 chapters just to ask.
+ */
 internal val TeddReaderMigration6To7 = Migration(6, 7) { connection ->
     connection.execSQL(
         "ALTER TABLE search_index ADD COLUMN parserVersion INTEGER NOT NULL DEFAULT 0",
@@ -82,9 +105,14 @@ internal val TeddReaderMigration7To8 = Migration(7, 8) { connection ->
     )
 }
 
-// Both platform builders (android/ios) register migrations from this one list instead of each typing
-// out its own — Room's `RoomDatabase.Builder` keeps no way to read migrations back out once added, so
-// a hand-duplicated list on each platform could silently drift with no way to catch it later.
+/**
+ * Every migration, in order, and the single source both platform builders register from.
+ *
+ * One list rather than a hand-written call per platform: Room's `RoomDatabase.Builder` keeps no way to
+ * read migrations back out once they are added, so two duplicated lists could drift apart with nothing
+ * able to catch it. TeddReaderMigrationListTest walks this list instead and fails if the chain skips a
+ * version or stops short of the database's own.
+ */
 internal val TeddReaderMigrationList: List<Migration> = listOf(
     TeddReaderMigration1To2,
     TeddReaderMigration2To3,

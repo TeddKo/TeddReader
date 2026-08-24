@@ -21,6 +21,26 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
 
+/**
+ * The app's modal bottom sheet chrome: a title/description header above [content], laid out on top
+ * of Material's [ModalBottomSheet] with the app's spacing and typography. The header-plus-content
+ * [Column] is also given [consumeUnconsumedVerticalScroll], because without it, vertical drag deltas
+ * that [content] itself does not consume (e.g. a scrollable list that has reached its top or bottom,
+ * or non-scrolling content at all) leak past this column into [ModalBottomSheet]'s own nested-scroll
+ * handling and get interpreted as a drag to expand or dismiss the sheet — a real bug this app hit
+ * where scrolling to the end of a sheet's content caused the sheet itself to jump closed. Consuming
+ * the leftover here keeps sheet-drag and content-scroll gestures independent.
+ *
+ * @param title The sheet's header text, shown in [teddReaderTypography]'s `titleLarge` style.
+ * @param onDismissRequest Invoked when the user dismisses the sheet (tap outside, swipe down, or
+ * back gesture).
+ * @param sheetState The sheet's expand/collapse/hide state; owned and remembered by the caller so it
+ * can also trigger dismissal programmatically.
+ * @param modifier Modifier applied to the underlying [ModalBottomSheet].
+ * @param description A second header line shown under [title] in a muted color; omitted when null.
+ * @param contentPadding Padding around [content], below the header.
+ * @param content The sheet's body.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TeddModalBottomSheet(
@@ -79,6 +99,7 @@ fun TeddModalBottomSheet(
     }
 }
 
+/** Compose preview rendering [TeddModalBottomSheet] expanded, with one [TeddButton] as its content. */
 @Preview
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

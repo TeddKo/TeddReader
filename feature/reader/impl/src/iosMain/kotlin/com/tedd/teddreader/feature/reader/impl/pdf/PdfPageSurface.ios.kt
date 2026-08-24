@@ -10,6 +10,22 @@ import platform.Foundation.NSURL
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
 
+/**
+ * The iOS actual of `PlatformPdfPageSurface`: a `UIKitView` hosting PDFKit's own `PDFView`, which
+ * loads [documentUri] as a `PDFDocument` and jumps to [pageIndex] itself. Unlike the Android
+ * actual's [android.graphics.pdf.PdfRenderer] page, there is no separate loading state to render
+ * here, since `PDFView` owns its own document decode and paging and this composable never sees an
+ * intermediate "not yet rendered" state to show a spinner for.
+ *
+ * @param documentUri the source `file://` URI of the PDF to render, or null/blank to show the
+ *   unavailable placeholder without creating a `PDFView` at all.
+ * @param pageIndex the page to jump `PDFView` to (`pageIndex.current`).
+ * @param modifier applied to the `UIKitView`/placeholder container.
+ * @param message the fallback text shown on the unavailable placeholder.
+ * @param contentPadding padding applied around the `UIKitView` hosting `PDFView`.
+ * @param placeholderContentPadding padding around the unavailable-state placeholder, forwarded to
+ *   `PdfPlaceholderSurface` unchanged.
+ */
 @Composable
 internal actual fun PlatformPdfPageSurface(
     documentUri: String?,

@@ -11,6 +11,24 @@ import com.tedd.teddreader.core.common.model.ReaderSepiaBackgroundArgb
 import com.tedd.teddreader.core.common.model.ReaderSepiaTextArgb
 import com.tedd.teddreader.core.common.model.ReaderStyle
 
+/**
+ * Every colour a reading page and its controls draw with.
+ *
+ * Separate from the app's own Material palette because a reading page is not app chrome: its ink and paper
+ * are the reader's choice, and the controls floating over them have to stay legible against whatever that
+ * choice is. Bundling them means a theme is one value to pass and one thing to swap.
+ *
+ * @property text the ink the book is set in.
+ * @property background the paper behind it.
+ * @property controls the surface of the bars and sheets floating over the page, alpha'd so the page shows
+ * through.
+ * @property controlsContent ink for those controls, chosen to stay legible on [controls].
+ * @property selection the wash behind selected text.
+ * @property highlight the wash behind a search hit or a highlighted passage.
+ * @property bookmark the accent that marks a saved place.
+ * @property divider hairlines between control rows.
+ * @property dimOverlay the scrim over the page while a sheet or dialog is open.
+ */
 @Immutable
 data class ReaderColors(
     val text: Color,
@@ -24,6 +42,7 @@ data class ReaderColors(
     val dimOverlay: Color,
 )
 
+/** Day reading: warm paper and near-black ink, the reader's default. */
 val LightReaderColors = ReaderColors(
     text = ReaderColor(ReaderLightTextArgb).toColor(),
     background = ReaderColor(ReaderLightBackgroundArgb).toColor(),
@@ -36,6 +55,7 @@ val LightReaderColors = ReaderColors(
     dimOverlay = Color(0x66000000),
 )
 
+/** Night reading in a dark room: dark paper, warm off-white ink to keep the glare down. */
 val DarkReaderColors = ReaderColors(
     text = ReaderColor(ReaderDarkTextArgb).toColor(),
     background = ReaderColor(ReaderDarkBackgroundArgb).toColor(),
@@ -48,6 +68,7 @@ val DarkReaderColors = ReaderColors(
     dimOverlay = Color(0x99000000),
 )
 
+/** Sepia: aged-paper tone for long sessions in warm light. */
 val SepiaReaderColors = ReaderColors(
     text = ReaderColor(ReaderSepiaTextArgb).toColor(),
     background = ReaderColor(ReaderSepiaBackgroundArgb).toColor(),
@@ -60,6 +81,7 @@ val SepiaReaderColors = ReaderColors(
     dimOverlay = Color(0x66000000),
 )
 
+/** A deeper night than [DarkReaderColors], for reading with the lights off. */
 val NightReaderColors = ReaderColors(
     text = Color(0xFFF2EDE2),
     background = CharcoalNight,
@@ -72,6 +94,7 @@ val NightReaderColors = ReaderColors(
     dimOverlay = Color(0xB3000000),
 )
 
+/** Pure black on white with saturated accents, for readers who need maximum contrast. */
 val HighContrastReaderColors = ReaderColors(
     text = Color.White,
     background = Color.Black,
@@ -84,6 +107,17 @@ val HighContrastReaderColors = ReaderColors(
     dimOverlay = Color(0xCC000000),
 )
 
+/**
+ * Builds a page palette from the colours the reader chose themselves.
+ *
+ * Only ink and paper come from the style — a reader picks those two, not nine — so the rest is derived:
+ * controls take the page colour at 95% so the page shows through, their ink takes the text colour, and
+ * dividers take the text colour at 16%. Selection, highlight and bookmark are kept from
+ * [LightReaderColors] because they have to remain recognisable as *those* marks whatever the page is.
+ *
+ * @receiver the reader's own style, whose text and background colours drive everything here.
+ * @return a palette that stays legible on the reader's own page colours.
+ */
 fun ReaderStyle.readerColors(): ReaderColors = ReaderColors(
     text = textColor.toColor(),
     background = backgroundColor.toColor(),
@@ -96,4 +130,11 @@ fun ReaderStyle.readerColors(): ReaderColors = ReaderColors(
     dimOverlay = LightReaderColors.dimOverlay,
 )
 
+/**
+ * Converts a stored colour into Compose's own, and the single crossing point between the model layer and
+ * the UI layer's colour type.
+ *
+ * @receiver the stored `0xAARRGGBB` value.
+ * @return the same colour as Compose sees it, alpha included.
+ */
 fun ReaderColor.toColor(): Color = Color(argb.toInt())

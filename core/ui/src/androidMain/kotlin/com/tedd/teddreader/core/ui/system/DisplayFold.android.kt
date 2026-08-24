@@ -10,6 +10,16 @@ import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowLayoutInfo
 
+/**
+ * Android's [rememberDisplayFold]: subscribes to Jetpack Window Manager's
+ * [WindowInfoTracker]/[WindowLayoutInfo] for this [LocalContext], takes the first reported
+ * [FoldingFeature] (a device can, in principle, report more than one; this app's two-page layout
+ * only ever needs the primary fold), and converts its pixel bounds to dp via [LocalDensity] since
+ * [DisplayFold] is defined in dp while [FoldingFeature.bounds] is reported in raw pixels.
+ *
+ * @return null when the current window reports no [FoldingFeature] at all (a non-foldable device, or
+ * a foldable that is not currently split); otherwise the converted [DisplayFold].
+ */
 @Composable
 actual fun rememberDisplayFold(): DisplayFold? {
     val context = LocalContext.current

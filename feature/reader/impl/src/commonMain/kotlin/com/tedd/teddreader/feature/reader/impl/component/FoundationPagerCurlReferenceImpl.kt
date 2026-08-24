@@ -72,6 +72,39 @@ import kotlin.math.sin
  *
  * On a two-pane spread the curl runs on the outer leaf only: the leaf folds about the spine and
  * lands on the facing page, the way a real book turns. Single pane keeps the reference behavior.
+ *
+ * In a two-page spread the leaf is narrower than the viewport, so pointer travel is scaled into leaf space
+ * rather than translated — that keeps the fold progress per unit of swipe identical to the single-pane curl
+ * at every pointer position and in both directions.
+ *
+ * Also in a spread, the previous leaf paints its back face over the facing page, so it may only be composed
+ * while it is actually being turned back; otherwise it would cover the page the reader is looking at.
+ *
+ * @param pageKey The current page index.
+ * @param pageCount The total number of pages known so far.
+ * @param pageStep How many pages one turn advances.
+ * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
+ * @param canRequestNextPage Whether a text document at its known end should still forward a next
+ *   request while pagination remains incomplete.
+ * @param pageMoveRequest A pending programmatic page-move request, or null when none is
+ *   outstanding.
+ * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been animated
+ *   or found to have nowhere to go.
+ * @param onPreviousPage Called once a backward curl completes.
+ * @param onNextPage Called once a forward curl completes.
+ * @param onToggleControls Called when a tap lands outside both turn zones, or during auto-scroll.
+ * @param onDoubleTap Called with the tap position on a double-tap; null disables it.
+ * @param isAutoScrollEnabled Whether auto-scroll is currently driving turns.
+ * @param autoScrollMode The auto-scroll mode to honor.
+ * @param autoScrollSpeed The configured auto-scroll speed.
+ * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
+ * @param modifier The modifier applied to the pager's root.
+ * @param paneCount How many page panes are shown side by side (2 for a spread, 1 otherwise).
+ * @param spreadGutter The gap drawn between panes in a spread.
+ * @param spreadLeftWeight The fraction of a spread's width given to its left pane.
+ * @param spreadModifier The modifier applied to a spread's row.
+ * @param paneContent Renders one pane of a spread with its own modifier; null for a single pane.
+ * @param content Renders the page at the given index for the single-pane case.
  */
 @Composable
 internal fun FoundationPagerCurlReferenceImpl(
@@ -79,6 +112,7 @@ internal fun FoundationPagerCurlReferenceImpl(
     pageCount: Int,
     pageStep: Int,
     pageTurnMode: PageTurnMode,
+    canRequestNextPage: Boolean,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
     onPreviousPage: () -> Unit,
@@ -120,9 +154,6 @@ internal fun FoundationPagerCurlReferenceImpl(
             paneCount >= 2
         val gutterPx = with(density) { spreadGutter.toPx() }
         val leafSize = foundationReferenceLeafSize(canonicalSize, isSpread, gutterPx, spreadLeftWeight)
-        // The leaf is narrower than the viewport, so the pointer travel is scaled into leaf space
-        // instead of translated. That keeps the fold progress per swipe distance identical to the
-        // single pane curl at every pointer position and in both directions.
         val leafScale = if (isSpread) {
             leafSize.width / canonicalSize.width.toFloat().coerceAtLeast(1f)
         } else {
@@ -148,6 +179,10 @@ internal fun FoundationPagerCurlReferenceImpl(
         }
         var renderedPageKey by remember { mutableStateOf(pageKey) }
         var animationJob by remember(axis, leafSize) { mutableStateOf<Job?>(null) }
+        val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
+        val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
+        val canGoBackward = previousPage != null
+        val canGoForward = readerPagerCanAdvanceForward(nextPage != null, canRequestNextPage)
 
         suspend fun reset() {
             forwardEdge.snapTo(rightEdge)
@@ -159,7 +194,12 @@ internal fun FoundationPagerCurlReferenceImpl(
 
         fun complete(direction: FoundationReferenceCurlDirection) {
             when (direction) {
-                FoundationReferenceCurlDirection.Forward -> latestOnNextPage()
+                FoundationReferenceCurlDirection.Forward -> {
+                    latestOnNextPage()
+                    if (nextPage == null && canRequestNextPage) {
+                        scope.launch { reset() }
+                    }
+                }
                 FoundationReferenceCurlDirection.Backward -> latestOnPreviousPage()
             }
         }
@@ -204,15 +244,11 @@ internal fun FoundationPagerCurlReferenceImpl(
             }
         }
 
-        LaunchedEffect(pageKey, pageCount, pageStep, axis, leafSize) {
+        LaunchedEffect(pageKey, pageStep, axis, leafSize) {
             reset()
             renderedPageKey = pageKey
         }
 
-        val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
-        val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
-        val canGoBackward = previousPage != null
-        val canGoForward = nextPage != null
         LaunchedEffect(pageMoveRequest?.id) {
             val request = pageMoveRequest ?: return@LaunchedEffect
             val direction = when (request.movement) {
@@ -285,7 +321,12 @@ internal fun FoundationPagerCurlReferenceImpl(
 
         val pageContent: @Composable (Int) -> Unit = { pagerPage ->
             val pageOffset = pagerPage - FoundationReferenceCenterPage
-            val documentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset)
+            val documentPage = readerPagerDisplayedPage(
+                currentPage = pageKey,
+                adjacentPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, pageOffset),
+                pageOffset = pageOffset,
+                canRequestNextPage = canRequestNextPage,
+            )
             val leafEdge = when (pageOffset) {
                 -1 -> foundationReferenceVisibleCurlEdge(
                     pageKey,
@@ -301,8 +342,6 @@ internal fun FoundationPagerCurlReferenceImpl(
                 )
                 else -> null
             }
-            // In a spread the previous leaf paints its back face over the facing page, so it may
-            // only be composed while it is actually being turned back.
             val skipSpreadPage = isSpread &&
                 pageOffset == -1 &&
                 (leafEdge == backwardRestEdge ||
@@ -378,6 +417,9 @@ internal fun FoundationPagerCurlReferenceImpl(
  * The leaf carries both of its faces. [leftPage] + 1 is printed on the front, [leftPage] + 2 on the
  * back, so a forward fold lands the next page on the facing side exactly where the pager will place
  * it once the turn completes.
+ *
+ * The back face is pre-mirrored (`scaleX = -1f`) so that the fold's own reflection lands it right-reading;
+ * without the pre-mirror the text on a turning leaf's back reads backwards.
  */
 @Composable
 private fun FoundationReferenceSpread(
@@ -407,7 +449,6 @@ private fun FoundationReferenceSpread(
                     Modifier
                         .fillMaxSize()
                         .foundationReferenceDrawLeafBack(axis, leafEdge)
-                        // Pre-mirrored so the fold reflection lands the back face right-reading.
                         .graphicsLayer { scaleX = -1f },
                 )
             }
@@ -415,6 +456,30 @@ private fun FoundationReferenceSpread(
     }
 }
 
+/**
+ * Two-pane spread while a backward turn folds the current leaf away, back toward the previous page it
+ * covers.
+ *
+ * Both pages this composable draws sit in the left pane, stacked in the order needed to reveal the one
+ * underneath as the fold opens: [previousLeftPage] flat on the bottom (what the turn is uncovering),
+ * then [currentLeftPage] drawn with [foundationReferenceDrawLeafFront] (the leaf's still-flat part),
+ * then [previousLeftPage] + 1 drawn with [foundationReferenceDrawLeafBack] (the part folding open). That
+ * is the same leaf a forward turn starting at [previousLeftPage] would draw — see
+ * [FoundationReferenceSpread] — played in reverse, with front and back swapped because this animation
+ * approaches the flat state instead of leaving it. Both leaf-face calls pass `mirrorHorizontally = true`
+ * because this fold hinges on the left edge, the mirror image of the forward fold's right-edge hinge, so
+ * the same front/back pre-mirror trick still lands the text right-reading. The right pane is left empty
+ * here; the pager's own offset-0 slot renders it separately.
+ *
+ * @param previousLeftPage the page this backward turn is revealing.
+ * @param currentLeftPage the page currently showing, whose leaf is folding away from it.
+ * @param axis whether the fold runs horizontally or vertically.
+ * @param leafEdge the leaf's current fold edge, in canonical coordinates.
+ * @param gutter the gap between the two panes.
+ * @param leftWeight the fraction of the spread's width given to the left pane.
+ * @param spreadModifier the modifier applied to the row.
+ * @param paneContent renders one page into a pane with the given modifier.
+ */
 @Composable
 private fun FoundationReferenceBackwardSpread(
     previousLeftPage: Int,
@@ -449,6 +514,22 @@ private fun FoundationReferenceBackwardSpread(
     }
 }
 
+/**
+ * The size the curl geometry treats as one page, given the viewport already reduced to one axis'
+ * canonical orientation.
+ *
+ * Outside a spread the leaf is the whole pane, so [canonicalSize] passes through unchanged. Inside a
+ * spread only the non-left pane actually turns, so the leaf is narrower: it gets whatever width is left
+ * after the gutter and the left pane's share ([leftWeight]) are taken out, floored at 1px so a zero or
+ * negative split never produces a degenerate size the fold math cannot invert.
+ *
+ * @param canonicalSize the viewport size in the axis' canonical (horizontal-first) orientation.
+ * @param isSpread whether the pager is showing two panes side by side.
+ * @param gutterPx the gap between panes, in pixels.
+ * @param leftWeight the fraction of the spread's width given to the left pane; clamped to 0..1 before
+ *   the leaf gets the remainder.
+ * @return the size the curl edge, fold, and hit-testing math should use as one page.
+ */
 internal fun foundationReferenceLeafSize(
     canonicalSize: IntSize,
     isSpread: Boolean,
@@ -461,6 +542,19 @@ internal fun foundationReferenceLeafSize(
     return IntSize(leafWidth, canonicalSize.height)
 }
 
+/**
+ * Undoes the pager's own per-page placement so every page in the three-page window lands on the exact
+ * same screen rect instead of side by side.
+ *
+ * [HorizontalPager]/[VerticalPager] place page N at N page-sizes along the scroll axis even though
+ * this pager's current page never actually moves — the curl needs all three pages (previous, current,
+ * next) stacked at the same position so [foundationReferenceCurlZIndex] can composite them by depth
+ * instead of by scroll offset.
+ *
+ * @receiver the page's own modifier chain, before [foundationReferenceCurlZIndex] and any curl drawing.
+ * @param axis which screen axis the pager scrolls along, so the right translation gets cancelled.
+ * @param pageOffset this page's offset from the pager's fixed center page (-1, 0, or +1).
+ */
 private fun Modifier.foundationCancelPagerPlacement(
     axis: FoundationReferenceCurlAxis,
     pageOffset: Int,
@@ -472,9 +566,35 @@ private fun Modifier.foundationCancelPagerPlacement(
     }
 }
 
+/**
+ * Stacking order for the pager's fixed three-slot window: previous page highest, current page in the
+ * middle, next page lowest.
+ *
+ * Only the previous and current slots ever draw a curl fold — the next slot's `leafEdge` is always null
+ * in [FoundationPagerCurlReferenceImpl]'s page content — so whichever of the other two is actively
+ * folding needs to sit above the page it is revealing, in both directions; that only holds if this
+ * ordering is fixed regardless of which turn is in progress.
+ *
+ * @param pageOffset the slot's offset from the pager's fixed center page (-1, 0, or +1).
+ * @return a z-index where -1 sorts highest and +1 sorts lowest.
+ */
 internal fun foundationReferenceCurlZIndex(pageOffset: Int): Float =
     (1 - pageOffset).toFloat()
 
+/**
+ * What one in-progress drag gesture is doing, decided once at drag start and read for the rest of it.
+ *
+ * [detectFoundationReferenceCurlGestures] resolves [direction] and, from it, which of the pager's two
+ * curl animatables applies ([edge]) before the first pointer move; bundling that choice here means the
+ * rest of the gesture — drag, fling, cancel — never has to re-derive it or risk disagreeing about which
+ * animatable is live mid-gesture.
+ *
+ * @property direction which way this drag is turning the page.
+ * @property edge the animatable this gesture drives — [FoundationPagerCurlReferenceImpl]'s forward or
+ *   backward edge, depending on [direction].
+ * @property start the edge a cancelled drag animates back to.
+ * @property end the edge a successful drag animates to, completing the turn.
+ */
 private data class FoundationReferenceDragConfig(
     val direction: FoundationReferenceCurlDirection,
     val edge: Animatable<FoundationReferenceCurlEdge, AnimationVector4D>,
@@ -482,6 +602,40 @@ private data class FoundationReferenceDragConfig(
     val end: FoundationReferenceCurlEdge,
 )
 
+/**
+ * Drives one page-turn drag from first touch to its resolved outcome: fling-completed, dragged past the
+ * threshold, or snapped back.
+ *
+ * Direction and the edge to animate are fixed in a [FoundationReferenceDragConfig] the moment a drag
+ * starts, from the touch-slop displacement alone; nothing about the gesture after that can change which
+ * animatable is driven. Every pointer position seen after that first decision is converted through
+ * [foundationReferenceCurlLeafOffset] into the leaf's own coordinate space — the only space the fold
+ * geometry understands — so a spread's narrower leaf still tracks the same normalized travel a single
+ * pane would for the same finger movement.
+ *
+ * On lift, the recorded velocity is projected forward with a spline decay to find where the finger's
+ * fling would have landed, and [foundationReferenceCurlDragSucceeds] judges that projected point against
+ * the page-turn threshold — so a fast short flick can complete a turn a slow drag of the same distance
+ * would not, matching how a real page flip responds to a flick versus a slow push.
+ *
+ * @receiver the pointer input scope providing gesture detection and the coroutine context
+ *   [splineBasedDecay] needs.
+ * @param axis whether the pager turns horizontally or vertically.
+ * @param canonicalSize the leaf's size in the axis' canonical orientation.
+ * @param isSpread whether the pager is showing two panes side by side.
+ * @param leafScale the fraction of full-viewport pointer travel that maps to one leaf-width of fold
+ *   progress in a spread; unused outside a spread.
+ * @param leafWidth the leaf's width, used to mirror travel for a backward drag in a spread.
+ * @param scope the coroutine scope the fold animations are launched on.
+ * @param forwardEdge the animatable driving a forward turn.
+ * @param backwardEdge the animatable driving a backward turn.
+ * @param canGoForward whether a next page exists to turn to.
+ * @param canGoBackward whether a previous page exists to turn to.
+ * @param onDragStart called once a drag is recognized as a valid turn gesture, before the first frame
+ *   of fold animation.
+ * @param onComplete called with the resolved direction once the fold animation finishes a completed
+ *   turn.
+ */
 private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     axis: FoundationReferenceCurlAxis,
     canonicalSize: IntSize,
@@ -598,6 +752,23 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     )
 }
 
+/**
+ * A press-drag-release loop shaped like Compose Foundation's own drag-gesture detector, except
+ * [onDragStart] can veto the gesture.
+ *
+ * The stock detector always accepts a drag once touch slop is passed and returns nothing from its start
+ * callback; this one needs [onDragStart] to look at the touch-slop displacement and answer whether it is
+ * even a valid page-turn attempt (there may be no page to turn to in that direction) before committing
+ * to drive an animatable or fire its side effects. A rejected start exits without calling [onDrag] or
+ * [onDragEnd] at all.
+ *
+ * @receiver the pointer input scope this gesture loop is detected within.
+ * @param onDragStart given the down position and the position once touch slop is passed; returns
+ *   whether the drag should proceed.
+ * @param onDragEnd called once per accepted gesture with the last known position and whether it ended
+ *   in a normal pointer-up (`true`) versus a cancellation (`false`).
+ * @param onDrag called for every drag position after the start, including the touch-slop offset itself.
+ */
 private suspend fun PointerInputScope.detectFoundationReferenceCustomDragGestures(
     onDragStart: (Offset, Offset) -> Boolean,
     onDragEnd: (Offset, Boolean) -> Unit,
@@ -626,6 +797,23 @@ private suspend fun PointerInputScope.detectFoundationReferenceCustomDragGesture
     }
 }
 
+/**
+ * Wires Compose's tap/double-tap detection to [foundationReferenceCurlTapAction]'s zone decision.
+ *
+ * Kept separate from [detectFoundationReferenceCurlGestures] because taps and drags are recognized by
+ * two independent `pointerInput` blocks on the pager modifier (see [FoundationPagerCurlReferenceImpl]),
+ * so a tap that never moves past touch slop still reaches this detector.
+ *
+ * @receiver the pointer input scope this gesture is detected within.
+ * @param axis whether the pager turns horizontally or vertically.
+ * @param canGoForward whether a next page exists to turn to.
+ * @param canGoBackward whether a previous page exists to turn to.
+ * @param isAutoScrollEnabled whether auto-scroll is running, in which case any tap toggles the controls.
+ * @param onPageTap called with the direction to animate a tap-triggered page turn.
+ * @param onToggleControls called when the tap should show or hide the reader's controls instead of
+ *   turning a page.
+ * @param onDoubleTap forwarded to Compose's tap detector; null disables double-tap handling.
+ */
 private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
     axis: FoundationReferenceCurlAxis,
     canGoForward: Boolean,
@@ -651,12 +839,28 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
                 FoundationReferenceCurlTapAction.Backward -> onPageTap(FoundationReferenceCurlDirection.Backward)
                 FoundationReferenceCurlTapAction.ToggleControls -> onToggleControls()
                 FoundationReferenceCurlTapAction.Forward -> onPageTap(FoundationReferenceCurlDirection.Forward)
-                null -> Unit
             }
         },
     )
 }
 
+/**
+ * What a tap on the curl pager should do, decided from the tap's position alone.
+ *
+ * A tap in an edge zone with no page to go to — the first or last page of the book — falls through to
+ * toggling the controls, exactly like a tap in the middle zone. That rule is here because its absence was a
+ * shipped bug (F16): a tap on the last page used to do nothing at all, so a reader could not tell the end of
+ * the book from a swallowed tap. Auto-scroll short-circuits to the same toggle, since a page turn during
+ * auto-scroll would fight the scroll.
+ *
+ * @param position the tap position in the pane's own coordinates.
+ * @param size the pane's size, used with [axis] to reduce both to one canonical axis.
+ * @param axis which way this pager turns.
+ * @param canGoBackward whether a page exists behind the current one.
+ * @param canGoForward whether a page exists ahead of it.
+ * @param isAutoScrollEnabled whether auto-scroll is running, in which case any tap toggles the controls.
+ * @return the action to take; never "nothing".
+ */
 internal fun foundationReferenceCurlTapAction(
     position: Offset,
     size: IntSize,
@@ -664,19 +868,37 @@ internal fun foundationReferenceCurlTapAction(
     canGoBackward: Boolean,
     canGoForward: Boolean,
     isAutoScrollEnabled: Boolean = false,
-): FoundationReferenceCurlTapAction? {
+): FoundationReferenceCurlTapAction {
     val primary = axis.toCanonical(position).x
     val extent = axis.canonicalSize(size).width
     if (isAutoScrollEnabled) return FoundationReferenceCurlTapAction.ToggleControls
     return when {
         primary < extent * FoundationReferencePreviousTapZoneRatio ->
-            FoundationReferenceCurlTapAction.Backward.takeIf { canGoBackward }
+            if (canGoBackward) FoundationReferenceCurlTapAction.Backward else FoundationReferenceCurlTapAction.ToggleControls
         primary > extent * FoundationReferenceNextTapZoneRatio ->
-            FoundationReferenceCurlTapAction.Forward.takeIf { canGoForward }
+            if (canGoForward) FoundationReferenceCurlTapAction.Forward else FoundationReferenceCurlTapAction.ToggleControls
         else -> FoundationReferenceCurlTapAction.ToggleControls
     }
 }
 
+/**
+ * Which way a drag's initial displacement means to turn the page, or null when that direction has
+ * nowhere to go.
+ *
+ * Comparing [current] against [start] in canonical (horizontal-first) coordinates lets one comparison
+ * serve both axes: dragging toward the start of the axis is a forward turn, dragging toward its end is
+ * backward, regardless of whether the pager is laid out horizontally or vertically. Returning null when
+ * [canGoForward]/[canGoBackward] rules the direction out is what lets
+ * [detectFoundationReferenceCustomDragGestures]'s `onDragStart` veto a drag at the first or last page
+ * instead of animating a turn to nowhere.
+ *
+ * @param start the drag's starting position, in canonical coordinates.
+ * @param current the drag's position once touch slop is passed, in canonical coordinates.
+ * @param canGoBackward whether a previous page exists.
+ * @param canGoForward whether a next page exists.
+ * @return [FoundationReferenceCurlDirection.Forward] or [FoundationReferenceCurlDirection.Backward], or
+ *   null if the indicated direction has no page to turn to.
+ */
 internal fun foundationReferenceCurlDirection(
     start: Offset,
     current: Offset,
@@ -713,6 +935,21 @@ internal fun foundationReferenceCurlLeafOffset(
     return Offset(x, canonical.y)
 }
 
+/**
+ * Maps a page-turn direction to the fold shape that should render it, collapsing backward into forward
+ * whenever the pager is a spread.
+ *
+ * Outside a spread the two directions fold from opposite edges — a forward turn peels from the right,
+ * a backward one from the left — so the geometry direction matches [direction] one-to-one. Inside a
+ * spread only the outer (right-hand) leaf ever folds; a backward turn there is rendered as that same
+ * leaf folding forward (see [FoundationPagerCurlReferenceImpl]'s rest and end edges, both pinned to the
+ * leaf's right/left sides in that case), so its fold shape, shadow, and tap-animation spec must all use
+ * the forward geometry even though the page navigation itself is backward.
+ *
+ * @param direction the page-turn direction as the reader experiences it.
+ * @param isSpread whether the pager is showing two panes side by side.
+ * @return the direction whose fold geometry should actually be drawn for this turn.
+ */
 internal fun foundationReferenceCurlGeometryDirection(
     direction: FoundationReferenceCurlDirection,
     isSpread: Boolean,
@@ -723,6 +960,22 @@ internal fun foundationReferenceCurlGeometryDirection(
         direction
     }
 
+/**
+ * The fold edge to actually draw for this page slot, discarding a stale animation instead of letting it
+ * bleed onto content it was never turning.
+ *
+ * [pageKey] can change before [FoundationPagerCurlReferenceImpl]'s page-key `LaunchedEffect` has had a
+ * chance to reset the animatables and catch [renderedPageKey] up — a programmatic jump is the clearest
+ * case. In that gap [animatedEdge] still holds whatever fold state the previous page's turn left it in;
+ * drawing that here would flash a leftover fold across the new page's content instead of the flat rest
+ * state it should start from.
+ *
+ * @param pageKey the page currently requested.
+ * @param renderedPageKey the page the fold animatables were last reset for.
+ * @param animatedEdge the animatable's live value.
+ * @param restingEdge the flat edge to fall back to when the animation cannot be trusted.
+ * @return [animatedEdge] while it is known to belong to the current page, [restingEdge] otherwise.
+ */
 internal fun foundationReferenceVisibleCurlEdge(
     pageKey: Int,
     renderedPageKey: Int,
@@ -731,6 +984,26 @@ internal fun foundationReferenceVisibleCurlEdge(
 ): FoundationReferenceCurlEdge =
     if (pageKey == renderedPageKey) animatedEdge else restingEdge
 
+/**
+ * Whether a completed or flung drag travelled far enough, in [direction], to count as a finished page
+ * turn rather than a cancelled one.
+ *
+ * The travel and the threshold are both computed from [start]/[end]/[size] in canonical coordinates, so
+ * the same ratio ([FoundationReferenceDragThresholdRatio]) applies to horizontal and vertical pagers
+ * alike. For [FoundationReferenceCurlAxis.Vertical] the threshold is measured against the smaller of
+ * [size]'s two dimensions rather than its canonical width — the canonical width for a vertical pager is
+ * the screen's height, and requiring that much travel on a tall portrait screen would make a vertical
+ * turn far harder to complete than a horizontal one.
+ *
+ * @param direction which way the drag was turning; determines which sign of travel counts as forward
+ *   progress.
+ * @param start the drag's starting position, in canonical coordinates.
+ * @param end the drag's final (or projected fling) position, in canonical coordinates.
+ * @param size the leaf size the drag happened over, in canonical coordinates.
+ * @param axis whether the pager turns horizontally or vertically.
+ * @return true once the directional travel reaches [FoundationReferenceDragThresholdRatio] of the
+ *   required distance.
+ */
 internal fun foundationReferenceCurlDragSucceeds(
     direction: FoundationReferenceCurlDirection,
     start: Offset,
@@ -749,6 +1022,23 @@ internal fun foundationReferenceCurlDragSucceeds(
     return directionalTravel >= requiredDistance * FoundationReferenceDragThresholdRatio
 }
 
+/**
+ * The fold's crease line for a finger at [currentOffset], built as the classic paper-fold construction:
+ * the perpendicular bisector between the page corner being pulled and the finger's current position.
+ *
+ * The pulled corner is fixed at `(size.width, startOffset.y)` — the top/right edge at the height the
+ * drag began — for the whole gesture; only [currentOffset] moves. Reflecting that corner across the
+ * returned edge always lands it exactly on [currentOffset], which is what makes the fold track the
+ * finger the way a real sheet of paper being peeled back would. [foundationReferenceCurlFold] extends
+ * this line out to the page's own top and bottom edges to get the crease's actual endpoints.
+ *
+ * @param size the leaf's size, in canonical coordinates; only its width (the pulled corner's x) is used.
+ * @param startOffset the drag's starting position, in canonical coordinates; only its y (the pulled
+ *   corner's height) is used.
+ * @param currentOffset the finger's current position, in canonical coordinates.
+ * @return an edge whose `top`/`bottom` lie on the crease line through [currentOffset], perpendicular to
+ *   the segment from the pulled corner to [currentOffset].
+ */
 internal fun foundationReferenceCurlEdge(
     size: IntSize,
     startOffset: Offset,
@@ -762,6 +1052,24 @@ internal fun foundationReferenceCurlEdge(
     )
 }
 
+/**
+ * The keyframe animation spec for a tap- or auto-scroll-triggered page turn, shaped to pass through a
+ * believable curl instead of the linear edge morph a two-point animateTo would produce.
+ *
+ * Interpolating the leaf's right/left edge straight to its opposite end would move the crease in a
+ * straight line and look like the page sliding rather than curling. Routing through `middle` — a
+ * diagonal crease from the mid-right/mid-bottom points — at a third of the way through a forward turn
+ * (or, symmetrically, a third before the finish of a backward one) gives the fold an actual arc,
+ * matching what a real drag-driven curl looks like partway through.
+ *
+ * @param direction which way the tap-triggered turn is animating; determines which end state the crease
+ *   moves to and which side of the timeline the `middle` keyframe sits on.
+ * @param size the leaf size the crease keyframes are computed against.
+ * @param durationMillisOverride the total animation duration; also reused for auto-scroll's per-page
+ *   delay, so it is coerced to at least 1ms rather than assumed positive.
+ * @return a keyframes animation spec driving [FoundationReferenceCurlEdge]'s `top`/`bottom` through the
+ *   shapes described above.
+ */
 private fun foundationReferenceTapSpec(
     direction: FoundationReferenceCurlDirection,
     size: IntSize,
@@ -785,6 +1093,24 @@ private fun foundationReferenceTapSpec(
     }
 }
 
+/**
+ * Draws one non-spread page with a page-curl fold applied at [edge].
+ *
+ * At [edge]'s two rest positions (`left`/`right`) nothing is computed at all — the page is either fully
+ * hidden or drawn exactly as-is — so the fold math in [foundationReferenceCurlFold] only ever runs while
+ * a turn is actually mid-flight. Otherwise the flat remaining part of the page is clipped to
+ * [FoundationReferenceCurlFold.clippedPath] and drawn normally, then the folded-over part is drawn a
+ * second time inside the fold's own rotated, mirrored transform, clipped to its polygon and dimmed with
+ * a white overlay. There is no separate back-face artwork in single-pane mode, so redrawing the same
+ * content and fogging it is what stands in for "the back of the sheet" — [FoundationReferenceSpread]'s
+ * two-pane curl instead has real back-face content and uses [foundationReferenceDrawLeafFront]/
+ * [foundationReferenceDrawLeafBack] for the same split.
+ *
+ * @receiver the page composable's own modifier chain.
+ * @param axis whether the fold runs horizontally or vertically.
+ * @param edge the leaf's current fold edge; `left`/`right` are the two rest positions, anything else is
+ *   mid-turn.
+ */
 private fun Modifier.foundationReferenceDrawCurl(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
@@ -865,6 +1191,23 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     }
 }
 
+/**
+ * The fold geometry computed for one crease position: everything [foundationReferenceDrawCurl] and the
+ * leaf-face modifiers need to draw the flat remainder, the folded-over part, and its shadow.
+ *
+ * [polygon]/[angle]/[pivot] describe the folded-over part in its own drawing frame, not the page's:
+ * [applyTo] must run first, inside the enclosing `withTransform` block, mirroring and rotating the draw
+ * scope about [pivot] so that [polygon], used as a clip right after, and the page's own upright content
+ * drawn inside that clip, both land where the folded-over paper actually sits while the transform is
+ * active; `withTransform` then restores the untransformed scope once the block ends.
+ *
+ * @property clippedPath the page's flat, not-yet-folded region, ready to use as a clip path directly.
+ * @property polygon the folded-over region's outline, in the fold's own (pre-[applyTo]) frame.
+ * @property angle how far the fold has rotated open, in radians.
+ * @property pivot the point the fold hinges about, in canonical coordinates.
+ * @property shadowOffset the shadow's offset from the fold, already rotated to match [angle].
+ * @property shadowRadius the shadow's blur radius, in pixels.
+ */
 private class FoundationReferenceCurlFold(
     val clippedPath: Path,
     val polygon: FoundationPagerCurlPolygon,
@@ -873,6 +1216,19 @@ private class FoundationReferenceCurlFold(
     val shadowOffset: Offset,
     val shadowRadius: Float,
 ) {
+    /**
+     * Puts [scope] into the folded-over part's own drawing frame: mirrored and rotated by [angle]
+     * about [pivot], so [polygon] and the page's own content, drawn after this call, land where the
+     * folded-over paper actually sits instead of where the flat page would put them.
+     *
+     * The mirror axis and rotation sign flip between axes because [FoundationReferenceCurlAxis]'s
+     * vertical case reuses the same horizontal-axis fold math by swapping x/y rather than deriving a
+     * second set of formulas — mirroring the other axis and negating the angle is what keeps a vertical
+     * fold turning the same visual direction a horizontal one does for the same edge motion.
+     *
+     * @param scope the draw transform to apply the fold's mirror and rotation to.
+     * @param axis which screen axis the fold actually renders on.
+     */
     fun applyTo(scope: DrawTransform, axis: FoundationReferenceCurlAxis) {
         if (axis == FoundationReferenceCurlAxis.Horizontal) {
             scope.scale(-1f, 1f, pivot = pivot)
@@ -883,6 +1239,14 @@ private class FoundationReferenceCurlFold(
         }
     }
 
+    /**
+     * Draws the folded-over part's drop shadow, delegating to the platform-specific
+     * [drawFoundationPagerCurlShadow] since only the platform canvas can blur a shadow layer.
+     *
+     * @param scope the draw scope to render the shadow into.
+     * @param axis which screen axis the fold renders on, forwarded so the platform implementation can
+     *   convert [polygon] back to screen coordinates.
+     */
     fun drawShadow(scope: DrawScope, axis: FoundationReferenceCurlAxis) {
         scope.drawFoundationPagerCurlShadow(
             polygon = polygon,
@@ -894,6 +1258,40 @@ private class FoundationReferenceCurlFold(
     }
 }
 
+/**
+ * Turns the raw, unbounded fold line in [edge] into the actual fold geometry for one page: where the
+ * crease crosses this page's own bounds, how far the folded-over part has rotated open, and where its
+ * shadow falls. This is the single computation every curl draw path — [foundationReferenceDrawCurl],
+ * [foundationReferenceDrawLeafFront], [foundationReferenceDrawLeafBack] — builds its rendering from.
+ *
+ * [edge] only carries a direction and a point the crease passes through (see
+ * [foundationReferenceCurlEdge]), not where it meets the page — that has to be solved for by
+ * intersecting it against the page's top and bottom edges. A null result there means the fold line is
+ * exactly horizontal, parallel to both edges and therefore has no single crossing point; every caller
+ * treats that as "no fold" and draws the page flat instead of clipping to a degenerate path.
+ *
+ * The intersections' x is clamped to at least 0 (`topCurlOffset`/`bottomCurlOffset`) because a drag that
+ * has travelled past the page's own left edge — an overscrolled or fast-flung gesture — would otherwise
+ * project the crease off the left side of the page; clamping pins it to the edge instead of handing
+ * [foundationReferenceCurlPolygon] and the clip path a crease outside the region they clip.
+ *
+ * `angle` is twice the crease line's own tilt, because reflecting the pulled corner across a line at
+ * angle θ rotates the folded-over paper by 2θ — the same relationship that makes
+ * [foundationReferenceCurlEdge]'s perpendicular-bisector construction work in the first place. `pivot`
+ * anchors that rotation ([FoundationReferenceCurlFold.applyTo]) at the crease's bottom endpoint.
+ * `shadowOffset` is rotated by the same angle so the shadow keeps falling in a consistent direction
+ * relative to the fold as it opens, rather than a fixed screen-space offset that would look wrong once
+ * the page has rotated.
+ *
+ * @receiver the modifier's draw-cache scope, needed to resolve [FoundationReferenceShadowOffsetX] and
+ *   [FoundationReferenceShadowRadius] from dp to pixels.
+ * @param axis whether the fold runs horizontally or vertically; used to convert the pivot and shadow
+ *   offset back from canonical coordinates to screen coordinates.
+ * @param edge the (unbounded) fold line to solve against this page, in canonical coordinates.
+ * @param canonicalSize the page's size in the axis' canonical orientation.
+ * @return the fold's full geometry, or null if [edge] is exactly horizontal and has no defined crossing
+ *   with the page's top and bottom edges.
+ */
 private fun CacheDrawScope.foundationReferenceCurlFold(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
@@ -936,12 +1334,44 @@ private fun CacheDrawScope.foundationReferenceCurlFold(
     )
 }
 
+/**
+ * The outline of the page's folded-over region: the part between the crease
+ * ([topCurlOffset]-[bottomCurlOffset]) and the page's own right edge, as a closed polygon in canonical
+ * coordinates. [foundationReferenceCurlFold] uses this both as the clip shape for the folded-over
+ * drawing pass and as the shape [drawFoundationPagerCurlShadow] casts a shadow from.
+ *
+ * The ordinary case treats the crease's top and bottom points as already inside the page
+ * ([topCurlOffset]/[bottomCurlOffset].x < [width]) and closes the polygon by projecting each one
+ * straight across to the right edge at the same height, giving a simple quadrilateral: crease-top,
+ * right-edge-at-crease-top-height, page's bottom-right corner, crease-bottom (or the top/bottom
+ * equivalent, built symmetrically).
+ *
+ * Once a crease point has been driven past the right edge — which happens as the fold approaches
+ * completion, since [foundationReferenceCurlFold] only clamps the crease's x to a minimum of 0, not a
+ * maximum of [width] — that corner no longer has a meaningful position inside the page to add directly.
+ * `endSideIntersection` instead finds where the crease line (extended, not the possibly out-of-bounds
+ * point) actually crosses the right edge, and contributes that same point twice so the branch still adds
+ * its usual two vertices; the result is a degenerate, zero-length edge at that corner rather than a
+ * malformed polygon, which is a small enough drawing artifact right at the fold's most extreme state to
+ * leave uncorrected.
+ *
+ * @param width the page's width in canonical coordinates; also the x of its right edge.
+ * @param height the page's height in canonical coordinates.
+ * @param topCurlOffset where the crease crosses the page's top edge (or beyond it, past the right edge).
+ * @param bottomCurlOffset where the crease crosses the page's bottom edge (or beyond it, past the right
+ *   edge).
+ * @return the folded-over region's outline, always as a closed 4-point polygon.
+ */
 private fun foundationReferenceCurlPolygon(
     width: Float,
     height: Float,
     topCurlOffset: Offset,
     bottomCurlOffset: Offset,
 ): FoundationPagerCurlPolygon {
+    /**
+     * Where the crease line actually crosses the page's right edge, doubled so the calling branch
+     * still contributes its usual two vertices; empty if the crease is exactly parallel to that edge.
+     */
     fun endSideIntersection(): List<Offset> {
         val offset = foundationReferenceLineIntersection(
             topCurlOffset,
@@ -967,6 +1397,18 @@ private fun foundationReferenceCurlPolygon(
     })
 }
 
+/**
+ * Where two infinite lines cross, treating each pair of points as defining a line rather than a bounded
+ * segment — the fold crease this file works with is conceptually infinite until intersected against the
+ * page's own edges, so every caller here needs the line-line form rather than a segment-clipped one.
+ *
+ * @param line1a a point on the first line.
+ * @param line1b a second, distinct point on the first line.
+ * @param line2a a point on the second line.
+ * @param line2b a second, distinct point on the second line.
+ * @return the crossing point, or null when the two lines are parallel (or identical) and have no single
+ *   crossing point.
+ */
 internal fun foundationReferenceLineIntersection(
     line1a: Offset,
     line1b: Offset,
@@ -983,30 +1425,65 @@ internal fun foundationReferenceLineIntersection(
     return Offset((x1 - x2) / denominator, (y1 - y2) / denominator)
 }
 
+/**
+ * The fold's crease line, as the two points where it crosses a page's top and bottom edges — the value
+ * the animatables in [FoundationPagerCurlReferenceImpl] drive to animate a page turn, and what
+ * [foundationReferenceCurlFold] solves the rest of the fold geometry from.
+ *
+ * @property top where the crease meets the page's top edge, in canonical coordinates.
+ * @property bottom where the crease meets the page's bottom edge, in canonical coordinates.
+ */
 internal data class FoundationReferenceCurlEdge(
     val top: Offset,
     val bottom: Offset,
 ) {
+    /**
+     * [Animatable]'s conversion for this type, the fixed edge positions a page turn animates
+     * between, and the [VisibilityThreshold] that tells [Animatable] when it has arrived.
+     */
     companion object {
+        /**
+         * Lets [Animatable] interpolate a [FoundationReferenceCurlEdge] by treating its two offsets as
+         * one four-component vector, so [top] and [bottom] each move independently and linearly
+         * between animated values.
+         */
         val VectorConverter: TwoWayConverter<FoundationReferenceCurlEdge, AnimationVector4D> = TwoWayConverter(
             convertToVector = { AnimationVector4D(it.top.x, it.top.y, it.bottom.x, it.bottom.y) },
             convertFromVector = { FoundationReferenceCurlEdge(Offset(it.v1, it.v2), Offset(it.v3, it.v4)) },
         )
+        /**
+         * The smallest per-component change [Animatable] treats as visible motion for a curl edge;
+         * reused from [Offset]'s own default rather than picked separately for this type.
+         */
         val VisibilityThreshold = FoundationReferenceCurlEdge(
             Offset.VisibilityThreshold,
             Offset.VisibilityThreshold,
         )
 
+        /**
+         * The edge at the page's left side (`top`/`bottom` both at x = 0) — a forward turn's completed
+         * position, and, outside a spread, a backward turn's rest position.
+         */
         fun left(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset.Zero,
             Offset(0f, size.height.toFloat()),
         )
 
+        /**
+         * The edge at the page's right side (`top`/`bottom` both at x = [size]'s width) — a forward
+         * turn's rest position, and, in a spread, a backward turn's rest position too (see
+         * [foundationReferenceCurlGeometryDirection]).
+         */
         fun right(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset(size.width.toFloat(), 0f),
             Offset(size.width.toFloat(), size.height.toFloat()),
         )
 
+        /**
+         * The edge collapsed to a single point at the page's bottom-right corner — the target a
+         * tap-triggered backward turn animates to outside a spread, distinct from the plain [left]/
+         * [right] rest positions a drag-driven turn uses.
+         */
         fun end(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset(size.width.toFloat(), size.height.toFloat()),
             Offset(size.width.toFloat(), size.height.toFloat()),
@@ -1014,35 +1491,89 @@ internal data class FoundationReferenceCurlEdge(
     }
 }
 
+/**
+ * Which way a page turn moves through the document: [Forward] toward the next page, [Backward] toward
+ * the previous one. This is the reader-facing direction; [foundationReferenceCurlGeometryDirection]
+ * maps it to the direction the fold itself actually renders, which can differ in a spread.
+ */
 internal enum class FoundationReferenceCurlDirection { Forward, Backward }
 
+/**
+ * What a single tap on the curl pager should do, as decided by [foundationReferenceCurlTapAction]: turn
+ * to the previous page ([Backward]), turn to the next one ([Forward]), or show/hide the reader's
+ * controls ([ToggleControls]) when the tap lands in neither turn zone, or has nowhere to turn to.
+ */
 internal enum class FoundationReferenceCurlTapAction { Backward, ToggleControls, Forward }
 
+/**
+ * Which screen axis a page turn runs along, and the conversion between real screen coordinates and this
+ * file's fold math, which is written once for a horizontal turn and reused for [Vertical] by swapping
+ * width/height and x/y rather than duplicating every formula.
+ *
+ * [canonicalSize]/[toCanonical] convert into that shared frame; [fromCanonical] converts back. For
+ * [Horizontal] both directions are the identity; for [Vertical] each swaps its two components, so a
+ * vertical turn's "width" is the screen's height and its "x" is the screen's y.
+ */
 internal enum class FoundationReferenceCurlAxis {
     Horizontal,
     Vertical,
     ;
 
+    /**
+     * [size] as the fold math sees it: width/height swapped for [Vertical] so the turn axis is always
+     * "width" regardless of screen orientation.
+     */
     fun canonicalSize(size: IntSize): IntSize = when (this) {
         Horizontal -> size
         Vertical -> IntSize(size.height, size.width)
     }
 
+    /** [offset] as the fold math sees it: x/y swapped for [Vertical], for the same reason as [canonicalSize]. */
     fun toCanonical(offset: Offset): Offset = when (this) {
         Horizontal -> offset
         Vertical -> Offset(offset.y, offset.x)
     }
 
+    /**
+     * The inverse of [toCanonical]: a canonical-space [offset] converted back to real screen
+     * coordinates. Happens to be the same swap as [toCanonical] because swapping x/y twice is the
+     * identity.
+     */
     fun fromCanonical(offset: Offset): Offset = when (this) {
         Horizontal -> offset
         Vertical -> Offset(offset.y, offset.x)
     }
 }
 
+/**
+ * The folded-over region's outline as a closed loop of points, in canonical coordinates — what
+ * [foundationReferenceCurlPolygon] builds and what [FoundationReferenceCurlFold.polygon] clips and
+ * shadows the fold with.
+ *
+ * @property vertices the polygon's corners, in order around the loop.
+ */
 internal data class FoundationPagerCurlPolygon(val vertices: List<Offset>) {
+    /**
+     * [vertices] shifted by [offset], used by the pre-API-28 Android shadow path to draw into an inset
+     * bitmap large enough to hold the blur without clipping it.
+     */
     fun translate(offset: Offset): FoundationPagerCurlPolygon =
         FoundationPagerCurlPolygon(vertices.map { it + offset })
 
+    /**
+     * A copy of this polygon expanded outward by [value] along each vertex's own normal, used to grow
+     * the silhouette a shadow is drawn from so its blur has room to bleed past the fold's own edge
+     * instead of being clipped at it.
+     *
+     * Each vertex normal is the average of its two adjacent edge normals (computed via [wrap] so the
+     * loop's first and last vertices are treated as neighbors), which is what keeps a beveled corner's
+     * expansion pointing outward correctly instead of just offsetting each edge independently and
+     * leaving gaps or overlaps at the corners.
+     *
+     * @param value how far to expand outward, in pixels; [drawFoundationPagerCurlShadow] passes the
+     *   shadow's blur radius.
+     * @return the expanded polygon, with the same vertex count and order as the original.
+     */
     fun offset(value: Float): FoundationPagerCurlPolygon {
         val edgeNormals = List(vertices.size) { index ->
             val edge = vertices[wrap(index + 1)] - vertices[wrap(index)]
@@ -1056,11 +1587,28 @@ internal data class FoundationPagerCurlPolygon(val vertices: List<Offset>) {
         )
     }
 
+    /** This polygon as a drawable [Path], converted from canonical back to screen coordinates via [axis]. */
     fun toPath(axis: FoundationReferenceCurlAxis): Path = vertices.foundationReferencePath(axis)
 
+    /** Wraps [index] into `0 until vertices.size`, so the first and last vertices count as neighbors. */
     private fun wrap(index: Int): Int = ((index % vertices.size) + vertices.size) % vertices.size
 }
 
+/**
+ * Draws the folded-over part's drop shadow, expected once per platform because Compose Multiplatform's
+ * common [DrawScope] has no shared way to blur a shape into a shadow — each platform's actual reaches
+ * for its own native canvas API (the Android actual, for example, sets a shadow layer on an
+ * `android.graphics.Paint`).
+ *
+ * @receiver the draw scope to render the shadow into, in screen coordinates.
+ * @param polygon the folded-over region's outline, in canonical coordinates; an actual implementation is
+ *   expected to expand it by [radius] itself (see [FoundationPagerCurlPolygon.offset]) so the blur has
+ *   room to bleed past the fold's edge.
+ * @param axis needed to convert [polygon] from canonical to screen coordinates.
+ * @param radius the shadow's blur radius, in pixels.
+ * @param shadowOffset how far the shadow is displaced from the fold, in pixels.
+ * @param color the shadow's color, including its alpha.
+ */
 internal expect fun DrawScope.drawFoundationPagerCurlShadow(
     polygon: FoundationPagerCurlPolygon,
     axis: FoundationReferenceCurlAxis,
@@ -1069,6 +1617,14 @@ internal expect fun DrawScope.drawFoundationPagerCurlShadow(
     color: Color,
 )
 
+/**
+ * Connects these points into a [Path] in order, converting each one from canonical to screen coordinates
+ * via [axis] first. Does not explicitly close the path back to the first point — every caller here only
+ * ever uses the result as a clip shape, which treats an open contour the same as a closed one.
+ *
+ * @receiver the polygon's points, in canonical coordinates, in the order they should connect.
+ * @param axis needed to convert each point back to screen coordinates.
+ */
 private fun List<Offset>.foundationReferencePath(axis: FoundationReferenceCurlAxis): Path = Path().apply {
     this@foundationReferencePath.forEachIndexed { index, point ->
         val actual = axis.fromCanonical(point)
@@ -1076,24 +1632,81 @@ private fun List<Offset>.foundationReferencePath(axis: FoundationReferenceCurlAx
     }
 }
 
+/**
+ * This vector rotated by [angle] radians about the origin, using the standard 2D rotation matrix.
+ *
+ * @receiver the vector to rotate, treated as relative to the origin rather than a screen position.
+ * @param angle the rotation, in radians.
+ */
 private fun Offset.foundationReferenceRotate(angle: Float): Offset {
     val sin = sin(angle)
     val cos = cos(angle)
     return Offset(x * cos - y * sin, x * sin + y * cos)
 }
 
+/**
+ * This vector scaled to unit length, or left as-is — rather than dividing by zero — when it already has
+ * zero length.
+ */
 private fun Offset.foundationReferenceNormalized(): Offset {
     val distance = getDistance()
     return if (distance != 0f) this / distance else this
 }
 
+/**
+ * The pager always has exactly this many virtual pages — previous, current, next — since
+ * [FoundationPagerCurlReferenceImpl] never scrolls the underlying pager and instead stacks and folds
+ * those three slots itself.
+ */
 private const val FoundationReferencePagerPageCount = 3
+
+/**
+ * The pager's index is pinned here for the whole gesture lifecycle; this file drives page turns through
+ * the fold animatables instead of through pager scroll position.
+ */
 private const val FoundationReferenceCenterPage = 1
+
+/** How long a tap-triggered page turn animates by default, in milliseconds. */
 private const val FoundationReferenceTapDurationMillis = 450
+
+/**
+ * A tap in the left/top quarter of the pane ([foundationReferenceCurlTapAction]) turns to the previous
+ * page.
+ */
 private const val FoundationReferencePreviousTapZoneRatio = 0.25f
+
+/**
+ * A tap in the right/bottom quarter of the pane ([foundationReferenceCurlTapAction]) turns to the next
+ * page; the middle half between this and [FoundationReferencePreviousTapZoneRatio] toggles controls
+ * instead.
+ */
 private const val FoundationReferenceNextTapZoneRatio = 0.75f
+
+/**
+ * A drag or fling must cover this fraction of the required distance
+ * ([foundationReferenceCurlDragSucceeds]) before it counts as a completed turn rather than a cancelled
+ * one.
+ */
 private const val FoundationReferenceDragThresholdRatio = 0.2f
+
+/**
+ * How opaque the white overlay drawn over a single-pane fold's redrawn content is
+ * ([foundationReferenceDrawCurl]) — high enough to read as the back of a sheet of paper rather than the
+ * front page showing through unchanged.
+ */
 private const val FoundationReferenceBackOverlayAlpha = 0.9f
+
+/**
+ * The fold's drop shadow color's alpha ([FoundationReferenceCurlFold.drawShadow]) — low enough to read
+ * as a soft cast shadow rather than a hard silhouette.
+ */
 private const val FoundationReferenceShadowAlpha = 0.2f
+
+/** The fold's shadow blur radius ([FoundationReferenceCurlFold.shadowRadius]). */
 private val FoundationReferenceShadowRadius = 15.dp
+
+/**
+ * The fold's shadow displacement, in dp, before [foundationReferenceCurlFold] negates and rotates it to
+ * match the fold's own angle; only its magnitude matters, since the call site flips its sign.
+ */
 private val FoundationReferenceShadowOffsetX = (-5).dp

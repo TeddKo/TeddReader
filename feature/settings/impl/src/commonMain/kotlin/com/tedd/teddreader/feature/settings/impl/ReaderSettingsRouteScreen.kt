@@ -25,8 +25,24 @@ import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/**
+ * Caps [ReaderSettingsRouteScreen]'s content width on a wide window. Past this width the settings
+ * rows' labels and controls would spread out with far more blank space between them than a control
+ * needs, rather than reading as a normal-width settings list; 720dp keeps the sheet at roughly a
+ * large-phone/small-tablet column no matter how wide the actual window is.
+ */
 private val ScreenMaxWidth = 720.dp
 
+/**
+ * The reader settings screen: hosts [ReaderSettingsSheet] inside a scaffold with its own top bar,
+ * capping the sheet's width via [ScreenMaxWidth] so its rows do not stretch to unreadable line
+ * lengths on a tablet- or desktop-sized window.
+ *
+ * @param onBack invoked when the user leaves this screen via the top bar's back action.
+ * @param modifier applied to the outer [TeddScaffold].
+ * @param viewModel supplies [ReaderSettingsUiState] and the update callbacks wired into
+ *   [ReaderSettingsSheet]; defaults to one resolved through Koin.
+ */
 @Composable
 fun ReaderSettingsRouteScreen(
     onBack: () -> Unit,

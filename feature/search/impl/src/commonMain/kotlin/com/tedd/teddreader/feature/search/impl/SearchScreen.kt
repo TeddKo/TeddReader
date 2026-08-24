@@ -50,9 +50,34 @@ import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/** Caps [SearchScreen]'s list width so the search field, results, and messages stay a readable
+ * column and do not stretch edge-to-edge on a tablet-width screen; the surrounding [Box] centers
+ * it within that cap. */
 private val ScreenMaxWidth = 720.dp
+
+/** Below this width, [SearchForm] stacks the search field above a full-width search button
+ * instead of placing them side by side, since a shared row would leave either too little space to
+ * type in or too little to tap. */
 private val CompactContentWidth = 320.dp
 
+/**
+ * Entry point that wires [SearchViewModel] into [SearchScreen] for one document's in-document
+ * search. Like [SearchScreen] below it, this composable is a pure state-and-callback pass-through
+ * to the view model: it collects [SearchUiState] and forwards every user action back as a view
+ * model call, holding no search state of its own — not even a draft. Unlike the reader's or
+ * saved-places' route screens, there is no in-progress value to hold here: every keystroke in the
+ * search field commits straight through [SearchViewModel.updateQuery] to [SearchUiState.query],
+ * since typing a query has no gesture-in-progress-versus-committed distinction the way a slider
+ * drag or a note edit does.
+ *
+ * @param documentId The document to search within; changing it re-triggers
+ * [SearchViewModel.setDocument].
+ * @param onBack Invoked when the user asks to leave the search screen.
+ * @param onResultClick Invoked with a search result's location when the user taps it to jump
+ * there.
+ * @param modifier Applied to the resulting [SearchScreen].
+ * @param viewModel The search screen's view model; defaults to one resolved through Koin.
+ */
 @Composable
 fun SearchRouteScreen(
     documentId: String,
@@ -79,6 +104,25 @@ fun SearchRouteScreen(
     )
 }
 
+/**
+ * The in-document search screen: a scaffold with the search form at the top of a scrolling list,
+ * followed by whichever of the unsupported/error/loading/empty-query/no-results/results states
+ * [uiState] currently describes. This composable is a pure state-and-callback pass-through to the
+ * view model — every value it renders comes from [uiState] or one of its other parameters, and it
+ * holds no search state of its own; `isFieldEnabled`, `canSearch`, and the padding values computed
+ * at the top of the body are all derived fresh from the parameters on every call, not stored
+ * state.
+ *
+ * @param uiState The search screen's current state, as published by the view model.
+ * @param onQueryChange Invoked as the user types in the search field.
+ * @param onSearchClick Invoked when the user asks to search, whether from the field's own action
+ * or the search button.
+ * @param onBack Invoked when the user asks to leave the screen.
+ * @param onResultClick Invoked with a search result's location when the user taps it.
+ * @param listState Scroll state for the search form and results list.
+ * @param modifier Applied to the scaffold.
+ * @param contentPadding Padding applied around the list's content.
+ */
 @Composable
 fun SearchScreen(
     uiState: SearchUiState,
@@ -206,6 +250,21 @@ fun SearchScreen(
     }
 }
 
+/**
+ * The search input: an explanatory line above a responsive layout that either stacks the search
+ * field over a full-width button (narrow container) or places them side by side (wide container),
+ * switching at [CompactContentWidth].
+ *
+ * @param query The search field's current text.
+ * @param isFieldEnabled Whether the field accepts input; false while search is unsupported for
+ * the open document.
+ * @param canSearch Whether a search can actually be run right now, which enables the search
+ * button.
+ * @param onQueryChange Invoked as the user types in the search field.
+ * @param onSearchClick Invoked when the user taps the search button or the field's own search
+ * action.
+ * @param modifier Applied to the form's root column.
+ */
 @Composable
 private fun SearchForm(
     query: String,
@@ -266,6 +325,18 @@ private fun SearchForm(
     }
 }
 
+/**
+ * The search text field itself: a [TeddSearchField] with a clear button shown only once there is
+ * text to clear.
+ *
+ * @param query The field's current text.
+ * @param isFieldEnabled Whether the field (and its clear button) accepts input.
+ * @param canSearch Whether pressing enter/search should actually trigger a search.
+ * @param onQueryChange Invoked as the user types, and with an empty string when the clear button
+ * is tapped.
+ * @param onSearchClick Invoked when the field's own search action fires and [canSearch] is true.
+ * @param modifier Applied to the field.
+ */
 @Composable
 private fun SearchField(
     query: String,
@@ -287,12 +358,31 @@ private fun SearchField(
     )
 }
 
+/**
+ * The secondary text shown under a search result's snippet: the section it was found in, followed
+ * by a localized description of its exact location (see [ReaderLocation.displayLabel]), on
+ * separate lines. The section line is omitted when the result carries no section title, e.g. a
+ * document with no chapter structure.
+ *
+ * @param result The search result to build supporting text for.
+ * @return One or two lines: the section title (if any) and the location description.
+ */
 @Composable
 private fun buildSearchSupportingText(result: SearchResult): String = buildList {
     result.sectionTitle?.takeIf { it.isNotBlank() }?.let(::add)
     add(result.location.displayLabel())
 }.joinToString(separator = "\n")
 
+/**
+ * A localized, human-readable description of where this location points, shown as a search
+ * result's supporting text. Each [ReaderLocation] variant is described in the terms that make
+ * sense for it — a page number for a PDF, a raw text offset for plain text, a spine section for an
+ * EPUB — rather than one generic label for all three. This mirrors the saved-places screen's own
+ * `displayLabel`, kept as a separate copy here rather than a shared one because no feature module
+ * in this project may depend on another feature's api or impl.
+ *
+ * @receiver The location to describe.
+ */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
     is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, pageIndex + 1)
@@ -300,6 +390,10 @@ private fun ReaderLocation.displayLabel(): String = when (this) {
     is ReaderLocation.EpubOffset -> stringResource(Res.string.reader_location_epub_section, spineIndex + 1)
 }
 
+/**
+ * Preview of [SearchScreen] at three widths, with one sample search result, exercising the
+ * compact, default, and wide layouts the screen's content can render at.
+ */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
 @Preview(widthDp = 720)

@@ -6,9 +6,19 @@ import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins [EpubDocumentParser]'s chapter-to-document assembly ([EpubDocumentParser.parseChapters]) and its
+ * OPF cover-lookup fallback chain ([findEpubCoverHref]), independent of any real ZIP archive — the
+ * archive-opening path ([EpubDocumentParser.parseWithCover]) is covered separately by the
+ * androidHostTest suite, which can build a real EPUB file.
+ */
 class EpubDocumentParserTest {
     private val parser = EpubDocumentParser()
 
+    /**
+     * Chapters become sections whose text has the heading pulled out into its own block — it no
+     * longer runs into the paragraph that follows it, unlike a naive tag-strip.
+     */
     @Test
     fun parsesChaptersIntoReadableSections() {
         val document = parser.parseChapters(
@@ -22,7 +32,6 @@ class EpubDocumentParserTest {
 
         assertEquals(DocumentFormat.EPUB, document.format)
         assertEquals(2, document.sections.size)
-        // The heading is its own block, so it no longer runs into the paragraph that follows it.
         assertEquals("Intro\n\nHello reader", document.sections.first().text)
         assertEquals("Second & chapter", document.sections[1].text)
         assertEquals(
@@ -31,6 +40,11 @@ class EpubDocumentParserTest {
         )
     }
 
+    /**
+     * Regression guard: each block's range indexes correctly into the text the sections form once
+     * joined by a single newline — the same join [EpubDocumentParser.parseChapters] itself performs
+     * when it advances its running offset.
+     */
     @Test
     fun blockRangesIndexTheSectionsAsTheyAreJoinedForReading() {
         val document = parser.parseChapters(
@@ -55,6 +69,10 @@ class EpubDocumentParserTest {
         )
     }
 
+    /**
+     * EPUB 3's `properties="cover-image"` manifest item is found as the cover — the most explicit of the
+     * three ways a book can declare one.
+     */
     @Test
     fun findsCoverHrefFromEpub3CoverImageProperty() {
         val opf = """
@@ -69,6 +87,10 @@ class EpubDocumentParserTest {
         assertEquals("images/cover.jpg", findEpubCoverHref(opf))
     }
 
+    /**
+     * EPUB 2's `<meta name="cover" content="...">` pointer to a manifest id is found as the cover when
+     * there is no EPUB 3 property.
+     */
     @Test
     fun findsCoverHrefFromEpub2MetaCoverId() {
         val opf = """
@@ -85,6 +107,10 @@ class EpubDocumentParserTest {
         assertEquals("images/cover.png", findEpubCoverHref(opf))
     }
 
+    /**
+     * When neither EPUB 3 nor EPUB 2 cover metadata is present, a raster item whose own id hints at being a
+     * cover is still found.
+     */
     @Test
     fun fallsBackToRasterItemWithCoverHint() {
         val opf = """
@@ -98,6 +124,10 @@ class EpubDocumentParserTest {
         assertEquals("images/front-cover.webp", findEpubCoverHref(opf))
     }
 
+    /**
+     * An OPF with no cover metadata and no cover-hinted item at all resolves to no cover, rather than
+     * guessing one.
+     */
     @Test
     fun returnsNullWhenNoCoverExists() {
         val opf = """

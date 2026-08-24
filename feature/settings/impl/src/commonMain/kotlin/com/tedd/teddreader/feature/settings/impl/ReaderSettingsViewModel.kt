@@ -37,21 +37,15 @@ class ReaderSettingsViewModel(
         )
 
     fun updateStyle(style: ReaderStyle) {
-        viewModelScope.launch {
-            readerSettingsRepository.updateStyle(style)
-        }
+        viewModelScope.launch { readerSettingsRepository.updateStyle(style) }
     }
 
     fun updatePageTurnMode(pageTurnMode: PageTurnMode) {
-        viewModelScope.launch {
-            readerSettingsRepository.updatePageTurnMode(pageTurnMode)
-        }
+        viewModelScope.launch { readerSettingsRepository.updatePageTurnMode(pageTurnMode) }
     }
 
     fun updatePageAnimation(pageAnimation: PageAnimation) {
-        viewModelScope.launch {
-            readerSettingsRepository.updatePageAnimation(pageAnimation)
-        }
+        viewModelScope.launch { readerSettingsRepository.updatePageAnimation(pageAnimation) }
     }
 
     fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
@@ -63,8 +57,6 @@ class ReaderSettingsViewModel(
     }
 
     fun updateAppLanguage(appLanguage: AppLanguage) {
-        viewModelScope.launch {
-            readerSettingsRepository.updateAppLanguage(appLanguage)
-        }
+        viewModelScope.launch { readerSettingsRepository.updateAppLanguage(appLanguage) }
     }
 }

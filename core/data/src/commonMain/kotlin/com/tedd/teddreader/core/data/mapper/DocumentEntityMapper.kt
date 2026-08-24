@@ -6,6 +6,16 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.room.entity.DocumentEntity
 
+/**
+ * Reads a library row into the domain's own metadata type.
+ *
+ * The format is matched by name and falls back to [DocumentFormat.UNKNOWN] for a value this build does not
+ * know: a row written by a newer version must still list rather than crash the library. A null stored size
+ * becomes 0 because [DocumentLocation] treats size as a number, not as an optional fact.
+ *
+ * @receiver the stored row.
+ * @return the same document as the domain sees it.
+ */
 fun DocumentEntity.toDocumentMetadata(): DocumentMetadata = DocumentMetadata(
     id = DocumentId(id),
     location = DocumentLocation(
@@ -25,6 +35,16 @@ fun DocumentEntity.toDocumentMetadata(): DocumentMetadata = DocumentMetadata(
     folderName = folderName,
 )
 
+/**
+ * Writes domain metadata back into a library row.
+ *
+ * The inverse of [toDocumentMetadata] except for `importCompletedAtEpochMillis`, which no domain type
+ * carries: the repository owns that column, so a write from here leaves it at its default and must not be
+ * used to update a document mid-import.
+ *
+ * @receiver the metadata to store.
+ * @return the row to upsert.
+ */
 fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
     id = id.value,
     name = location.displayName,

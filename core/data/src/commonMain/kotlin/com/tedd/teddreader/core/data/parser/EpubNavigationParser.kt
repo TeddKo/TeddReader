@@ -1,16 +1,52 @@
 package com.tedd.teddreader.core.data.parser
 
+/**
+ * An EPUB's table of contents, read from either its EPUB3 nav document or its EPUB2 NCX, before it is
+ * resolved against the book's actual spine and section offsets. Only carrying what the two very
+ * different source formats agree on — an optional heading and a flat, indent-tagged list of entries —
+ * keeps [parseEpubNavDocument] and [parseNcxDocument] returning the same shape regardless of which
+ * table-of-contents format the book actually shipped with.
+ *
+ * @property heading The TOC's own heading text (e.g. "Contents"), if the source markup had one.
+ * @property entries The TOC's entries, in document order.
+ */
 internal data class ParsedNavigation(
     val heading: String? = null,
     val entries: List<ParsedNavigationEntry> = emptyList(),
 )
 
+/**
+ * One entry in an EPUB's table of contents, before its `href` has been resolved to a section index
+ * and character offset in the parsed book.
+ *
+ * @property title The entry's display text.
+ * @property level Nesting depth, starting at 1 for a top-level entry; deeper for an entry nested
+ *   inside an EPUB3 `<ol>` or an NCX `navPoint`.
+ * @property href The link target this entry points at, as written in the source markup — a path to a
+ *   spine document, optionally with a `#fragment` anchor into it.
+ */
 internal data class ParsedNavigationEntry(
     val title: String,
     val level: Int,
     val href: String,
 )
 
+/**
+ * Reads an EPUB3 navigation document's table of contents: the `<nav>` element whose `epub:type` (or
+ * `type`/`role`, both seen in books that predate the `epub:type` attribute) contains `toc`, among
+ * possibly several `<nav>` elements for landmarks or a page list.
+ *
+ * The body is walked as a flat token stream rather than parsed as a DOM, tracking `<ol>` nesting depth
+ * for [ParsedNavigationEntry.level] and, inside each `<a>`, collecting its text content as the title —
+ * falling back to an inner `<img>`'s `alt` or `title` attribute for a link that carries a cover
+ * thumbnail instead of text, which some books use as their only chapter label. An entry with no `href`
+ * or an empty title is dropped rather than added with a placeholder.
+ *
+ * @param xhtml The nav document's raw markup.
+ * @return The heading and entries found, or an empty [ParsedNavigation] if no `toc`-typed `<nav>`
+ *   exists, or its opening tag has no matching close (malformed markup never throws here — it just
+ *   yields nothing to show).
+ */
 internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
     val navMatch = Regex("""(?is)<nav\b[^>]*>""")
         .findAll(xhtml)
@@ -73,6 +109,16 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
     return ParsedNavigation(heading = heading, entries = entries)
 }
 
+/**
+ * Reads an EPUB2 NCX document's table of contents — the legacy format still shipped alongside, or
+ * instead of, an EPUB3 nav document by books produced with older tooling. `docTitle`/`text` supplies
+ * the heading, and nested `navPoint` elements ([parseNcxNavPoints]) supply the entries, with an
+ * entry's nesting depth becoming its [ParsedNavigationEntry.level].
+ *
+ * @param xml The NCX document's raw markup.
+ * @return The heading and entries found; entries is empty if the document has no `navPoint`s or they
+ *   are malformed enough that none can be matched.
+ */
 internal fun parseNcxDocument(xml: String): ParsedNavigation {
     val heading = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
         .find(xml)
@@ -85,6 +131,17 @@ internal fun parseNcxDocument(xml: String): ParsedNavigation {
     return ParsedNavigation(heading = heading, entries = entries)
 }
 
+/**
+ * Recursively collects [ParsedNavigationEntry] from every `navPoint` in [xml] into [entries], in
+ * document order, descending into each `navPoint`'s own body to find the ones nested inside it at
+ * [level] + 1. A `navPoint` missing either a `navLabel`/`text` title or a `content` `src` is skipped —
+ * its children are still visited — rather than added with a blank title or href.
+ *
+ * @param xml The markup to scan for `navPoint` elements at this level; either the whole NCX document
+ *   or the body of one `navPoint`, when called recursively.
+ * @param level Nesting depth to assign to entries found directly in [xml].
+ * @param entries The list entries are appended to, shared across the whole recursive walk.
+ */
 private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<ParsedNavigationEntry>) {
     var index = 0
     while (true) {
@@ -112,8 +169,20 @@ private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<Pars
     }
 }
 
+/** Span of a closing tag [findMatchingEndTag] found, from its `<` through its `>` inclusive. */
 private data class EndTagRange(val start: Int, val end: Int)
 
+/**
+ * Finds the closing tag that matches the [tagName] element opened at [startIndex], accounting for
+ * other same-named elements nested inside it (an `<ol>` inside an `<ol>`, say) and for self-closing
+ * tags, which never increase nesting depth in the first place.
+ *
+ * @param text The markup to scan.
+ * @param startIndex Position of (at or before) the opening tag's own `<`.
+ * @param tagName The element name to match; case-insensitive.
+ * @return The matching close tag's range, or `null` if [text] has no balanced close for it — markup
+ *   this parser treats as malformed and gives up on for that element, rather than guessing.
+ */
 private fun findMatchingEndTag(text: String, startIndex: Int, tagName: String): EndTagRange? {
     val tokenRegex = Regex("""(?is)<(/?)$tagName\b[^>]*>""")
     var depth = 0
@@ -132,6 +201,14 @@ private fun findMatchingEndTag(text: String, startIndex: Int, tagName: String): 
     return null
 }
 
+/**
+ * Parses one already-isolated tag string (e.g. `<a href="ch1.xhtml">` or `</ol>`) from
+ * [parseEpubNavDocument]'s token stream into its name, attributes, and open/close state.
+ *
+ * @param raw The raw tag text, including its enclosing `<`/`>` and, for a self-closing tag, its `/`.
+ * @return The parsed [NavToken]; a closing tag always has an empty attribute map, since a close tag
+ *   carries none.
+ */
 private fun parseNavToken(raw: String): NavToken {
     val body = raw.removePrefix("<").removeSuffix(">").removeSuffix("/")
     val isClosing = body.startsWith("/")
@@ -144,18 +221,42 @@ private fun parseNavToken(raw: String): NavToken {
     )
 }
 
+/**
+ * One tag from [parseEpubNavDocument]'s token stream, decomposed enough to drive its state machine.
+ *
+ * @property name The tag's element name, lowercased.
+ * @property attributes The tag's attributes; always empty for a closing tag.
+ * @property isClosing Whether this is a `</name>` closing tag rather than an opening or self-closing one.
+ */
 private data class NavToken(
     val name: String,
     val attributes: Map<String, String>,
     val isClosing: Boolean,
 )
 
+/**
+ * Removes every tag from an HTML/XML fragment, decodes the entities in what remains, and collapses
+ * whitespace — turning a heading's or label's markup into the plain text it displays as.
+ *
+ * @param value The markup fragment to strip.
+ * @return The fragment's text content with all runs of whitespace collapsed to a single space and
+ *   leading/trailing whitespace removed.
+ */
 internal fun stripMarkup(value: String): String = buildString {
     Regex("""(?s)<[^>]+>|[^<]+""").findAll(value).forEach { token ->
         if (!token.value.startsWith('<')) append(decodeXmlEntities(token.value))
     }
 }.replace(Regex("""\s+"""), " ").trim()
 
+/**
+ * The lowercase, whitespace-split token set carried by a `<nav>` tag's `epub:type` attribute — or,
+ * for books written before that attribute existed, its `type` or `role` attribute instead — which
+ * [parseEpubNavDocument] checks for the `toc` token to find the right `<nav>` among possibly several.
+ *
+ * @param attributes The tag's parsed attributes.
+ * @return The tokens found across whichever of `epub:type`, `type`, and `role` are present; empty if
+ *   none of them are.
+ */
 private fun navTypeTokens(attributes: Map<String, String>): Set<String> =
     sequenceOf(attributes["epub:type"], attributes["type"], attributes["role"])
         .filterNotNull()

@@ -12,6 +12,19 @@ import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
+/**
+ * A single row inside a Material [DropdownMenu], wrapping [DropdownMenuItem] only to fix its label
+ * to [teddReaderTypography]'s `settingTitle` style — otherwise a plain forward of Material's own
+ * [DropdownMenuItem] parameters.
+ *
+ * @param text The item's label.
+ * @param onClick Invoked when the item is tapped; the caller is responsible for dismissing the
+ * enclosing [DropdownMenu] itself.
+ * @param modifier Modifier applied to the underlying [DropdownMenuItem].
+ * @param enabled Whether the item responds to taps.
+ * @param leadingIcon Content shown before the label; omitted when null.
+ * @param trailingIcon Content shown after the label; omitted when null.
+ */
 @Composable
 fun TeddDropdownMenuItem(
     text: String,
@@ -32,6 +45,7 @@ fun TeddDropdownMenuItem(
     )
 }
 
+/** Compose preview rendering an expanded [DropdownMenu] with two [TeddDropdownMenuItem]s. */
 @Preview
 @Composable
 private fun TeddDropdownMenuPreview() {
