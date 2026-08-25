@@ -43,8 +43,8 @@
     <string name="font_weight_regular">Regular</string>
     <string name="font_weight_medium">Medium</string>
     <string name="font_weight_semibold">Semibold</string>
-    <string name="page_movement">Page movement</string>
-    <string name="page_movement_description">How pages move when you read and navigate.</string>
+    <string name="page_movement">Page turning</string>
+    <string name="page_movement_description">Which way pages turn, and how the turn is animated.</string>
     <string name="page_direction">Direction</string>
     <string name="default_transition">Default transition</string>
     <string name="page_effects">Page effects</string>
