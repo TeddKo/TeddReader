@@ -37,6 +37,12 @@
     <string name="font_family_sans">Sans</string>
     <string name="font_family_serif">Serif</string>
     <string name="font_family_mono">Mono</string>
+    <string name="font_weight">Font weight</string>
+    <string name="font_weight_description">How bold the body text is drawn.</string>
+    <string name="font_weight_light">Light</string>
+    <string name="font_weight_regular">Regular</string>
+    <string name="font_weight_medium">Medium</string>
+    <string name="font_weight_semibold">Semibold</string>
     <string name="page_movement">Page movement</string>
     <string name="page_movement_description">How pages move when you read and navigate.</string>
     <string name="page_direction">Direction</string>

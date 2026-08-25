@@ -35,7 +35,7 @@ import kotlin.math.roundToInt
 
 /**
  * The reader settings screen's content: app language, reading appearance (font, line height, font
- * family, theme), page-turn direction, transition and page-effect animation, and hands-free
+ * family, font weight, theme), page-turn direction, transition and page-effect animation, and hands-free
  * auto-scroll options, laid out as a scrolling column of [TeddOptionGroup]s beneath a live
  * [ReaderOptionPreview]. This composable is a pure state-and-callback pass-through to the settings
  * view model — it renders [uiState] and reports every change back through one of the six
@@ -179,6 +179,33 @@ fun ReaderSettingsSheet(
                 title = stringResource(Res.string.font_family_mono),
                 selected = uiState.style.fontFamilyName == "mono",
                 onClick = { onStyleChange(uiState.style.copy(fontFamilyName = "mono")) },
+            )
+        }
+
+        TeddOptionGroup(
+            title = stringResource(Res.string.font_weight),
+            description = stringResource(Res.string.font_weight_description),
+            isSelectableGroup = true,
+        ) {
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_light),
+                selected = uiState.style.fontWeight == 300,
+                onClick = { onStyleChange(uiState.style.copy(fontWeight = 300)) },
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_regular),
+                selected = uiState.style.fontWeight == 400,
+                onClick = { onStyleChange(uiState.style.copy(fontWeight = 400)) },
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_medium),
+                selected = uiState.style.fontWeight == 500,
+                onClick = { onStyleChange(uiState.style.copy(fontWeight = 500)) },
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_semibold),
+                selected = uiState.style.fontWeight == 600,
+                onClick = { onStyleChange(uiState.style.copy(fontWeight = 600)) },
             )
         }
 

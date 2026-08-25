@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.designsystem
 
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
 import com.tedd.teddreader.core.common.model.ReaderStyle
@@ -24,7 +25,12 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
  * line of the page off the bottom and clipped it. The taller the type, the more was lost. Trimmed, an
  * opening line measures the same either way.
  *
- * @receiver the reader's style: its size, line height, family and ink colour.
+ * [FontWeight] is built straight from [ReaderStyle.fontWeight] — one of 300, 400, 500, or 600 — as the
+ * base weight ordinary body text draws at. Publisher emphasis (bold runs, headings) overrides this with
+ * its own bold span style wherever the renderer applies one, so this value only ever sets the floor a
+ * page's plain text starts from, never a ceiling on how bold emphasis can look.
+ *
+ * @receiver the reader's style: its size, line height, family, weight, and ink colour.
  * @return the text style both the page renderer and the page breaker use, so a page holds exactly the lines
  * that were measured for it.
  */
@@ -38,6 +44,7 @@ fun ReaderStyle.readerTextStyle(): TextStyle = TextStyle(
         mode = LineHeightStyle.Mode.Minimum,
     ),
     fontFamily = fontFamilyName.toFontFamily(),
+    fontWeight = FontWeight(fontWeight),
 )
 
 /**
