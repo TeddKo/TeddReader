@@ -804,6 +804,177 @@ class ReaderViewModelTest {
     }
 
     /**
+     * Pins the bug `ReaderViewModel.continueImportIfIncomplete`'s completion branch now fixes: EPUB
+     * navigation is only resolved into the stored document on the import batch that completes the
+     * book (`DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport`), so an outline published
+     * only once, at open time, from a not-yet-complete import stayed stuck at whatever it read then —
+     * empty or section-only — until the reader relaunched the app. Opening while the import is still
+     * running must not show the not-yet-resolved navigation, and finishing the import must republish
+     * the outline (heading included) from the freshly imported document without a relaunch.
+     */
+    @Test
+    fun epubOutlineFillsInFromNavigationOnceProgressiveImportCompletes() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-outline-completes")
+        val initialSections = listOf(
+            ReaderSection(0, text = "Body one", range = TextRange(0, 8), title = "Body one"),
+        )
+        val importedSections = listOf(
+            ReaderSection(1, text = "Body two", range = TextRange(9, 17), title = "Body two"),
+        )
+        val importNextSectionsGate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            format = DocumentFormat.EPUB,
+            readerDocument = ReaderDocument(
+                id = documentId,
+                format = DocumentFormat.EPUB,
+                title = "Completing book",
+                sections = initialSections,
+                navigation = ReaderNavigation(
+                    heading = "Contents",
+                    items = listOf(
+                        ReaderNavigationItem(title = "Chapter 1", level = 1, spineIndex = 0, offset = 0),
+                        ReaderNavigationItem(title = "Chapter 2", level = 1, spineIndex = 1, offset = 0),
+                    ),
+                ),
+            ),
+            pageWindows = listOf(
+                PageWindow(
+                    pageIndex = PageIndex(current = 0, total = 1),
+                    location = ReaderLocation.EpubOffset(0, 0),
+                    text = "Body one",
+                    textRange = TextRange(0, 8),
+                ),
+            ),
+            importComplete = false,
+            sectionsAppendedOnImport = importedSections,
+            importNextSectionsGate = importNextSectionsGate,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertFalse(
+            viewModel.uiState.value.isPaginationComplete,
+            "the import must still be running (parked on importNextSectionsGate) at this point for " +
+                "this test to pin anything",
+        )
+        assertTrue(
+            viewModel.uiState.value.outlineItems.none { it.title == "Chapter 1" || it.title == "Chapter 2" },
+            "navigation not yet resolved by the still-running import must not appear in the outline; " +
+                "actual titles were ${viewModel.uiState.value.outlineItems.map { it.title }}",
+        )
+
+        importNextSectionsGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.isPaginationComplete,
+            "the background continuation must have finished the import by now",
+        )
+        assertEquals(
+            "Contents",
+            viewModel.uiState.value.outlineHeading,
+            "outline heading must republish from the completed import's navigation, not stay pinned " +
+                "to the empty heading the open-time snapshot carried",
+        )
+        assertEquals(
+            listOf("Chapter 1", "Chapter 2"),
+            viewModel.uiState.value.outlineItems.map { it.title },
+            "once the progressive import completes, the outline must republish from the completed " +
+                "document's navigation without waiting for a relaunch",
+        )
+    }
+
+    /**
+     * Pins the ordering `ReaderViewModel.openDocument` now guarantees between
+     * `ReaderViewModel.publishRest` and `ReaderViewModel.startContinuations`: [publishRest] — including
+     * its own suspending [DocumentRepository.markDocumentOpened] write — must run to completion before
+     * [startContinuations] ever starts `ReaderViewModel.continueImportIfIncomplete`, so that
+     * continuation's completion branch can never publish the resolved outline earlier than [publishRest]
+     * and have it overwritten by [publishRest]'s own, older open-time snapshot.
+     *
+     * [epubOutlineFillsInFromNavigationOnceProgressiveImportCompletes] above only ever exercises the
+     * case where [publishRest] has already finished before the import continuation's first batch lands,
+     * because it gates [FakeDocumentRepository.importNextSectionsGate] — the same gate `publishRest`'s
+     * own suspension is guaranteed to resolve ahead of in that test. This test instead gates
+     * [FakeDocumentRepository.markDocumentOpenedGate] and leaves the import ungated, which — since this
+     * suite drives every coroutine through the manually-stepped [dispatcher] — forces the completion
+     * branch to run and publish the resolved navigation to completion first, strictly before
+     * `markDocumentOpened` (and therefore [publishRest]'s own outline publish) is allowed to resume. If
+     * `openDocument` ever started continuations before calling [publishRest] again, [publishRest]'s
+     * resume here would overwrite the fresh heading/items with the empty navigation it captured at open
+     * time — reproducing the bug this fix branch exists for, deterministically, rather than depending on
+     * real I/O timing the way the original report did.
+     */
+    @Test
+    fun openDocumentDoesNotLetPublishRestClobberAnImportCompletionOutlineRepublish() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-outline-races-mark-opened")
+        val initialSections = listOf(
+            ReaderSection(0, text = "Body one", range = TextRange(0, 8), title = "Body one"),
+        )
+        val importedSections = listOf(
+            ReaderSection(1, text = "Body two", range = TextRange(9, 17), title = "Body two"),
+        )
+        val markDocumentOpenedGate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            format = DocumentFormat.EPUB,
+            readerDocument = ReaderDocument(
+                id = documentId,
+                format = DocumentFormat.EPUB,
+                title = "Racing book",
+                sections = initialSections,
+                navigation = ReaderNavigation(
+                    heading = "Contents",
+                    items = listOf(
+                        ReaderNavigationItem(title = "Chapter 1", level = 1, spineIndex = 0, offset = 0),
+                        ReaderNavigationItem(title = "Chapter 2", level = 1, spineIndex = 1, offset = 0),
+                    ),
+                ),
+            ),
+            pageWindows = listOf(
+                PageWindow(
+                    pageIndex = PageIndex(current = 0, total = 1),
+                    location = ReaderLocation.EpubOffset(0, 0),
+                    text = "Body one",
+                    textRange = TextRange(0, 8),
+                ),
+            ),
+            importComplete = false,
+            sectionsAppendedOnImport = importedSections,
+            markDocumentOpenedGate = markDocumentOpenedGate,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        markDocumentOpenedGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.uiState.value.isPaginationComplete,
+            "the background import continuation must have finished by now, independently of " +
+                "markDocumentOpened's own gate",
+        )
+        assertEquals(
+            "Contents",
+            viewModel.uiState.value.outlineHeading,
+            "the completion branch's fresh outline publish must survive publishRest resuming " +
+                "afterward — publishRest must already have finished (including its own outline " +
+                "publish) before the completion branch could ever run, not the other way around",
+        )
+        assertEquals(
+            listOf("Chapter 1", "Chapter 2"),
+            viewModel.uiState.value.outlineItems.map { it.title },
+            "outline items must likewise survive publishRest's later resume, not fall back to the " +
+                "open-time section list publishRest originally captured",
+        )
+    }
+
+    /**
      * The reader still avoids building a whole-book page list: only the mounted window is published
      * through [ReaderUiState.pageSlots], while the current page's text is available immediately.
      */
@@ -2905,16 +3076,34 @@ private class FakeDocumentRepository(
      * a progressive import has appended so far. Also marks [sectionBlocksCacheAlive] alive again,
      * mirroring `DocumentRepositoryImpl` rebuilding its decoded-block cache the moment a document's
      * structure is read.
+     *
+     * Withholds [readerDocument]'s own navigation as an empty [ReaderNavigation] while a modelled
+     * single-batch import ([sectionsAppendedOnImport]) or multi-batch import
+     * ([progressiveImportBatches]) has not finished consuming its batch(es) yet — the same way a real
+     * progressive EPUB import leaves `ReaderDocument.navigation` empty until
+     * `DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport` resolves it on the batch that
+     * completes the book. [importComplete] alone does not gate this, per `ReaderViewModel.refreshPaginationCompleteness`'s
+     * own doc: a test double models import completion through [ImportProgress.isComplete], not a
+     * separate flag promised to agree with it.
      */
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
         sectionBlocksCacheAlive = true
-        return (readerDocument ?: ReaderDocument(
+        val base = readerDocument ?: ReaderDocument(
             id = documentId,
             format = format,
             title = "Stored book",
             sections = emptyList(),
             pageCount = metadata.pageCount ?: 0,
-        )).copy(sections = liveSections).takeIf { documentId == this.documentId }
+        )
+        val navigationWithheld = when {
+            progressiveImportBatches.isNotEmpty() -> pendingProgressiveBatches.isNotEmpty()
+            sectionsAppendedOnImport.isNotEmpty() -> pendingImportSections.isNotEmpty()
+            else -> false
+        }
+        return base.copy(
+            sections = liveSections,
+            navigation = if (navigationWithheld) ReaderNavigation() else base.navigation,
+        ).takeIf { documentId == this.documentId }
     }
 
     /** Answers whichever of [visualPageImages] were asked for. */
