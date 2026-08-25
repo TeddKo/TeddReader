@@ -29,6 +29,11 @@ import com.tedd.teddreader.core.designsystem.readerTextStyle
  * @property publisherFontsEnabled whether publisher-requested font families apply at all.
  * @property lineHeightMultiplier the reader's line-height slider value, anchored by consumers at the
  * slider default so a book's own line height survives it.
+ * @property fontWeight the reader's chosen base body weight (see [ReaderStyle.fontWeight]), which
+ * [buildReaderSemanticText] needs on both the measuring and the drawing side so a page's emphasis —
+ * headings, bold runs, table header cells — is scaled up from the same base the breaker measured it at
+ * and the surface draws it at; reading this back out of [textStyle] instead is not an option, since
+ * [TextStyle.fontWeight] is nullable and does not carry the guarantee this field does.
  */
 data class ReaderLayoutInputs(
     val textStyle: TextStyle,
@@ -41,6 +46,7 @@ data class ReaderLayoutInputs(
     val embeddedFontFamiliesByHref: Map<String, FontFamily>,
     val publisherFontsEnabled: Boolean,
     val lineHeightMultiplier: Float,
+    val fontWeight: Int,
 )
 
 /**
@@ -51,7 +57,8 @@ data class ReaderLayoutInputs(
  * page is measured in the pixels it is drawn in, while [ReaderLayoutInputs.emInPx] uses the font size
  * scaled only by the accessibility font scale, because an image's intrinsic size is in CSS pixels.
  *
- * @param style the reading style; font size, family choice and line height slider all feed the inputs.
+ * @param style the reading style; font size, family choice, line height slider, and font weight all feed
+ * the inputs.
  * @param widthPx the drawn text area's width in pixels.
  * @param heightPx the drawn text area's height in pixels.
  * @param density the composition's density, so measurement uses drawing pixels.
@@ -77,5 +84,6 @@ fun readerLayoutInputs(
         embeddedFontFamiliesByHref = if (style.fontFamilyName == null) embeddedFontFamiliesByHref else emptyMap(),
         publisherFontsEnabled = style.fontFamilyName == null,
         lineHeightMultiplier = style.lineHeightMultiplier,
+        fontWeight = style.fontWeight,
     )
 }

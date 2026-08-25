@@ -209,12 +209,12 @@ data class ReaderUiState(
 
     /**
      * The style to actually draw [currentPage]/[previousPage]/[nextPage]/[pageSlots] with:
-     * [pageLayoutStyle]'s type — font family, size, line height — laid over [style]'s colour, theme,
-     * and background image, or [style] itself once [pageLayoutStyle] is null and the two already
+     * [pageLayoutStyle]'s type — font family, size, line height, weight — laid over [style]'s colour,
+     * theme, and background image, or [style] itself once [pageLayoutStyle] is null and the two already
      * agree.
      *
      * This is what keeps a layout-affecting setting change from clipping or gapping the pages already
-     * on screen. Changing font, size, or line height publishes the new [style] to this state
+     * on screen. Changing font, size, line height, or weight publishes the new [style] to this state
      * synchronously, but the page slices held in [currentPage] and its neighbours were sliced for
      * whatever style was live *before* that change — the pane only remeasures and reports back
      * asynchronously, and until it does there is no fresh slice to show. Reading [style] directly at

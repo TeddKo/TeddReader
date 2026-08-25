@@ -37,6 +37,12 @@
     <string name="font_family_sans">고딕</string>
     <string name="font_family_serif">세리프</string>
     <string name="font_family_mono">고정폭</string>
+    <string name="font_weight">글꼴 굵기</string>
+    <string name="font_weight_description">본문 글자의 굵기입니다.</string>
+    <string name="font_weight_light">가늘게</string>
+    <string name="font_weight_regular">보통</string>
+    <string name="font_weight_medium">중간</string>
+    <string name="font_weight_semibold">굵게</string>
     <string name="page_movement">페이지 넘김</string>
     <string name="page_movement_description">페이지를 넘기는 방향과 전환 효과를 설정합니다.</string>
     <string name="page_direction">방향</string>
