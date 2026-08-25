@@ -788,6 +788,21 @@ private fun blockPrefix(block: ReaderBlock): String = when (block.kind) {
  *
  * Publisher colors and publisher-requested font families are gated separately so a reader-selected font can
  * suppress all EPUB font-family styling while still keeping structural emphasis like heading weight.
+ *
+ * That suppression has to reach the monospace a `<pre>` block gets for being preformatted, not only the
+ * families the book's own CSS names. The mono here is a browser default this renderer stands in for, so it
+ * belongs to the document's typography exactly as a stylesheet rule would: a reader who picks Serif asked
+ * for the page to be set in serif, and a preformatted block left in mono is the one run of text on the page
+ * still ignoring that choice. It survives under the document font, where the browser default is what the
+ * reader asked to see. Weight, slant and heading scale are structure rather than typeface and are never
+ * gated — a heading stays bold in any family.
+ *
+ * @param block the block whose kind and CSS the style is composed from.
+ * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
+ * @param publisherColorsEnabled whether the book's own foreground colors apply, or the theme's ink wins.
+ * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
+ *   reader has chosen a font of their own, which then has to win over every family this function could set.
+ * @return the style this block contributes, or null when it asks for nothing.
  */
 private fun blockSpanStyle(
     block: ReaderBlock,
@@ -798,7 +813,7 @@ private fun blockSpanStyle(
     val kindStyle = when (block.kind) {
         ReaderBlockKind.HEADING -> SpanStyle(fontWeight = FontWeight.Bold, fontSize = headingScale(block.level).em)
         ReaderBlockKind.QUOTE -> SpanStyle(fontStyle = FontStyle.Italic)
-        ReaderBlockKind.PREFORMATTED -> SpanStyle(fontFamily = FontFamily.Monospace)
+        ReaderBlockKind.PREFORMATTED -> SpanStyle(fontFamily = FontFamily.Monospace).takeIf { publisherFontsEnabled }
         ReaderBlockKind.TABLE_HEADER_CELL -> SpanStyle(fontWeight = FontWeight.SemiBold)
         else -> null
     }
@@ -944,7 +959,19 @@ private fun Char.isWideScript(): Boolean = code in 0x1100..0x11FF ||
     code in 0xFF00..0xFFEF
 
 /**
+ * The style one inline run is drawn in, from the tag it came from plus whatever its own CSS changes.
+ *
+ * The monospace a `<code>`, `<kbd>` or `<samp>` run gets is gated on [publisherFontsEnabled] for the same
+ * reason [blockSpanStyle] gates a `<pre>` block's: it is a browser default this renderer supplies on the
+ * document's behalf, so it is a typeface the document asked for rather than structure, and a reader who
+ * chose their own font chose it for every run on the page. Every other entry here — weight, slant,
+ * decoration, baseline shift — is structure and applies in any family.
+ *
  * @param span the inline run whose semantic and CSS emphasis should be rendered.
+ * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
+ * @param publisherColorsEnabled whether the book's own foreground colors apply to this run.
+ * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
+ *   reader has chosen a font of their own.
  * @return the Compose style that renders it; a link is underlined here and carries its href as a separate
  * annotation, since a colour alone would not survive a theme change.
  */
@@ -959,7 +986,7 @@ private fun inlineSpanStyle(
         ReaderInlineStyle.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
         ReaderInlineStyle.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
         ReaderInlineStyle.STRIKETHROUGH -> SpanStyle(textDecoration = TextDecoration.LineThrough)
-        ReaderInlineStyle.MONOSPACE -> SpanStyle(fontFamily = FontFamily.Monospace)
+        ReaderInlineStyle.MONOSPACE -> SpanStyle(fontFamily = FontFamily.Monospace).takeIf { publisherFontsEnabled }
         ReaderInlineStyle.SUPERSCRIPT -> SpanStyle(baselineShift = BaselineShift.Superscript)
         ReaderInlineStyle.SUBSCRIPT -> SpanStyle(baselineShift = BaselineShift.Subscript)
         ReaderInlineStyle.LINK -> SpanStyle(textDecoration = TextDecoration.Underline)
