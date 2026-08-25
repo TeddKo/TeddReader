@@ -366,8 +366,8 @@ class ReaderViewModel(
             try {
                 val state = loadOpenState(documentId) ?: return@launch
                 if (!publishFirstFrame(state)) return@launch
-                startContinuations(state)
                 publishRest(state)
+                startContinuations(state)
             } catch (cancellationException: CancellationException) {
                 throw cancellationException
             } catch (throwable: Throwable) {
@@ -600,11 +600,22 @@ class ReaderViewModel(
     }
 
     /**
-     * Starts every background continuation this open can need, now that the first frame is out: the
-     * visual-page/embedded-image preload around [OpenState.currentPage] and the progressive
-     * import-or-pagination continuation. None of this may publish anything [publishRest]'s second
-     * publish has not already accounted for, and none of it may touch
-     * `pageIndex`, `pageText`, or `currentPage`, which [publishFirstFrame] already announced.
+     * Starts every background continuation this open can need, now that [publishRest] has already
+     * published everything it captured at open time: the visual-page/embedded-image preload around
+     * [OpenState.currentPage] and the progressive import-or-pagination continuation. None of it may
+     * touch `pageIndex`, `pageText`, or `currentPage`, which [publishFirstFrame] already announced.
+     *
+     * [openDocument] calls this after [publishRest], not before, on purpose: [continueImportIfIncomplete]
+     * can itself publish the outline again once a progressive EPUB import completes, and that
+     * completion publish must never be the earlier of the two and get overwritten by [publishRest]'s own
+     * older, open-time snapshot. With continuations started only after [publishRest] has already run to
+     * completion (including its own suspending [DocumentRepository.markDocumentOpened] write), a
+     * completion republish can only ever land after [publishRest]'s, never before it — the ordering that
+     * used to let a fast-resolving completion (an already-complete import, a tiny remaining spine item,
+     * a cached layout) publish the fresh outline first, only to have [publishRest] resume moments later
+     * and silently write the stale one back over it. Reordering after [publishRest] does not change what
+     * this function itself reads: every value it uses comes from [state], already fully computed by
+     * [loadOpenState] before either publish runs, never from [_uiState].
      *
      * Declared non-suspend on purpose: the code it replaces — the block between the first and second
      * publish in the un-split [openDocument] — has no suspension point in it, and keeping this function
@@ -648,7 +659,8 @@ class ReaderViewModel(
             openedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
         )
         if (currentDocumentId != state.documentId) return
-        val outlineItems = readerOutlineItems(
+        publishOutline(
+            documentId = state.documentId,
             format = state.metadata?.format,
             readerDocument = state.readerDocument,
             totalPages = state.totalPages,
@@ -656,10 +668,51 @@ class ReaderViewModel(
         republishSurroundingPages()
         _uiState.update { uiState ->
             uiState.copy(
-                outlineHeading = state.readerDocument?.navigation?.heading,
-                outlineItems = outlineItems.toImmutableList(),
                 isFavorite = state.metadata?.isBookmarked == true,
                 isCurrentPageSaved = isPageSaved(uiState.pageIndex, uiState.isVisualMode),
+            )
+        }
+    }
+
+    /**
+     * Republishes [ReaderUiState.outlineHeading] and [ReaderUiState.outlineItems] from
+     * [readerDocument], the single place both go through [readerOutlineItems] so an open and a later
+     * republish can never derive the outline two different ways. [publishRest] calls this once at open
+     * time, and [continueImportIfIncomplete]'s completion branch calls it again once a progressive EPUB
+     * import finishes — that second call is the whole fix for the outline staying empty until the next
+     * relaunch: EPUB navigation is only resolved into the stored document on the import batch that
+     * completes the book (`DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport`), so the
+     * [ReaderDocument] this instance opened with can still carry an empty `ReaderNavigation` even after
+     * the book is fully imported, until something re-reads it and republishes.
+     *
+     * Re-checks [currentDocumentId] against [documentId] before touching [_uiState], per this class's
+     * own re-check convention — [readerDocument] may have been read for a document the reader has since
+     * left, since every caller here reaches this function after at least one suspension point.
+     *
+     * @param documentId the document [readerDocument] was read for.
+     * @param format the document's format, or null while unknown; passed through unchanged to
+     *   [readerOutlineItems].
+     * @param readerDocument the freshly read document whose navigation/sections back the outline, or
+     *   null.
+     * @param totalPages how many pages the outline should cover for a visual format; must be the total
+     *   correct as of this call, not one captured before [readerDocument] was refreshed.
+     */
+    private fun publishOutline(
+        documentId: DocumentId,
+        format: DocumentFormat?,
+        readerDocument: ReaderDocument?,
+        totalPages: Int,
+    ) {
+        if (currentDocumentId != documentId) return
+        val outlineItems = readerOutlineItems(
+            format = format,
+            readerDocument = readerDocument,
+            totalPages = totalPages,
+        )
+        _uiState.update { uiState ->
+            uiState.copy(
+                outlineHeading = readerDocument?.navigation?.heading,
+                outlineItems = outlineItems.toImmutableList(),
             )
         }
     }
@@ -763,6 +816,21 @@ class ReaderViewModel(
      * Import finishing does not by itself mean pagination has: the book may still have no stored layout
      * for this style, in which case [DocumentRepository.getPageWindows] measured only the resumed
      * section and there is more for [refreshPaginationCompleteness] to continue.
+     *
+     * The completion branch also re-reads [DocumentRepository.getDocument] and
+     * [DocumentRepository.getReaderDocument] and republishes the outline through [publishOutline] —
+     * the [ReaderDocument] this instance opened with can still carry an empty navigation even once the
+     * whole book is imported, because EPUB navigation is only resolved on the batch that completes the
+     * book, and without this republish the drawer stayed empty until the reader relaunched the app.
+     * [publishOutline]'s `format` argument is read from [_uiState]'s already-published
+     * [ReaderUiState.documentFormat] rather than the freshly re-read document's metadata: that metadata
+     * row can have been deleted between the import batch completing and this branch running (a book
+     * removed from the shelf while its import was still finishing), which would otherwise null out
+     * `format`, drop [readerOutlineItems] out of its EPUB branch, and republish the resolved navigation's
+     * heading over a fallback section list built from [ReaderLocation.TextOffset] locations that do not
+     * match it. [publishFirstFrame] publishes [ReaderUiState.documentFormat] unconditionally before
+     * [startContinuations] can ever start this coroutine, so it is always set for the currently open
+     * document by the time this branch reads it.
      */
     private fun continueImportIfIncomplete(documentId: DocumentId) {
         importContinuationJob?.cancel()
@@ -780,12 +848,21 @@ class ReaderViewModel(
                 )
                 if (currentDocumentId != documentId) return@launch
                 if (progress.isComplete) {
-                    finalCharacterCount = documentRepository.getDocument(documentId)?.characterCount
+                    val completedMetadata = documentRepository.getDocument(documentId)
+                    finalCharacterCount = completedMetadata?.characterCount
                     if (currentDocumentId != documentId) return@launch
                     // The whole book exists now, so the font set can finally be called final — a scan
                     // that ran mid-import saw only part of the book and left the flag down on purpose.
                     loadAllEmbeddedFonts()
                     reloadPages(style)
+                    if (currentDocumentId != documentId) return@launch
+                    val totalPagesAfterReload = _uiState.value.pageIndex.total
+                    publishOutline(
+                        documentId = documentId,
+                        format = _uiState.value.documentFormat,
+                        readerDocument = documentRepository.getReaderDocument(documentId),
+                        totalPages = totalPagesAfterReload,
+                    )
                     refreshPaginationCompleteness(documentId, style, isImportComplete = true)
                     return@launch
                 }
