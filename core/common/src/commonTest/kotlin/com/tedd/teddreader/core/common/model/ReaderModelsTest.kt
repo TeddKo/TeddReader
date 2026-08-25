@@ -187,4 +187,43 @@ class ReaderModelsTest {
 
         assertEquals(stored.layoutKey(), stored.resolveSystemTheme(true).layoutKey())
     }
+
+    /**
+     * [ReaderStyle.withLayoutFieldsOf] must copy exactly the fields [layoutKey] reduces a style to,
+     * and nothing else — this is the "type frozen, colour instant" contract the whole stale-page-slice
+     * fix rests on, pinned in one place. [live] and [measured] are built to differ in *every* field,
+     * both layout and non-layout, so this test fails the day someone adds a fifth field to [layoutKey]
+     * without adding it to [ReaderStyle.withLayoutFieldsOf]'s copier, exactly as it would fail today if
+     * `fontFamilyName` were dropped from that copier.
+     */
+    @Test
+    fun withLayoutFieldsOfCopiesOnlyTheLayoutKeyFieldsAndKeepsEveryColourFieldLive() {
+        val live = ReaderStyle(
+            fontSizeSp = 18f,
+            fontFamilyName = "serif",
+            publisherFontKey = "live-publisher-key",
+            lineHeightMultiplier = 1.4f,
+            textColor = ReaderColor(0xFF010203),
+            backgroundColor = ReaderColor(0xFF040506),
+            backgroundImage = BackgroundImage(uri = "file:///live.png", opacity = 0.3f),
+            themeMode = ReaderThemeMode.CUSTOM,
+        )
+        val measured = ReaderStyle(
+            fontSizeSp = 24f,
+            fontFamilyName = "sans",
+            publisherFontKey = "measured-publisher-key",
+            lineHeightMultiplier = 1.8f,
+            textColor = ReaderColor(0xFF0A0B0C),
+            backgroundColor = ReaderColor(0xFF0D0E0F),
+            backgroundImage = BackgroundImage(uri = "file:///measured.png", opacity = 0.6f),
+            themeMode = ReaderThemeMode.DARK,
+        )
+        val drawn = live.withLayoutFieldsOf(measured)
+
+        assertEquals(measured.layoutKey(), drawn.layoutKey())
+        assertEquals(live.textColor, drawn.textColor)
+        assertEquals(live.backgroundColor, drawn.backgroundColor)
+        assertEquals(live.themeMode, drawn.themeMode)
+        assertEquals(live.backgroundImage, drawn.backgroundImage)
+    }
 }

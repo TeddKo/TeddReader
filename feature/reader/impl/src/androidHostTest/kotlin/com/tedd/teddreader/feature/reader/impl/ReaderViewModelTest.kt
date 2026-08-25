@@ -14,6 +14,8 @@ import com.tedd.teddreader.core.common.model.PaginatedDocument
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderBlockStyle
+import com.tedd.teddreader.core.common.model.ReaderColor
+import com.tedd.teddreader.core.common.model.ReaderDarkTextArgb
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.ReaderNavigation
@@ -26,6 +28,7 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
+import com.tedd.teddreader.core.common.model.layoutKey
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.BookmarkRepository
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
@@ -956,6 +959,125 @@ class ReaderViewModelTest {
         advanceUntilIdle()
 
         assertTrue(documentRepository.pageWindowRequests > laidOutBefore)
+    }
+
+    /**
+     * Pins the fix for the stale-page-slice defect: a layout-affecting style change (here, a font
+     * family) publishes [ReaderUiState.style] instantly, but the pages held in [ReaderUiState.currentPage]
+     * were sliced for the *previous* style and stay that way until the pane recomposes, remeasures, and
+     * reports a breaker for the new key — the same asynchronous round-trip
+     * [changingTheFontSizeStillLaysTheBookOutAgain] pins from the `getPageWindows`-call-count side.
+     * [ReaderUiState.pageDrawStyle] is what the two page surfaces actually draw with, and this test pins
+     * it from the opposite side: type, not call count. The middle assertion —
+     * `documentRepository.pageWindowRequests` unchanged right after [ReaderViewModel.updateFontFamily] —
+     * is what makes the third assertion mean something even against a fake that does not really re-slice
+     * anything: it proves no new measurement has landed yet, so [ReaderUiState.pageDrawStyle] answering
+     * the *old* layout key at that exact moment is not a coincidence of a fake that ignores style, but
+     * the fix actually holding the draw type back. Once the pane reports again and a real reload lands,
+     * [ReaderUiState.pageDrawStyle] must agree with [ReaderUiState.style] again — the swap from old type
+     * to new type is atomic, with no published state in between the two.
+     *
+     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
+     * `get() = style` and re-run this suite. Only this test's third assertion may fail — the one
+     * comparing `before.style.layoutKey()` against `pageDrawStyle.layoutKey()`, which is the only
+     * assertion in this test that reads [ReaderUiState.pageDrawStyle] at all; the middle assertion
+     * reads `documentRepository.pageWindowRequests`, a `getPageWindows` call count untouched by that
+     * neutralisation. Every other test in this class, including
+     * [changingTheFontSizeStillLaysTheBookOutAgain], must still pass.
+     */
+    @Test
+    fun fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+        val requestsBefore = documentRepository.pageWindowRequests
+
+        viewModel.updateFontFamily("serif")
+        advanceUntilIdle()
+
+        assertEquals(
+            "serif",
+            viewModel.uiState.value.style.fontFamilyName,
+            "the chosen font must show up in the style instantly",
+        )
+        assertEquals(
+            requestsBefore,
+            documentRepository.pageWindowRequests,
+            "nothing has re-measured yet, so the pages on screen are still A's",
+        )
+        assertEquals(
+            before.style.layoutKey(),
+            viewModel.uiState.value.pageDrawStyle.layoutKey(),
+            "pageDrawStyle must still describe the type the on-screen slices were actually cut under",
+        )
+
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertTrue(
+            documentRepository.pageWindowRequests > requestsBefore,
+            "the pane's remeasurement must have triggered a real reload",
+        )
+        assertEquals(
+            viewModel.uiState.value.style.layoutKey(),
+            viewModel.uiState.value.pageDrawStyle.layoutKey(),
+            "once the reload lands, the drawn type must agree with the chosen style again",
+        )
+    }
+
+    /**
+     * A colour-only change (here, the theme) must never be caught by the same freeze that pins type
+     * during a layout-key change: [ReaderUiState.pageDrawStyle] only ever pins the four layout fields
+     * [layoutKey] reduces a style to, never [ReaderStyle.textColor] or the rest of a style's colour
+     * fields — those ride straight through from the live [ReaderUiState.style], with no pane report
+     * required, because colour can never move a page break. This is the regression guard for "a design
+     * that makes the whole style wait for pagination is a regression"; the no-repagination half of the
+     * same claim is already pinned by [changingOnlyTheThemeDoesNotLayTheBookOutAgain].
+     *
+     * The font family is changed first, *before* the theme, so the second assertion actually
+     * exercises the freeze: `updateThemeMode` alone touches no field [layoutKey] reduces a style to,
+     * so comparing `before.style.layoutKey()` against the live style's `layoutKey()` after only a
+     * theme change would pass whether or not [ReaderUiState.pageDrawStyle] pins anything — it would
+     * just restate that a theme change never moves `layoutKey()` in the first place. Stacking the
+     * font change first means the pinned style has to survive a *second*, unrelated publish (the
+     * theme) while still holding the type from before either change, which is what the freeze
+     * actually promises.
+     *
+     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
+     * `get() = style` and re-run this suite. This test's *second* assertion fails, because with the
+     * freeze gone `pageDrawStyle.layoutKey()` reports the live, font-changed key instead of the one
+     * pinned from before that change. The first assertion, on `textColor`, keeps passing either way —
+     * colour rides the live style whether or not the freeze exists, so it is not what this drill
+     * exercises.
+     */
+    @Test
+    fun themeChangeReachesPageDrawStyleImmediatelyWithNoPaneReport() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+
+        viewModel.updateFontFamily("serif")
+        advanceUntilIdle()
+
+        viewModel.updateThemeMode(ReaderThemeMode.DARK)
+        advanceUntilIdle()
+
+        assertEquals(ReaderColor(ReaderDarkTextArgb), viewModel.uiState.value.pageDrawStyle.textColor)
+        assertEquals(
+            before.style.layoutKey(),
+            viewModel.uiState.value.pageDrawStyle.layoutKey(),
+            "the type pinned before the font change must still be what is drawn after an unrelated theme change lands on top of it",
+        )
     }
 
     /**
