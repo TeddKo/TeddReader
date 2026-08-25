@@ -37,8 +37,8 @@
     <string name="font_family_sans">고딕</string>
     <string name="font_family_serif">세리프</string>
     <string name="font_family_mono">고정폭</string>
-    <string name="page_movement">페이지 이동</string>
-    <string name="page_movement_description">읽고 이동할 때 페이지가 움직이는 방식을 설정합니다.</string>
+    <string name="page_movement">페이지 넘김</string>
+    <string name="page_movement_description">페이지를 넘기는 방향과 전환 효과를 설정합니다.</string>
     <string name="page_direction">방향</string>
     <string name="default_transition">기본 전환</string>
     <string name="page_effects">페이지 효과</string>
