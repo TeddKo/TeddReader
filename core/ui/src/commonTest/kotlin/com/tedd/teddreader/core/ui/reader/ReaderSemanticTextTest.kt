@@ -4,6 +4,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.em
 import com.tedd.teddreader.core.common.model.ReaderSpan
@@ -711,5 +712,46 @@ class ReaderSemanticTextTest {
 
         val paragraph = semantic.annotatedString.paragraphStyles.single()
         assertEquals(3.em, paragraph.item.textIndent?.restLine)
+    }
+
+    /**
+     * A reader-chosen font reaches the two runs this renderer sets in monospace on the document's behalf.
+     *
+     * A `<pre>` block and a `<code>` run take their monospace from a browser default this renderer stands in
+     * for, not from anything the book's CSS states, so the publisher-font gate used to pass straight over
+     * them: choosing Serif set the prose in serif and left every preformatted block and inline code run in
+     * mono, the only text on the page still ignoring the choice. Both are gated now. Both keep their
+     * monospace under the document font, where that browser default is exactly what the reader asked to see.
+     */
+    @Test
+    fun aReaderChosenFontReplacesTheMonospaceOfPreformattedAndCodeRuns() {
+        val text = "prose\ncode"
+        val blocks = listOf(
+            ReaderBlock(ReaderBlockKind.PREFORMATTED, TextRange(0, 5)),
+            ReaderBlock(
+                ReaderBlockKind.PARAGRAPH,
+                TextRange(6, text.length.toLong()),
+                spans = listOf(ReaderSpan(TextRange(6, text.length.toLong()), ReaderInlineStyle.MONOSPACE)),
+            ),
+        )
+
+        val underDocumentFont = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = blocks,
+            publisherFontsEnabled = true,
+        )
+        assertEquals(
+            2,
+            underDocumentFont.annotatedString.spanStyles.count { it.item.fontFamily == FontFamily.Monospace },
+        )
+
+        val underReaderFont = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = blocks,
+            publisherFontsEnabled = false,
+        )
+        assertTrue(underReaderFont.annotatedString.spanStyles.none { it.item.fontFamily != null })
     }
 }
