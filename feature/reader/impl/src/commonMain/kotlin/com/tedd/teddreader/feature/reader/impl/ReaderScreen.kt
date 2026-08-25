@@ -596,12 +596,12 @@ private fun ReaderContent(
     // its provenance let one frame pair the previous (empty) families with a fresh "fonts resolved" flag
     // — and that one frame was enough to measure the whole book in fallback type.
     val resolvedEmbeddedFontFamilies by produceState<Pair<Map<String, String>, Map<String, FontFamily>>?>(
-        initialValue = if (uiState.style.fontFamilyName != null) uiState.embeddedFontFiles to emptyMap() else null,
+        initialValue = if (uiState.pageDrawStyle.fontFamilyName != null) uiState.embeddedFontFiles to emptyMap() else null,
         uiState.embeddedFontFiles,
-        uiState.style.fontFamilyName,
+        uiState.pageDrawStyle.fontFamilyName,
     ) {
         val fontFiles = uiState.embeddedFontFiles
-        value = if (uiState.style.fontFamilyName != null) {
+        value = if (uiState.pageDrawStyle.fontFamilyName != null) {
             fontFiles to emptyMap()
         } else {
             value = null
@@ -699,7 +699,7 @@ private fun ReaderContent(
                 isVisualMode = uiState.isVisualMode,
             )
             val autoScrollLineHeightPx = with(density) {
-                (uiState.style.fontSizeSp * uiState.style.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
+                (uiState.pageDrawStyle.fontSizeSp * uiState.pageDrawStyle.lineHeightMultiplier).sp.toPx().coerceAtLeast(1f)
             }
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -1054,6 +1054,29 @@ private fun ReaderContent(
  * by itself. Drawing nothing extra above the body is what keeps that rule from producing a
  * duplicated title.
  *
+ * Two different styles matter here, and they must not be swapped. [ReaderUiState.style] — read
+ * directly, never through [ReaderUiState.pageDrawStyle] — is what [rememberReaderPageBreaker]
+ * measures against, what [onPageBreakerChanged] reports, and what the padding around the text area
+ * below is computed from: it is the only style whose change can ever end the stale-slice window
+ * [ReaderUiState.pageDrawStyle] exists to paper over, and it is what defines `textAreaPx`, the box the
+ * breaker actually measures — pinning either to the drawn style would mean no new breaker is ever
+ * built for a changed setting (the reader stuck on the old font permanently) or would report a
+ * measurement for a box the reader never draws into. Only the two page surfaces this function renders
+ * — [EpubPageSurface] and `ReaderPageSurface` — draw with [ReaderUiState.pageDrawStyle], so the
+ * slices they draw are never a step ahead of the type they were actually cut for.
+ *
+ * One hole this split does not close: the `produceState` in `ReaderContent`, above this function,
+ * keys `embeddedFontFamiliesByHref` on [ReaderUiState.pageDrawStyle]'s font family so a document
+ * font pinned mid-window still gets its publisher families. Going the other way — a reader font
+ * pinned while the live style asks for the document's own font again — keeps that map empty while
+ * the breaker measures the live, publisher-font style, so the book is sliced once in fallback type;
+ * once the pin catches up and the real families load, the corrected report lands at the same style
+ * and pixel box and is silently ignored as a no-op. Pages then stay sliced in fallback type while
+ * drawn in the real publisher fonts. This is pre-existing on `develop` — an unkeyed `remember`
+ * there already lets the same stale families/style pair survive the one composition where the font
+ * flips, with the same silent ignore — so this change only widens the window, it does not create or
+ * fix it.
+ *
  * @param uiState The reader's current state; supplies the style, format, and page content this pane
  * renders.
  * @param page The zero-based page index this pane should show.
@@ -1163,17 +1186,18 @@ private fun ReaderPagePane(
                         }
                     },
             ) {
+                val drawStyle = uiState.pageDrawStyle
                 if (uiState.documentFormat == DocumentFormat.EPUB) {
                     EpubPageSurface(
                         page = uiState.pageSlot(page) ?: ReaderPageUi(page = page),
-                        style = uiState.style,
+                        style = drawStyle,
                         embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     ReaderPageSurface(
                         text = uiState.pageTextFor(page),
-                        style = uiState.style,
+                        style = drawStyle,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(0.dp),
                     )
