@@ -6,6 +6,7 @@ import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import com.tedd.teddreader.core.common.model.ReaderSpan
 import com.tedd.teddreader.core.common.model.ReaderSpanStyle
@@ -753,5 +754,128 @@ class ReaderSemanticTextTest {
             publisherFontsEnabled = false,
         )
         assertTrue(underReaderFont.annotatedString.spanStyles.none { it.item.fontFamily != null })
+    }
+
+    /**
+     * A heading, a table header cell, and an inline bold run each draw at exactly today's fixed
+     * 700/600/700 when the reader sits at its default base weight — this change makes emphasis relative
+     * to that base instead of fixed, and this pins the case that must stay pixel-identical: an untouched
+     * font-weight setting must draw no differently than before this change existed.
+     *
+     * Falsification: this fails if the step emphasis is drawn above the base is weakened from +300 to
+     * +200 for strong emphasis — the heading and the inline bold run would then assert FontWeight(700)
+     * against an actual FontWeight(600), which was confirmed by making that exact change and running
+     * this test (see the task's build-gate report for the captured failure text).
+     */
+    @Test
+    fun emphasisAtTheDefaultBaseWeightMatchesTodaysFixedWeights() {
+        val text = "Heading\nCell text"
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(ReaderBlockKind.HEADING, TextRange(0, 7), level = 1),
+                ReaderBlock(ReaderBlockKind.TABLE_HEADER_CELL, TextRange(8, text.length.toLong())),
+            ),
+        )
+
+        val headingWeight = semantic.annotatedString.spanStyles.single { it.start == 0 }.item.fontWeight
+        assertEquals(FontWeight(700), headingWeight)
+        val tableHeaderWeight = semantic.annotatedString.spanStyles.single { it.start == 8 }.item.fontWeight
+        assertEquals(FontWeight(600), tableHeaderWeight)
+
+        val inlineBoldText = "bold"
+        val inlineBoldSemantic = buildReaderSemanticText(
+            text = inlineBoldText,
+            range = TextRange(0, inlineBoldText.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(
+                    ReaderBlockKind.PARAGRAPH,
+                    TextRange(0, inlineBoldText.length.toLong()),
+                    spans = listOf(ReaderSpan(TextRange(0, inlineBoldText.length.toLong()), ReaderInlineStyle.BOLD)),
+                ),
+            ),
+        )
+        val inlineBoldWeight = inlineBoldSemantic.annotatedString.spanStyles
+            .single { it.item.fontWeight != null }.item.fontWeight
+        assertEquals(FontWeight(700), inlineBoldWeight)
+    }
+
+    /**
+     * Emphasis keeps a constant 300/200-weight lead over whatever base the reader chose, at both ends of
+     * the font-weight setting's 300..600 range — a heavier or lighter body still reads as body, and a
+     * heading, a table header cell, and a bold run still read as heavier than it by the same amount.
+     *
+     * Falsification: reverting the helper to draw emphasis at the fixed [FontWeight.Bold] /
+     * [FontWeight.SemiBold] the reader used to draw at makes this fail — a base of 600 would then assert
+     * FontWeight(900) against an actual FontWeight(700), which was confirmed by making that exact
+     * reversion and running this test (see the task's build-gate report for the captured failure text).
+     */
+    @Test
+    fun emphasisContrastAgainstTheBaseStaysConstantAcrossTheWeightRange() {
+        fun weightsAt(baseFontWeight: Int): Triple<FontWeight?, FontWeight?, FontWeight?> {
+            val text = "Heading\nCell text"
+            val semantic = buildReaderSemanticText(
+                text = text,
+                range = TextRange(0, text.length.toLong()),
+                blocks = listOf(
+                    ReaderBlock(ReaderBlockKind.HEADING, TextRange(0, 7), level = 1),
+                    ReaderBlock(ReaderBlockKind.TABLE_HEADER_CELL, TextRange(8, text.length.toLong())),
+                ),
+                baseFontWeight = baseFontWeight,
+            )
+            val headingWeight = semantic.annotatedString.spanStyles.single { it.start == 0 }.item.fontWeight
+            val tableHeaderWeight = semantic.annotatedString.spanStyles.single { it.start == 8 }.item.fontWeight
+
+            val inlineBoldText = "bold"
+            val inlineBoldSemantic = buildReaderSemanticText(
+                text = inlineBoldText,
+                range = TextRange(0, inlineBoldText.length.toLong()),
+                blocks = listOf(
+                    ReaderBlock(
+                        ReaderBlockKind.PARAGRAPH,
+                        TextRange(0, inlineBoldText.length.toLong()),
+                        spans = listOf(ReaderSpan(TextRange(0, inlineBoldText.length.toLong()), ReaderInlineStyle.BOLD)),
+                    ),
+                ),
+                baseFontWeight = baseFontWeight,
+            )
+            val inlineBoldWeight = inlineBoldSemantic.annotatedString.spanStyles
+                .single { it.item.fontWeight != null }.item.fontWeight
+            return Triple(headingWeight, tableHeaderWeight, inlineBoldWeight)
+        }
+
+        assertEquals(Triple(FontWeight(900), FontWeight(800), FontWeight(900)), weightsAt(600))
+        assertEquals(Triple(FontWeight(600), FontWeight(500), FontWeight(600)), weightsAt(300))
+    }
+
+    /**
+     * A book that states `font-weight: normal` to cancel an inherited bold — inside a heading, which
+     * would otherwise draw as emphasis on its own — resolves to the reader's own base weight, not to a
+     * fixed [FontWeight.Normal] (400), once that base differs from [com.tedd.teddreader.core.common.model.ReaderDefaultFontWeight].
+     *
+     * Falsification: resolving an explicit non-bold to the fixed [FontWeight.Normal] instead of the base
+     * weight makes this fail — a base of 600 would then assert FontWeight(400) against an actual
+     * FontWeight(600), which was confirmed by making that exact change and running this test (see the
+     * task's build-gate report for the captured failure text).
+     */
+    @Test
+    fun explicitNonBoldInsideABoldContextResolvesToTheBaseWeight() {
+        val text = "Title"
+        val semantic = buildReaderSemanticText(
+            text = text,
+            range = TextRange(0, text.length.toLong()),
+            blocks = listOf(
+                ReaderBlock(
+                    ReaderBlockKind.HEADING,
+                    TextRange(0, text.length.toLong()),
+                    level = 1,
+                    style = ReaderBlockStyle(bold = false),
+                ),
+            ),
+            baseFontWeight = 600,
+        )
+
+        assertEquals(FontWeight(600), semantic.annotatedString.spanStyles.single().item.fontWeight)
     }
 }
