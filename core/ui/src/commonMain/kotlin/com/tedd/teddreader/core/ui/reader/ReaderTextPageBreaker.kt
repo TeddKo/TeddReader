@@ -99,6 +99,7 @@ fun rememberReaderPageBreaker(
                     publisherFontsEnabled = inputs.publisherFontsEnabled,
                     floatTextFitter = floatFitter,
                     lineHeightMultiplier = inputs.lineHeightMultiplier,
+                    baseFontWeight = inputs.fontWeight,
                 )
                 val layout = measurer.measure(
                     text = semanticText.annotatedString,
@@ -165,6 +166,7 @@ fun readerFloatTextFitter(
                 publisherFontsEnabled = inputs.publisherFontsEnabled,
                 floatTextFitter = null,
                 lineHeightMultiplier = inputs.lineHeightMultiplier,
+                baseFontWeight = inputs.fontWeight,
             )
             if (paragraphSemantic.annotatedString.text.isEmpty()) {
                 emptyFloatPlacement(paragraphStart)
@@ -200,6 +202,7 @@ fun readerFloatTextFitter(
                         publisherFontsEnabled = inputs.publisherFontsEnabled,
                         floatTextFitter = null,
                         lineHeightMultiplier = inputs.lineHeightMultiplier,
+                        baseFontWeight = inputs.fontWeight,
                     )
                     ReaderFloatPlacement(fittedRange, fittedText)
                 }

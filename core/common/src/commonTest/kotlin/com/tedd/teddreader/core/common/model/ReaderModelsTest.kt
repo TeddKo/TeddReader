@@ -178,8 +178,8 @@ class ReaderModelsTest {
     /**
      * Resolving colours never invalidates a stored pagination.
      *
-     * Page breaks are keyed on type size, line height and family; if colour ever leaked into that key,
-     * every system theme flip would silently repaginate the open document.
+     * Page breaks are keyed on type size, line height, family, and weight; if colour ever leaked into
+     * that key, every system theme flip would silently repaginate the open document.
      */
     @Test
     fun resolvingForTheSystemLeavesThePaginationKeyAlone() {
@@ -203,6 +203,7 @@ class ReaderModelsTest {
             fontFamilyName = "serif",
             publisherFontKey = "live-publisher-key",
             lineHeightMultiplier = 1.4f,
+            fontWeight = 300,
             textColor = ReaderColor(0xFF010203),
             backgroundColor = ReaderColor(0xFF040506),
             backgroundImage = BackgroundImage(uri = "file:///live.png", opacity = 0.3f),
@@ -213,6 +214,7 @@ class ReaderModelsTest {
             fontFamilyName = "sans",
             publisherFontKey = "measured-publisher-key",
             lineHeightMultiplier = 1.8f,
+            fontWeight = 600,
             textColor = ReaderColor(0xFF0A0B0C),
             backgroundColor = ReaderColor(0xFF0D0E0F),
             backgroundImage = BackgroundImage(uri = "file:///measured.png", opacity = 0.6f),
@@ -221,9 +223,45 @@ class ReaderModelsTest {
         val drawn = live.withLayoutFieldsOf(measured)
 
         assertEquals(measured.layoutKey(), drawn.layoutKey())
+        assertEquals(measured.fontWeight, drawn.fontWeight)
         assertEquals(live.textColor, drawn.textColor)
         assertEquals(live.backgroundColor, drawn.backgroundColor)
         assertEquals(live.themeMode, drawn.themeMode)
         assertEquals(live.backgroundImage, drawn.backgroundImage)
+    }
+
+    /**
+     * [ReaderStyle.fontWeight] must move [layoutKey] when it differs from [ReaderDefaultFontWeight] — a
+     * heavier or lighter weight changes glyph advances and so moves where lines break — but must leave
+     * the key exactly as it already reads today for anyone still on the default weight, which is what
+     * lets an existing reader's stored page layouts keep serving without a forced re-measurement the day
+     * this setting ships.
+     *
+     * Falsification (the AGENTS.md drill): fold `fontWeight` back out of [layoutKey]'s computed family
+     * string, e.g. by changing `fontWeightToken()`'s body to always return `""`, and re-run this suite.
+     * Actual result: this test's second assertion fails —
+     * `expected:<|w600#layout8> but was:<#layout8>` — because a 600-weight style's key then equals the
+     * default-weight style's key instead of differing from it; the first assertion still passes, since it
+     * only exercises the default weight. Restoring the token makes both assertions pass again.
+     */
+    @Test
+    fun nonDefaultFontWeightChangesLayoutKeyButDefaultWeightDoesNot() {
+        assertEquals("#layout8", ReaderStyle(fontWeight = ReaderDefaultFontWeight).layoutKey().fontFamilyName)
+        assertEquals("|w600#layout8", ReaderStyle(fontWeight = 600).layoutKey().fontFamilyName)
+    }
+
+    /**
+     * [ReaderStyle]'s `init` rejects a font weight outside the 300..600 range the four-option typography
+     * setting offers, the same defensive bound [ReaderStyle.fontSizeSp] and
+     * [ReaderStyle.lineHeightMultiplier] already enforce for their own ranges.
+     */
+    @Test
+    fun readerStyleRejectsFontWeightOutsideSupportedRange() {
+        assertFailsWith<IllegalArgumentException> {
+            ReaderStyle(fontWeight = 299)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ReaderStyle(fontWeight = 601)
+        }
     }
 }

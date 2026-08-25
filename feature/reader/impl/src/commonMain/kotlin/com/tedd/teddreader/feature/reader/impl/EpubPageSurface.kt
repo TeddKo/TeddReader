@@ -138,6 +138,7 @@ internal fun EpubPageSurface(
                 publisherFontsEnabled = inputs.publisherFontsEnabled,
                 floatTextFitter = floatFitter,
                 lineHeightMultiplier = inputs.lineHeightMultiplier,
+                baseFontWeight = inputs.fontWeight,
             )
         }
         val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs, readerTextStyle, baseTextColor, publisherColorsEnabled) {

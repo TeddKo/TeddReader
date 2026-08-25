@@ -252,6 +252,7 @@ fun ReaderRouteScreen(
         onFontSizeChange = viewModel::updateFontSize,
         onLineHeightChange = viewModel::updateLineHeight,
         onFontFamilyChange = viewModel::updateFontFamily,
+        onFontWeightChange = viewModel::updateFontWeight,
         onThemeModeChange = viewModel::updateThemeMode,
         onPageTurnModeChange = viewModel::updatePageTurnMode,
         onPageAnimationChange = viewModel::updatePageAnimation,
@@ -307,6 +308,7 @@ fun ReaderRouteScreen(
  * @param onFontSizeChange Invoked when the font size is committed.
  * @param onLineHeightChange Invoked when the line height multiplier is committed.
  * @param onFontFamilyChange Invoked when the font family is changed; null selects the default.
+ * @param onFontWeightChange Invoked when the font weight is changed, to one of 300, 400, 500, or 600.
  * @param onThemeModeChange Invoked when the reader theme is changed.
  * @param onPageTurnModeChange Invoked when the page-turn direction is changed.
  * @param onPageAnimationChange Invoked when the page-turn animation is changed.
@@ -355,6 +357,7 @@ fun ReaderScreen(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
+    onFontWeightChange: (Int) -> Unit,
     onThemeModeChange: (ReaderThemeMode) -> Unit,
     onPageTurnModeChange: (PageTurnMode) -> Unit,
     onPageAnimationChange: (PageAnimation) -> Unit,
@@ -412,6 +415,7 @@ fun ReaderScreen(
             onFontSizeChange = onFontSizeChange,
             onLineHeightChange = onLineHeightChange,
             onFontFamilyChange = onFontFamilyChange,
+            onFontWeightChange = onFontWeightChange,
             onThemeModeChange = onThemeModeChange,
             onPageTurnModeChange = onPageTurnModeChange,
             onPageAnimationChange = onPageAnimationChange,
@@ -473,6 +477,7 @@ fun ReaderScreen(
  * @param onFontSizeChange Invoked when the font size is committed.
  * @param onLineHeightChange Invoked when the line height multiplier is committed.
  * @param onFontFamilyChange Invoked when the font family is changed; null selects the default.
+ * @param onFontWeightChange Invoked when the font weight is changed, to one of 300, 400, 500, or 600.
  * @param onThemeModeChange Invoked when the reader theme is changed.
  * @param onPageTurnModeChange Invoked when the page-turn direction is changed.
  * @param onPageAnimationChange Invoked when the page-turn animation is changed.
@@ -523,6 +528,7 @@ private fun ReaderContent(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
+    onFontWeightChange: (Int) -> Unit,
     onThemeModeChange: (ReaderThemeMode) -> Unit,
     onPageTurnModeChange: (PageTurnMode) -> Unit,
     onPageAnimationChange: (PageAnimation) -> Unit,
@@ -991,6 +997,7 @@ private fun ReaderContent(
                 onFontSizeChange = onFontSizeChange,
                 onLineHeightChange = onLineHeightChange,
                 onFontFamilyChange = onFontFamilyChange,
+                onFontWeightChange = onFontWeightChange,
                 onThemeModeChange = onThemeModeChange,
                 onPageTurnModeChange = onPageTurnModeChange,
                 onPageAnimationChange = onPageAnimationChange,
@@ -1295,6 +1302,7 @@ private fun ReaderAutoScrollEffect(
  * @param onFontSizeChange Forwarded to [FontOptionsSheet].
  * @param onLineHeightChange Forwarded to [FontOptionsSheet].
  * @param onFontFamilyChange Forwarded to [FontOptionsSheet].
+ * @param onFontWeightChange Forwarded to [FontOptionsSheet].
  * @param onThemeModeChange Forwarded to [ThemeOptionsSheet].
  * @param onPageTurnModeChange Forwarded to [PageTurnOptionsSheet].
  * @param onPageAnimationChange Forwarded to [PageTurnOptionsSheet].
@@ -1330,6 +1338,7 @@ private fun ReaderActiveSheet(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
+    onFontWeightChange: (Int) -> Unit,
     onThemeModeChange: (ReaderThemeMode) -> Unit,
     onPageTurnModeChange: (PageTurnMode) -> Unit,
     onPageAnimationChange: (PageAnimation) -> Unit,
@@ -1402,6 +1411,7 @@ private fun ReaderActiveSheet(
                     onFontSizeChange = onFontSizeChange,
                     onLineHeightChange = onLineHeightChange,
                     onFontFamilyChange = onFontFamilyChange,
+                    onFontWeightChange = onFontWeightChange,
                 )
                 ReaderOptionSheet.Theme -> ThemeOptionsSheet(
                     uiState = uiState,
@@ -1742,6 +1752,8 @@ private fun ViewOptionsSheet(
  * finishes.
  * @param onFontFamilyChange Invoked when a font family radio option is chosen; null selects the
  * default.
+ * @param onFontWeightChange Invoked when a font weight radio option is chosen, with one of 300, 400,
+ * 500, or 600.
  * @param modifier Applied to the sheet's content group.
  */
 @Composable
@@ -1754,6 +1766,7 @@ private fun FontOptionsSheet(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onFontFamilyChange: (String?) -> Unit,
+    onFontWeightChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val spacing = teddReaderSpacing()
@@ -1762,51 +1775,89 @@ private fun FontOptionsSheet(
         lineHeightMultiplier = lineHeightPercentDraft / 100f,
     )
 
-    TeddOptionGroup(title = null, modifier = modifier) {
-        TeddSliderRow(
-            title = stringResource(Res.string.font_size),
-            value = fontSizeDraft,
-            onValueChange = onFontSizeDraftChange,
-            onValueChangeFinished = { onFontSizeChange(fontSizeDraft) },
-            valueRange = ReaderPinchFontSizeRange,
-            steps = FontSizeSliderSteps,
-            valueLabel = "${fontSizeDraft.roundToInt()}sp",
-            enabled = !uiState.isSavingSettings,
-        )
-        TeddSliderRow(
-            title = stringResource(Res.string.line_height),
-            value = lineHeightPercentDraft,
-            onValueChange = onLineHeightPercentDraftChange,
-            onValueChangeFinished = { onLineHeightChange(lineHeightPercentDraft / 100f) },
-            valueRange = 100f..300f,
-            steps = LineHeightSliderSteps,
-            valueLabel = "${lineHeightPercentDraft.roundToInt()}%",
-            enabled = !uiState.isSavingSettings,
-        )
-        TeddRadioRow(
-            title = stringResource(Res.string.font_family_document),
-            selected = uiState.style.fontFamilyName == null,
-            onClick = { onFontFamilyChange(null) },
-            enabled = !uiState.isSavingSettings,
-        )
-        TeddRadioRow(
-            title = stringResource(Res.string.font_family_sans),
-            selected = uiState.style.fontFamilyName == "sans",
-            onClick = { onFontFamilyChange("sans") },
-            enabled = !uiState.isSavingSettings,
-        )
-        TeddRadioRow(
-            title = stringResource(Res.string.font_family_serif),
-            selected = uiState.style.fontFamilyName == "serif",
-            onClick = { onFontFamilyChange("serif") },
-            enabled = !uiState.isSavingSettings,
-        )
-        TeddRadioRow(
-            title = stringResource(Res.string.font_family_mono),
-            selected = uiState.style.fontFamilyName == "mono",
-            onClick = { onFontFamilyChange("mono") },
-            enabled = !uiState.isSavingSettings,
-        )
+    Column(modifier = modifier) {
+        TeddOptionGroup(title = null) {
+            TeddSliderRow(
+                title = stringResource(Res.string.font_size),
+                value = fontSizeDraft,
+                onValueChange = onFontSizeDraftChange,
+                onValueChangeFinished = { onFontSizeChange(fontSizeDraft) },
+                valueRange = ReaderPinchFontSizeRange,
+                steps = FontSizeSliderSteps,
+                valueLabel = "${fontSizeDraft.roundToInt()}sp",
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddSliderRow(
+                title = stringResource(Res.string.line_height),
+                value = lineHeightPercentDraft,
+                onValueChange = onLineHeightPercentDraftChange,
+                onValueChangeFinished = { onLineHeightChange(lineHeightPercentDraft / 100f) },
+                valueRange = 100f..300f,
+                steps = LineHeightSliderSteps,
+                valueLabel = "${lineHeightPercentDraft.roundToInt()}%",
+                enabled = !uiState.isSavingSettings,
+            )
+        }
+        TeddOptionGroup(
+            title = stringResource(Res.string.font_family),
+            description = stringResource(Res.string.font_family_description),
+            isSelectableGroup = true,
+        ) {
+            TeddRadioRow(
+                title = stringResource(Res.string.font_family_document),
+                selected = uiState.style.fontFamilyName == null,
+                onClick = { onFontFamilyChange(null) },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_family_sans),
+                selected = uiState.style.fontFamilyName == "sans",
+                onClick = { onFontFamilyChange("sans") },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_family_serif),
+                selected = uiState.style.fontFamilyName == "serif",
+                onClick = { onFontFamilyChange("serif") },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_family_mono),
+                selected = uiState.style.fontFamilyName == "mono",
+                onClick = { onFontFamilyChange("mono") },
+                enabled = !uiState.isSavingSettings,
+            )
+        }
+        TeddOptionGroup(
+            title = stringResource(Res.string.font_weight),
+            description = stringResource(Res.string.font_weight_description),
+            isSelectableGroup = true,
+        ) {
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_light),
+                selected = uiState.style.fontWeight == 300,
+                onClick = { onFontWeightChange(300) },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_regular),
+                selected = uiState.style.fontWeight == 400,
+                onClick = { onFontWeightChange(400) },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_medium),
+                selected = uiState.style.fontWeight == 500,
+                onClick = { onFontWeightChange(500) },
+                enabled = !uiState.isSavingSettings,
+            )
+            TeddRadioRow(
+                title = stringResource(Res.string.font_weight_semibold),
+                selected = uiState.style.fontWeight == 600,
+                onClick = { onFontWeightChange(600) },
+                enabled = !uiState.isSavingSettings,
+            )
+        }
         ReaderOptionPreview(
             modifier = Modifier.padding(horizontal = spacing.medium),
             style = previewStyle,
@@ -2522,6 +2573,7 @@ private fun ReaderScreenCompactPreview() {
             onFontSizeChange = {},
             onLineHeightChange = {},
             onFontFamilyChange = {},
+            onFontWeightChange = {},
             onThemeModeChange = {},
             onPageTurnModeChange = {},
             onPageAnimationChange = {},
@@ -2579,6 +2631,7 @@ private fun ReaderScreenHiddenChromePreview() {
             onFontSizeChange = {},
             onLineHeightChange = {},
             onFontFamilyChange = {},
+            onFontWeightChange = {},
             onThemeModeChange = {},
             onPageTurnModeChange = {},
             onPageAnimationChange = {},
@@ -2635,6 +2688,7 @@ private fun ReaderScreenDarkPreview() {
             onFontSizeChange = {},
             onLineHeightChange = {},
             onFontFamilyChange = {},
+            onFontWeightChange = {},
             onThemeModeChange = {},
             onPageTurnModeChange = {},
             onPageAnimationChange = {},
@@ -2698,6 +2752,7 @@ private fun ReaderScreenPreview() {
             onFontSizeChange = {},
             onLineHeightChange = {},
             onFontFamilyChange = {},
+            onFontWeightChange = {},
             onThemeModeChange = {},
             onPageTurnModeChange = {},
             onPageAnimationChange = {},
