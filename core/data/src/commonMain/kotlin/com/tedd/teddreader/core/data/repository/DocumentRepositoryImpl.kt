@@ -128,10 +128,10 @@ class DocumentRepositoryImpl(
     private val logger = Logger.withTag("Pagination")
 
     /**
-     * Guards [cachedDocumentId], [cachedReaderDocument], [cachedSectionBlocks], and the page-window
+     * Guards [cachedDocumentId], [cachedReaderDocument], [cachedSectionBlocks], the page-window
      * cache fields below them ([cachedPageWindowKey], [cachedPageWindows], [cachedPageWindowsAreMeasured],
-     * [paginationSession]) — every read or write of any of those fields happens inside a
-     * `documentCacheLock.withLock` block.
+     * [paginationSession]), and [documentCacheGeneration] — every read or write of any of those fields
+     * happens inside a `documentCacheLock.withLock` block.
      */
     private val documentCacheLock = Mutex()
 
@@ -183,6 +183,21 @@ class DocumentRepositoryImpl(
      * [getPageWindows] has not had to measure this document at all yet.
      */
     private var paginationSession: PaginationSession? = null
+
+    /**
+     * Bumped by every [invalidateDocumentCache] call, regardless of whether the document it named was
+     * actually the one cached at the time — the signal [getReaderDocument] uses to decide whether the
+     * [loadReaderDocument] result it just finished computing outside the lock is still safe to publish.
+     * A load that started before some invalidation, but that only reaches its own publishing step after
+     * that invalidation already ran, would otherwise write a pre-invalidation snapshot back into the
+     * cache right after the invalidation cleared it, silently undoing it. [getReaderDocument] instead
+     * captures this value in its first locked section, then only writes to the cache in its second
+     * locked section when the value is still the same one; a mismatch means some writer invalidated the
+     * cache while the load was in flight, so the freshly loaded document is handed back to the caller
+     * without being cached, and the next call reloads instead of trusting a snapshot that arrived too
+     * late.
+     */
+    private var documentCacheGeneration: Long = 0L
 
     /**
      * Serialises [continuePagination] against itself — see that function's own doc for the duplicate
@@ -375,18 +390,30 @@ class DocumentRepositoryImpl(
      * cache with the result (even when that result is null, so a document that fails to load is not
      * retried on every call until something else invalidates the cache).
      *
+     * The load itself runs outside [documentCacheLock] on purpose (see that property's own doc for why
+     * every document load would otherwise serialise behind one mutex), which leaves a window for
+     * [invalidateDocumentCache] to run while this call's own [loadReaderDocument] is still in flight.
+     * [documentCacheGeneration], captured in the first locked section below, is what closes that window:
+     * the second locked section only publishes the freshly loaded result into the cache when that
+     * generation is still current. A load that started before an invalidation but only finishes after it
+     * therefore never overwrites the invalidation with a stale snapshot — it is simply handed back to
+     * this call's own caller uncached, and the next call reloads.
+     *
      * @param documentId The document to load.
      * @return The document, or null when it is not on the shelf or fails to load.
      */
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
-        documentCacheLock.withLock {
+        val generation = documentCacheLock.withLock {
             if (cachedDocumentId == documentId) return cachedReaderDocument
+            documentCacheGeneration
         }
         val loaded = loadReaderDocument(documentId)
         documentCacheLock.withLock {
-            cachedDocumentId = documentId
-            cachedReaderDocument = loaded?.document
-            cachedSectionBlocks = loaded?.sectionBlocks
+            if (documentCacheGeneration == generation) {
+                cachedDocumentId = documentId
+                cachedReaderDocument = loaded?.document
+                cachedSectionBlocks = loaded?.sectionBlocks
+            }
         }
         return loaded?.document
     }
@@ -553,7 +580,7 @@ class DocumentRepositoryImpl(
         }
 
         val started = TimeSource.Monotonic.markNow()
-        val sectionBlocksCache = documentCacheLock.withLock { cachedSectionBlocks }
+        val sectionBlocksCache = documentCacheLock.withLock { cachedSectionBlocks.takeIf { cachedDocumentId == documentId } }
         val fallbackSectionBlocks: (ReaderSection) -> List<ReaderBlock> = if (sectionBlocksCache != null) {
             { section -> sectionBlocksCache.blocksFor(section.index) }
         } else {
@@ -1220,10 +1247,16 @@ class DocumentRepositoryImpl(
      * [importNextSections] is extending in place, and the scratch copy is exactly what it is still
      * reading from — deleting either mid-import would throw away real progress, not stale data.
      *
+     * Always bumps [documentCacheGeneration], even when [documentId] does not match whatever is
+     * currently cached: a [getReaderDocument] load already in flight for this same document has no way
+     * to know that from inside its own call, and the bump is exactly what tells it not to publish a
+     * snapshot that started before this invalidation into the cache after it.
+     *
      * @param documentId The document whose in-memory caches to drop, if it is the one currently cached.
      */
     private suspend fun invalidateDocumentCache(documentId: DocumentId) {
         documentCacheLock.withLock {
+            documentCacheGeneration += 1
             if (cachedDocumentId == documentId) {
                 cachedDocumentId = null
                 cachedReaderDocument = null
@@ -1933,6 +1966,14 @@ class DocumentRepositoryImpl(
      * spine item including ones not yet parsed by an earlier batch, and a word/character count is a sum
      * over sections that would be wrong — not just incomplete — if taken mid-import.
      *
+     * [invalidateDocumentCache] runs before the completion stamp is written, not after: writing the
+     * stamp first left a window where `documents.importCompletedAtEpochMillis` was already visible to
+     * [isImportComplete] while [getReaderDocument] still served the pre-completion cached document — an
+     * empty table of contents a reader caught in that window would see stick until the next app
+     * relaunch, since nothing would invalidate the cache again afterwards. Invalidating first closes that
+     * window: by the time the stamp is visible, [getReaderDocument] can no longer answer from a cache
+     * entry that predates the navigation resolved just above.
+     *
      * @param documentId The document being finished.
      * @param entity The document's current stored row, copied forward with the rolled-up counts and the
      *   completion stamp.
@@ -1967,6 +2008,7 @@ class DocumentRepositoryImpl(
             documentTitle = container.documentTitle,
             navigationJson = json.encodeToString(navigation),
         )
+        invalidateDocumentCache(documentId)
         documentDao.upsertDocument(
             entity.copy(
                 characterCount = entries.sumOf { it.text.length.toLong() },
@@ -1979,7 +2021,6 @@ class DocumentRepositoryImpl(
             epubSectionPathByIndexByDocumentId.remove(documentId)
         }
         clearEpubScratchContainer(documentId)
-        invalidateDocumentCache(documentId)
     }
 
     /**
@@ -1989,6 +2030,10 @@ class DocumentRepositoryImpl(
      * [finishEpubImport]'s final step, but with no navigation to resolve since there was never a spine to
      * walk.
      *
+     * Same as [finishEpubImport], [invalidateDocumentCache] runs before the completion stamp is written,
+     * not after — otherwise a reader landing between the two statements would see [isImportComplete]
+     * answer true while [getReaderDocument] still served the pre-completion cached document.
+     *
      * @param documentId The document being finished.
      * @param entity The document's current stored row, copied forward with the rolled-up counts and the
      *   completion stamp.
@@ -1997,6 +2042,7 @@ class DocumentRepositoryImpl(
      */
     private suspend fun finishNonProgressiveEpubImport(documentId: DocumentId, entity: DocumentEntity): ImportProgress {
         val entries = searchIndexDao.getDocumentSectionsWithoutBlocks(documentId.value)
+        invalidateDocumentCache(documentId)
         documentDao.upsertDocument(
             entity.copy(
                 characterCount = entries.sumOf { it.text.length.toLong() },
@@ -2009,13 +2055,13 @@ class DocumentRepositoryImpl(
             epubSectionPathByIndexByDocumentId.remove(documentId)
         }
         clearEpubScratchContainer(documentId)
-        invalidateDocumentCache(documentId)
         return ImportProgress(isComplete = true, sectionsImported = 0)
     }
 
     /**
      * Replaces every stored trace of [metadata]'s document with [document]'s sections, invalidating all
-     * caches first so nothing later reads the old content out of them.
+     * caches both before and after the rewrite so nothing ever reads the old *or* the torn content out
+     * of them.
      *
      * Sections are stored with their blocks shifted relative to each section's own start, not as the
      * absolute offsets pagination addresses a page with — see `TextPageLayoutEngine.sectionPageRanges`,
@@ -2031,9 +2077,34 @@ class DocumentRepositoryImpl(
      * metadata edit like toggling a favourite) is what lets this decide the value outright instead of
      * inheriting it.
      *
+     * The leading [invalidateCaches] call only protects against a load that started before this function
+     * runs and is still in flight while it runs — the same [documentCacheGeneration] hole [getReaderDocument]
+     * closes for itself. It does nothing for a load that starts *after* that call: `documentDao.upsertDocument`
+     * makes the row (and, with it, [isImportComplete]) visible immediately, but `searchIndexDao.deleteSearchIndex`
+     * then empties every section row, and they are not written back until `searchIndexDao.upsertSearchIndex`
+     * finishes below. A [getReaderDocument] load that starts anywhere in that window reads zero sections —
+     * for an EPUB repair racing this same function, a blank navigation too — and, unlike [finishEpubImport],
+     * that torn read is not merely uncached: nothing invalidates the cache again afterward, so if that load's
+     * own generation check happens to still match (no other invalidation landed in between), it publishes the
+     * empty snapshot and nothing would ever clear it — the exact bug this whole cache-generation mechanism
+     * exists to close, reopened through the writer instead of the reader.
+     *
+     * The trailing [invalidateDocumentCache] call closes that second hole. It runs unconditionally, after
+     * every row this function touches has been written, so it is never skipped by an early return the way a
+     * `finally` could be forgotten to be. Any load whose own publish raced ahead of it — landing between the
+     * empty read above and this call — named [metadata]'s id when it published, so this call's own
+     * `cachedDocumentId == documentId` check (see [invalidateDocumentCache]) still matches and clears it out
+     * one statement later; the earlier read is not corrected, but it is guaranteed to never survive as the
+     * cached answer. A load that starts after this call simply sees the freshly written rows and needs no
+     * guard at all. This is the mirror image of [finishEpubImport]'s ordering, not the same fix repeated:
+     * there, invalidating first is what is safe, because every field [invalidateDocumentCache] is protecting
+     * is written before that invalidation runs (see that function's own doc); here, this function *is* the
+     * rewrite, so nothing about it is safe until the invalidation also runs after it.
+     *
      * When [coverBytes] is supplied, it is written to the cover file now, while the caller already has
      * it decoded — sparing every later open the whole-file read [getDocumentCover] would otherwise repeat
-     * (see this class's own doc).
+     * (see this class's own doc). The cover file sits outside [ReaderDocument] entirely, so it does not
+     * change which side of the trailing invalidation it happens to land on.
      *
      * @param metadata The metadata row to write.
      * @param document The parsed document whose sections/blocks/navigation to store.
@@ -2069,6 +2140,7 @@ class DocumentRepositoryImpl(
         if (coverBytes != null) {
             documentFileSource?.let { fileSource -> writeCoverFile(coverFilePath(fileSource, metadata.id), coverBytes) }
         }
+        invalidateDocumentCache(metadata.id)
     }
 
     /**
