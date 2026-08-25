@@ -1,5 +1,7 @@
 # TeddReader
 
+*[한국어](README.ko.md)*
+
 A reader for the documents you already have on your device. Open a TXT, EPUB, PDF, CBZ or a folder
 of images, and it remembers where you stopped. Android and iOS share the same Kotlin and the same
 Compose UI; nothing is uploaded anywhere, and there is no account to create.
@@ -18,10 +20,15 @@ text never falls into the fold.
 carousel and page flip. Curl and page flip follow your finger and settle where you release; in a
 spread they fold a single leaf on the spine rather than sliding the whole sheet.
 
-**Comfort.** Font size, line height and family, light/dark/sepia themes, a dimming overlay for
-reading in the dark, and auto-scroll by pixel, line or page. Text is repaginated
-against real measured line boxes, so a larger font or a looser line height reflows instead of
-clipping.
+**Type.** Font size, line height, family — the document's own, sans, serif or mono — and weight,
+from 300 to 600. Emphasis is set relative to the weight you choose, so a heading or a bold run keeps
+its contrast against the body at every setting. Text is repaginated against real measured line
+boxes, so a larger size or a heavier weight reflows the book instead of clipping it.
+
+**Comfort.** Page colours follow the document, the system, or a light, dark or sepia theme of their
+own. A dimming overlay reads below the display's own minimum brightness, and auto-scroll advances by
+pixel, line or page. The interface follows the system language, or can be pinned to English or
+Korean.
 
 **Finding your place.** Bookmarks, in-document search, a page jump, a progress slider, and a
 document info sheet. Reading position is stored per document as a text anchor, so it survives a
@@ -53,7 +60,7 @@ Gradle needs a JDK 17 or newer to run (the modules themselves target Java 11), p
 and Xcode for the iOS side. Put your SDK path in `local.properties` — it is not committed.
 
 ```bash
-./gradlew :androidApp:assembleDebug            # Android debug APK
+./gradlew :androidApp:assembleDebug                  # Android debug APK
 ./gradlew :feature:reader:impl:testAndroidHostTest   # JVM unit tests for one module
 ./gradlew :core:data:iosSimulatorArm64Test           # the same tests on the iOS simulator target
 ```
@@ -79,4 +86,4 @@ on purpose, so they can be tested without a device.
 
 Kotlin 2.4 · Compose Multiplatform 1.11 · Material 3 · Koin (annotations) · Room 3 with bundled
 SQLite · DataStore over Okio · Coil 3 · Navigation 3 · kotlinx coroutines, serialization, datetime
-and immutable collections. Android minSdk 24.
+and immutable collections. Android minSdk 24, compileSdk 37.
