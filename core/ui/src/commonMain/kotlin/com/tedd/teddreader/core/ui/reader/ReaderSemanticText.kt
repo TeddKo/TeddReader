@@ -25,6 +25,7 @@ import com.tedd.teddreader.core.common.model.ReaderBoxStyle
 import com.tedd.teddreader.core.common.model.ReaderColor
 import com.tedd.teddreader.core.common.model.ReaderFloat
 import com.tedd.teddreader.core.common.model.ReaderFontFamily
+import com.tedd.teddreader.core.common.model.ReaderDefaultFontWeight
 import com.tedd.teddreader.core.common.model.ReaderDefaultLineHeightMultiplier
 import com.tedd.teddreader.core.common.model.ReaderInlineStyle
 import com.tedd.teddreader.core.common.model.ReaderSpanStyle
@@ -211,6 +212,11 @@ fun readerReferencedFontHrefs(blocks: List<ReaderBlock>): Set<String> = buildSet
  * @param publisherFontsEnabled whether publisher-requested generic/custom font families should be applied.
  * @param floatTextFitter shared float fitting callback; null disables float nesting and leaves images as plain
  * placeholders.
+ * @param baseFontWeight the reader's chosen base body weight — the same 300..600 value the reader style
+ * stores as its own `fontWeight`. Publisher emphasis (a heading, a bold run, a table header cell) is
+ * drawn relative to this rather than at a fixed weight, so raising or lowering it does not close the gap
+ * between body text and emphasis. Defaults to [ReaderDefaultFontWeight] so existing callers, tests
+ * included, keep drawing exactly what they did before this parameter existed.
  * @return the drawable string, its offset map, and the boxes reserved for pictures. Empty [text] yields an
  * empty string with a one-entry map, never an invalid one.
  */
@@ -226,6 +232,7 @@ fun buildReaderSemanticText(
     publisherFontsEnabled: Boolean = true,
     floatTextFitter: ReaderFloatTextFitter? = null,
     lineHeightMultiplier: Float = 1f,
+    baseFontWeight: Int = ReaderDefaultFontWeight,
 ): ReaderSemanticText {
     if (text.isEmpty()) {
         return ReaderSemanticText(AnnotatedString(""), intArrayOf(0), emptyList())
@@ -358,6 +365,7 @@ fun buildReaderSemanticText(
     val spans = mutableListOf<Pair<IntRange, SpanStyle>>()
     val annotations = mutableListOf<Triple<String, String, IntRange>>()
     val paragraphs = mutableListOf<Pair<IntRange, ParagraphStyle>>()
+    val emphasisWeights = readerEmphasisWeights(baseFontWeight)
 
     clampedBlocks.forEach { block ->
         if (block.block.kind == ReaderBlockKind.IMAGE || block.block.kind == ReaderBlockKind.COVER_IMAGE || block.block.kind == ReaderBlockKind.SEPARATOR) return@forEach
@@ -371,7 +379,7 @@ fun buildReaderSemanticText(
         val blockEnd = sourceToDisplay[block.localEnd]
         if (blockEnd <= blockStart) return@forEach
 
-        blockSpanStyle(block.block, embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled)?.let { spans += (blockStart until blockEnd) to it }
+        blockSpanStyle(block.block, embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled, emphasisWeights)?.let { spans += (blockStart until blockEnd) to it }
         run {
             val paragraphStyle = blockParagraphStyle(
                 block = block.block,
@@ -389,7 +397,7 @@ fun buildReaderSemanticText(
             val displayStart = sourceToDisplay[start]
             val displayEnd = sourceToDisplay[end]
             if (displayEnd <= displayStart) return@forEach
-            inlineSpanStyle(span, embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled)?.let { spans += (displayStart until displayEnd) to it }
+            inlineSpanStyle(span, embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled, emphasisWeights)?.let { spans += (displayStart until displayEnd) to it }
             if (span.style == ReaderInlineStyle.LINK) {
                 span.href?.let { href -> annotations += Triple(ReaderLinkTag, href, displayStart until displayEnd) }
             }
@@ -802,6 +810,8 @@ private fun blockPrefix(block: ReaderBlock): String = when (block.kind) {
  * @param publisherColorsEnabled whether the book's own foreground colors apply, or the theme's ink wins.
  * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
  *   reader has chosen a font of their own, which then has to win over every family this function could set.
+ * @param emphasisWeights the weights a heading, a table header cell, and a book-stated bold or explicit
+ *   non-bold draw at, derived from the reader's own base weight (see [readerEmphasisWeights]).
  * @return the style this block contributes, or null when it asks for nothing.
  */
 private fun blockSpanStyle(
@@ -809,17 +819,18 @@ private fun blockSpanStyle(
     embeddedFontFamiliesByHref: Map<String, FontFamily>,
     publisherColorsEnabled: Boolean,
     publisherFontsEnabled: Boolean,
+    emphasisWeights: ReaderEmphasisWeights,
 ): SpanStyle? {
     val kindStyle = when (block.kind) {
-        ReaderBlockKind.HEADING -> SpanStyle(fontWeight = FontWeight.Bold, fontSize = headingScale(block.level).em)
+        ReaderBlockKind.HEADING -> SpanStyle(fontWeight = emphasisWeights.strong, fontSize = headingScale(block.level).em)
         ReaderBlockKind.QUOTE -> SpanStyle(fontStyle = FontStyle.Italic)
         ReaderBlockKind.PREFORMATTED -> SpanStyle(fontFamily = FontFamily.Monospace).takeIf { publisherFontsEnabled }
-        ReaderBlockKind.TABLE_HEADER_CELL -> SpanStyle(fontWeight = FontWeight.SemiBold)
+        ReaderBlockKind.TABLE_HEADER_CELL -> SpanStyle(fontWeight = emphasisWeights.subtle)
         else -> null
     }
     val bookStyle = block.style ?: return kindStyle
     val merged = SpanStyle(
-        fontWeight = bookStyle.bold?.let { if (it) FontWeight.Bold else FontWeight.Normal } ?: kindStyle?.fontWeight,
+        fontWeight = bookStyle.bold?.let { if (it) emphasisWeights.strong else emphasisWeights.base } ?: kindStyle?.fontWeight,
         fontStyle = bookStyle.italic?.let { if (it) FontStyle.Italic else FontStyle.Normal } ?: kindStyle?.fontStyle,
         fontSize = bookStyle.fontScale?.em ?: kindStyle?.fontSize ?: TextUnit.Unspecified,
         fontFamily = bookStyle.toComposeFontFamily(embeddedFontFamiliesByHref).takeIf { publisherFontsEnabled } ?: kindStyle?.fontFamily,
@@ -831,6 +842,61 @@ private fun blockSpanStyle(
 
 /** A style that asks for nothing, compared against so an all-null merge is reported as no style at all. */
 private val EmptySpanStyle = SpanStyle()
+
+/**
+ * The three weights publisher emphasis draws at relative to the reader's own base body weight.
+ *
+ * A heading, a table header cell, and a book-stated bold run are emphasis *against whatever the page's
+ * plain text is drawn at*, never an absolute weight — drawing "bold" as the fixed [FontWeight.Bold] is
+ * how raising the reader's base weight to 600 closed the gap entirely (600 body against 700 "bold" reads
+ * as no emphasis at all), and how lowering it to 300 made ordinary emphasis look disproportionately
+ * heavy. Holding the step from body to emphasis constant instead of the resulting weight is what keeps
+ * that contrast the same at every base the reader can choose.
+ *
+ * @property strong the weight a heading and a book-stated bold run draw at.
+ * @property subtle the weight a table header cell draws at — a lighter emphasis than [strong], the same
+ *   way [FontWeight.SemiBold] used to sit below [FontWeight.Bold].
+ * @property base the weight a book that explicitly cancels an inherited bold (`font-weight: normal`
+ *   inside a bold context) resolves to — the reader's own base weight itself, not a fixed
+ *   [FontWeight.Normal] that would fight a heavier or lighter reader setting.
+ */
+private class ReaderEmphasisWeights(
+    val strong: FontWeight,
+    val subtle: FontWeight,
+    val base: FontWeight,
+)
+
+/** How much heavier [ReaderEmphasisWeights.strong] draws than the reader's own base weight. */
+private const val StrongEmphasisStep = 300
+
+/** How much heavier [ReaderEmphasisWeights.subtle] draws than the reader's own base weight. */
+private const val SubtleEmphasisStep = 200
+
+/**
+ * Derives [ReaderEmphasisWeights] for [baseFontWeight], so every place emphasis is drawn scales its
+ * contrast from the same base instead of repeating the same two additions four times over.
+ *
+ * At [ReaderDefaultFontWeight] (400) this reproduces today's fixed 700/600/400 exactly, so a reader who
+ * never touches the font-weight setting sees no change at all from this contrast becoming relative
+ * instead of absolute. The reader's own base weight is bounded to 300..600 wherever it is stored (see
+ * `ReaderStyle`'s own validation), which puts [strong][ReaderEmphasisWeights.strong] — the heaviest of
+ * the three — at 600..900, safely inside range; the coercion below is not a guard against that arithmetic
+ * but against a caller that skips `ReaderStyle`'s own validation, since [FontWeight] itself only accepts
+ * 1..1000 and throws for anything outside it — including 0, which an uncoerced [baseFontWeight] would
+ * otherwise pass straight through.
+ *
+ * @param baseFontWeight the reader's chosen base body weight.
+ * @return the weights a heading, a table header cell, and a book-stated bold or explicit non-bold each
+ * draw at for this base.
+ */
+private fun readerEmphasisWeights(baseFontWeight: Int): ReaderEmphasisWeights {
+    val validRange = 1..1000
+    return ReaderEmphasisWeights(
+        strong = FontWeight((baseFontWeight + StrongEmphasisStep).coerceIn(validRange)),
+        subtle = FontWeight((baseFontWeight + SubtleEmphasisStep).coerceIn(validRange)),
+        base = FontWeight(baseFontWeight.coerceIn(validRange)),
+    )
+}
 
 /**
  * @receiver the generic family the book asked for.
@@ -972,6 +1038,8 @@ private fun Char.isWideScript(): Boolean = code in 0x1100..0x11FF ||
  * @param publisherColorsEnabled whether the book's own foreground colors apply to this run.
  * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
  *   reader has chosen a font of their own.
+ * @param emphasisWeights the weights a bold run and a book-stated explicit non-bold draw at, derived from
+ *   the reader's own base weight (see [readerEmphasisWeights]).
  * @return the Compose style that renders it; a link is underlined here and carries its href as a separate
  * annotation, since a colour alone would not survive a theme change.
  */
@@ -980,9 +1048,10 @@ private fun inlineSpanStyle(
     embeddedFontFamiliesByHref: Map<String, FontFamily>,
     publisherColorsEnabled: Boolean,
     publisherFontsEnabled: Boolean,
+    emphasisWeights: ReaderEmphasisWeights,
 ): SpanStyle? {
     val semanticStyle = when (span.style) {
-        ReaderInlineStyle.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
+        ReaderInlineStyle.BOLD -> SpanStyle(fontWeight = emphasisWeights.strong)
         ReaderInlineStyle.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
         ReaderInlineStyle.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
         ReaderInlineStyle.STRIKETHROUGH -> SpanStyle(textDecoration = TextDecoration.LineThrough)
@@ -992,7 +1061,7 @@ private fun inlineSpanStyle(
         ReaderInlineStyle.LINK -> SpanStyle(textDecoration = TextDecoration.Underline)
         null -> null
     }
-    val deltaStyle = span.styleDelta?.toComposeSpanStyle(embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled)
+    val deltaStyle = span.styleDelta?.toComposeSpanStyle(embeddedFontFamiliesByHref, publisherColorsEnabled, publisherFontsEnabled, emphasisWeights)
     return when {
         semanticStyle == null -> deltaStyle
         deltaStyle == null -> semanticStyle
@@ -1000,12 +1069,23 @@ private fun inlineSpanStyle(
     }
 }
 
+/**
+ * The Compose span style this CSS delta asks for, on the same terms as [blockSpanStyle]'s own merge.
+ *
+ * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
+ * @param publisherColorsEnabled whether the book's own foreground colors apply to this run.
+ * @param publisherFontsEnabled whether the document's typeface choices apply at all.
+ * @param emphasisWeights the weights [bold] resolves to — [ReaderEmphasisWeights.strong] when true,
+ *   [ReaderEmphasisWeights.base] when explicitly false, derived from the reader's own base weight.
+ * @return the Compose style this delta describes.
+ */
 private fun ReaderSpanStyle.toComposeSpanStyle(
     embeddedFontFamiliesByHref: Map<String, FontFamily>,
     publisherColorsEnabled: Boolean,
     publisherFontsEnabled: Boolean,
+    emphasisWeights: ReaderEmphasisWeights,
 ): SpanStyle = SpanStyle(
-    fontWeight = bold?.let { if (it) FontWeight.Bold else FontWeight.Normal },
+    fontWeight = bold?.let { if (it) emphasisWeights.strong else emphasisWeights.base },
     fontStyle = italic?.let { if (it) FontStyle.Italic else FontStyle.Normal },
     // A span's em is resolved by Compose against the size already in force at its position, which is
     // exactly what a delta ratio means — no re-anchoring to the reader's base here.
