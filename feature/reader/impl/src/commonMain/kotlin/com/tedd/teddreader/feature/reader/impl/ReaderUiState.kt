@@ -11,6 +11,7 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.isImagePageFormat
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
+import com.tedd.teddreader.core.common.model.withLayoutFieldsOf
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -93,7 +94,16 @@ data class ReaderPageUi(
  *   [previousPage].
  * @property pageSlots The full set of page slots the view model currently holds beyond just the
  *   current/previous/next triple — used where a pager needs to look further afield.
- * @property style The active typography/theme style pages are rendered with.
+ * @property style The active typography/theme style pages are rendered with — what the reader just
+ *   chose, and what every picker, preview, and committed-value readout shows. See [pageDrawStyle] for
+ *   what the page surfaces actually draw with, which is not always the same value.
+ * @property pageLayoutStyle The style [currentPage], [previousPage], [nextPage], and [pageSlots] were
+ *   actually paginated under, or null when they were paginated under whatever [style] already says —
+ *   the common case, true from the moment a document opens until some other publish changes [style]
+ *   ahead of the re-pagination it triggers. Written by
+ *   [ReaderViewModel][com.tedd.teddreader.feature.reader.impl.ReaderViewModel] in lockstep with its
+ *   own `paginated` field, never read directly outside this class — [pageDrawStyle] is the value
+ *   every render-path consumer should read instead.
  * @property isControlsVisible Whether the top bar, bottom bar, and status footer are shown; a tap
  *   in the page area toggles this.
  * @property isLoading True while the document is still being opened; `ReaderScreen` shows a
@@ -151,6 +161,7 @@ data class ReaderUiState(
     val nextPage: ReaderPageUi? = null,
     val pageSlots: ImmutableList<ReaderPageUi> = persistentListOf(),
     val style: ReaderStyle = ReaderStyle(),
+    val pageLayoutStyle: ReaderStyle? = null,
     /**
      * The page margins the open book's own `html`/`body` styling asks for, resolved once by the
      * view-model — from the first frame when possible — so the pane's padding never flips after the
@@ -195,4 +206,30 @@ data class ReaderUiState(
 
     /** True for a document format (CBZ) that pages as one decoded image per page. */
     val isImageMode: Boolean get() = documentFormat.isImagePageFormat()
+
+    /**
+     * The style to actually draw [currentPage]/[previousPage]/[nextPage]/[pageSlots] with:
+     * [pageLayoutStyle]'s type — font family, size, line height — laid over [style]'s colour, theme,
+     * and background image, or [style] itself once [pageLayoutStyle] is null and the two already
+     * agree.
+     *
+     * This is what keeps a layout-affecting setting change from clipping or gapping the pages already
+     * on screen. Changing font, size, or line height publishes the new [style] to this state
+     * synchronously, but the page slices held in [currentPage] and its neighbours were sliced for
+     * whatever style was live *before* that change — the pane only remeasures and reports back
+     * asynchronously, and until it does there is no fresh slice to show. Reading [style] directly at
+     * the two page-drawing call sites would draw those old slices with the new type: on an emulator
+     * run that produced pages up to 167px too tall for a 2641px page (bottom lines clipped) or as much
+     * as 434px of unfilled page. Reading through this getter instead draws the same old slices with
+     * the type they were actually cut for, and the swap to the new type is atomic because
+     * [pageLayoutStyle] is published in the same state update as the freshly re-measured slices — see
+     * `ReaderPagePane` in `ReaderScreen.kt`, the one composable that must read this instead of [style]
+     * for its two draw calls, and must keep reading [style] itself for measurement and for the padding
+     * that defines the box being measured.
+     *
+     * @return [style] with its layout fields replaced by [pageLayoutStyle]'s, or [style] unchanged
+     *   when [pageLayoutStyle] is null.
+     */
+    val pageDrawStyle: ReaderStyle
+        get() = pageLayoutStyle?.let { style.withLayoutFieldsOf(it) } ?: style
 }

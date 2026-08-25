@@ -70,7 +70,9 @@ import org.jetbrains.compose.resources.stringResource
  * lines the glyphs occupy.
  *
  * @param page the already-sliced page content to draw, including embedded image bytes and failure state.
- * @param style the current reader style, including theme mode and any user font override.
+ * @param style the style this page's slices were measured under, including theme mode and any user
+ * font override — colour rides in from the live style regardless; see `ReaderPagePane` in
+ * `ReaderScreen.kt` for what actually chooses which style reaches this parameter.
  * @param embeddedFontFamiliesByHref resolved embedded font families keyed by EPUB href, shared with the page
  * breaker so measurement and rendering stay in sync.
  * @param modifier applied to the page root.

@@ -355,6 +355,38 @@ fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
 )
 
 /**
+ * This style with its layout-affecting fields replaced by [measured]'s, used to draw a set of pages
+ * with the type they were actually paginated under while keeping every other choice — colour,
+ * background image, theme — live.
+ *
+ * A layout-affecting setting change (font family, font size, line height) publishes the new
+ * [ReaderStyle] to the render path immediately, but the page slices on screen were sliced for the
+ * *previous* style and only get re-measured once the pane recomposes, remeasures, and reports back —
+ * an asynchronous round-trip a setting change cannot wait for without blanking the book. Drawing
+ * those slices with the new style in that window mixes a page measured for one font/size/line-height
+ * with glyphs laid out for another, which is exactly how a page clips its last line or leaves a gap
+ * at the bottom. This function is the exact inverse of [layoutKey]: it copies precisely the fields
+ * that decide where pages break, so a caller can build "the live style, but with the on-screen
+ * slices' own type" — see `ReaderUiState.pageDrawStyle`, the one place this is meant to be used from.
+ *
+ * The fields copied here must stay in lockstep with [layoutKey]'s own fields, because this is now the
+ * second place in the codebase that has to agree on "what counts as layout." A layout field added to
+ * one without the other silently reopens the stale-slice defect this function exists to close.
+ *
+ * @receiver the live style, whose colour and theme fields survive into the result unchanged.
+ * @param measured the style the on-screen page slices were actually measured and laid out under.
+ * @return this style with [ReaderStyle.fontSizeSp], [ReaderStyle.fontFamilyName],
+ * [ReaderStyle.publisherFontKey], and [ReaderStyle.lineHeightMultiplier] taken from [measured], and
+ * every other field — colour, background image, theme mode — taken from the receiver.
+ */
+fun ReaderStyle.withLayoutFieldsOf(measured: ReaderStyle): ReaderStyle = copy(
+    fontSizeSp = measured.fontSizeSp,
+    lineHeightMultiplier = measured.lineHeightMultiplier,
+    fontFamilyName = measured.fontFamilyName,
+    publisherFontKey = measured.publisherFontKey,
+)
+
+/**
  * Marker folded into every [ReaderLayoutKey]'s family field, bumped whenever the *layout algorithm*
  * changes — gap sizing, style resolution, anything that moves a line without moving a character.
  *

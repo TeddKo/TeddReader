@@ -107,6 +107,35 @@ class ReaderViewModel(
     private var paginated: PaginatedDocument = PaginatedDocument()
 
     /**
+     * The style [paginated]'s page windows were actually measured under, or null once a document has
+     * just been reset and nothing has paginated it yet. Written in the same statement group as
+     * [paginated] itself, everywhere [paginated] is written for a reason that can change what style it
+     * was measured for: the reset in [openDocument], the adoption in [loadOpenState], and the fresh
+     * measurement in [reloadPages]. [refreshEpubPages], [republishSurroundingPages],
+     * [moveToPageInternal], and [publishFirstFrame] only ever re-announce the pagination this field
+     * already describes, so they read it rather than write it.
+     *
+     * This is the field [ReaderUiState.pageLayoutStyle] mirrors, and it exists to close the window
+     * where a layout-affecting style change (font, size, line height) publishes the new style
+     * synchronously while [paginated] still holds slices sliced for the old one: every `_uiState.update`
+     * that publishes [paginated]'s pages must also publish `pageLayoutStyle = paginatedStyle` in that
+     * same update, or the page surfaces would draw those still-old slices with the new style's type,
+     * clipping lines or leaving a gap at the bottom of the page. This is a convention this class
+     * enforces by review, not something the compiler checks — a future publish site added without it
+     * reopens a narrow version of the same defect.
+     *
+     * The reset in [openDocument] is defensive symmetry with the `paginated` reset beside it, and no
+     * test pins it: [ReaderUiState.pageLayoutStyle] defaults to null and [openDocument] replaces the
+     * whole state object anyway, so at every instant a test can observe, the published state already
+     * reads null whether or not this field was reset. What the reset actually guards is the path where
+     * [loadOpenState] returns at its own first guard and never reassigns this field — a book that
+     * fails to load, or a fast swap back and forth — after which a later publish would pin the
+     * previous book's type onto the new one. Reaching that from a test needs fault injection the fake
+     * repositories do not offer, so this line is held by reading rather than by a test.
+     */
+    private var paginatedStyle: ReaderStyle? = null
+
+    /**
      * The reading position as an absolute text offset, independent of any one pagination pass.
      *
      * Page numbers only mean something for the one (style, viewport) pagination that produced
@@ -314,6 +343,7 @@ class ReaderViewModel(
         importContinuationJob?.cancel()
         paginationContinuationJob?.cancel()
         paginated = PaginatedDocument()
+        paginatedStyle = null
         anchorOffset = null
         pageBreaker = null
         pageBreakerStyle = null
@@ -466,6 +496,7 @@ class ReaderViewModel(
             pageBreakerStyle = open.settings.style.takeIf { open.rememberedViewportSize != null }
         }
         paginated = open.paginated
+        paginatedStyle = open.settings.style
         finalCharacterCount = open.metadata?.characterCount.takeIf { open.isImportComplete }
         logger.d {
             "opening total=${open.totalPages} single pages from windows=${open.pageWindows.size}, " +
@@ -553,6 +584,7 @@ class ReaderViewModel(
                 ),
                 currentPage = currentPageUi,
                 style = styleWithPublisherFontKey(state.settings.style, state.documentFormat),
+                pageLayoutStyle = paginatedStyle,
                 publisherPageMargins = epubPageContainerMarginsEm(currentPageUi),
                 areEmbeddedFontsResolved = state.documentFormat != DocumentFormat.EPUB || embeddedFontsSettled,
                 pageTurnMode = state.settings.pageTurnMode,
@@ -1123,6 +1155,18 @@ class ReaderViewModel(
      * type nobody has read this book at before has no stored layout to fall back on; finishing the
      * rest of the measurement is handed to [refreshPaginationCompleteness] in the background.
      *
+     * A layout-key change publishes [style] to [ReaderUiState.style] here, synchronously, before any
+     * re-measurement has happened — [reloadPages] only starts afterward, inside [saveReaderSettings]'s
+     * launched coroutine, and even then it can only reload once the pane has recomposed, remeasured,
+     * and reported a breaker for the new key. Until that lands, [ReaderUiState.currentPage] and its
+     * neighbours still hold page slices sliced for the *previous* style. The reader keeps drawing
+     * those slices with the type they were actually measured under — [ReaderUiState.pageDrawStyle],
+     * not [ReaderUiState.style] itself — for exactly that window, so a font, size, or line-height
+     * change never clips a line or opens a gap at the bottom of a page that has not been re-measured
+     * yet. [paginatedStyle] is what makes that pinned type atomic with the re-measurement: it changes
+     * in the same statement group as [paginated], so the frame that first shows the new slices is the
+     * same frame that starts drawing them with the new type.
+     *
      * @param style the style to publish and persist.
      */
     private fun updateStyle(style: ReaderStyle) {
@@ -1284,6 +1328,7 @@ class ReaderViewModel(
                 pageIndex = nextIndex,
                 pageText = facing.current.text,
                 style = styleWithPublisherFontKey(it.style, it.documentFormat),
+                pageLayoutStyle = paginatedStyle,
                 readProgressPercent = readProgressPercentFor(
                     pageIndex = nextIndex,
                     isVisualMode = it.isVisualMode,
@@ -1318,6 +1363,7 @@ class ReaderViewModel(
                 )
                 it.copy(
                     pageText = facing.current.text,
+                    pageLayoutStyle = paginatedStyle,
                     previousPage = facing.previous,
                     currentPage = facing.current,
                     nextPage = facing.next,
@@ -1355,6 +1401,7 @@ class ReaderViewModel(
                 nextPage = facing.next,
                 pageSlots = facing.slots,
                 style = styleWithPublisherFontKey(state.style, state.documentFormat),
+                pageLayoutStyle = paginatedStyle,
             )
         }
     }
@@ -1421,6 +1468,7 @@ class ReaderViewModel(
             anchorOffset?.let { offset -> PaginatedDocument(pageWindows).pageOf(offset) }
                 ?: _uiState.value.pageIndex.current.coerceIn(0, pageWindows.lastIndex)
         paginated = paginated.withPages(pageWindows)
+        paginatedStyle = style
         val freshSections = documentRepository.getReaderDocument(documentId)?.sections
         if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
         if (freshSections != null) paginated = paginated.withSections(freshSections)
@@ -1441,6 +1489,7 @@ class ReaderViewModel(
                 pageIndex = pageIndex,
                 pageText = facing.current.text,
                 style = styleWithPublisherFontKey(it.style, it.documentFormat),
+                pageLayoutStyle = paginatedStyle,
                 readProgressPercent = readProgressPercentFor(
                     pageIndex = pageIndex,
                     isVisualMode = false,
@@ -1769,6 +1818,7 @@ class ReaderViewModel(
                 nextPage = facing.next,
                 pageSlots = facing.slots,
                 style = styleWithPublisherFontKey(it.style, it.documentFormat),
+                pageLayoutStyle = paginatedStyle,
                 // Held once found: a page still decoding carries no containers, and dropping to zero
                 // for it would flip the pane's padding and re-measure the book for nothing.
                 publisherPageMargins = it.publisherPageMargins.takeUnless(ReaderPageMarginsEm::isZero)
