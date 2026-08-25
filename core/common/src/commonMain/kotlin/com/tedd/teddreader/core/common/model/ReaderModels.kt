@@ -363,7 +363,7 @@ fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
  * pages until the user happened to change a setting. Folding the version into the key makes every stored
  * layout from an older algorithm a clean cache miss instead; the store's own trimming then discards them.
  */
-private const val LayoutAlgorithmVersionSuffix = "#layout7"
+private const val LayoutAlgorithmVersionSuffix = "#layout8"
 
 /**
  * This style under [mode], which is how a theme choice is applied: the mode's colours are copied in and
