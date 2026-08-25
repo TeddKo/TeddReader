@@ -281,8 +281,8 @@ data class BackgroundImage(
  * moves where pages break, which is why [layoutKey] exists and why measurement keys on it instead of on
  * this whole object.
  *
- * The bounds in `init` are what a stored style is trusted to hold — 8..80sp, 1..3× line height — so
- * every screen can render a persisted style without re-validating it.
+ * The bounds in `init` are what a stored style is trusted to hold — 8..80sp, 1..3× line height,
+ * 300..600 font weight — so every screen can render a persisted style without re-validating it.
  *
  * @property fontSizeSp type size in sp; changing it re-measures the book.
  * @property fontFamilyName the family the reader chose, or null to honor publisher fonts before falling
@@ -291,12 +291,21 @@ data class BackgroundImage(
  * reader knows which embedded fonts loaded or failed for this document, then a stable summary string that
  * forces a fresh measurement for that resolved set without polluting stored settings.
  * @property lineHeightMultiplier line height as a multiple of the font size; also re-measures.
+ * @property fontWeight the base weight the reading surface's body text is drawn at — one of 300, 400,
+ * 500, or 600 — also re-measures, since a heavier or lighter weight changes every glyph's advance and so
+ * moves where lines break exactly like size, line height, and family do. Publisher emphasis (bold runs,
+ * headings) is derived from this value rather than fixed: a heading or a book-stated bold run draws at
+ * this weight plus 300, a table header cell at this weight plus 200, and a book's explicit
+ * `font-weight: normal` inside a bold context resolves back to this weight itself — see
+ * `readerEmphasisWeights` in `core/ui`'s `ReaderSemanticText.kt`. At the default of 400 this reproduces
+ * the previous fixed 700/600/400 exactly, so only a reader who moves this setting away from its default
+ * sees emphasis shift with it.
  * @property textColor the ink colour, which cannot move a line break.
  * @property backgroundColor the page colour, which cannot move a line break either.
  * @property backgroundImage a picture behind the text, or null for a plain page.
  * @property themeMode which theme these colours came from, so [withThemeMode] knows what may be replaced.
- * @throws IllegalArgumentException if [fontSizeSp] is outside 8..80 or [lineHeightMultiplier] outside
- * 1..3.
+ * @throws IllegalArgumentException if [fontSizeSp] is outside 8..80, [lineHeightMultiplier] outside 1..3,
+ * or [fontWeight] outside 300..600.
  */
 @Serializable
 data class ReaderStyle(
@@ -304,6 +313,7 @@ data class ReaderStyle(
     val fontFamilyName: String? = null,
     @Transient val publisherFontKey: String? = null,
     val lineHeightMultiplier: Float = ReaderDefaultLineHeightMultiplier,
+    val fontWeight: Int = ReaderDefaultFontWeight,
     val textColor: ReaderColor = ReaderColor(ReaderLightTextArgb),
     val backgroundColor: ReaderColor = ReaderColor(ReaderLightBackgroundArgb),
     val backgroundImage: BackgroundImage? = null,
@@ -312,6 +322,7 @@ data class ReaderStyle(
     init {
         require(fontSizeSp in 8f..80f) { "fontSizeSp must be 8..80." }
         require(lineHeightMultiplier in 1f..3f) { "lineHeightMultiplier must be 1..3." }
+        require(fontWeight in 300..600) { "fontWeight must be 300..600." }
     }
 }
 
@@ -325,6 +336,14 @@ data class ReaderStyle(
  * touched anything.
  */
 const val ReaderDefaultLineHeightMultiplier: Float = 1.45f
+
+/**
+ * The reader's out-of-the-box body-text weight, the middle of the four weights the font-weight setting
+ * offers — 300, 400, 500, 600 — and what an ordinary system or web font calls "regular." [layoutKey]
+ * treats this specific value as the case that needs no extra token in its stored key, so a reader who
+ * never touches the setting keeps every layout already measured for their books.
+ */
+const val ReaderDefaultFontWeight: Int = 400
 
 /**
  * The part of a [ReaderStyle] that decides where the pages break.
@@ -344,22 +363,46 @@ data class ReaderLayoutKey(
     val fontFamilyName: String?,
 )
 
-/** The [ReaderLayoutKey] for this style — what to compare when the question is "must this be measured again?".
+/**
+ * The [ReaderLayoutKey] for this style — what to compare when the question is "must this be measured
+ * again?". [ReaderStyle.fontWeight] belongs in this key exactly as much as size, line height, and family
+ * do — a heavier or lighter weight changes every glyph's advance and moves line breaks — but
+ * [ReaderLayoutKey] itself gains no fourth column for it: the Room layer keys a stored layout on exactly
+ * [ReaderLayoutKey.fontSizeSp], [ReaderLayoutKey.lineHeightMultiplier], and
+ * [ReaderLayoutKey.fontFamilyName] (see `DocumentRepositoryImpl.newestStoredViewportSize`), so a fourth
+ * field would mean a schema migration. [fontWeightToken] folds the weight into the family string
+ * instead, the same way [ReaderStyle.publisherFontKey] already is, and it answers the empty string at
+ * [ReaderDefaultFontWeight] specifically so a reader who never touches this setting keeps every layout
+ * already measured for their books instead of every one of them going stale the moment this setting
+ * shipped.
+ *
  * @receiver the style to reduce.
  * @return only the fields that decide page boundaries.
  */
 fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
     fontSizeSp = fontSizeSp,
     lineHeightMultiplier = lineHeightMultiplier,
-    fontFamilyName = "${fontFamilyName ?: publisherFontKey ?: ""}$LayoutAlgorithmVersionSuffix",
+    fontFamilyName = "${fontFamilyName ?: publisherFontKey ?: ""}${fontWeightToken()}$LayoutAlgorithmVersionSuffix",
 )
+
+/**
+ * The token [layoutKey] folds into its family string for [ReaderStyle.fontWeight], since
+ * [ReaderLayoutKey] has no column of its own for the weight (see [layoutKey]'s own doc for why).
+ *
+ * @receiver the style to read the weight from.
+ * @return the empty string at [ReaderDefaultFontWeight], so an untouched setting changes no stored key
+ * at all; `"|w<weight>"` otherwise, which is what forces a fresh measurement — and a distinct stored
+ * layout — once the weight actually differs from the default.
+ */
+private fun ReaderStyle.fontWeightToken(): String =
+    if (fontWeight == ReaderDefaultFontWeight) "" else "|w$fontWeight"
 
 /**
  * This style with its layout-affecting fields replaced by [measured]'s, used to draw a set of pages
  * with the type they were actually paginated under while keeping every other choice — colour,
  * background image, theme — live.
  *
- * A layout-affecting setting change (font family, font size, line height) publishes the new
+ * A layout-affecting setting change (font family, font size, line height, font weight) publishes the new
  * [ReaderStyle] to the render path immediately, but the page slices on screen were sliced for the
  * *previous* style and only get re-measured once the pane recomposes, remeasures, and reports back —
  * an asynchronous round-trip a setting change cannot wait for without blanking the book. Drawing
@@ -376,13 +419,15 @@ fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
  * @receiver the live style, whose colour and theme fields survive into the result unchanged.
  * @param measured the style the on-screen page slices were actually measured and laid out under.
  * @return this style with [ReaderStyle.fontSizeSp], [ReaderStyle.fontFamilyName],
- * [ReaderStyle.publisherFontKey], and [ReaderStyle.lineHeightMultiplier] taken from [measured], and
- * every other field — colour, background image, theme mode — taken from the receiver.
+ * [ReaderStyle.publisherFontKey], [ReaderStyle.lineHeightMultiplier], and [ReaderStyle.fontWeight] taken
+ * from [measured], and every other field — colour, background image, theme mode — taken from the
+ * receiver.
  */
 fun ReaderStyle.withLayoutFieldsOf(measured: ReaderStyle): ReaderStyle = copy(
     fontSizeSp = measured.fontSizeSp,
     lineHeightMultiplier = measured.lineHeightMultiplier,
     fontFamilyName = measured.fontFamilyName,
+    fontWeight = measured.fontWeight,
     publisherFontKey = measured.publisherFontKey,
 )
 
@@ -462,8 +507,8 @@ fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) 
  * Every other mode is returned untouched — an explicit light, dark, or sepia choice is a decision to
  * ignore the system setting, and [ReaderThemeMode.PUBLISHER] keeps the document's own colours.
  *
- * Page layout is unaffected: [layoutKey] covers type size, line height and family, so changing colour
- * never invalidates a stored pagination.
+ * Page layout is unaffected: [layoutKey] covers type size, line height, family, and weight, so changing
+ * colour never invalidates a stored pagination.
  *
  * @receiver the persisted style, whose [ReaderStyle.themeMode] decides whether anything changes.
  * @param systemInDarkTheme the platform's live dark-theme flag, sampled by the UI layer.

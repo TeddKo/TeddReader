@@ -1031,6 +1031,71 @@ class ReaderViewModelTest {
     }
 
     /**
+     * Pins the same stale-page-slice fix as
+     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands], for
+     * [ReaderViewModel.updateFontWeight] instead of a font-family change: a layout-affecting style
+     * change (here, weight) publishes [ReaderUiState.style] instantly, but the pages held in
+     * [ReaderUiState.currentPage] were sliced for the *previous* weight and stay that way until the pane
+     * recomposes, remeasures, and reports a breaker for the new key. [ReaderUiState.pageDrawStyle] is
+     * what the two page surfaces actually draw with, and this test pins it from the type side exactly
+     * the way the font-family version does. A non-default weight (600) is chosen deliberately — weight
+     * only moves [layoutKey] when it differs from `ReaderDefaultFontWeight` (see
+     * `ReaderModelsTest.nonDefaultFontWeightChangesLayoutKeyButDefaultWeightDoesNot`), so the middle
+     * assertion's `getPageWindows`-call-count check and the third assertion's `layoutKey()` comparison
+     * both need a real layout-key change to observe.
+     *
+     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
+     * `get() = style` and re-run this suite. Only this test's third assertion may fail — the one
+     * comparing `before.style.layoutKey()` against `pageDrawStyle.layoutKey()` — while every other test
+     * in this class, including
+     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands], must still pass.
+     */
+    @Test
+    fun fontWeightChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-1")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val viewModel = createViewModel(documentRepository)
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+        val requestsBefore = documentRepository.pageWindowRequests
+
+        viewModel.updateFontWeight(600)
+        advanceUntilIdle()
+
+        assertEquals(
+            600,
+            viewModel.uiState.value.style.fontWeight,
+            "the chosen weight must show up in the style instantly",
+        )
+        assertEquals(
+            requestsBefore,
+            documentRepository.pageWindowRequests,
+            "nothing has re-measured yet, so the pages on screen are still the old weight's",
+        )
+        assertEquals(
+            before.style.layoutKey(),
+            viewModel.uiState.value.pageDrawStyle.layoutKey(),
+            "pageDrawStyle must still describe the type the on-screen slices were actually cut under",
+        )
+
+        viewModel.reportMeasuredViewport(width = 300, height = 600)
+        advanceUntilIdle()
+
+        assertTrue(
+            documentRepository.pageWindowRequests > requestsBefore,
+            "the pane's remeasurement must have triggered a real reload",
+        )
+        assertEquals(
+            viewModel.uiState.value.style.layoutKey(),
+            viewModel.uiState.value.pageDrawStyle.layoutKey(),
+            "once the reload lands, the drawn type must agree with the chosen style again",
+        )
+    }
+
+    /**
      * A colour-only change (here, the theme) must never be caught by the same freeze that pins type
      * during a layout-key change: [ReaderUiState.pageDrawStyle] only ever pins the four layout fields
      * [layoutKey] reduces a style to, never [ReaderStyle.textColor] or the rest of a style's colour

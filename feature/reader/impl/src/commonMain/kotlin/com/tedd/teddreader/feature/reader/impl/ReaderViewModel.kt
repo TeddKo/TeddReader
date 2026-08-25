@@ -116,7 +116,7 @@ class ReaderViewModel(
      * already describes, so they read it rather than write it.
      *
      * This is the field [ReaderUiState.pageLayoutStyle] mirrors, and it exists to close the window
-     * where a layout-affecting style change (font, size, line height) publishes the new style
+     * where a layout-affecting style change (font, size, line height, weight) publishes the new style
      * synchronously while [paginated] still holds slices sliced for the old one: every `_uiState.update`
      * that publishes [paginated]'s pages must also publish `pageLayoutStyle = paginatedStyle` in that
      * same update, or the page surfaces would draw those still-old slices with the new style's type,
@@ -1003,6 +1003,15 @@ class ReaderViewModel(
      */
     fun updateFontFamily(fontFamilyName: String?) {
         updateStyle(_uiState.value.style.copy(fontFamilyName = fontFamilyName))
+    }
+
+    /**
+     * Applies a new font weight through [updateStyle], which decides whether that actually reflows
+     * the book. A heavier or lighter weight changes glyph advances the same way a font family change
+     * does, so it moves line breaks and goes through the same reflow decision.
+     */
+    fun updateFontWeight(fontWeight: Int) {
+        updateStyle(_uiState.value.style.copy(fontWeight = fontWeight))
     }
 
     /**
