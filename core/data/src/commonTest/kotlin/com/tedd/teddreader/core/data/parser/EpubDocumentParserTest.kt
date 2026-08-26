@@ -5,6 +5,7 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import okio.Path.Companion.toPath
 
 /**
  * Pins [EpubDocumentParser]'s chapter-to-document assembly ([EpubDocumentParser.parseChapters]) and its
@@ -139,5 +140,24 @@ class EpubDocumentParserTest {
         """.trimIndent()
 
         assertEquals(null, findEpubCoverHref(opf))
+    }
+
+    /**
+     * Regression guard for the manifest-reuse refactor: the `opfPath`-taking [findEpubCoverHref] overload
+     * still resolves the cover item's `href` relative to where the OPF itself sits, so a cover written
+     * relative to a nested OPF lands at the right container path — the same result the un-refactored
+     * lookup produced.
+     */
+    @Test
+    fun resolvesCoverHrefRelativeToTheOpfPath() {
+        val opf = """
+            <package>
+              <manifest>
+                <item id="cover" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
+              </manifest>
+            </package>
+        """.trimIndent()
+
+        assertEquals("OPS/images/cover.jpg", findEpubCoverHref(opf, "OPS/content.opf".toPath()))
     }
 }
