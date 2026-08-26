@@ -952,7 +952,7 @@ private fun parsePackageData(opf: String, opfPath: Path): PackageData {
         spineItems = spineItems,
         navigationItemPath = navPath,
         ncxPath = ncxPath,
-        coverHref = findEpubCoverHref(opf, opfPath),
+        coverHref = findEpubCoverItem(opf, manifest, opfPath),
     )
 }
 
@@ -1003,13 +1003,17 @@ private fun parseSpine(opf: String): List<SpineItemRef> =
  * The book's cover image path, tried in the order real EPUBs actually declare one; see
  * [findEpubCoverItem] for the exact fallback chain.
  *
+ * Parses the manifest itself, so it stays a self-contained entry point for a caller that has only the
+ * OPF text in hand — [parsePackageData], which has already parsed the manifest for the spine, calls the
+ * manifest-taking [findEpubCoverItem] overload instead to avoid parsing it a second time.
+ *
  * @param opf the OPF package document's raw XML.
  * @param opfPath when non-null, resolves the found item's `href` to a container path; when null, the
  *   item's raw `href` is returned unresolved.
  * @return the cover's path, or null if the OPF declares no raster cover image at all.
  */
 internal fun findEpubCoverHref(opf: String, opfPath: Path? = null): String? =
-    findEpubCoverItem(opf, opfPath)
+    findEpubCoverItem(opf, parseManifest(opf), opfPath)
 
 /**
  * Finds the manifest item that is the book's cover, trying the ways real EPUBs actually declare one,
@@ -1019,13 +1023,17 @@ internal fun findEpubCoverHref(opf: String, opfPath: Path? = null): String? =
  * ([ManifestItem.isRasterImage]) — an SVG cover is not resolved here, since this reader decodes covers
  * as raster bytes.
  *
- * @param opf the OPF package document's raw XML.
+ * Takes the already-parsed [manifest] rather than re-parsing [opf]'s `<item>`s, so a caller that has one
+ * (its spine build needs it) pays for the manifest scan once; [opf] is still needed for the EPUB 2
+ * `<meta name="cover">` pointer, which lives outside the manifest.
+ *
+ * @param opf the OPF package document's raw XML, read only for the EPUB 2 cover `<meta>` pointer.
+ * @param manifest the OPF's manifest, id-keyed, already parsed by the caller.
  * @param opfPath when non-null, resolves the found item's `href` to a container path; when null, the
  *   item's raw `href` is returned unresolved.
  * @return the cover item's path, or null if none of the three ways finds a raster cover.
  */
-private fun findEpubCoverItem(opf: String, opfPath: Path? = null): String? {
-    val manifest = parseManifest(opf)
+private fun findEpubCoverItem(opf: String, manifest: Map<String, ManifestItem>, opfPath: Path? = null): String? {
     val raw = manifest.values.firstOrNull { it.isCoverImageProperty() && it.isRasterImage() }
         ?: findCoverMetaId(opf)?.let { manifest[it] }?.takeIf { it.isRasterImage() }
         ?: manifest.values.firstOrNull { it.isRasterImage() && it.hasCoverHint() }
