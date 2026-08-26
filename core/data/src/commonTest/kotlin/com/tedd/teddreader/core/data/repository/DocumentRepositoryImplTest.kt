@@ -34,6 +34,7 @@ import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
 import com.tedd.teddreader.core.room.entity.DocumentEntity
 import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -55,6 +56,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -2219,6 +2221,240 @@ class DocumentRepositoryImplTest {
         assertEquals(listOf("Chapter 1", "Chapter 2", "Chapter 3", "Chapter 4"), restored.navigation?.items?.map { it.title })
     }
 
+    /**
+     * Reproduces the first of two cache-invalidation ordering bugs in
+     * [DocumentRepositoryImpl.finishEpubImport]: it used to stamp
+     * `documents.importCompletedAtEpochMillis` (what [DocumentRepositoryImpl.isImportComplete] reads)
+     * several statements before it invalidated the document cache, leaving a window where a reader
+     * already holding this book open — its [DocumentRepositoryImpl.getReaderDocument] cache primed while
+     * the import was still running — saw [DocumentRepositoryImpl.isImportComplete] answer true while
+     * [DocumentRepositoryImpl.getReaderDocument] kept serving the pre-completion document, whose
+     * navigation is always empty until this exact step resolves it. Nothing else ever invalidates that
+     * cache entry afterwards, so the empty table of contents this produced stuck until the next app
+     * relaunch — the same user-visible symptom `fix/outline-after-import` closed by a different route.
+     *
+     * [FakeDocumentDao.completionStampGate] parks the writer's completion-stamping write at exactly the
+     * point the bug lived: after the stamp is visible in storage, before
+     * [DocumentRepositoryImpl.finishEpubImport] goes on to invalidate the cache. A fixed
+     * [DocumentRepositoryImpl.finishEpubImport] invalidates the cache before writing that stamp at all, so
+     * by the time the write reaches the gate the cache has already been cleared and the concurrent
+     * [DocumentRepositoryImpl.getReaderDocument] call below is forced to reload with the resolved
+     * navigation already in hand — which is what this test asserts.
+     *
+     * The completing [importNextSections] call below asks for `count = 30`, covering every section
+     * phase 0 could possibly have left unread for this 30-chapter book, so that one call is guaranteed
+     * to be the batch that finishes the import and reaches [completionStampGate].
+     */
+    @Test
+    fun aReaderCaughtBetweenTheCompletionStampAndTheCacheInvalidationMustNotSeeStaleNavigation() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///completion-cache-race.epub",
+            displayName = "completion-cache-race.epub",
+            mimeType = "application/epub+zip",
+        )
+        val documentDao = FakeDocumentDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = FakeDocumentFileSource(location, sampleMultiChapterEpubBytesWithCoverAndNavigation(chapterCount = 30)),
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val style = ReaderStyle()
+        val viewportSize = ViewportSize(widthPx = 320, heightPx = 560)
+
+        repository.importDocument(DocumentImportSource(location, bytes = null), importedAtEpochMillis = 1_000)
+        assertFalse(
+            repository.isImportComplete(documentId),
+            "a 30-chapter EPUB must not be complete after phase 0's bounded read-ahead alone",
+        )
+        val phase0Document = requireNotNull(repository.getReaderDocument(documentId))
+        assertTrue(
+            phase0Document.navigation?.items.orEmpty().isEmpty(),
+            "a still-importing EPUB must not have resolved navigation yet",
+        )
+
+        val completionStampGate = CompletableDeferred<Unit>()
+        val completionStampReached = CompletableDeferred<Unit>()
+        documentDao.completionStampGate = completionStampGate
+        documentDao.completionStampReached = completionStampReached
+
+        val completing = launch {
+            repository.importNextSections(documentId, count = 30, style, viewportSize, pageBreaker = null)
+        }
+        completionStampReached.await()
+
+        assertTrue(repository.isImportComplete(documentId), "the completion stamp must already be visible in storage")
+        val servedWhileParked = repository.getReaderDocument(documentId)
+        assertFalse(
+            servedWhileParked?.navigation?.items.orEmpty().isEmpty(),
+            "isImportComplete() already answers true, so getReaderDocument() must not still be serving the " +
+                "pre-completion document with no navigation",
+        )
+
+        completionStampGate.complete(Unit)
+        completing.join()
+
+        val afterCompletion = requireNotNull(repository.getReaderDocument(documentId))
+        assertEquals(
+            (1..30).map { "Chapter $it" },
+            afterCompletion.navigation?.items?.map { it.title },
+        )
+    }
+
+    /**
+     * Reproduces the second cache-invalidation bug: [DocumentRepositoryImpl.getReaderDocument] loads a
+     * document outside `documentCacheLock` on purpose, so one slow load never serialises every other
+     * document read behind it (see that lock's own doc), then re-acquires the lock only to publish the
+     * result. A load that started before some other write invalidated the cache, but that only reaches
+     * its own publishing step after the invalidation already ran, used to write its pre-invalidation
+     * snapshot straight back into the cache — silently undoing the invalidation it straddled.
+     *
+     * [FakeDocumentSearchIndexDao.getDocumentSectionsWithoutBlocksGate] parks a
+     * [DocumentRepositoryImpl.getReaderDocument] load right after it has read the document's rows (while
+     * it still exists) but before it returns them. While it is parked,
+     * [DocumentRepositoryImpl.deleteDocument] removes the document entirely, which must invalidate the
+     * cache. Releasing the gate then lets the parked load finish and try to publish its now-stale
+     * snapshot. A fixed cache refuses that publish because the invalidation bumped
+     * `documentCacheGeneration` while the load was in flight, so the subsequent
+     * [DocumentRepositoryImpl.getReaderDocument] call below must see the deletion — not the stale
+     * snapshot a buggy cache would otherwise have kept alive indefinitely.
+     */
+    @Test
+    fun aLoadThatStraddlesAnInvalidationMustNotLeaveItsStaleSnapshotCached() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///cache-race.txt",
+            displayName = "cache-race.txt",
+            mimeType = "text/plain",
+        )
+        val searchIndexDao = FakeDocumentSearchIndexDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = searchIndexDao,
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+        val documentId = DocumentId(location.sourceUri)
+        repository.importDocument(
+            DocumentImportSource(location, bytes = "Hello reader".encodeToByteArray()),
+            importedAtEpochMillis = 1_000,
+        )
+
+        val loadGate = CompletableDeferred<Unit>()
+        val loadReached = CompletableDeferred<Unit>()
+        searchIndexDao.getDocumentSectionsWithoutBlocksGate = loadGate
+        searchIndexDao.getDocumentSectionsWithoutBlocksReached = loadReached
+
+        val staleLoad = launch { repository.getReaderDocument(documentId) }
+        loadReached.await()
+
+        repository.deleteDocument(documentId)
+
+        loadGate.complete(Unit)
+        staleLoad.join()
+
+        assertNull(
+            repository.getReaderDocument(documentId),
+            "a document deleted while a stale load was in flight must not still be served from that load's cache write",
+        )
+    }
+
+    /**
+     * Reproduces the third cache-invalidation bug, the mirror image of the second one above:
+     * [DocumentRepositoryImpl.persistParsedDocument] invalidates the document cache *before* it
+     * rewrites a document's stored rows, not after. `documentDao.upsertDocument` makes the row (and
+     * `isImportComplete`) visible immediately, but `searchIndexDao.deleteSearchIndex` then empties
+     * every section row, and they are not written back until `searchIndexDao.upsertSearchIndex`
+     * finishes. A [DocumentRepositoryImpl.getReaderDocument] load that starts in that window reads
+     * zero sections; without a second invalidation after the rewrite, nothing would ever clear that
+     * torn snapshot back out of the cache, so it would stick until the next app relaunch — the
+     * original bug reopened through the writer instead of the reader.
+     *
+     * [FakeDocumentSearchIndexDao.upsertSearchIndexGate] parks the writer's
+     * [DocumentRepositoryImpl.persistParsedDocument] call right after `deleteSearchIndex` has emptied
+     * the document's rows but before the freshly parsed rows are written back. This repository is
+     * built with no `documentFileSource`, so the TXT repair
+     * [DocumentRepositoryImpl.loadReaderDocument] would otherwise attempt on seeing zero sections
+     * bails out immediately instead of re-parsing (`DocumentRepositoryImpl.repairTxtDocument` returns
+     * null the moment its own file source is missing) — keeping the racing read a single,
+     * deterministic load instead of a second concurrent rewrite. That racing
+     * [DocumentRepositoryImpl.getReaderDocument] call is made directly, not launched, once the writer
+     * is parked, so it publishes the torn, empty snapshot synchronously before the writer resumes. A
+     * fixed [DocumentRepositoryImpl.persistParsedDocument] invalidates the cache again after its
+     * rewrite completes, clearing that wrongly-published entry; an unfixed one leaves it cached
+     * forever, so the [DocumentRepositoryImpl.getReaderDocument] call made below — after the writer has
+     * finished and the real rows are in storage — would still return the empty snapshot instead of
+     * reloading.
+     */
+    @Test
+    fun aLoadRacingPersistParsedDocumentsRewriteMustNotLeaveTheCacheHoldingTheTornSnapshot() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///persist-race.txt",
+            displayName = "persist-race.txt",
+            mimeType = "text/plain",
+        )
+        val searchIndexDao = FakeDocumentSearchIndexDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = searchIndexDao,
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+        val documentId = DocumentId(location.sourceUri)
+
+        val upsertSearchIndexGate = CompletableDeferred<Unit>()
+        val upsertSearchIndexReached = CompletableDeferred<Unit>()
+        searchIndexDao.upsertSearchIndexGate = upsertSearchIndexGate
+        searchIndexDao.upsertSearchIndexReached = upsertSearchIndexReached
+
+        val importing = launch {
+            repository.importDocument(
+                DocumentImportSource(location, bytes = "Hello reader".encodeToByteArray()),
+                importedAtEpochMillis = 1_000,
+            )
+        }
+        upsertSearchIndexReached.await()
+
+        assertTrue(
+            repository.isImportComplete(documentId),
+            "the metadata row must already be visible before the section rows are written back",
+        )
+        val servedWhileTorn = repository.getReaderDocument(documentId)
+        assertTrue(
+            servedWhileTorn?.sections.orEmpty().isEmpty(),
+            "a load racing the rewrite must read the torn, momentarily-empty snapshot -- this is what makes the hole real",
+        )
+
+        upsertSearchIndexGate.complete(Unit)
+        importing.join()
+
+        val afterRewrite = repository.getReaderDocument(documentId)
+        assertTrue(
+            afterRewrite?.sections.orEmpty().isNotEmpty(),
+            "once persistParsedDocument's rewrite has finished, getReaderDocument must not still be serving the torn " +
+                "snapshot published while it was in flight",
+        )
+    }
+
     @Test
     fun repeatedImportNextSectionsEventuallyCompletesMatchingAFullParse() = runTest {
         val location = DocumentLocation(
@@ -4169,8 +4405,31 @@ private class FakeDocumentDao : DocumentDao {
     /** The one document currently "stored", or null once [deleteDocument] removes it. */
     var saved: DocumentEntity? = null
 
+    /**
+     * Awaited by [upsertDocument], but only for the specific write that stamps
+     * [DocumentEntity.importCompletedAtEpochMillis] for the first time — the write
+     * [DocumentRepositoryImpl.finishEpubImport]/[DocumentRepositoryImpl.finishNonProgressiveEpubImport]
+     * make. Parks that write right after it becomes visible in [saved], so a test can assert what
+     * [DocumentRepositoryImpl.isImportComplete] and [DocumentRepositoryImpl.getReaderDocument] answer in
+     * the gap before the caller's next statement runs (see
+     * [DocumentRepositoryImplTest.aReaderCaughtBetweenTheCompletionStampAndTheCacheInvalidationMustNotSeeStaleNavigation]).
+     * Null (the default) means every write proceeds without pausing.
+     */
+    var completionStampGate: CompletableDeferred<Unit>? = null
+
+    /**
+     * Completed by [upsertDocument] the instant it reaches [completionStampGate], so a test can await
+     * this instead of guessing how long the write takes to arrive at the gate.
+     */
+    var completionStampReached: CompletableDeferred<Unit>? = null
+
     override suspend fun upsertDocument(document: DocumentEntity) {
+        val stampsCompletionNow = saved?.importCompletedAtEpochMillis == null && document.importCompletedAtEpochMillis != null
         saved = document
+        if (stampsCompletionNow) {
+            completionStampReached?.complete(Unit)
+            completionStampGate?.await()
+        }
     }
 
     override suspend fun getDocument(documentId: String): DocumentEntity? =
@@ -4270,7 +4529,36 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
      */
     val blocksJsonQueries = mutableListOf<List<Int>>()
 
+    /**
+     * Awaited by [getDocumentSectionsWithoutBlocks] after it has already taken its snapshot of
+     * [entries], so the value it eventually returns is whatever was stored at call time even though the
+     * return itself is delayed — modelling a [DocumentRepositoryImpl.getReaderDocument] load that read
+     * the pre-rewrite rows but has not yet reached its own cache-publishing step when a concurrent writer
+     * rewrites the document (see
+     * [DocumentRepositoryImplTest.aLoadThatStraddlesAnInvalidationMustNotLeaveItsStaleSnapshotCached]).
+     * Null (the default) means every call returns immediately.
+     */
+    var getDocumentSectionsWithoutBlocksGate: CompletableDeferred<Unit>? = null
+
+    /** Completed by [getDocumentSectionsWithoutBlocks] the instant it reaches [getDocumentSectionsWithoutBlocksGate]. */
+    var getDocumentSectionsWithoutBlocksReached: CompletableDeferred<Unit>? = null
+
+    /**
+     * Awaited by [upsertSearchIndex] before it writes its rows into [entries], modelling
+     * `DocumentRepositoryImpl.persistParsedDocument`'s write window: by the time this call is made,
+     * `deleteSearchIndex` has already emptied every row for the document, and none of the fresh rows
+     * are visible until this gate releases (see
+     * [DocumentRepositoryImplTest.aLoadRacingPersistParsedDocumentsRewriteMustNotLeaveTheCacheHoldingTheTornSnapshot]).
+     * Null (the default) means every call writes immediately.
+     */
+    var upsertSearchIndexGate: CompletableDeferred<Unit>? = null
+
+    /** Completed by [upsertSearchIndex] the instant it reaches [upsertSearchIndexGate], before writing. */
+    var upsertSearchIndexReached: CompletableDeferred<Unit>? = null
+
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) {
+        upsertSearchIndexReached?.complete(Unit)
+        upsertSearchIndexGate?.await()
         this.entries.addAll(entries)
     }
 
@@ -4280,8 +4568,12 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
         limit: Int,
     ): List<SearchIndexEntity> = entries.take(limit)
 
-    override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> =
-        entries.filter { it.documentId == documentId }.sortedBy { it.sectionIndex }.map { it.toSectionEntry() }
+    override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> {
+        val snapshot = entries.filter { it.documentId == documentId }.sortedBy { it.sectionIndex }.map { it.toSectionEntry() }
+        getDocumentSectionsWithoutBlocksReached?.complete(Unit)
+        getDocumentSectionsWithoutBlocksGate?.await()
+        return snapshot
+    }
 
     override suspend fun getSectionBlocksJson(documentId: String, sectionIndexes: List<Int>): List<SectionBlocksJsonEntry> {
         blocksJsonQueries += sectionIndexes
