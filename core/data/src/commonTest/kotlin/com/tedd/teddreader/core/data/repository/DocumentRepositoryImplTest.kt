@@ -17,6 +17,7 @@ import com.tedd.teddreader.core.data.mapper.CurrentReaderParserVersion
 import com.tedd.teddreader.core.data.pagination.RestoredPageWindows
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
+import com.tedd.teddreader.core.data.parser.ComicArchive
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
 import com.tedd.teddreader.core.data.parser.EpubDocumentParser
 import com.tedd.teddreader.core.data.parser.ImageDocumentParser
@@ -484,6 +485,187 @@ class DocumentRepositoryImplTest {
         assertEquals(2, document.pageCount)
         assertEquals(0, fileSource.readCount)
         assertEquals(1, fileSource.copyCount)
+    }
+
+    /**
+     * Requesting several page windows of the same CBZ must stream the archive to a scratch copy exactly
+     * once and open exactly one [ComicArchive] over it — the whole point of the scratch/open-archive
+     * cache — while every page window still decodes the correct bytes. `copyCount == 1` proves the
+     * whole-file copy is paid once, `openArchiveCount == 1` proves the ZIP index (list + natural sort)
+     * is built once, and the per-page assertions prove the reuse did not corrupt the answers.
+     */
+    @Test
+    fun cbzPageWindowsReuseOneScratchCopyAndOneArchiveIndexAcrossManyRequests() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "content://reuse.cbz",
+            displayName = "reuse.cbz",
+            mimeType = "application/vnd.comicbook+zip",
+        )
+        val cover = byteArrayOf(1)
+        val page2 = byteArrayOf(2)
+        val page10 = byteArrayOf(10)
+        val fileSource = FakeDocumentFileSource(
+            location,
+            comicZipBytes("page10.jpg" to page10, "cover.jpg" to cover, "page2.png" to page2),
+        )
+        val parser = CountingComicBookDocumentParser()
+        val documentDao = FakeDocumentDao().apply {
+            upsertDocument(
+                DocumentEntity(
+                    id = location.sourceUri,
+                    name = location.displayName,
+                    sourceUri = location.sourceUri,
+                    format = DocumentFormat.CBZ.name,
+                    mimeType = location.mimeType,
+                    addedAtEpochMillis = 1_000,
+                    importCompletedAtEpochMillis = 1_000,
+                ),
+            )
+        }
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = parser,
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        val documentId = DocumentId(location.sourceUri)
+
+        val firstWindow = repository.getVisualPageImages(documentId, setOf(0, 1))
+        val secondWindow = repository.getVisualPageImages(documentId, setOf(2))
+        val coverAgain = repository.getDocumentCover(documentId)
+
+        assertContentEquals(cover, firstWindow[0])
+        assertContentEquals(page2, firstWindow[1])
+        assertContentEquals(page10, secondWindow[2])
+        assertContentEquals(cover, coverAgain)
+        assertEquals(1, fileSource.copyCount, "many page/cover requests of one CBZ must copy the archive only once")
+        assertEquals(0, fileSource.readCount, "the scratch cache must stream via copyTo, never read the whole file into memory")
+        assertEquals(1, parser.openArchiveCount, "the ZIP index must be built exactly once and reused across every request")
+    }
+
+    /**
+     * Switching to a different CBZ must replace the previously-held scratch copy and its open archive:
+     * the second document is copied on its first request (`copyCount == 2` total) and re-opened
+     * (`openArchiveCount == 2` total), and its pages decode from its own bytes, not the first document's.
+     */
+    @Test
+    fun switchingToADifferentCbzReplacesThePreviousScratchAndArchive() = runTest {
+        val locationA = DocumentLocation(
+            sourceUri = "content://a.cbz",
+            displayName = "a.cbz",
+            mimeType = "application/vnd.comicbook+zip",
+        )
+        val locationB = DocumentLocation(
+            sourceUri = "content://b.cbz",
+            displayName = "b.cbz",
+            mimeType = "application/vnd.comicbook+zip",
+        )
+        val coverA = byteArrayOf(11)
+        val coverB = byteArrayOf(22)
+        val documents = mapOf(
+            locationA.sourceUri to comicZipBytes("cover.jpg" to coverA, "page2.jpg" to byteArrayOf(2)),
+            locationB.sourceUri to comicZipBytes("cover.jpg" to coverB, "page2.jpg" to byteArrayOf(3)),
+        )
+        val fileSource = MultiLocationDocumentFileSource(documents)
+        val parser = CountingComicBookDocumentParser()
+        val documentDao = FakeMultiDocumentDao().apply {
+            listOf(locationA, locationB).forEach { location ->
+                upsertDocument(
+                    DocumentEntity(
+                        id = location.sourceUri,
+                        name = location.displayName,
+                        sourceUri = location.sourceUri,
+                        format = DocumentFormat.CBZ.name,
+                        mimeType = location.mimeType,
+                        addedAtEpochMillis = 1_000,
+                        importCompletedAtEpochMillis = 1_000,
+                    ),
+                )
+            }
+        }
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = parser,
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+
+        val coverAResult = repository.getDocumentCover(DocumentId(locationA.sourceUri))
+        repository.getVisualPageImages(DocumentId(locationA.sourceUri), setOf(0))
+        val coverBResult = repository.getDocumentCover(DocumentId(locationB.sourceUri))
+
+        assertContentEquals(coverA, coverAResult)
+        assertContentEquals(coverB, coverBResult)
+        assertEquals(2, fileSource.copyCount, "switching to a different CBZ must copy the new one afresh")
+        assertEquals(2, parser.openArchiveCount, "switching to a different CBZ must open a new archive index")
+    }
+
+    /**
+     * After [DocumentRepositoryImpl.deleteDocument] tears the CBZ cache down, a later request for the
+     * same id (re-added to the shelf) must rebuild the scratch copy and re-open the archive rather than
+     * serve a stale, already-deleted one.
+     */
+    @Test
+    fun cbzArchiveIsRebuiltAfterDeleteInvalidatesTheCache() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "content://delete-then-reopen.cbz",
+            displayName = "delete-then-reopen.cbz",
+            mimeType = "application/vnd.comicbook+zip",
+        )
+        val cover = byteArrayOf(7)
+        val fileSource = FakeDocumentFileSource(location, comicZipBytes("cover.jpg" to cover, "page2.jpg" to byteArrayOf(2)))
+        val parser = CountingComicBookDocumentParser()
+        val documentDao = FakeDocumentDao()
+        suspend fun addToShelf() = documentDao.upsertDocument(
+            DocumentEntity(
+                id = location.sourceUri,
+                name = location.displayName,
+                sourceUri = location.sourceUri,
+                format = DocumentFormat.CBZ.name,
+                mimeType = location.mimeType,
+                addedAtEpochMillis = 1_000,
+                importCompletedAtEpochMillis = 1_000,
+            ),
+        )
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = parser,
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        val documentId = DocumentId(location.sourceUri)
+        addToShelf()
+
+        assertContentEquals(cover, repository.getDocumentCover(documentId))
+        assertEquals(1, parser.openArchiveCount)
+
+        repository.deleteDocument(documentId)
+        addToShelf()
+
+        assertContentEquals(cover, repository.getDocumentCover(documentId))
+        assertEquals(2, fileSource.copyCount, "a delete/invalidate must force the next request to copy afresh")
+        assertEquals(2, parser.openArchiveCount, "a delete/invalidate must force the next request to re-open the archive")
     }
 
     /** [DocumentRepositoryImpl.getPageWindows] must lay out pages from the document actually stored for
@@ -3842,6 +4024,55 @@ private class FakeDocumentFileSource(
         copyCount += 1
         FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
             sink.write(bytes)
+        }
+    }
+
+    override fun appPrivateDirectory(): Path = privateDirectory
+}
+
+/**
+ * A [ComicBookDocumentParser] that counts how many times an archive was opened, so a test can prove the
+ * CBZ scratch/open-archive cache builds the ZIP index (list + natural sort) exactly once per document
+ * and reuses it across every later page/cover request.
+ */
+private class CountingComicBookDocumentParser : ComicBookDocumentParser() {
+    /** How many times [openArchive] has been called — one per distinct scratch copy the cache opened. */
+    var openArchiveCount: Int = 0
+
+    override fun openArchive(path: Path): ComicArchive {
+        openArchiveCount += 1
+        return super.openArchive(path)
+    }
+}
+
+/**
+ * A [DocumentFileSource] backed by a per-location byte map, so a test switching between two CBZs gets
+ * each document's own bytes while still counting total [copyTo] calls across both — the count that
+ * proves switching documents copies the new one afresh rather than reusing the previous scratch.
+ *
+ * @property bytesByLocation Each document's bytes, keyed by its `sourceUri`.
+ */
+private class MultiLocationDocumentFileSource(
+    private val bytesByLocation: Map<String, ByteArray>,
+) : DocumentFileSource {
+    /** How many times [readBytes] has been called across every location. */
+    var readCount: Int = 0
+
+    /** How many times [copyTo] has been called across every location. */
+    var copyCount: Int = 0
+
+    private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+        "tedd-reader-test-${Random.nextLong().toString(16)}"
+
+    override suspend fun readBytes(location: DocumentLocation): ByteArray {
+        readCount += 1
+        return bytesByLocation.getValue(location.sourceUri)
+    }
+
+    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
+        copyCount += 1
+        FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
+            sink.write(bytesByLocation.getValue(location.sourceUri))
         }
     }
 

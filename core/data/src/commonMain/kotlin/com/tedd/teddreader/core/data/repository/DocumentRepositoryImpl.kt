@@ -27,6 +27,7 @@ import com.tedd.teddreader.core.data.pagination.RestoredPageWindows
 import com.tedd.teddreader.core.data.pagination.ReaderPageMeasureDispatcher
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
+import com.tedd.teddreader.core.data.parser.ComicArchive
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
 import com.tedd.teddreader.core.data.parser.EpubDocumentParser
 import com.tedd.teddreader.core.data.parser.EpubImportContainer
@@ -212,6 +213,30 @@ class DocumentRepositoryImpl(
     private val epubImportCursorLock = Mutex()
 
     /**
+     * Serialises creation, use, replacement, and deletion of the one CBZ scratch copy and its open
+     * archive ([cbzScratchDocumentId]/[cbzScratchPath]/[cbzArchive]). Every read of the archive, every
+     * swap to a different document's archive, and every invalidation happens inside a
+     * `cbzScratchLock.withLock` block, so a page-window request can never be reading a scratch file that
+     * another request is deleting out from under it.
+     */
+    private val cbzScratchLock = Mutex()
+
+    /**
+     * The id of the document [cbzScratchPath] is a scratch copy of, or null when no copy is held. A CBZ
+     * page-window request used to copy the whole archive to a fresh temporary file, open it as a ZIP,
+     * and list plus natural-sort its entries every single time — so every page turn re-paid the cost of
+     * opening the book. One copy and one opened [cbzArchive] are kept and reused for every later
+     * page/cover request of the same document; a request for a different document replaces both.
+     */
+    private var cbzScratchDocumentId: DocumentId? = null
+
+    /** Filesystem path of the CBZ scratch copy for [cbzScratchDocumentId] — see that property's doc. */
+    private var cbzScratchPath: Path? = null
+
+    /** The open archive over [cbzScratchPath], its ZIP index built once and reused — see [cbzScratchDocumentId]. */
+    private var cbzArchive: ComicArchive? = null
+
+    /**
      * The id of the document [epubScratchPath] is a scratch copy of, or null when no copy is held. The
      * EPUB an image is pulled out of is unpacked once and kept: each call used to read the whole file
      * into memory and write a fresh scratch copy of it just to reach one picture, so turning to an
@@ -282,8 +307,8 @@ class DocumentRepositoryImpl(
                         val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
                         pdfDocumentParser.coverImageBytes(metadata.location, bytes)
                     }
-                    DocumentFormat.CBZ -> withTemporarySourceCopy(fileSource, metadata.location) { path ->
-                        comicBookDocumentParser.coverImageBytes(path)
+                    DocumentFormat.CBZ -> cbzScratchLock.withLock {
+                        cbzArchiveLocked(metadata, fileSource).coverImageBytes()
                     }
                     else -> null
                 }
@@ -311,11 +336,8 @@ class DocumentRepositoryImpl(
         val metadata = getDocument(documentId) ?: return@withContext emptyMap()
         if (metadata.format != DocumentFormat.CBZ) return@withContext emptyMap()
         val fileSource = documentFileSource ?: return@withContext emptyMap()
-        withTemporarySourceCopy(fileSource, metadata.location) { path ->
-            comicBookDocumentParser.pageImageBytes(
-                path = path,
-                pageIndexes = pageIndexes,
-            )
+        cbzScratchLock.withLock {
+            cbzArchiveLocked(metadata, fileSource).pageImageBytes(pageIndexes)
         }
     }
 
@@ -1229,6 +1251,14 @@ class DocumentRepositoryImpl(
                 epubScratchContainer = null
             }
         }
+        cbzScratchLock.withLock {
+            if (cbzScratchDocumentId == documentId) {
+                cbzScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
+                cbzArchive = null
+                cbzScratchDocumentId = null
+                cbzScratchPath = null
+            }
+        }
     }
 
     private fun deleteCachedCover(documentId: DocumentId) {
@@ -1330,6 +1360,50 @@ class DocumentRepositoryImpl(
     private suspend fun clearEpubScratchContainer(documentId: DocumentId) {
         epubScratchLock.withLock {
             if (epubScratchDocumentId == documentId) epubScratchContainer = null
+        }
+    }
+
+    /**
+     * The [ComicArchive] for [metadata]'s CBZ, made once and reused for every later page/cover request
+     * of the same document. Must be called while [cbzScratchLock] is held so creation, use, and
+     * replacement stay serialised — the reason a page-window request can never read a scratch file that
+     * a document switch or an invalidation is deleting.
+     *
+     * A different document (or a scratch copy that has vanished from disk) replaces both the copy and
+     * the open archive: the previous scratch file is deleted, a fresh copy is streamed via
+     * [DocumentFileSource.copyTo], [deleteAbandonedComicScratchCopies] sweeps any copy an earlier
+     * process left behind (its path is lost when the process dies, but the file is not), and a new
+     * archive is opened over the fresh copy. The same document reuses the held copy and archive as-is.
+     *
+     * @param metadata The CBZ whose archive to open; a copy already held for the same id is reused when
+     *   it still exists on disk.
+     * @param fileSource Where to copy the original file bytes from when a fresh copy is needed.
+     * @return The reusable [ComicArchive] for [metadata].
+     */
+    private suspend fun cbzArchiveLocked(
+        metadata: DocumentMetadata,
+        fileSource: DocumentFileSource,
+    ): ComicArchive {
+        cbzArchive?.takeIf { cbzScratchDocumentId == metadata.id && cbzScratchPath?.let(systemFileSystem()::exists) == true }
+            ?.let { return it }
+
+        cbzScratchPath?.let { previous -> runCatching { systemFileSystem().delete(previous) } }
+        cbzArchive = null
+        cbzScratchDocumentId = null
+        cbzScratchPath = null
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+            "$ComicScratchCopyPrefix${Random.nextLong().toString(16)}.cbz"
+        deleteAbandonedComicScratchCopies(keep = path)
+        return try {
+            fileSource.copyTo(metadata.location, path)
+            val archive = comicBookDocumentParser.openArchive(path)
+            cbzScratchDocumentId = metadata.id
+            cbzScratchPath = path
+            cbzArchive = archive
+            archive
+        } catch (throwable: Throwable) {
+            runCatching { systemFileSystem().delete(path) }
+            throw throwable
         }
     }
 
@@ -2479,6 +2553,31 @@ private fun deleteAbandonedScratchCopies(keep: Path) {
 /** The filename prefix every EPUB scratch copy is written with, so [deleteAbandonedScratchCopies] can
  * recognise one among whatever else is in the temporary directory. */
 private const val ScratchCopyPrefix = "tedd-reader-epub-open-"
+
+/**
+ * Removes CBZ scratch copies left by earlier runs, keeping [keep] and anything still being written.
+ *
+ * The one CBZ scratch copy [DocumentRepositoryImpl.cbzArchiveLocked] holds cannot be removed in a
+ * `finally` — it stays open across many page-window requests — so the process holds its path and
+ * deletes it when the next document replaces it. That path is lost when the process dies, and the copy
+ * it named is not — one abandoned copy per run, the size of the whole archive. This sweep of the ones
+ * no longer named by [keep] is what keeps a shelf of large comics from filling the cache.
+ *
+ * @param keep The scratch copy currently in use, which must survive this sweep.
+ */
+private fun deleteAbandonedComicScratchCopies(keep: Path) {
+    val fileSystem = systemFileSystem()
+    val directory = FileSystem.SYSTEM_TEMPORARY_DIRECTORY
+    runCatching { fileSystem.list(directory) }.getOrNull()?.forEach { candidate ->
+        if (candidate == keep) return@forEach
+        if (!candidate.name.startsWith(ComicScratchCopyPrefix)) return@forEach
+        runCatching { fileSystem.delete(candidate) }
+    }
+}
+
+/** The filename prefix every CBZ scratch copy is written with, so [deleteAbandonedComicScratchCopies]
+ * can recognise one among whatever else is in the temporary directory. */
+private const val ComicScratchCopyPrefix = "tedd-reader-comic-open-"
 
 /** Removes orphaned embedded-font scratch files, keeping only the still-live set in [keep]. */
 private fun deleteAbandonedEmbeddedFontScratchFiles(keep: Set<Path>) {
