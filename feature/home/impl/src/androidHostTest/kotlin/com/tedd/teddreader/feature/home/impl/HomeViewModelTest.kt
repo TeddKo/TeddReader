@@ -31,6 +31,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -564,6 +565,42 @@ class HomeViewModelTest {
         assertEquals(null, repository.requireDocument("txt-doc").folderName)
         assertEquals(2, repository.documentsWithoutFolder().size)
         assertEquals(listOf("pdf-doc"), viewModel.uiState.value.libraryDocuments.map { it.id.value })
+    }
+
+    /**
+     * Guards that a cover-only emission merges into [HomeUiState] without rebuilding any of the
+     * document-derived lists: after a cover is fetched, the new state's [HomeUiState.libraryDocuments],
+     * [HomeUiState.favoriteDocuments], [HomeUiState.recentDocuments], and [HomeUiState.libraryFolders]
+     * must be the *same instances* the pre-cover state already held, while only
+     * [HomeUiState.documentCoverImages] changes to carry the new bytes.
+     *
+     * This is the whole point of deriving the document lists in a separate flow from the cover map:
+     * collapsing them back into one `combine(recentDocuments, controls, documentCoverImages)` rebuilds
+     * every list on each cover emission, and the `assertSame` checks below fail — verified by actually
+     * running that regression, not by reading the code.
+     */
+    @Test
+    fun coverEmissionKeepsPreviousDocumentListInstances() = runTest {
+        val repository = FakeDocumentRepository(includeSecondDocument = true, secondDocumentFormat = DocumentFormat.PDF)
+        val viewModel = createViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        val beforeCover = viewModel.uiState.value
+        assertTrue(beforeCover.documentCoverImages.isEmpty())
+
+        viewModel.loadCover(repository.documentId)
+        advanceUntilIdle()
+
+        val afterCover = viewModel.uiState.value
+        assertContentEquals(
+            repository.pdfCoverBytes,
+            afterCover.documentCoverImages[repository.documentId.value],
+        )
+        assertSame(beforeCover.libraryDocuments, afterCover.libraryDocuments)
+        assertSame(beforeCover.favoriteDocuments, afterCover.favoriteDocuments)
+        assertSame(beforeCover.recentDocuments, afterCover.recentDocuments)
+        assertSame(beforeCover.libraryFolders, afterCover.libraryFolders)
     }
 
 }
