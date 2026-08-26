@@ -15,7 +15,6 @@ import com.tedd.teddreader.core.common.model.ReaderLayoutKey
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
-import com.tedd.teddreader.core.common.model.blocksIn
 import com.tedd.teddreader.core.common.model.layoutKey
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.common.model.rebasedBy
@@ -1851,10 +1850,10 @@ class DocumentRepositoryImpl(
             pageLayoutDao.deletePageLayouts(documentId.value)
             return
         }
-        val appendedStarts = newSections.flatMap { (section, blocks) ->
-            measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity).toList()
+        val appendedArrays = newSections.map { (section, blocks) ->
+            measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity)
         }
-        if (appendedStarts.isEmpty()) {
+        if (appendedArrays.all { it.isEmpty() }) {
             pageLayoutDao.deletePageLayouts(documentId.value)
             return
         }
@@ -1862,7 +1861,7 @@ class DocumentRepositoryImpl(
         pageLayoutDao.upsertPageLayout(
             stored.copy(
                 characterCount = stored.characterCount + addedCharacterCount,
-                pageStartsBlob = encodePageStartsBlob((existingStarts.toList() + appendedStarts).toLongArray()),
+                pageStartsBlob = encodePageStartsBlob(concatPageStarts(existingStarts, appendedArrays)),
                 writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
             ),
         )
@@ -2125,13 +2124,18 @@ class DocumentRepositoryImpl(
         documentDao.upsertDocument(metadata.toDocumentEntity().copy(importCompletedAtEpochMillis = importCompletedAtEpochMillis))
         searchIndexDao.deleteSearchIndex(metadata.id.value)
         if (document.sections.isNotEmpty()) {
+            val blocksPerSection = distributeBlocksIntoSections(
+                sections = document.sections.map { it.range },
+                blocks = document.blocks,
+            )
+            val firstSectionIndex = document.sections.first().index
             searchIndexDao.upsertSearchIndex(
-                document.sections.map { section ->
+                document.sections.mapIndexed { position, section ->
                     section.toSearchIndexEntity(
                         documentId = metadata.id,
-                        blocks = document.blocks.blocksIn(section.range.start, section.range.end).rebasedBy(section.range.start),
-                        documentTitle = document.title.takeIf { section.index == document.sections.first().index },
-                        navigation = document.navigation.takeIf { section.index == document.sections.first().index },
+                        blocks = blocksPerSection[position],
+                        documentTitle = document.title.takeIf { section.index == firstSectionIndex },
+                        navigation = document.navigation.takeIf { section.index == firstSectionIndex },
                         json = json,
                     )
                 },
