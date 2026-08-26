@@ -249,6 +249,17 @@ private data class CssSelector(
     val specificity: Int get() = compounds.sumOf(CompoundSelector::specificity)
 
     /**
+     * The lowercased tag the selector's terminal compound requires, or null when that compound has no
+     * tag part (`.note`, `#lead`).
+     *
+     * This is the key [EpubCss] indexes a rule under: only an element whose own tag equals this can ever
+     * satisfy the selector, so a rule with a terminal tag is stored in that one tag's bucket and never
+     * looked at for any other tag. A tagless terminal compound matches any element's tag and so cannot be
+     * bucketed — those rules go to the fallback list [EpubCss] always consults.
+     */
+    val terminalTag: String? get() = compounds.lastOrNull()?.tag?.lowercase()
+
+    /**
      * True when [ancestors] (outermost first, the element itself last) satisfies this selector.
      *
      * `>`, `+` and `~` are read as plain descendants: treating them as stricter would drop styling a
@@ -282,21 +293,67 @@ private data class CssRule(
     val order: Int,
 )
 
-/** A book's stylesheets, ready to answer what an element in it looks like. */
+/**
+ * One rule paired with its rank in the whole sheet's cascade order, so two index buckets can be merged
+ * back into that one order without re-sorting.
+ *
+ * [EpubCss] sorts every rule once by `(specificity, order)` and hands each the position it landed at.
+ * The tag bucket and the tagless fallback list are then each already in ascending [rank]; merging the
+ * two candidate lists for one element is a linear pass that keeps the lower [rank] first, which is
+ * exactly the weakest-first cascade order [EpubCss.declarationsFor] promises — no per-query sort, and no
+ * O(all rules) scan.
+ *
+ * @property rule the rule this rank belongs to.
+ * @property rank the rule's zero-based position in the sheet-wide `(specificity, order)` sort; lower
+ *   ranks are weaker and merge ahead of higher ones.
+ */
+private data class RankedRule(
+    val rule: CssRule,
+    val rank: Int,
+)
+
+/**
+ * A book's stylesheets, indexed by the selected element's terminal tag so the XHTML parser evaluates
+ * only rules that can match that element while preserving the original CSS cascade order.
+ *
+ * @property rulesByTag Cascade-ranked rules whose terminal selector names a tag, grouped by that
+ *   lowercased tag.
+ * @property taglessRules Cascade-ranked class/id rules whose terminal selector can match any tag.
+ * @property fontFaces Embedded font files keyed by normalized publisher family name.
+ */
 internal class EpubCss private constructor(
-    private val rules: List<CssRule>,
+    private val rulesByTag: Map<String, List<RankedRule>>,
+    private val taglessRules: List<RankedRule>,
     private val fontFaces: Map<String, String>,
 ) {
     /**
      * Declarations that apply to the last element of [ancestors], weakest first so a caller can layer
      * them. Ties on specificity fall back to declaration order, which is what a browser does.
+     *
+     * Only two candidate lists are ever consulted: the bucket of rules whose terminal compound names
+     * this element's own tag, and the tagless fallback rules that can match any tag. A tag rule for a
+     * different element is never even offered to [CssSelector.matches] — that is the whole point of the
+     * index, and what a many-tag sheet's per-element cost now scales with instead of its full rule
+     * count. Both lists arrive already in ascending cascade rank, so [mergeByRank] interleaves them into
+     * one weakest-first stream without re-sorting, and only the survivors of that stream are match-tested
+     * and folded.
+     *
+     * @param ancestors the element to style and its ancestor chain, outermost first and the element
+     *   itself last; an empty list resolves to [CssDeclarations.Empty].
+     * @return the merged declarations that apply, weakest first, or [CssDeclarations.Empty] when nothing
+     *   matches.
      */
     fun declarationsFor(ancestors: List<CssElement>): CssDeclarations {
-        if (rules.isEmpty()) return CssDeclarations.Empty
-        return rules.asSequence()
-            .filter { rule -> rule.selector.matches(ancestors) }
-            .sortedWith(compareBy({ it.selector.specificity }, { it.order }))
-            .fold(CssDeclarations.Empty) { acc, rule -> acc.mergedWith(rule.declarations) }
+        val element = ancestors.lastOrNull() ?: return CssDeclarations.Empty
+        val tagBucket = rulesByTag[element.tag.lowercase()].orEmpty()
+        if (tagBucket.isEmpty() && taglessRules.isEmpty()) return CssDeclarations.Empty
+        var result = CssDeclarations.Empty
+        mergeByRank(tagBucket, taglessRules) { ranked ->
+            if (ranked.rule.selector.matches(ancestors)) {
+                result = result.mergedWith(ranked.rule.declarations)
+            }
+        }
+        return result
     }
 
     /** The embedded-font href for the first named family in [fontFamily] this sheet actually defines. */
@@ -308,11 +365,11 @@ internal class EpubCss private constructor(
     }
 
     /** True when this book declared no usable rule or `@font-face` at all. */
-    fun isEmpty(): Boolean = rules.isEmpty() && fontFaces.isEmpty()
+    fun isEmpty(): Boolean = rulesByTag.isEmpty() && taglessRules.isEmpty() && fontFaces.isEmpty()
 
     companion object {
         /** The no-op stylesheet: no rules and no font faces. */
-        val Empty = EpubCss(emptyList(), emptyMap())
+        val Empty = EpubCss(emptyMap(), emptyList(), emptyMap())
 
         /**
          * Parse raw stylesheet texts with no base paths, so relative `url(...)` cannot be resolved.
@@ -323,6 +380,15 @@ internal class EpubCss private constructor(
 
         /**
          * Parse [sheets] in linked order so a later sheet wins ties and keeps its own relative base path.
+         *
+         * Every rule across every sheet is sorted once here by `(specificity, order)` — the exact order
+         * [EpubCss.declarationsFor] must fold in — and each is handed its rank in that order. Rules are
+         * then split into a per-terminal-tag index and a tagless fallback list, each preserving that
+         * rank order, so a per-element query never sorts and never scans a tag it cannot match. Sorting
+         * once at parse time replaces the previous per-query filter-and-sort over the whole rule list.
+         *
+         * @param sheets the linked stylesheets, in link order; a later sheet's rule wins a tie.
+         * @return the built [EpubCss], or [Empty] when no sheet declared a usable rule or `@font-face`.
          */
         fun parseSources(sheets: List<CssStyleSheetSource>): EpubCss {
             val rules = mutableListOf<CssRule>()
@@ -347,8 +413,62 @@ internal class EpubCss private constructor(
                     },
                 )
             }
-            return if (rules.isEmpty() && fontFaces.isEmpty()) Empty else EpubCss(rules, fontFaces)
+            if (rules.isEmpty() && fontFaces.isEmpty()) return Empty
+            val ranked = rules
+                .sortedWith(compareBy({ it.selector.specificity }, { it.order }))
+                .mapIndexed { rank, rule -> RankedRule(rule, rank) }
+            val rulesByTag = linkedMapOf<String, MutableList<RankedRule>>()
+            val taglessRules = mutableListOf<RankedRule>()
+            ranked.forEach { rankedRule ->
+                val tag = rankedRule.rule.selector.terminalTag
+                if (tag == null) {
+                    taglessRules += rankedRule
+                } else {
+                    rulesByTag.getOrPut(tag) { mutableListOf() } += rankedRule
+                }
+            }
+            return EpubCss(rulesByTag, taglessRules, fontFaces)
         }
+    }
+}
+
+/**
+ * Walks the two already-rank-sorted candidate lists [first] and [second] as one ascending-rank stream,
+ * calling [onRule] for each rule exactly once in cascade order.
+ *
+ * Both lists come out of [EpubCss.parseSources] sorted by their sheet-wide `(specificity, order)` rank,
+ * and the two lists are disjoint by construction (a rule is either in a tag bucket or in the tagless
+ * fallback, never both), so a standard two-pointer merge on [RankedRule.rank] reproduces the single
+ * weakest-first cascade order with no duplicate and no re-sort. When either list is empty the other is
+ * simply walked in place.
+ *
+ * @param first one rank-ascending candidate list, e.g. an element's tag bucket.
+ * @param second the other rank-ascending candidate list, e.g. the tagless fallback rules.
+ * @param onRule invoked once per rule, in ascending [RankedRule.rank] across both lists.
+ */
+private inline fun mergeByRank(
+    first: List<RankedRule>,
+    second: List<RankedRule>,
+    onRule: (RankedRule) -> Unit,
+) {
+    var firstIndex = 0
+    var secondIndex = 0
+    while (firstIndex < first.size && secondIndex < second.size) {
+        if (first[firstIndex].rank <= second[secondIndex].rank) {
+            onRule(first[firstIndex])
+            firstIndex += 1
+        } else {
+            onRule(second[secondIndex])
+            secondIndex += 1
+        }
+    }
+    while (firstIndex < first.size) {
+        onRule(first[firstIndex])
+        firstIndex += 1
+    }
+    while (secondIndex < second.size) {
+        onRule(second[secondIndex])
+        secondIndex += 1
     }
 }
 
