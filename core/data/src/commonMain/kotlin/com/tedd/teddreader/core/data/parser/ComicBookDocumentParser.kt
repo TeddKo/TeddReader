@@ -21,7 +21,7 @@ import org.koin.core.annotation.Single
  * a comic is read as a sequence of page images, not as flowed prose.
  */
 @Single
-class ComicBookDocumentParser {
+open class ComicBookDocumentParser {
     /**
      * Counts the pages in the CBZ held in [bytes] and builds the document for it.
      *
@@ -38,8 +38,8 @@ class ComicBookDocumentParser {
         id: DocumentId,
         title: String,
         bytes: ByteArray,
-    ): ReaderDocument = withComicZip(bytes) { zip ->
-        val pageCount = comicPagePaths(zip).size
+    ): ReaderDocument = withComicZip(bytes) { archive ->
+        val pageCount = archive.pageCount
         require(pageCount > 0) { "CBZ contains no supported image pages." }
         comicReaderDocument(id = id, title = title, pageCount = pageCount)
     }
@@ -59,8 +59,8 @@ class ComicBookDocumentParser {
         id: DocumentId,
         title: String,
         path: Path,
-    ): ReaderDocument = withComicZip(path) { zip ->
-        val pageCount = comicPagePaths(zip).size
+    ): ReaderDocument = withComicZip(path) { archive ->
+        val pageCount = archive.pageCount
         require(pageCount > 0) { "CBZ contains no supported image pages." }
         comicReaderDocument(id = id, title = title, pageCount = pageCount)
     }
@@ -101,13 +101,8 @@ class ComicBookDocumentParser {
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> {
         if (pageIndexes.isEmpty()) return emptyMap()
-        return withComicZip(bytes) { zip ->
-            val pages = comicPagePaths(zip)
-            pageIndexes.sorted().mapNotNull { pageIndex ->
-                pages.getOrNull(pageIndex)
-                    ?.let { pagePath -> zip.readComicPageOrNull(pagePath) }
-                    ?.let { pageBytes -> pageIndex to pageBytes }
-            }.toMap()
+        return withComicZip(bytes) { archive ->
+            archive.pageImageBytes(pageIndexes)
         }
     }
 
@@ -124,14 +119,30 @@ class ComicBookDocumentParser {
         pageIndexes: Set<Int>,
     ): Map<Int, ByteArray> {
         if (pageIndexes.isEmpty()) return emptyMap()
-        return withComicZip(path) { zip ->
-            val pages = comicPagePaths(zip)
-            pageIndexes.sorted().mapNotNull { pageIndex ->
-                pages.getOrNull(pageIndex)
-                    ?.let { pagePath -> zip.readComicPageOrNull(pagePath) }
-                    ?.let { pageBytes -> pageIndex to pageBytes }
-            }.toMap()
+        return withComicZip(path) { archive ->
+            archive.pageImageBytes(pageIndexes)
         }
+    }
+
+    /**
+     * Opens the CBZ already on disk at [path] as a reusable [ComicArchive] whose ZIP [FileSystem] and
+     * naturally-ordered page paths are built once and can then answer any number of
+     * [ComicArchive.pageImageBytes]/[ComicArchive.coverImageBytes] requests without re-listing or
+     * re-sorting the entries.
+     *
+     * The public [parse]/[pageImageBytes]/[coverImageBytes] overloads all funnel through this so a
+     * caller that only needs a single answer keeps its old one-shot behaviour, while a caller that
+     * turns page after page of the same book — [com.tedd.teddreader.core.data.repository.DocumentRepositoryImpl]'s
+     * page-window path — can hold one archive open across every window request and pay the ZIP-index
+     * cost a single time.
+     *
+     * @param path location of the CBZ file, opened directly with no temporary copy; the caller owns
+     *   that file's lifetime and must keep it on disk for as long as it uses the returned archive.
+     * @return a [ComicArchive] over [path], reusable for repeated page/cover reads.
+     */
+    internal open fun openArchive(path: Path): ComicArchive {
+        val fileSystem = systemFileSystem().openZip(path)
+        return ComicArchive(fileSystem = fileSystem, pagePaths = comicPagePaths(fileSystem))
     }
 
     /**
@@ -143,7 +154,7 @@ class ComicBookDocumentParser {
      * @param block reads whatever it needs from the opened archive before this returns.
      * @return whatever [block] returns.
      */
-    private fun <T> withComicZip(bytes: ByteArray, block: (FileSystem) -> T): T {
+    private fun <T> withComicZip(bytes: ByteArray, block: (ComicArchive) -> T): T {
         val fileSystem = systemFileSystem()
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
             "tedd-reader-comic-${Random.nextLong().toString(16)}.cbz"
@@ -154,7 +165,7 @@ class ComicBookDocumentParser {
             sink.close()
         }
         return try {
-            block(fileSystem.openZip(path))
+            block(openArchive(path))
         } finally {
             fileSystem.delete(path)
         }
@@ -167,8 +178,54 @@ class ComicBookDocumentParser {
      * @param block reads whatever it needs from the opened archive before this returns.
      * @return whatever [block] returns.
      */
-    private fun <T> withComicZip(path: Path, block: (FileSystem) -> T): T =
-        block(systemFileSystem().openZip(path))
+    private fun <T> withComicZip(path: Path, block: (ComicArchive) -> T): T = block(openArchive(path))
+}
+
+/**
+ * A CBZ opened once for repeated reading: its Okio ZIP [FileSystem] and the naturally-ordered list of
+ * page entry [Path]s ([ComicBookDocumentParser.sortedComicPageNames]' order) are computed a single time,
+ * so every later [pageImageBytes]/[coverImageBytes]/[pageCount] call reuses them instead of re-listing
+ * and re-sorting the archive. It is read-only and holds no scratch file of its own — the caller that
+ * built it (via [ComicBookDocumentParser.openArchive]) owns the underlying file's lifetime and must
+ * keep it on disk for as long as this archive is used.
+ *
+ * @property fileSystem the opened ZIP file system every page read draws from.
+ * @property pagePaths the archive's page entries, already in reading order.
+ */
+internal class ComicArchive(
+    private val fileSystem: FileSystem,
+    private val pagePaths: List<Path>,
+) {
+    /** How many pages this archive holds — the size of its reading-ordered [pagePaths]. */
+    val pageCount: Int get() = pagePaths.size
+
+    /**
+     * Reads the image bytes of the pages at [pageIndexes] out of this already-open archive, reusing the
+     * page index this archive was built with rather than rebuilding it.
+     *
+     * @param pageIndexes zero-based page numbers to read, in reading order; an empty set short-circuits
+     *   to an empty map.
+     * @return bytes keyed by page index, containing only the indexes that both existed and whose entry
+     *   could actually be read — an index past the last page, or a page entry that is corrupt, oversized
+     *   (see [MaxComicPageBytes]), or otherwise unreadable, is simply absent from the result rather than
+     *   causing the whole call to fail.
+     */
+    fun pageImageBytes(pageIndexes: Set<Int>): Map<Int, ByteArray> {
+        if (pageIndexes.isEmpty()) return emptyMap()
+        return pageIndexes.sorted().mapNotNull { pageIndex ->
+            pagePaths.getOrNull(pageIndex)
+                ?.let { pagePath -> fileSystem.readComicPageOrNull(pagePath) }
+                ?.let { pageBytes -> pageIndex to pageBytes }
+        }.toMap()
+    }
+
+    /**
+     * The first page's image bytes — this format's stand-in for a cover.
+     *
+     * @return the first page's bytes, or null if the archive has no page at index 0 or that page could
+     *   not be read (see [pageImageBytes]).
+     */
+    fun coverImageBytes(): ByteArray? = pageImageBytes(setOf(0))[0]
 }
 
 /**
