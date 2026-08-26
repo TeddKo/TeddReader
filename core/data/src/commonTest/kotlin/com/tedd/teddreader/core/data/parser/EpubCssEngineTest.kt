@@ -452,4 +452,127 @@ class EpubCssEngineTest {
 
         assertEquals("red", sheet.declarationsFor(listOf(element("h1"))).color)
     }
+
+    /**
+     * Regression guard for the terminal-tag index: a tagless class selector, a tagless id selector and a
+     * bare tag selector all competing for the same element must still resolve in the exact
+     * `(specificity, order)` cascade the un-indexed engine produced. The tag rule lives in its tag
+     * bucket, the class and id rules in the tagless fallback; merging the two lists must not let the
+     * lower-specificity tag rule override the higher-specificity class rule, and the id must still
+     * outrank both.
+     */
+    @Test
+    fun taglessAndTagRulesCompeteInCascadeOrderAcrossTheIndex() {
+        val sheet = css(
+            """
+            p { color: red; text-align: left }
+            .lead { color: green }
+            #first { color: blue }
+            """.trimIndent(),
+        )
+
+        val onlyTag = sheet.declarationsFor(listOf(element("p")))
+        assertEquals("red", onlyTag.color)
+        assertEquals("left", onlyTag.textAlign)
+
+        val tagAndClass = sheet.declarationsFor(listOf(element("p", "lead")))
+        assertEquals("green", tagAndClass.color)
+        assertEquals("left", tagAndClass.textAlign)
+
+        val all = sheet.declarationsFor(listOf(element("p", "lead", id = "first")))
+        assertEquals("blue", all.color)
+        assertEquals("left", all.textAlign)
+    }
+
+    /**
+     * Regression guard: a tag-bucketed rule (`span`) and a tagless fallback rule (`.mark`) that both
+     * match the same element are resolved by specificity, not by which index list they came from. The
+     * class rule outranks the tag rule whichever order the sheet writes them in, so the merge of the two
+     * separate lists must not let sheet order override specificity.
+     */
+    @Test
+    fun aTagBucketAndTheFallbackResolveBySpecificityNotListMembership() {
+        val classThenTag = css(
+            """
+            .mark { color: red }
+            span { color: green }
+            """.trimIndent(),
+        )
+        val tagThenClass = css(
+            """
+            span { color: green }
+            .mark { color: red }
+            """.trimIndent(),
+        )
+
+        assertEquals("red", classThenTag.declarationsFor(listOf(element("span", "mark"))).color)
+        assertEquals("red", tagThenClass.declarationsFor(listOf(element("span", "mark"))).color)
+    }
+
+    /**
+     * Regression guard: a descendant selector whose terminal compound carries a tag (`.quote em`) must be
+     * bucketed under that terminal tag and still match through its full ancestor chain, while the same
+     * selector must not fire for the ancestor tag it names on the left (`.quote`). This proves the index
+     * keys on the *terminal* compound's tag, not any tag in the selector.
+     */
+    @Test
+    fun aDescendantSelectorIsBucketedByItsTerminalTag() {
+        val sheet = css(".quote em { font-style: italic }")
+        val inside = listOf(element("div", "quote"), element("em"))
+        val theQuoteItself = listOf(element("div", "quote"))
+
+        assertEquals("italic", sheet.declarationsFor(inside).fontStyle)
+        assertNull(sheet.declarationsFor(theQuoteItself).fontStyle)
+    }
+
+    /**
+     * Performance-sensitive regression: styling one `<p>` against a sheet of many unrelated single-tag
+     * rules must not evaluate those unrelated rules against the element at all. Each candidate rule the
+     * engine actually tests reads the ancestry list (at least its last element) through
+     * [CssSelector.matches]; a counting [AbstractList] records every such [get]. If the terminal-tag
+     * index is intact, only the handful of `p`/class/id candidate rules touch the list, so the count
+     * stays a small constant no matter how many `h1`…`h6`, `span`, `div`, … rules the sheet also carries.
+     * Neutralizing the index (matching every rule) would make this count scale with the whole rule list
+     * and fail the assertion — which is how this test's sensitivity was confirmed.
+     */
+    @Test
+    fun unrelatedTagRulesAreNeverMatchEvaluated() {
+        val unrelatedTags = listOf("h1", "h2", "h3", "h4", "h5", "h6", "span", "div", "a", "li", "td", "th")
+        val sheet = css(
+            buildString {
+                unrelatedTags.forEach { tag -> append(tag).append(" { color: red }\n") }
+                append("p { color: green }\n")
+            },
+        )
+
+        val accesses = AccessCountingList(listOf(element("p", "body")))
+        val declarations = sheet.declarationsFor(accesses)
+
+        assertEquals("green", declarations.color)
+        assertTrue(
+            accesses.getCount <= 4,
+            "expected only the p-tag candidate to read the ancestry, but it was read ${accesses.getCount} times",
+        )
+    }
+
+    /**
+     * An [AbstractList] over [backing] that tallies every positional [get], so a test can assert how many
+     * times the cascade resolver actually reaches into an element's ancestry. Used to prove that rules
+     * whose terminal tag cannot match the styled element are filtered out by the index before any
+     * ancestry access, rather than being match-evaluated one by one.
+     *
+     * @param backing the ancestry chain this stands in for, returned element-for-element.
+     * @property getCount how many times [get] has been called since construction.
+     */
+    private class AccessCountingList(private val backing: List<CssElement>) : AbstractList<CssElement>() {
+        var getCount: Int = 0
+            private set
+
+        override val size: Int get() = backing.size
+
+        override fun get(index: Int): CssElement {
+            getCount += 1
+            return backing[index]
+        }
+    }
 }
