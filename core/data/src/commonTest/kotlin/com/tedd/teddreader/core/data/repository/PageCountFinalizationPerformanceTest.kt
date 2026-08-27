@@ -289,7 +289,7 @@ private class CountingSearchIndexDao : SearchIndexDao {
         this.entries.addAll(entries)
     }
 
-    override suspend fun search(documentId: String, query: String, limit: Int): List<SearchIndexEntity> = emptyList()
+    override suspend fun search(documentId: String, query: String, limit: Int) = emptyList<com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry>()
 
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> {
         sectionsWithoutBlocksCallCount++

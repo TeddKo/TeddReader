@@ -57,22 +57,27 @@ class IosDocumentFileSource : DocumentFileSource {
     }
 
     /**
-     * Copies a document's bytes to [destination], by first reading the whole document into memory via
-     * [readBytes] and then writing it out — unlike a streaming copy, this holds the entire document as
-     * a [ByteArray] for the duration of the call.
+     * Copies a document from its resolved sandbox path to [destination] through the native filesystem,
+     * avoiding the whole-file Kotlin [ByteArray] that large EPUB and CBZ scratch copies previously
+     * retained. Existing destinations are replaced to preserve [DocumentFileSource.copyTo]'s sink-like
+     * overwrite contract.
      *
      * @param location The document to copy from.
      * @param destination Where to write the copy.
-     * @throws IllegalStateException if no file exists at [location]'s path.
+     * @throws IllegalStateException if no file exists at [location]'s stored or relocated path, or the
+     *   native filesystem cannot create the destination copy.
      */
+    @OptIn(ExperimentalForeignApi::class)
     override suspend fun copyTo(location: DocumentLocation, destination: okio.Path) {
-        val bytes = readBytes(location)
-        val sink = FileSystem.SYSTEM.sink(destination).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
-        }
+        val sourcePath = resolveExistingPath(location) ?: error("Cannot open document: ${location.sourceUri}")
+        FileSystem.SYSTEM.delete(destination, mustExist = false)
+        check(
+            NSFileManager.defaultManager.copyItemAtPath(
+                srcPath = sourcePath,
+                toPath = destination.toString(),
+                error = null,
+            ),
+        ) { "Cannot copy document to $destination" }
     }
 
     /**

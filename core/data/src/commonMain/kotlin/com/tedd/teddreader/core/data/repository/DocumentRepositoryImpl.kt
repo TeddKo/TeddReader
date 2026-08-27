@@ -24,6 +24,7 @@ import com.tedd.teddreader.core.data.mapper.toDocumentEntity
 import com.tedd.teddreader.core.data.mapper.toDocumentMetadata
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.pagination.RestoredPageWindows
+import com.tedd.teddreader.core.data.pagination.SectionPageStarts
 import com.tedd.teddreader.core.data.pagination.ReaderPageMeasureDispatcher
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
@@ -632,7 +633,7 @@ class DocumentRepositoryImpl(
             )
             session.putMeasured(anchorPosition, anchorStarts)
 
-            val anchorPageIndex = pageIndexContaining(anchorStarts, anchorSection.range, anchorOffset)
+            val anchorPageIndex = pageIndexContaining(anchorStarts.offsets, anchorSection.range, anchorOffset)
             if (anchorPageIndex == 0 && anchorPosition > 0) {
                 val previousSection = resolved.contentSections[anchorPosition - 1]
                 session.putMeasured(
@@ -1003,7 +1004,9 @@ class DocumentRepositoryImpl(
             viewportWidthPx = key.viewportSize.widthPx,
             viewportHeightPx = key.viewportSize.heightPx,
         ) ?: return null
-        if (stored.characterCount != document.characterCount) {
+        if (stored.characterCount != document.characterCount ||
+            document.sections.any { section -> !textPageLayoutEngine.canMeasureSection(section) }
+        ) {
             pageLayoutDao.deletePageLayouts(documentId.value)
             return null
         }
@@ -1045,6 +1048,7 @@ class DocumentRepositoryImpl(
         key: PageWindowKey,
         session: PaginationSession,
     ) {
+        if (!session.isFullyMeasured) return
         storePageStarts(documentId, document, key, session.allMeasuredStarts())
     }
 
@@ -1065,6 +1069,7 @@ class DocumentRepositoryImpl(
         key: PageWindowKey,
         session: PaginationSession,
     ) {
+        if (!session.isFullyMeasured) return
         pageLayoutDao.upsertPageLayout(
             PageLayoutEntity(
                 documentId = documentId.value,
@@ -2101,7 +2106,8 @@ class DocumentRepositoryImpl(
      * @param viewportSize The pane dimensions used for line breaking.
      * @param pageBreaker The real text measurer, or null for estimate-only starts.
      * @param viewportDensity The pane density used by the text layout engine.
-     * @return Absolute document offsets for every page start in [section].
+     * @return Absolute page starts plus whether a real breaker produced them, so persistence can
+     * reject bounded estimates without discarding the pages used for the current open.
      */
     private suspend fun measuredPageStartsForSection(
         section: ReaderSection,
@@ -2110,7 +2116,7 @@ class DocumentRepositoryImpl(
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker?,
         viewportDensity: Float = 1f,
-    ): LongArray = if (pageBreaker == null) {
+    ): SectionPageStarts = if (pageBreaker == null) {
         textPageLayoutEngine.pageStartsForSection(section, sectionBlocks, style, viewportSize, null, viewportDensity)
     } else {
         withContext(ReaderPageMeasureDispatcher) {
@@ -2167,17 +2173,21 @@ class DocumentRepositoryImpl(
                 return
             }
             val addedCharacterCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
-            val appendedArrays = newSections.map { (section, blocks) ->
+            val appendedResults = newSections.map { (section, blocks) ->
                 measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity)
             }
-            if (appendedArrays.all { it.isEmpty() }) {
+            if (appendedResults.any { result -> !result.isMeasured } ||
+                appendedResults.all { result -> result.offsets.isEmpty() }
+            ) {
                 pageLayoutDao.deletePageLayouts(documentId.value)
                 return
             }
             pageLayoutDao.upsertPageLayout(
                 stored.copy(
                     characterCount = stored.characterCount + addedCharacterCount,
-                    pageStartsBlob = encodePageStartsBlob(concatPageStarts(existingStarts, appendedArrays)),
+                    pageStartsBlob = encodePageStartsBlob(
+                        concatPageStarts(existingStarts, appendedResults.map { result -> result.offsets }),
+                    ),
                     writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
                     isPartial = true,
                 ),
@@ -2740,17 +2750,32 @@ private class PaginationSession(
     var highPosition: Int,
     var hasMeasuredPages: Boolean,
 ) {
-    /** Every measured section's page starts, keyed by its position in [contentSections]. */
+    /** Every visited section's page starts, keyed by its position in [contentSections]. */
     private val measuredPageStarts = mutableMapOf<Int, LongArray>()
     private var cachedSnapshot: List<PageWindow>? = null
     private var snapshotDirty = true
 
-    /** Whether every content section has now been measured — see class doc for the growth order. */
+    /**
+     * Whether every page start in this session came from a real breaker rather than bounded estimated
+     * geometry. Estimated windows remain usable for the current open but must never become a stored
+     * measured layout.
+     */
+    var isFullyMeasured: Boolean = true
+        private set
+
+    /** Whether every content section has now been visited — see class doc for the growth order. */
     val isComplete: Boolean
         get() = contentSections.isEmpty() || (lowPosition == 0 && highPosition == contentSections.lastIndex)
 
-    fun putMeasured(position: Int, starts: LongArray) {
-        measuredPageStarts[position] = starts
+    /**
+     * Adds one section's page starts and folds its measurement provenance into [isFullyMeasured].
+     *
+     * @param position the section's position in [contentSections].
+     * @param result page starts and whether a real breaker produced them.
+     */
+    fun putMeasured(position: Int, result: SectionPageStarts) {
+        measuredPageStarts[position] = result.offsets
+        isFullyMeasured = isFullyMeasured && result.isMeasured
         if (position < lowPosition) lowPosition = position
         if (position > highPosition) highPosition = position
         snapshotDirty = true

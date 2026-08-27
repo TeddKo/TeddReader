@@ -176,7 +176,7 @@ private class RecordingDocumentDao(
 
 private class RecordingSearchIndexDao : SearchIndexDao {
     override suspend fun upsertSearchIndex(entries: List<com.tedd.teddreader.core.room.entity.SearchIndexEntity>) = Unit
-    override suspend fun search(documentId: String, query: String, limit: Int) = emptyList<com.tedd.teddreader.core.room.entity.SearchIndexEntity>()
+    override suspend fun search(documentId: String, query: String, limit: Int) = emptyList<com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry>()
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String) = emptyList<com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry>()
     override suspend fun getSectionBlocksJson(documentId: String, sectionIndexes: List<Int>) = emptyList<com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry>()
     override suspend fun getLastSection(documentId: String) = null

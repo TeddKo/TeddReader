@@ -8,6 +8,7 @@ import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.data.mapper.toSearchIndexEntity
 import com.tedd.teddreader.core.data.mapper.toSearchResults
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry
 import com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry
 import com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry
 import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
@@ -167,7 +168,7 @@ class SearchRepositoryImplTest {
      */
     @Test
     fun mapperReturnsEmptyForBlankQuery() {
-        val entry = SearchIndexEntity(
+        val entry = SearchIndexSearchEntry(
             documentId = "doc-1",
             sectionIndex = 0,
             sectionTitle = "Chapter 1",
@@ -212,6 +213,21 @@ class SearchRepositoryImplTest {
 }
 
 /**
+ * Mirrors Room's search projection for the in-memory DAO while keeping its seeded full entities intact.
+ *
+ * @receiver the full row selected by the fake search.
+ * @return only the columns production search materializes.
+ */
+private fun SearchIndexEntity.toSearchEntry(): SearchIndexSearchEntry = SearchIndexSearchEntry(
+    documentId = documentId,
+    sectionIndex = sectionIndex,
+    sectionTitle = sectionTitle,
+    text = text,
+    startOffset = startOffset,
+    endOffset = endOffset,
+)
+
+/**
  * In-memory [SearchIndexDao] used only by this test file, filtering/sorting/limiting the same way the
  * real Room-backed DAO does so [SearchRepositoryImpl]'s own logic — trimming, the limit floor,
  * occurrence flattening — is exercised without pulling in Room. `lastQuery`/`lastLimit` record what
@@ -232,13 +248,14 @@ private class FakeSearchIndexDao : SearchIndexDao {
         documentId: String,
         query: String,
         limit: Int,
-    ): List<SearchIndexEntity> {
+    ): List<SearchIndexSearchEntry> {
         lastQuery = query
         lastLimit = limit
         return entries
             .filter { entry -> entry.documentId == documentId && entry.text.contains(query, ignoreCase = true) }
             .sortedBy { entry -> entry.sectionIndex }
             .take(limit)
+            .map { entry -> entry.toSearchEntry() }
     }
 
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> =

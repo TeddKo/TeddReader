@@ -462,6 +462,16 @@ class TextPageLayoutEngineTest {
         assertFalse(breakerCalled)
         assertTrue(pages.isNotEmpty())
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
+
+        val starts = engine.pageStartsForSection(
+            section = document.sections.single(),
+            sectionBlocks = emptyList(),
+            style = ReaderStyle(fontSizeSp = 20f, lineHeightMultiplier = 1f),
+            viewportSize = ViewportSize(widthPx = 2_000, heightPx = 2_000),
+            pageBreaker = pageBreaker,
+        )
+        assertFalse(starts.isMeasured)
+        assertTrue(starts.offsets.isNotEmpty())
     }
 
     /**
