@@ -337,13 +337,12 @@ private class IosDocumentImporter(
      * Every format is copied into the app's own sandbox container via [fileSource] first — the
      * picked URL itself, whether a temporary copy ([openFiles]) or a security-scoped original
      * location ([openFolder]), is not guaranteed to remain valid or accessible for as long as the
-     * imported document needs to stay readable. For an EPUB, [fileSource]'s bytes are then
-     * deliberately left null rather than read again here: the sandbox copy already exists as a
+     * imported document needs to stay readable. For EPUB and CBZ archives, [fileSource]'s bytes are
+     * then deliberately left null rather than read again here: the sandbox copy already exists as a
      * real file on disk, so reading it fully into memory just to hand those bytes to a parser that
-     * immediately reopens that same sandboxed copy as a zip anyway would be wasted work —
-     * `DocumentFormatDetector` resolves the format from `displayName`/`mimeType` alone, so
-     * `bytes = null` costs it nothing, and `DocumentRepositoryImpl`'s progressive import streams
-     * its own local copy from `sandboxLocation` instead.
+     * immediately reopens a scratch copy as a zip would be wasted work. `DocumentFormatDetector`
+     * resolves both formats from `displayName`/`mimeType` alone, and `DocumentRepositoryImpl` copies
+     * from `sandboxLocation` through [DocumentFileSource.copyTo] before opening the archive.
      *
      * @param url the document URL to import.
      * @param manageSecurityScope whether this call must itself start and stop security-scoped
@@ -366,7 +365,8 @@ private class IosDocumentImporter(
                 displayName = displayName,
                 mimeType = extension?.let(::mimeTypeForExtension),
             )
-            val bytes = if (extension == "epub") null else fileSource.readBytes(sandboxLocation)
+            val isArchiveFormat = extension == "epub" || extension == "cbz"
+            val bytes = if (isArchiveFormat) null else fileSource.readBytes(sandboxLocation)
             val document = documentRepository.importDocument(
                 source = DocumentImportSource(
                     location = sandboxLocation,

@@ -12,6 +12,7 @@ import com.tedd.teddreader.core.common.model.parseReaderLocation
 import com.tedd.teddreader.core.domain.repository.Bookmark
 import com.tedd.teddreader.core.domain.repository.ReadingSession
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
+import com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry
 import com.tedd.teddreader.core.room.entity.BookmarkEntity
 import com.tedd.teddreader.core.room.entity.ReadingProgressEntity
 import com.tedd.teddreader.core.room.entity.ReadingSessionEntity
@@ -200,7 +201,7 @@ const val CurrentReaderParserVersion: Int = 9
  * @return Matching [SearchResult]s in the order they occur in [text], or an empty list if [query] is
  *   empty or does not occur.
  */
-fun SearchIndexEntity.toSearchResults(query: String): List<SearchResult> {
+fun SearchIndexSearchEntry.toSearchResults(query: String): List<SearchResult> {
     if (query.isEmpty()) return emptyList()
     return buildList {
         var searchStartIndex = 0
