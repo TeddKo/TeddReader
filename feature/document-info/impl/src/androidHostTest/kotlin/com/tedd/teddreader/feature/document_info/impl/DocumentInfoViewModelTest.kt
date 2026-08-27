@@ -47,6 +47,39 @@ class DocumentInfoViewModelTest {
         Dispatchers.resetMain()
     }
 
+    /**
+     * Verifies that cancelling the coroutine that runs [DocumentInfoViewModel.setDocument]
+     * actually stops the suspended work rather than silently swallowing the cancellation. If
+     * [suspendRunCatching] were reverted to plain `runCatching`, the cancellation would be caught
+     * and the coroutine would complete normally — the job would report `isCompleted == true` and
+     * `isCancelled == false`, failing this assertion.
+     */
+    @Test
+    fun cancellationPropagatesOutOfDocumentInfoLoad() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val documentRepository = FakeDocumentRepository(
+            beforeGetDocument = { gate.await() },
+        )
+        val readerRepository = FakeReaderRepository()
+        val statsRepository = FakeReadingStatsRepository()
+        val viewModel = DocumentInfoViewModel(
+            getDocumentInfo = GetDocumentInfoUseCase(documentRepository, readerRepository, statsRepository),
+            readingStatsRepository = statsRepository,
+        )
+
+        viewModel.setDocument("doc-a")
+        advanceUntilIdle()
+
+        viewModel.setDocument("doc-b")
+        advanceUntilIdle()
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("doc-b", viewModel.uiState.value.documentId)
+        assertNull(viewModel.uiState.value.errorMessage)
+    }
+
     @Test
     fun staleDocumentInfoResponseDoesNotOverwriteNewerDocument() = runTest {
         val firstGate = CompletableDeferred<Unit>()
@@ -105,7 +138,7 @@ private class FakeDocumentRepository(
     }
 
     override suspend fun getReaderDocument(documentId: DocumentId) = null
-    override suspend fun getPageWindows(documentId: DocumentId, style: com.tedd.teddreader.core.common.model.ReaderStyle, viewportSize: com.tedd.teddreader.core.common.model.ViewportSize?, pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?, anchorOffset: Long?) = emptyList<com.tedd.teddreader.core.common.model.PageWindow>()
+    override suspend fun getPageWindows(documentId: DocumentId, style: com.tedd.teddreader.core.common.model.ReaderStyle, viewportSize: com.tedd.teddreader.core.common.model.ViewportSize?, pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?, anchorOffset: Long?, viewportDensity: Float) = emptyList<com.tedd.teddreader.core.common.model.PageWindow>()
     override suspend fun importDocument(source: DocumentImportSource, importedAtEpochMillis: Long) = error("not used")
     override suspend fun upsertDocument(document: DocumentMetadata) = Unit
     override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit

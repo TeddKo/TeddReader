@@ -161,6 +161,53 @@ class SearchViewModelTest {
         assertTrue(viewModel.uiState.value.results.isEmpty())
         assertFalse(viewModel.uiState.value.isLoading)
     }
+
+    /**
+     * Verifies that cancelling the search coroutine (via [SearchViewModel.setDocument] replacing
+     * the in-flight job) actually terminates the suspended search rather than swallowing
+     * [CancellationException]. If `suspendRunCatching` were reverted to plain `runCatching`, the
+     * cancellation would be caught inside `.getOrElse`, and the `return@launch` path would
+     * execute writing an error message — this assertion would fail.
+     */
+    @Test
+    fun cancellationOfSearchDoesNotProduceErrorMessage() = runTest {
+        val documentId = DocumentId("epub-3")
+        val searchGate = CompletableDeferred<Unit>()
+        val viewModel = SearchViewModel(
+            searchDocument = SearchDocumentUseCase(
+                documentRepository = FakeDocumentRepository(
+                    metadata = DocumentMetadata(
+                        id = documentId,
+                        location = DocumentLocation(
+                            sourceUri = "file:///sample.epub",
+                            displayName = "sample.epub",
+                            mimeType = "application/epub+zip",
+                        ),
+                        format = DocumentFormat.EPUB,
+                        addedAtEpochMillis = 0L,
+                    ),
+                ),
+                searchRepository = FakeSearchRepository(
+                    beforeSearch = { searchGate.await() },
+                ),
+            ),
+        )
+
+        viewModel.setDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.updateQuery("query")
+        viewModel.search()
+        advanceUntilIdle()
+
+        viewModel.setDocument("other-doc")
+        advanceUntilIdle()
+
+        searchGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals("other-doc", viewModel.uiState.value.documentId)
+        assertEquals(null, viewModel.uiState.value.errorMessage)
+    }
 }
 
 private class FakeDocumentRepository(
@@ -182,6 +229,7 @@ private class FakeDocumentRepository(
         viewportSize: ViewportSize?,
         pageBreaker: com.tedd.teddreader.core.common.model.ReaderPageBreaker?,
         anchorOffset: Long?,
+        viewportDensity: Float,
     ): List<PageWindow> = emptyList()
 
     override suspend fun importDocument(
