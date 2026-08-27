@@ -62,14 +62,22 @@ interface SearchIndexDao {
     }
 
     /**
+     * Searches only the columns needed to locate occurrences and build snippets. Excluding
+     * `blocksJson` prevents a text search from materializing every matching section's much larger
+     * styled-block payload.
+     *
      * @param documentId the document to search.
      * @param query the text to match, already trimmed by the repository.
      * @param limit the greatest number of *sections* to return; occurrences inside them are counted by the
      * caller.
-     * @return the matching section rows in document order.
+     * @return the matching section projections in document order.
      */
-    @Query("SELECT * FROM search_index WHERE documentId = :documentId AND text LIKE '%' || :query || '%' ORDER BY sectionIndex LIMIT :limit")
-    suspend fun search(documentId: String, query: String, limit: Int): List<SearchIndexEntity>
+    @Query(
+        "SELECT documentId, sectionIndex, sectionTitle, text, startOffset, endOffset " +
+            "FROM search_index WHERE documentId = :documentId AND text LIKE '%' || :query || '%' " +
+            "ORDER BY sectionIndex LIMIT :limit",
+    )
+    suspend fun search(documentId: String, query: String, limit: Int): List<SearchIndexSearchEntry>
 
     /**
      * Everything opening a document needs except `blocksJson`.
@@ -251,6 +259,28 @@ data class SearchIndexSectionEntry(
     val documentTitle: String?,
     val navigationJson: String,
     val parserVersion: Int,
+)
+
+/**
+ * The lightweight section projection [SearchIndexDao.search] returns to occurrence mapping. It
+ * deliberately omits `blocksJson`, navigation and parser metadata because search needs only text,
+ * absolute offsets and the title shown beside a result.
+ *
+ * @property documentId the document the section belongs to.
+ * @property sectionIndex the section's position, retained so the projection completely identifies its
+ * source row while the query orders results.
+ * @property sectionTitle the heading shown beside matches from this section, or null when absent.
+ * @property text the plain section text scanned for occurrences and snippets.
+ * @property startOffset where [text] begins in the whole document.
+ * @property endOffset one past where [text] ends in the whole document.
+ */
+data class SearchIndexSearchEntry(
+    val documentId: String,
+    val sectionIndex: Int,
+    val sectionTitle: String?,
+    val text: String,
+    val startOffset: Long,
+    val endOffset: Long,
 )
 
 /**
