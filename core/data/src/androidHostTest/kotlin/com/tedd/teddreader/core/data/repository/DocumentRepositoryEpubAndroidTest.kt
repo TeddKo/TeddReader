@@ -539,6 +539,24 @@ private class AndroidFakeDocumentDao(
     override suspend fun deleteDocument(documentId: String) = Unit
 
     override suspend fun deleteDocuments(documentIds: List<String>) = Unit
+
+    override suspend fun updateCountsAndFontIndex(documentId: String, characterCount: Long, wordCount: Long, embeddedFontHrefsJson: String?) {
+        if (document?.id == documentId) {
+            document = document?.copy(characterCount = characterCount, wordCount = wordCount, embeddedFontHrefsJson = embeddedFontHrefsJson)
+        }
+    }
+
+    override suspend fun updateCountsAndMarkComplete(documentId: String, characterCount: Long, wordCount: Long, importCompletedAtEpochMillis: Long) {
+        if (document?.id == documentId) {
+            document = document?.copy(characterCount = characterCount, wordCount = wordCount, importCompletedAtEpochMillis = importCompletedAtEpochMillis)
+        }
+    }
+
+    override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) {
+        if (document?.id == documentId) {
+            document = document?.copy(embeddedFontHrefsJson = embeddedFontHrefsJson)
+        }
+    }
 }
 
 /**
@@ -601,6 +619,19 @@ private class AndroidFakeSearchIndexDao : SearchIndexDao {
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { it.documentId == documentId }
     }
+
+    override suspend fun getSectionSourcePaths(documentId: String): List<com.tedd.teddreader.core.room.dao.SectionSourcePathEntry> =
+        entries.filter { it.documentId == documentId }
+            .sortedBy { it.sectionIndex }
+            .map { com.tedd.teddreader.core.room.dao.SectionSourcePathEntry(it.sectionIndex, it.sourcePath) }
+
+    override suspend fun getFirstReadableContentSectionIndex(documentId: String, excludeSectionIndex: Int): Int? =
+        entries.filter { it.documentId == documentId && it.sectionIndex != excludeSectionIndex && it.text.isNotBlank() }
+            .minByOrNull { it.sectionIndex }
+            ?.sectionIndex
+
+    override suspend fun getSectionCount(documentId: String): Int =
+        entries.count { it.documentId == documentId }
 }
 
 /**
@@ -629,6 +660,10 @@ private class AndroidFakePageLayoutDao : PageLayoutDao {
     override suspend fun deletePageLayouts(documentId: String) = Unit
 
     override suspend fun trimPageLayouts(documentId: String, keep: Int) = Unit
+
+    override suspend fun deletePartialPageLayouts(documentId: String) = Unit
+
+    override suspend fun promotePartialLayouts(documentId: String, characterCount: Long) = Unit
 }
 
 /**

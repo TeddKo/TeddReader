@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.room.dao
 
 import androidx.room3.Dao
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Upsert
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 
@@ -27,6 +28,38 @@ interface SearchIndexDao {
      */
     @Upsert
     suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>)
+
+    /**
+     * Commits newly parsed sections and their document-level count/font accumulators atomically. A
+     * process death must expose either the old prefix and old accumulators or the new prefix and new
+     * accumulators; exposing new sections with stale non-null counts would make resume trust an
+     * undercounted baseline. [documentDao] belongs to the same database instance in production, so its
+     * targeted update participates in this DAO transaction while test fakes retain the same contract.
+     *
+     * @param documentDao The database's document DAO used for the accumulator update.
+     * @param entries The newly parsed section rows to upsert.
+     * @param documentId The document whose accumulators advance with [entries].
+     * @param characterCount The count across the complete prefix after [entries].
+     * @param wordCount The word count across the complete prefix after [entries].
+     * @param embeddedFontHrefsJson The exact sorted font href set across that prefix, encoded as JSON.
+     */
+    @Transaction
+    suspend fun upsertImportBatch(
+        documentDao: DocumentDao,
+        entries: List<SearchIndexEntity>,
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        embeddedFontHrefsJson: String,
+    ) {
+        upsertSearchIndex(entries)
+        documentDao.updateCountsAndFontIndex(
+            documentId = documentId,
+            characterCount = characterCount,
+            wordCount = wordCount,
+            embeddedFontHrefsJson = embeddedFontHrefsJson,
+        )
+    }
 
     /**
      * @param documentId the document to search.
@@ -112,10 +145,75 @@ interface SearchIndexDao {
     )
 
     /**
+     * Applies every navigation-derived section title together with the document-level navigation row in
+     * one transaction. Completion is the only point these values become authoritative, so exposing a
+     * partially updated outline after process death would be worse than keeping the pre-completion one.
+     *
+     * @param documentId the document whose navigation is being finalized.
+     * @param sectionIndex the row that carries document-level title and navigation data.
+     * @param documentTitle the package title resolved at completion.
+     * @param navigationJson the serialized completed navigation tree.
+     * @param titleUpdates section titles keyed by their resolved spine indexes.
+     */
+    @Transaction
+    suspend fun updateCompletedNavigation(
+        documentId: String,
+        sectionIndex: Int,
+        documentTitle: String,
+        navigationJson: String,
+        titleUpdates: List<SectionTitleUpdate>,
+    ) {
+        titleUpdates.forEach { update ->
+            updateSectionTitle(documentId, update.sectionIndex, update.title)
+        }
+        updateDocumentTitleAndNavigation(documentId, sectionIndex, documentTitle, navigationJson)
+    }
+
+    /**
      * @param documentId the document whose stored text is removed.
      */
     @Query("DELETE FROM search_index WHERE documentId = :documentId")
     suspend fun deleteSearchIndex(documentId: String)
+
+    /**
+     * Returns the source paths and section indexes for every stored section of a document, ordered
+     * by section index. This is the lightweight query [finishEpubImport] uses instead of reading
+     * every section's full text: it only needs the source paths to resolve navigation and the
+     * section count to validate the path map.
+     *
+     * @param documentId the document to query.
+     * @return each section's index and source path, in document order.
+     */
+    @Query(
+        "SELECT sectionIndex, sourcePath FROM search_index WHERE documentId = :documentId ORDER BY sectionIndex",
+    )
+    suspend fun getSectionSourcePaths(documentId: String): List<SectionSourcePathEntry>
+
+    /**
+     * Returns the section index and text-is-not-blank status for the first readable content section
+     * — one that is neither the cover (index 0 when the cover exists) nor blank — for navigation
+     * resolution at import completion.
+     *
+     * @param documentId the document to query.
+     * @param excludeSectionIndex a section index to exclude (typically the cover section).
+     * @return the first non-blank content section's index, or null when none exists.
+     */
+    @Query(
+        "SELECT sectionIndex FROM search_index WHERE documentId = :documentId " +
+            "AND sectionIndex != :excludeSectionIndex AND text != '' AND TRIM(text) != '' " +
+            "ORDER BY sectionIndex LIMIT 1",
+    )
+    suspend fun getFirstReadableContentSectionIndex(documentId: String, excludeSectionIndex: Int): Int?
+
+    /**
+     * Returns the total stored section count for a document — used by finishEpubImport to validate
+     * cached source path maps without loading full rows.
+     *
+     * @param documentId the document to count sections for.
+     * @return the number of stored sections.
+     */
+    @Query("SELECT COUNT(*) FROM search_index WHERE documentId = :documentId")
+    suspend fun getSectionCount(documentId: String): Int
 }
 
 /**
@@ -164,4 +262,27 @@ data class SearchIndexSectionEntry(
 data class SectionBlocksJsonEntry(
     val sectionIndex: Int,
     val blocksJson: String,
+)
+
+/**
+ * A section's source path — see [SearchIndexDao.getSectionSourcePaths].
+ *
+ * @property sectionIndex the section's position in document order.
+ * @property sourcePath the archive-relative path of the spine item this section was parsed from,
+ * or null for sections imported before TeddReaderMigration8To9 or for non-EPUB documents.
+ */
+data class SectionSourcePathEntry(
+    val sectionIndex: Int,
+    val sourcePath: String?,
+)
+
+/**
+ * One section title resolved from completed EPUB navigation.
+ *
+ * @property sectionIndex the stored section to rename.
+ * @property title the navigation title that replaces its parse-time heading.
+ */
+data class SectionTitleUpdate(
+    val sectionIndex: Int,
+    val title: String,
 )

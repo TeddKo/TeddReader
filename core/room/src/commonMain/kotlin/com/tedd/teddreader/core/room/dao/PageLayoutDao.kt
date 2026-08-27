@@ -100,4 +100,30 @@ interface PageLayoutDao {
             "ORDER BY writtenAtEpochMillis DESC LIMIT :keep)",
     )
     suspend fun trimPageLayouts(documentId: String, keep: Int)
+
+    /**
+     * Deletes all partial-layout rows for a document — used when the document grows (a new import
+     * batch lands) so stale partial measurements that addressed an older prefix are not mistakenly
+     * restored by a later open.
+     *
+     * @param documentId the document whose partial rows to discard.
+     */
+    @Query("DELETE FROM page_layouts WHERE documentId = :documentId AND isPartial = 1")
+    suspend fun deletePartialPageLayouts(documentId: String)
+
+    /**
+     * Promotes a partial-layout row to complete by setting its `isPartial` flag to `0`. Called once
+     * the import completes and the row's existing character count proves its measurement covers the
+     * whole document.
+     *
+     * @param documentId the document whose partial rows to promote.
+     * @param characterCount the exact character count the row must carry to be promoted — only rows
+     *   whose `characterCount` already matches are touched, so a stale row for an older prefix is
+     *   never accidentally promoted.
+     */
+    @Query(
+        "UPDATE page_layouts SET isPartial = 0 WHERE documentId = :documentId " +
+            "AND characterCount = :characterCount AND isPartial = 1",
+    )
+    suspend fun promotePartialLayouts(documentId: String, characterCount: Long)
 }
