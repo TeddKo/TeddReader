@@ -163,6 +163,31 @@ class SearchRepositoryImplTest {
     }
 
     /**
+     * Guards the allocation bound beneath the repository result contract: a dense section may contain
+     * far more occurrences than a caller will display, so the mapper must stop materializing results
+     * at its own limit rather than build every snippet and rely on a later `take` to discard them.
+     */
+    @Test
+    fun mapperStopsMaterializingOccurrencesAtLimit() {
+        val entry = SearchIndexSearchEntry(
+            documentId = "doc-1",
+            sectionIndex = 0,
+            sectionTitle = "Dense chapter",
+            text = List(100) { "reader" }.joinToString(separator = " "),
+            startOffset = 0,
+            endOffset = 699,
+        )
+
+        val results = entry.toSearchResults(query = "reader", limit = 5)
+
+        assertEquals(5, results.size)
+        assertEquals(
+            listOf(0L, 7L, 14L, 21L, 28L).map(ReaderLocation::TextOffset),
+            results.map { result -> result.location },
+        )
+    }
+
+    /**
      * Guards [toSearchResults] directly: an empty query string must return no results rather than
      * matching every position in the text (which a naive zero-length-match scan would do).
      */

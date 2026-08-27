@@ -25,11 +25,11 @@ class SearchRepositoryImpl(
      * [query] is trimmed before anything else runs, and a query that is blank once trimmed matches
      * nothing — it never reaches [searchIndexDao] — rather than being treated as "no filter" and
      * matching everything. [searchIndexDao] is asked for at most `limit` matching *sections*, each of
-     * which [toSearchResults] then expands into however many occurrences it actually contains; because
-     * every section [searchIndexDao] returns is guaranteed to contain at least one match, that always
-     * yields at least as many occurrences as sections requested, so trimming the flattened list down to
-     * `limit` afterwards is what turns a section-count limit into the occurrence-count limit callers
-     * actually asked for.
+     * which can contain many occurrences. Each section receives only the document-wide result budget
+     * still unfilled, and scanning stops the moment that budget reaches zero, so a dense first chapter
+     * cannot allocate thousands of [SearchResult]s and snippets that a final `take(limit)` would discard.
+     * Every returned section contains at least one SQL match, so asking for `limit` sections is still
+     * sufficient to fill an occurrence limit of the same size whenever that many occurrences exist.
      *
      * @param documentId The document to search.
      * @param query The text to search for; leading/trailing whitespace is ignored.
@@ -46,9 +46,13 @@ class SearchRepositoryImpl(
         val trimmedQuery = query.trim()
         if (trimmedQuery.isBlank()) return emptyList()
 
-        return searchIndexDao
-            .search(documentId.value, trimmedQuery, limit.coerceAtLeast(1))
-            .flatMap { entry -> entry.toSearchResults(trimmedQuery) }
-            .take(limit.coerceAtLeast(1))
+        val effectiveLimit = limit.coerceAtLeast(1)
+        val entries = searchIndexDao.search(documentId.value, trimmedQuery, effectiveLimit)
+        return buildList(capacity = minOf(effectiveLimit, 16)) {
+            for (entry in entries) {
+                addAll(entry.toSearchResults(trimmedQuery, limit = effectiveLimit - size))
+                if (size >= effectiveLimit) break
+            }
+        }
     }
 }
