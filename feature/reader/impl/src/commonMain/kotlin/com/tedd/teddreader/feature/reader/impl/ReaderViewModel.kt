@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.reader.impl
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.ByteArrayLruCache
+import com.tedd.teddreader.core.common.suspendRunCatching
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.DocumentFormat
@@ -995,7 +996,7 @@ class ReaderViewModel(
         val wasFavorite = _uiState.value.isFavorite
         _uiState.update { it.copy(isFavorite = !wasFavorite) }
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 val document = requireNotNull(documentRepository.getDocument(documentId))
                 documentRepository.upsertDocument(document.copy(isBookmarked = !wasFavorite))
             }.onFailure {
@@ -1034,7 +1035,7 @@ class ReaderViewModel(
         savedPlaces = if (existing == null) savedPlaces + savedPlace else savedPlaces - existing
         _uiState.update { it.copy(isCurrentPageSaved = existing == null) }
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 if (existing == null) {
                     bookmarkRepository.saveBookmark(savedPlace)
                 } else {
@@ -1312,7 +1313,7 @@ class ReaderViewModel(
     private fun saveReaderSettings(block: suspend () -> Unit) {
         _uiState.update { state -> state.copy(isSavingSettings = true, errorMessage = null) }
         viewModelScope.launch {
-            runCatching { block() }
+            suspendRunCatching { block() }
                 .onFailure { throwable ->
                     _uiState.update {
                         it.copy(
