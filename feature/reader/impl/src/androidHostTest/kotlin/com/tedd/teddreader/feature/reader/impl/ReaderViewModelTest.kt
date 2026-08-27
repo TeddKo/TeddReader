@@ -614,6 +614,56 @@ class ReaderViewModelTest {
         )
     }
 
+    /**
+     * Embedded-font resolution starts after the first frame but before the opened-at write finishes, so
+     * an indexed font set can settle the layout key while that unrelated database write is still parked.
+     * Import continuation remains behind the write to preserve completed-outline ordering.
+     */
+    @Test
+    fun epubFontResolutionOverlapsMarkDocumentOpenedWrite() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-font-overlap")
+        val markDocumentOpenedGate = CompletableDeferred<Unit>()
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.PARAGRAPH,
+            range = TextRange(0, 4),
+            style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Font overlap",
+                    sections = emptyList(),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "font",
+                        textRange = TextRange(0, 4),
+                        blocks = listOf(block),
+                    ),
+                ),
+                embeddedFontFiles = mapOf("fonts/body.otf" to "/tmp/body.otf"),
+                markDocumentOpenedGate = markDocumentOpenedGate,
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertEquals(
+            mapOf("fonts/body.otf" to "/tmp/body.otf"),
+            viewModel.uiState.value.embeddedFontFiles,
+            "font resolution must finish while markDocumentOpened is still suspended",
+        )
+        markDocumentOpenedGate.complete(Unit)
+        advanceUntilIdle()
+    }
+
     @Test
     fun epubPublisherFontKeyDoesNotShrinkWhenTheMountedWindowMoves() = runTest(dispatcher) {
         val documentId = DocumentId("epub-font-key")

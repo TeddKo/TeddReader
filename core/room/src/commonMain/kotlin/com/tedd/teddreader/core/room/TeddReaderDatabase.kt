@@ -40,7 +40,7 @@ import com.tedd.teddreader.core.room.entity.SearchIndexEntity
         SearchIndexEntity::class,
         PageLayoutEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 @ConstructedBy(TeddReaderDatabaseConstructor::class)

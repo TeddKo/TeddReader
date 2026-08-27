@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.room.entity
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
 import androidx.room3.Index
@@ -80,4 +81,16 @@ data class PageLayoutEntity(
     val pageStartsBlob: ByteArray? = null,
     /** When this row was measured, which is what orders newest-first resolution and bounds the table. */
     val writtenAtEpochMillis: Long,
+    /**
+     * Whether this row was measured against an incomplete import prefix rather than the full document.
+     * A partial row is trusted only while the document's current `characterCount` still matches this
+     * row's own [characterCount] — the moment the document grows (a new import batch lands), the partial
+     * row for the old prefix is stale and must be deleted or promoted. Rows produced after the import
+     * completes are written with `isPartial = false` and survive across sessions.
+     *
+     * Fresh schema and TeddReaderMigration8To9 both default this to `0` (false), so existing complete
+     * rows stay valid without a backfill.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val isPartial: Boolean = false,
 )

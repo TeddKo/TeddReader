@@ -63,4 +63,11 @@ data class SearchIndexEntity(
      */
     @ColumnInfo(defaultValue = "0")
     val parserVersion: Int = 0,
+    /**
+     * The archive-relative path of the spine item this section was parsed from, stored during
+     * import so `finishEpubImport` can resolve navigation titles and source paths without re-reading
+     * every stored section's full text. NULL for non-EPUB documents or legacy rows that predate
+     * TeddReaderMigration8To9.
+     */
+    val sourcePath: String? = null,
 )

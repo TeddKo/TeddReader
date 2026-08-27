@@ -31,6 +31,11 @@ import androidx.room3.PrimaryKey
  * @property isBookmarked whether the book is starred in the library.
  * @property folderId the folder this book is filed under, or NULL when unfiled.
  * @property folderName that folder's name, present exactly when [folderId] is.
+ * @property embeddedFontHrefsJson a JSON-encoded sorted set of the EPUB font hrefs this document
+ * references, accumulated during import from the parsed blocks' `fontHref` fields. NULL for non-EPUB
+ * documents or for rows written before `TeddReaderMigration8To9` — in that case a legacy scan
+ * fills it on first read. The indexed value lets [getReferencedEmbeddedFontHrefs] answer in O(F) for
+ * the font count rather than decoding every section's `blocksJson`.
  * @throws IllegalArgumentException if the folder pair is half-filled or either half is blank.
  */
 @Entity(tableName = "documents")
@@ -59,6 +64,16 @@ data class DocumentEntity(
      * because a row that already existed was, by definition, imported completely.
      */
     val importCompletedAtEpochMillis: Long? = null,
+    /**
+     * JSON-encoded sorted set of every embedded-font href this document references, accumulated
+     * progressively during import from parsed `ReaderBlock.style.fontHref` and
+     * `spans.styleDelta.fontHref` unions. NULL for non-EPUB documents or legacy rows that predate
+     * the v9 schema — a legacy scan fills it on first font-href query, after which subsequent reads
+     * skip the expensive full-blocks prewarm entirely.
+     *
+     * Added by TeddReaderMigration8To9.
+     */
+    val embeddedFontHrefsJson: String? = null,
 ) {
     init {
         require((folderId == null) == (folderName == null)) {
