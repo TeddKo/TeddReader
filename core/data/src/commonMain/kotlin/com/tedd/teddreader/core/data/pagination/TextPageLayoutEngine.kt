@@ -77,8 +77,8 @@ class TextPageLayoutEngine {
                 sectionBlocks = sectionBlockList,
                 layout = layout,
                 style = style,
-                pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
-            ).map { range -> buildPageWindow(document.format, section, sectionBlockList, range) }
+                pageBreaker = pageBreaker?.takeIf { canMeasureSection(section) },
+            ).ranges.map { range -> buildPageWindow(document.format, section, sectionBlockList, range) }
         }
         return assemblePages(coverPage, contentPages)
     }
@@ -163,26 +163,41 @@ class TextPageLayoutEngine {
      * @param viewportSize the box being measured for.
      * @param pageBreaker the reader's own layout; null yields estimated starts, and a section longer than
      * the measurement cap is estimated even when a breaker is given.
-     * @return one absolute document offset per page of this section, ascending.
+     * @return the section's page starts together with whether they came from [pageBreaker], so a
+     * caller never persists an over-cap estimate as a reusable measured layout.
      */
-    fun pageStartsForSection(
+    internal fun pageStartsForSection(
         section: ReaderSection,
         sectionBlocks: List<ReaderBlock>,
         style: ReaderStyle,
         viewportSize: ViewportSize,
         pageBreaker: ReaderPageBreaker?,
         viewportDensity: Float = 1f,
-    ): LongArray {
+    ): SectionPageStarts {
         val layout = pageLayout(style, viewportSize, viewportDensity)
-        val ranges = sectionPageRanges(
+        val result = sectionPageRanges(
             section = section,
             sectionBlocks = sectionBlocks,
             layout = layout,
             style = style,
-            pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
+            pageBreaker = pageBreaker?.takeIf { canMeasureSection(section) },
         )
-        return LongArray(ranges.size) { index -> ranges[index].start }
+        return SectionPageStarts(
+            offsets = LongArray(result.ranges.size) { index -> result.ranges[index].start },
+            isMeasured = result.isMeasured,
+        )
     }
+
+    /**
+     * Whether a real [ReaderPageBreaker] may receive [section] without crossing the bounded single-pass
+     * measurement limit. Stored layouts containing a longer section predate measurement provenance and
+     * cannot be trusted, because that path historically substituted an estimate under a measured key.
+     *
+     * @param section the section whose text length controls the measurement cap.
+     * @return true when [section] is short enough for a real breaker pass.
+     */
+    internal fun canMeasureSection(section: ReaderSection): Boolean =
+        section.text.length <= MaxMeasuredContentLengthChars
 
     /**
      * Whether [paginate] would give this document a dedicated first page for its cover image.
@@ -247,8 +262,8 @@ class TextPageLayoutEngine {
             sectionBlocks = sectionBlocks,
             layout = layout,
             style = style,
-            pageBreaker = pageBreaker?.takeIf { section.text.length <= MaxMeasuredContentLengthChars },
-        ).map { range -> buildPageWindow(format, section, sectionBlocks, range) }
+            pageBreaker = pageBreaker?.takeIf { canMeasureSection(section) },
+        ).ranges.map { range -> buildPageWindow(format, section, sectionBlocks, range) }
     }
 
     /**
@@ -431,7 +446,8 @@ class TextPageLayoutEngine {
      * @param layout the estimated page geometry, used only when there is no measurement.
      * @param style the reading style, used only by the estimate.
      * @param pageBreaker the real measurement, or null to estimate.
-     * @return one absolute range per page, or an empty list for a section with nothing to show.
+     * @return absolute page ranges plus whether a real breaker produced them, or exact empty ranges
+     * for a section with nothing to show.
      */
     private fun sectionPageRanges(
         section: ReaderSection,
@@ -439,11 +455,13 @@ class TextPageLayoutEngine {
         layout: PageLayout,
         style: ReaderStyle,
         pageBreaker: ReaderPageBreaker?,
-    ): List<TextRange> {
+    ): SectionPageRanges {
         val text = section.text
         val base = section.range.start
-        if (text.isEmpty()) return emptyList()
-        if (text.isBlank() && sectionBlocks.none { it.kind.isStandalone() }) return emptyList()
+        if (text.isEmpty()) return SectionPageRanges(emptyList(), isMeasured = true)
+        if (text.isBlank() && sectionBlocks.none { it.kind.isStandalone() }) {
+            return SectionPageRanges(emptyList(), isMeasured = true)
+        }
 
         val measuredPageStarts = pageBreaker
             ?.pageStarts(text, sectionBlocks)
@@ -462,8 +480,12 @@ class TextPageLayoutEngine {
                 ),
             )
         }
-        if (relativeRanges.isEmpty()) return listOf(TextRange(base, base + text.length))
-        return relativeRanges.map { range -> TextRange(base + range.start, base + range.end) }
+        val absoluteRanges = if (relativeRanges.isEmpty()) {
+            listOf(TextRange(base, base + text.length))
+        } else {
+            relativeRanges.map { range -> TextRange(base + range.start, base + range.end) }
+        }
+        return SectionPageRanges(absoluteRanges, isMeasured = measuredPageStarts != null)
     }
 
     /**
@@ -852,6 +874,31 @@ private fun IntArray.firstIndexGreaterThan(value: Int): Int {
     }
     return result
 }
+
+/**
+ * Page starts for one section together with their provenance. [isMeasured] is false when the engine
+ * had to use estimated geometry despite the caller supplying a breaker, which prevents repositories
+ * from writing that estimate under a measured layout key.
+ *
+ * @property offsets absolute document offsets for every page start in the section.
+ * @property isMeasured whether a real [ReaderPageBreaker] produced the starts, or the section was
+ * exactly empty and needed no measurement.
+ */
+internal data class SectionPageStarts(
+    val offsets: LongArray,
+    val isMeasured: Boolean,
+)
+
+/**
+ * Internal page ranges and the provenance shared by eager pagination and persisted-start generation.
+ *
+ * @property ranges absolute page ranges in reading order.
+ * @property isMeasured whether a real breaker produced [ranges], or no visible content needed one.
+ */
+private data class SectionPageRanges(
+    val ranges: List<TextRange>,
+    val isMeasured: Boolean,
+)
 
 /**
  * The estimated geometry of one page.

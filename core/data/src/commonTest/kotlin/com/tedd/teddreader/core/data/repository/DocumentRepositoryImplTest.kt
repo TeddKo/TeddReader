@@ -29,6 +29,7 @@ import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.room.dao.DocumentDao
 import com.tedd.teddreader.core.room.dao.PageLayoutDao
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry
 import com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry
 import com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry
 import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
@@ -1167,6 +1168,72 @@ class DocumentRepositoryImplTest {
             "a layout written for a different character count must not decide the reader's pages",
         )
         assertTrue(pages.isNotEmpty(), "the discarded row must be replaced by a fresh measurement")
+    }
+
+    /**
+     * A section above the engine's bounded measurement limit yields usable estimated pages for the
+     * current open, but those starts must never survive as a final measured row. The pre-seeded row
+     * models a layout written by an older build that could not distinguish this estimate from a real
+     * breaker result; opening must delete it, and the replacement estimate must remain memory-only.
+     */
+    @Test
+    fun oversizedTxtEstimateIsNeitherRestoredNorStoredAsMeasuredLayout() = runTest {
+        val documentDao = FakeDocumentDao()
+        val searchIndexDao = FakeDocumentSearchIndexDao()
+        val pageLayoutDao = FakePageLayoutDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = searchIndexDao,
+            pageLayoutDao = pageLayoutDao,
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+        )
+        val text = "a".repeat(200_001)
+        val location = DocumentLocation(
+            sourceUri = "file:///oversized.txt",
+            displayName = "oversized.txt",
+            mimeType = "text/plain",
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val style = ReaderStyle(fontSizeSp = 20f)
+        val viewportSize = ViewportSize(widthPx = 2_000, heightPx = 2_000)
+        repository.importDocument(
+            source = DocumentImportSource(location = location, bytes = text.encodeToByteArray()),
+            importedAtEpochMillis = 1_000,
+        )
+        pageLayoutDao.upsertPageLayout(
+            PageLayoutEntity(
+                documentId = documentId.value,
+                fontSizeSp = style.fontSizeSp,
+                lineHeightMultiplier = style.lineHeightMultiplier,
+                fontFamilyName = style.layoutKey().fontFamilyName.orEmpty(),
+                viewportWidthPx = viewportSize.widthPx,
+                viewportHeightPx = viewportSize.heightPx,
+                characterCount = text.length.toLong(),
+                pageStartsBlob = encodePageStartsBlob(longArrayOf(0L, 100_000L)),
+                writtenAtEpochMillis = 2_000,
+            ),
+        )
+        var breakerCalled = false
+
+        val pages = repository.getPageWindows(
+            documentId = documentId,
+            style = style,
+            viewportSize = viewportSize,
+            pageBreaker = ReaderPageBreaker { _, _ ->
+                breakerCalled = true
+                intArrayOf(0)
+            },
+        )
+
+        assertFalse(breakerCalled)
+        assertTrue(pages.isNotEmpty())
+        assertTrue(pageLayoutDao.stored.isEmpty(), "an oversized estimate must not remain under a measured layout key")
     }
 
     /**
@@ -5012,7 +5079,16 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
         documentId: String,
         query: String,
         limit: Int,
-    ): List<SearchIndexEntity> = entries.take(limit)
+    ): List<SearchIndexSearchEntry> = entries.take(limit).map { entry ->
+        SearchIndexSearchEntry(
+            documentId = entry.documentId,
+            sectionIndex = entry.sectionIndex,
+            sectionTitle = entry.sectionTitle,
+            text = entry.text,
+            startOffset = entry.startOffset,
+            endOffset = entry.endOffset,
+        )
+    }
 
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String): List<SearchIndexSectionEntry> {
         val snapshot = entries.filter { it.documentId == documentId }.sortedBy { it.sectionIndex }.map { it.toSectionEntry() }
