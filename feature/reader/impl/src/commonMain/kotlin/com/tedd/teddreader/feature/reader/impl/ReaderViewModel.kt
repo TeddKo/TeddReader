@@ -366,6 +366,7 @@ class ReaderViewModel(
             try {
                 val state = loadOpenState(documentId) ?: return@launch
                 if (!publishFirstFrame(state)) return@launch
+                if (state.documentFormat == DocumentFormat.EPUB) loadAllEmbeddedFonts()
                 publishRest(state)
                 startContinuations(state)
             } catch (cancellationException: CancellationException) {
@@ -600,7 +601,7 @@ class ReaderViewModel(
     }
 
     /**
-     * Starts every background continuation this open can need, now that [publishRest] has already
+     * Starts every content continuation this open can need, now that [publishRest] has already
      * published everything it captured at open time: the visual-page/embedded-image preload around
      * [OpenState.currentPage] and the progressive import-or-pagination continuation. None of it may
      * touch `pageIndex`, `pageText`, or `currentPage`, which [publishFirstFrame] already announced.
@@ -627,12 +628,16 @@ class ReaderViewModel(
      * was only an estimate, superseded within a frame or two by the real measurement
      * [updatePageBreaker] triggers on its own, which starts its own progressive pass.
      *
+     * Embedded-font resolution starts separately immediately after [publishFirstFrame], before the
+     * opened-at write in [publishRest], because it cannot overwrite outline state and its document-wide
+     * index lookup should overlap that write instead of waiting behind it. Import continuation remains
+     * here so its completed outline can only publish after [publishRest]'s older snapshot.
+     *
      * @param state the state [loadOpenState] produced for this open.
      */
     private fun startContinuations(state: OpenState) {
         if (state.documentFormat == DocumentFormat.CBZ) loadVisualPagesAround(state.currentPage)
         if (state.documentFormat == DocumentFormat.EPUB) loadEmbeddedImagesAround(state.currentPage)
-        if (state.documentFormat == DocumentFormat.EPUB) loadAllEmbeddedFonts()
         if (!state.isImportComplete) {
             paginationContinuationJob?.cancel()
             continueImportIfIncomplete(state.documentId)

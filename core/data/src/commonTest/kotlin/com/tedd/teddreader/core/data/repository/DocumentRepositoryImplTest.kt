@@ -32,6 +32,7 @@ import com.tedd.teddreader.core.room.dao.SearchIndexDao
 import com.tedd.teddreader.core.room.dao.SearchIndexSectionEntry
 import com.tedd.teddreader.core.room.dao.SectionBlocksJsonEntry
 import com.tedd.teddreader.core.room.dao.SectionOffsetEntry
+import com.tedd.teddreader.core.room.dao.SectionSourcePathEntry
 import com.tedd.teddreader.core.room.entity.DocumentEntity
 import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
@@ -2127,7 +2128,12 @@ class DocumentRepositoryImplTest {
             repository.isImportComplete(documentId),
             "a long EPUB must not be complete after phase 0/1's bounded read-ahead alone",
         )
-        assertEquals(null, documentDao.saved?.characterCount, "characterCount must stay null until the import completes")
+        val metadata = repository.getDocument(documentId)
+        assertEquals(null, metadata?.characterCount, "characterCount must stay null in domain metadata until the import completes")
+        assertTrue(
+            (documentDao.saved?.characterCount ?: 0L) > 0L,
+            "entity stores a partial accumulator count during incomplete import",
+        )
         val persistedSections = searchIndexDao.entries.filter { it.documentId == documentId.value }.map { it.sectionIndex }.sorted()
         assertTrue(
             persistedSections.isNotEmpty() && persistedSections.size < chapterCount + 1,
@@ -2350,10 +2356,13 @@ class DocumentRepositoryImplTest {
         val style = ReaderStyle()
         val viewportSize = ViewportSize(widthPx = 320, heightPx = 560)
         repository.importDocument(DocumentImportSource(location, bytes = null), importedAtEpochMillis = 1_000)
-        assertEquals(null, documentDao.saved?.characterCount)
+        val metadataAfterPhase0 = repository.getDocument(documentId)
+        assertEquals(null, metadataAfterPhase0?.characterCount, "domain metadata characterCount must be null during incomplete import")
+        assertTrue((documentDao.saved?.characterCount ?: 0L) > 0L, "entity stores a partial accumulator count")
 
         repository.importNextSections(documentId, count = 1, style, viewportSize, pageBreaker = null)
-        assertEquals(null, documentDao.saved?.characterCount, "characterCount must stay null while any section remains unimported")
+        val metadataAfterBatch = repository.getDocument(documentId)
+        assertEquals(null, metadataAfterBatch?.characterCount, "characterCount must stay null in domain while any section remains unimported")
         assertFalse(repository.isImportComplete(documentId))
 
         var guard = 0
@@ -2796,15 +2805,12 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A measurement taken while the import is still running must not be written to `page_layouts` — the
-     * guard [DocumentRepositoryImpl.getPageWindows]/[DocumentRepositoryImpl.continuePagination] both
-     * apply before calling [DocumentRepositoryImpl.storePageWindows]. Once the import has actually
-     * finished and pagination has caught up (via `getPageWindows` + `finishPagination`, the same two
-     * calls that only ever measure the resumed section on a cold session, then drive the rest the way a
-     * background continuation would), a real measurement must be persisted as usual.
+     * A bounded first measurement must not persist an incomplete session. Once background continuation
+     * has measured the current prefix, progressive import may store and append a partial row; after both
+     * import and pagination finish, that row must remain available as the promoted final layout.
      */
     @Test
-    fun getPageWindowsDoesNotStoreALayoutWhileTheImportIsIncomplete() = runTest {
+    fun incompletePaginationSessionIsNotStoredBeforeItsPrefixFinishes() = runTest {
         val location = DocumentLocation(
             sourceUri = "file:///no-write-mid-import.epub",
             displayName = "no-write-mid-import.epub",
@@ -2838,7 +2844,7 @@ class DocumentRepositoryImplTest {
         assertFalse(repository.isImportComplete(documentId))
         assertTrue(
             pageLayoutDao.stored.isEmpty(),
-            "a measurement taken while the import is still running must not be written to page_layouts",
+            "a bounded session must not be persisted before it has measured its current prefix",
         )
 
         var guard = 0
@@ -2860,14 +2866,12 @@ class DocumentRepositoryImplTest {
     /**
      * A stored layout [DocumentRepositoryImpl.appendMeasuredPageStarts] finds but cannot extend must be
      * deleted, not left stale for [DocumentRepositoryImpl.restorePageWindows] to trip over later. The
-     * row upserted below stands in for one left over from an app version before `storePageWindows`
-     * learned to wait for `isImportComplete`: a pre-migration layout with no blob at all (see
-     * [PageLayoutEntity] / `TeddReaderMigration7To8`) is the simplest real example of "found, but cannot
-     * be extended." With that guard in place a fresh import never writes a row to begin with, so this is
-     * the only way `appendMeasuredPageStarts` still finds one to react to.
+     * row upserted below stands in for one left over from an app version before partial prefix layouts;
+     * after deleting it the repository measures the current prefix and stores a version-matched partial
+     * replacement so the following batch can append without rebuilding that prefix again.
      */
     @Test
-    fun importNextSectionsDeletesAStaleLayoutItCannotExtendInsteadOfLeavingItStale() = runTest {
+    fun importNextSectionsReplacesAnUnextendableStaleLayoutWithTheCurrentPrefix() = runTest {
         val location = DocumentLocation(
             sourceUri = "file:///stale-append.epub",
             displayName = "stale-append.epub",
@@ -2912,11 +2916,10 @@ class DocumentRepositoryImplTest {
 
         repository.importNextSections(documentId, count = 1, style, viewportSize, measuringBreaker)
 
-        assertTrue(
-            pageLayoutDao.stored.none { it.documentId == documentId.value },
-            "a stored layout appendMeasuredPageStarts finds but cannot extend must be deleted, not left " +
-                "stale for restorePageWindows to trip over later",
-        )
+        val replacement = pageLayoutDao.stored.single { it.documentId == documentId.value }
+        assertTrue(replacement.isPartial, "an incomplete import must replace the stale row with a partial prefix")
+        assertTrue(replacement.characterCount > 1L, "the stale character-count version must not survive replacement")
+        assertTrue(replacement.pageStartsBlob != null, "the replacement must contain measured prefix page starts")
     }
 
     /**
@@ -3562,6 +3565,145 @@ class DocumentRepositoryImplTest {
 
         newRepository().getReaderDocument(documentId)
         assertEquals(1, fileSource.copyCount, "a second open must not repair again once the stored parserVersion is current")
+    }
+
+    /**
+     * A real breaker that arrives while progressive import is still running must finish the existing
+     * prefix session once and append every later section once. The promoted row must then restore the
+     * same page ranges as an independent whole-document measurement; counting by section text makes
+     * either remeasuring the prefix or falling back to a completion-time full pass fail this test.
+     */
+    @Test
+    fun progressivePartialLayoutMeasuresEachSectionOnceAndRestoresFinalPages() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///partial-layout-once.epub",
+            displayName = "partial-layout-once.epub",
+            mimeType = "application/epub+zip",
+        )
+        val epubBytes = sampleMultiChapterEpubBytesWithCover(chapterCount = 30)
+        val fileSource = FakeDocumentFileSource(location, epubBytes)
+        val documentDao = FakeDocumentDao()
+        val searchIndexDao = FakeDocumentSearchIndexDao()
+        val progressiveLayouts = FakePageLayoutDao()
+        fun repository(pageLayoutDao: PageLayoutDao) = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = searchIndexDao,
+            pageLayoutDao = pageLayoutDao,
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val style = ReaderStyle(fontSizeSp = 20f)
+        val viewportSize = ViewportSize(widthPx = 100, heightPx = 100)
+        val measurementsByText = mutableMapOf<String, Int>()
+        val countingBreaker = ReaderPageBreaker { measured, _ ->
+            measurementsByText[measured] = measurementsByText.getOrElse(measured) { 0 } + 1
+            IntArray((measured.length + 19) / 20) { page -> page * 20 }
+        }
+        val progressiveRepository = repository(progressiveLayouts)
+
+        progressiveRepository.importDocument(
+            DocumentImportSource(location, bytes = null),
+            importedAtEpochMillis = 1_000,
+        )
+        progressiveRepository.getPageWindows(documentId, style, viewportSize, countingBreaker)
+        var guard = 0
+        while (!progressiveRepository.isImportComplete(documentId)) {
+            progressiveRepository.importNextSections(
+                documentId = documentId,
+                count = 3,
+                style = style,
+                viewportSize = viewportSize,
+                pageBreaker = countingBreaker,
+            )
+            guard += 1
+            check(guard < 30) { "progressive import did not converge" }
+        }
+
+        assertTrue(measurementsByText.isNotEmpty())
+        assertTrue(
+            measurementsByText.values.all { count -> count == 1 },
+            "every content section must be measured exactly once across prefix completion and append: $measurementsByText",
+        )
+        val promoted = progressiveLayouts.stored.single { layout -> layout.documentId == documentId.value }
+        assertFalse(promoted.isPartial, "the final matching prefix layout must be promoted after import completion")
+
+        val restored = repository(progressiveLayouts).getPageWindows(documentId, style, viewportSize)
+        val freshLayouts = FakePageLayoutDao()
+        val freshRepository = repository(freshLayouts)
+        val referenceBreaker = ReaderPageBreaker { measured, _ ->
+            IntArray((measured.length + 19) / 20) { page -> page * 20 }
+        }
+        freshRepository.getPageWindows(documentId, style, viewportSize, referenceBreaker)
+        val freshlyMeasured = freshRepository.finishPagination(documentId, style, viewportSize, referenceBreaker)
+
+        assertEquals(
+            freshlyMeasured.map { page -> page.textRange },
+            restored.map { page -> page.textRange },
+            "promoted progressive starts must restore exactly the whole-document measurement",
+        )
+    }
+
+    /**
+     * A document interrupted before schema version 9 has null accumulators even though prefix sections
+     * already exist. Its first resumed batch must reconstruct that prefix once instead of starting from
+     * zero, otherwise completion publishes counts for only the post-upgrade suffix.
+     */
+    @Test
+    fun legacyIncompleteEpubRebuildsPrefixAccumulatorsBeforeAppending() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///legacy-partial-counts.epub",
+            displayName = "legacy-partial-counts.epub",
+            mimeType = "application/epub+zip",
+        )
+        val fileSource = FakeDocumentFileSource(location, sampleMultiChapterEpubBytesWithCover(chapterCount = 30))
+        val documentDao = FakeDocumentDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        val documentId = DocumentId(location.sourceUri)
+
+        repository.importDocument(DocumentImportSource(location, bytes = null), importedAtEpochMillis = 1_000)
+        val prefixCharacterCount = documentDao.saved?.characterCount ?: error("phase-0 count missing")
+        documentDao.saved = documentDao.saved?.copy(
+            characterCount = null,
+            wordCount = null,
+            embeddedFontHrefsJson = null,
+        )
+        var guard = 0
+        while (!repository.isImportComplete(documentId)) {
+            repository.importNextSections(
+                documentId = documentId,
+                count = 4,
+                style = ReaderStyle(),
+                viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
+                pageBreaker = null,
+            )
+            guard += 1
+            check(guard < 30) { "legacy progressive import did not converge" }
+        }
+
+        val completedDocument = repository.getReaderDocument(documentId) ?: error("completed document missing")
+        val metadata = repository.getDocument(documentId) ?: error("completed metadata missing")
+        assertTrue((metadata.characterCount ?: 0L) > prefixCharacterCount)
+        assertEquals(completedDocument.characterCount, metadata.characterCount)
+        assertEquals(completedDocument.wordCount, metadata.wordCount)
     }
 
     /**
@@ -4696,6 +4838,44 @@ private class FakeDocumentDao : DocumentDao {
     override suspend fun deleteDocuments(documentIds: List<String>) {
         if (saved?.id in documentIds) saved = null
     }
+
+    override suspend fun updateCountsAndFontIndex(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        embeddedFontHrefsJson: String?,
+    ) {
+        if (saved?.id == documentId) {
+            saved = saved?.copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                embeddedFontHrefsJson = embeddedFontHrefsJson,
+            )
+        }
+    }
+
+    override suspend fun updateCountsAndMarkComplete(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        importCompletedAtEpochMillis: Long,
+    ) {
+        if (saved?.id == documentId) {
+            saved = saved?.copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                importCompletedAtEpochMillis = importCompletedAtEpochMillis,
+            )
+            completionStampReached?.complete(Unit)
+            completionStampGate?.await()
+        }
+    }
+
+    override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) {
+        if (saved?.id == documentId) {
+            saved = saved?.copy(embeddedFontHrefsJson = embeddedFontHrefsJson)
+        }
+    }
 }
 
 /**
@@ -4741,8 +4921,43 @@ private class FakeMultiDocumentDao : DocumentDao {
     override suspend fun deleteDocuments(documentIds: List<String>) {
         documentIds.forEach(documents::remove)
     }
-}
 
+    override suspend fun updateCountsAndFontIndex(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        embeddedFontHrefsJson: String?,
+    ) {
+        documents[documentId]?.let {
+            documents[documentId] = it.copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                embeddedFontHrefsJson = embeddedFontHrefsJson,
+            )
+        }
+    }
+
+    override suspend fun updateCountsAndMarkComplete(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        importCompletedAtEpochMillis: Long,
+    ) {
+        documents[documentId]?.let {
+            documents[documentId] = it.copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                importCompletedAtEpochMillis = importCompletedAtEpochMillis,
+            )
+        }
+    }
+
+    override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) {
+        documents[documentId]?.let {
+            documents[documentId] = it.copy(embeddedFontHrefsJson = embeddedFontHrefsJson)
+        }
+    }
+}
 /**
  * An in-memory [SearchIndexDao] backed by a plain list of [entries], with no per-column projection the
  * way Room's real query would apply — every override filters or maps [entries] directly, which is what
@@ -4838,6 +5053,19 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { it.documentId == documentId }
     }
+
+    override suspend fun getSectionSourcePaths(documentId: String): List<SectionSourcePathEntry> =
+        entries.filter { it.documentId == documentId }
+            .sortedBy { it.sectionIndex }
+            .map { SectionSourcePathEntry(it.sectionIndex, it.sourcePath) }
+
+    override suspend fun getFirstReadableContentSectionIndex(documentId: String, excludeSectionIndex: Int): Int? =
+        entries.filter { it.documentId == documentId && it.sectionIndex != excludeSectionIndex && it.text.isNotBlank() }
+            .minByOrNull { it.sectionIndex }
+            ?.sectionIndex
+
+    override suspend fun getSectionCount(documentId: String): Int =
+        entries.count { it.documentId == documentId }
 }
 
 /**
@@ -4926,4 +5154,16 @@ private class FakePageLayoutDao : PageLayoutDao {
             fontFamilyName == other.fontFamilyName &&
             viewportWidthPx == other.viewportWidthPx &&
             viewportHeightPx == other.viewportHeightPx
+
+    override suspend fun deletePartialPageLayouts(documentId: String) {
+        stored.removeAll { it.documentId == documentId && it.isPartial }
+    }
+
+    override suspend fun promotePartialLayouts(documentId: String, characterCount: Long) {
+        val toPromote = stored.filter { it.documentId == documentId && it.characterCount == characterCount && it.isPartial }
+        toPromote.forEach { layout ->
+            stored.remove(layout)
+            stored.add(layout.copy(isPartial = false))
+        }
+    }
 }

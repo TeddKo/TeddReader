@@ -25,7 +25,8 @@ class DocumentEntityMapperTest {
             wordCount = 20L,
         )
 
-        assertEquals(metadata, metadata.toDocumentEntity().toDocumentMetadata())
+        val entity = metadata.toDocumentEntity().copy(importCompletedAtEpochMillis = 1_000L)
+        assertEquals(metadata, entity.toDocumentMetadata())
     }
 
     @Test
@@ -44,7 +45,27 @@ class DocumentEntityMapperTest {
             folderName = "Weekend Reads",
         )
 
-        assertEquals(metadata, metadata.toDocumentEntity().toDocumentMetadata())
+        val entity = metadata.toDocumentEntity().copy(importCompletedAtEpochMillis = 2_000L)
+        assertEquals(metadata, entity.toDocumentMetadata())
     }
 
+    @Test
+    fun incompleteImportMasksCountsInDomainMetadata() {
+        val entity = DocumentMetadata(
+            id = DocumentId("doc-partial"),
+            location = DocumentLocation(
+                sourceUri = "file:///partial.epub",
+                displayName = "partial.epub",
+                mimeType = "application/epub+zip",
+            ),
+            format = DocumentFormat.EPUB,
+            addedAtEpochMillis = 3_000L,
+            characterCount = 500L,
+            wordCount = 80L,
+        ).toDocumentEntity()
+
+        val metadata = entity.toDocumentMetadata()
+        assertEquals(null, metadata.characterCount, "domain metadata masks characterCount when import is incomplete")
+        assertEquals(null, metadata.wordCount, "domain metadata masks wordCount when import is incomplete")
+    }
 }

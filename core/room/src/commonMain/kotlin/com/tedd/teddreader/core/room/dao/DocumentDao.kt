@@ -85,4 +85,56 @@ interface DocumentDao {
      */
     @Query("DELETE FROM documents WHERE id IN (:documentIds)")
     suspend fun deleteDocuments(documentIds: List<String>)
+
+    /**
+     * Updates only the character/word counts and embedded-font index for a document, leaving every
+     * other column — favourite, folder, lastOpened — untouched. Used by import batches so a concurrent
+     * library edit (starring, moving to a folder) is never clobbered by an import that reads and
+     * rewrites the whole row.
+     *
+     * @param documentId the document to update.
+     * @param characterCount the accumulated character count so far.
+     * @param wordCount the accumulated word count so far.
+     * @param embeddedFontHrefsJson the JSON-encoded sorted font-href set, or null to clear the index.
+     */
+    @Query(
+        "UPDATE documents SET characterCount = :characterCount, wordCount = :wordCount, " +
+            "embeddedFontHrefsJson = :embeddedFontHrefsJson WHERE id = :documentId",
+    )
+    suspend fun updateCountsAndFontIndex(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        embeddedFontHrefsJson: String?,
+    )
+
+    /**
+     * Stamps a document's import as complete and writes the final counts in one targeted update,
+     * without touching favourite/folder/lastOpened columns.
+     *
+     * @param documentId the document to mark complete.
+     * @param characterCount the final character count.
+     * @param wordCount the final word count.
+     * @param importCompletedAtEpochMillis the completion timestamp.
+     */
+    @Query(
+        "UPDATE documents SET characterCount = :characterCount, wordCount = :wordCount, " +
+            "importCompletedAtEpochMillis = :importCompletedAtEpochMillis WHERE id = :documentId",
+    )
+    suspend fun updateCountsAndMarkComplete(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        importCompletedAtEpochMillis: Long,
+    )
+
+    /**
+     * Writes only the embedded font href index column, leaving everything else untouched.
+     * Used by the legacy backfill path after the first full-blocks scan.
+     *
+     * @param documentId the document to update.
+     * @param embeddedFontHrefsJson the JSON-encoded sorted font-href set.
+     */
+    @Query("UPDATE documents SET embeddedFontHrefsJson = :embeddedFontHrefsJson WHERE id = :documentId")
+    suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String)
 }

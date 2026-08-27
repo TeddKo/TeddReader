@@ -169,6 +169,9 @@ private class RecordingDocumentDao(
         bulkDeletedIds = documentIds
         documentIds.forEach { documents.remove(DocumentId(it)) }
     }
+    override suspend fun updateCountsAndFontIndex(documentId: String, characterCount: Long, wordCount: Long, embeddedFontHrefsJson: String?) = Unit
+    override suspend fun updateCountsAndMarkComplete(documentId: String, characterCount: Long, wordCount: Long, importCompletedAtEpochMillis: Long) = Unit
+    override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) = Unit
 }
 
 private class RecordingSearchIndexDao : SearchIndexDao {
@@ -180,6 +183,9 @@ private class RecordingSearchIndexDao : SearchIndexDao {
     override suspend fun updateSectionTitle(documentId: String, sectionIndex: Int, title: String) = Unit
     override suspend fun updateDocumentTitleAndNavigation(documentId: String, sectionIndex: Int, documentTitle: String, navigationJson: String) = Unit
     override suspend fun deleteSearchIndex(documentId: String) = Unit
+    override suspend fun getSectionSourcePaths(documentId: String) = emptyList<com.tedd.teddreader.core.room.dao.SectionSourcePathEntry>()
+    override suspend fun getFirstReadableContentSectionIndex(documentId: String, excludeSectionIndex: Int): Int? = null
+    override suspend fun getSectionCount(documentId: String) = 0
 }
 
 private class RecordingPageLayoutDao : PageLayoutDao {
@@ -189,6 +195,8 @@ private class RecordingPageLayoutDao : PageLayoutDao {
     override suspend fun getNewestPageLayoutForStyle(documentId: String, fontSizeSp: Float, lineHeightMultiplier: Float, fontFamilyName: String): PageLayoutEntity? = null
     override suspend fun deletePageLayouts(documentId: String) { deletedDocumentIds += documentId }
     override suspend fun trimPageLayouts(documentId: String, keep: Int) = Unit
+    override suspend fun deletePartialPageLayouts(documentId: String) = Unit
+    override suspend fun promotePartialLayouts(documentId: String, characterCount: Long) = Unit
 }
 
 private class BatchCrudDocumentFileSource : DocumentFileSource {

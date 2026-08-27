@@ -129,6 +129,9 @@ fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessi
  * @param navigation The document's table of contents, serialized into the row as JSON; `null` when the
  *   caller does not have it at hand yet, which is stored as an empty string rather than as JSON `null`.
  * @param json The [Json] instance used to serialize [blocks] and [navigation].
+ * @param sourcePath The archive-relative path of the spine item this section was parsed from, stored
+ *   so `finishEpubImport` can resolve navigation without re-reading all section text; null for
+ *   non-EPUB documents.
  * @return The [SearchIndexEntity] row to upsert for this section.
  */
 fun ReaderSection.toSearchIndexEntity(
@@ -137,6 +140,7 @@ fun ReaderSection.toSearchIndexEntity(
     documentTitle: String? = null,
     navigation: ReaderNavigation? = null,
     json: Json = Json,
+    sourcePath: String? = null,
 ): SearchIndexEntity = SearchIndexEntity(
     documentId = documentId.value,
     sectionIndex = index,
@@ -148,6 +152,7 @@ fun ReaderSection.toSearchIndexEntity(
     documentTitle = documentTitle,
     navigationJson = navigation?.let { json.encodeToString(it) }.orEmpty(),
     parserVersion = CurrentReaderParserVersion,
+    sourcePath = sourcePath,
 )
 
 /**

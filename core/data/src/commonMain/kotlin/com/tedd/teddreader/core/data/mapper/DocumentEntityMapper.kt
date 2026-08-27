@@ -13,27 +13,35 @@ import com.tedd.teddreader.core.room.entity.DocumentEntity
  * know: a row written by a newer version must still list rather than crash the library. A null stored size
  * becomes 0 because [DocumentLocation] treats size as a number, not as an optional fact.
  *
+ * When `importCompletedAtEpochMillis` is null — meaning the import has not finished — character and word
+ * counts are masked to null in the domain model, even though the entity carries running accumulators.
+ * This preserves the existing domain contract: null counts mean "not yet known," and callers that display
+ * statistics (the document-info sheet) treat them accordingly.
+ *
  * @receiver the stored row.
  * @return the same document as the domain sees it.
  */
-fun DocumentEntity.toDocumentMetadata(): DocumentMetadata = DocumentMetadata(
-    id = DocumentId(id),
-    location = DocumentLocation(
-        sourceUri = sourceUri,
-        displayName = name,
-        mimeType = mimeType,
-        sizeBytes = sizeBytes ?: 0L,
-    ),
-    format = DocumentFormat.entries.firstOrNull { it.name == format } ?: DocumentFormat.UNKNOWN,
-    addedAtEpochMillis = addedAtEpochMillis,
-    lastOpenedAtEpochMillis = lastOpenedAtEpochMillis,
-    pageCount = pageCount,
-    characterCount = characterCount,
-    wordCount = wordCount,
-    isBookmarked = isBookmarked,
-    folderId = folderId,
-    folderName = folderName,
-)
+fun DocumentEntity.toDocumentMetadata(): DocumentMetadata {
+    val importComplete = importCompletedAtEpochMillis != null
+    return DocumentMetadata(
+        id = DocumentId(id),
+        location = DocumentLocation(
+            sourceUri = sourceUri,
+            displayName = name,
+            mimeType = mimeType,
+            sizeBytes = sizeBytes ?: 0L,
+        ),
+        format = DocumentFormat.entries.firstOrNull { it.name == format } ?: DocumentFormat.UNKNOWN,
+        addedAtEpochMillis = addedAtEpochMillis,
+        lastOpenedAtEpochMillis = lastOpenedAtEpochMillis,
+        pageCount = pageCount,
+        characterCount = if (importComplete) characterCount else null,
+        wordCount = if (importComplete) wordCount else null,
+        isBookmarked = isBookmarked,
+        folderId = folderId,
+        folderName = folderName,
+    )
+}
 
 /**
  * Writes domain metadata back into a library row.
