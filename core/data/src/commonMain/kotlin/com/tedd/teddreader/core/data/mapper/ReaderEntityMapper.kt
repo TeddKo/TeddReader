@@ -198,14 +198,20 @@ const val CurrentReaderParserVersion: Int = 9
  *
  * @receiver The stored section row to search within.
  * @param query The text to find; must be non-empty for any results to come back.
- * @return Matching [SearchResult]s in the order they occur in [text], or an empty list if [query] is
- *   empty or does not occur.
+ * @param limit The greatest number of occurrences to materialize from this section. A non-positive
+ *   value returns immediately, which lets a document-wide caller stop a dense section as soon as its
+ *   remaining result budget is exhausted instead of allocating matches it will discard.
+ * @return Matching [SearchResult]s in the order they occur in [text], capped at [limit], or an empty
+ *   list if [query] is empty, [limit] is non-positive, or no occurrence exists.
  */
-fun SearchIndexSearchEntry.toSearchResults(query: String): List<SearchResult> {
-    if (query.isEmpty()) return emptyList()
-    return buildList {
+fun SearchIndexSearchEntry.toSearchResults(
+    query: String,
+    limit: Int = Int.MAX_VALUE,
+): List<SearchResult> {
+    if (query.isEmpty() || limit <= 0) return emptyList()
+    return buildList(capacity = minOf(limit, 16)) {
         var searchStartIndex = 0
-        while (searchStartIndex <= text.length - query.length) {
+        while (size < limit && searchStartIndex <= text.length - query.length) {
             val matchIndex = text.indexOf(query, startIndex = searchStartIndex, ignoreCase = true)
             if (matchIndex < 0) break
 
