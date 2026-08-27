@@ -51,6 +51,8 @@ import com.tedd.teddreader.core.domain.repository.PaginationProgress
 import com.tedd.teddreader.core.room.dao.DocumentDao
 import com.tedd.teddreader.core.room.dao.PageLayoutDao
 import com.tedd.teddreader.core.room.dao.SearchIndexDao
+import com.tedd.teddreader.core.room.dao.SectionSourcePathEntry
+import com.tedd.teddreader.core.room.dao.SectionTitleUpdate
 import com.tedd.teddreader.core.room.entity.DocumentEntity
 import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
@@ -512,15 +514,12 @@ class DocumentRepositoryImpl(
      * eagerly, the same as a restore (see [restorePageWindows]), so the `prewarm(setOf(0))` call below
      * runs before [TextPageLayoutEngine.resolveSections].
      *
-     * The freshly-measured session is written to [pageLayoutDao] (via [storePageWindows]) only when it is
-     * complete, [pageBreaker] is a real measurement, there is at least one page, and — critically —
-     * [isImportComplete] says the import has actually finished. Writing a row while the import is still
-     * unfinished is exactly what goes stale: the next import batch grows the document but has no real
-     * [pageBreaker] yet (see [appendMeasuredPageStarts]' own doc), so the row's `characterCount` falls
-     * behind and [restorePageWindows] later deletes it outright. Refusing to write until
-     * [isImportComplete] is true means there is nothing to go stale in the first place —
-     * [appendMeasuredPageStarts] simply finds no row to extend. [continuePagination] guards its own
-     * completion write the same way, at the matching call site in its own body.
+     * A fully measured session is written to [pageLayoutDao] whenever [pageBreaker] is real and at
+     * least one page exists. Completed imports use [storePageWindows]; incomplete imports use
+     * [storePartialPageWindows], whose character-count version identifies the exact stored prefix.
+     * [importNextSections] then appends only the new sections when that version matches, deletes the row
+     * when a breaker-less batch makes it stale, and promotes a final matching row when import completes.
+     * [continuePagination] applies the same complete-versus-partial choice at its matching write site.
      *
      * @param documentId The document to lay out.
      * @param style The font/line-height/family the pages must be measured for.
@@ -684,8 +683,13 @@ class DocumentRepositoryImpl(
             cachedPageWindowsAreMeasured = wantsMeasured
             paginationSession = session.takeUnless { it.isComplete }
         }
-        if (session.isComplete && pageBreaker != null && pageWindows.isNotEmpty() && isImportComplete(documentId)) {
-            storePageWindows(documentId, document, key, session)
+        if (session.isComplete && pageBreaker != null && pageWindows.isNotEmpty()) {
+            val importComplete = isImportComplete(documentId)
+            if (importComplete) {
+                storePageWindows(documentId, document, key, session)
+            } else {
+                storePartialPageWindows(documentId, document, key, session)
+            }
         }
         pageWindows
     }
@@ -713,10 +717,9 @@ class DocumentRepositoryImpl(
      * [PaginationSession.highPosition] instead. This path now only appends measured section starts to the
      * live session; it does not rebuild the whole page-window snapshot after every batch. Snapshot/cache
      * materialisation is deferred until a caller asks [getPageWindows] for it or the session completes.
-     * The freshly-extended windows are written to [pageLayoutDao] only once the session is complete and
-     * [isImportComplete] is true — the same guard [getPageWindows] applies at its own call site, since a
-     * row written mid-import is a row the next import batch cannot keep in sync (see
-     * [appendMeasuredPageStarts]).
+     * Once the session is complete, its windows are written to [pageLayoutDao]. A finished import gets
+     * a complete row; an in-progress import gets a character-count-versioned partial row that
+     * [appendMeasuredPageStarts] can extend with later sections without remeasuring this prefix.
      *
      * @param documentId The document whose in-flight session to extend.
      * @param style The style the in-flight session must match to be extended.
@@ -769,8 +772,13 @@ class DocumentRepositoryImpl(
                     cachedPageWindowsAreMeasured = true
                     paginationSession = null
                 }
-                if (windows.isNotEmpty() && isImportComplete(documentId)) {
-                    getReaderDocument(documentId)?.let { document -> storePageWindows(documentId, document, key, session) }
+                if (windows.isNotEmpty()) {
+                    val importComplete = isImportComplete(documentId)
+                    if (importComplete) {
+                        getReaderDocument(documentId)?.let { document -> storePageWindows(documentId, document, key, session) }
+                    } else {
+                        getReaderDocument(documentId)?.let { document -> storePartialPageWindows(documentId, document, key, session) }
+                    }
                 }
             } else {
                 documentCacheLock.withLock {
@@ -880,13 +888,34 @@ class DocumentRepositoryImpl(
         return withContext(Dispatchers.Default) { cache.prewarm(sectionIndexes) }
     }
 
+    /**
+     * Resolves every publisher-font href referenced by [documentId]. New imports answer from the exact
+     * persisted href index without decoding block JSON; a legacy null index scans the cached section
+     * blocks once, persists the result, and makes every later call use the indexed path.
+     *
+     * @param documentId The EPUB whose referenced publisher fonts are needed.
+     * @return The distinct referenced hrefs, or an empty set when the document or its loaded block cache
+     *   is unavailable.
+     */
     override suspend fun getReferencedEmbeddedFontHrefs(documentId: DocumentId): Set<String> {
+        val entity = documentDao.getDocument(documentId.value) ?: return emptySet()
+        val indexed = entity.embeddedFontHrefsJson
+        if (indexed != null) {
+            val started = TimeSource.Monotonic.markNow()
+            val result = runCatching { json.decodeFromString<List<String>>(indexed).toSet() }.getOrDefault(emptySet())
+            logger.d {
+                "${entity.name.take(12)}: font index served ${result.size} hrefs from stored JSON " +
+                    "in ${started.elapsedNow().inWholeMilliseconds} ms (O(F), no blocks DAO read)"
+            }
+            return result
+        }
+        val started = TimeSource.Monotonic.markNow()
         val cache = documentCacheLock.withLock {
             cachedSectionBlocks.takeIf { cachedDocumentId == documentId }
         } ?: return emptySet()
         return withContext(Dispatchers.Default) {
             cache.prewarm(cache.knownSectionIndexes)
-            cache.knownSectionIndexes
+            val hrefs = cache.knownSectionIndexes
                 .asSequence()
                 .flatMap { sectionIndex -> cache.blocksFor(sectionIndex).asSequence() }
                 .flatMap { block ->
@@ -894,7 +923,15 @@ class DocumentRepositoryImpl(
                         .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
                 }
                 .filterNotNull()
-                .toSet()
+                .toMutableSet()
+            val sortedHrefs = hrefs.sorted()
+            val hrefsJson = json.encodeToString(sortedHrefs)
+            documentDao.updateEmbeddedFontHrefsJson(documentId.value, hrefsJson)
+            logger.d {
+                "${entity.name.take(12)}: legacy font scan found ${hrefs.size} hrefs, backfilled index " +
+                    "in ${started.elapsedNow().inWholeMilliseconds} ms"
+            }
+            hrefs
         }
     }
 
@@ -994,6 +1031,14 @@ class DocumentRepositoryImpl(
         return RestoredPageWindowsResult(windows, sectionBlocksCache)
     }
 
+    /**
+     * Persists every measured start from a completed pagination session as a final reusable layout.
+     *
+     * @param documentId The document whose completed layout is being stored.
+     * @param document The complete document whose character count versions the row.
+     * @param key The exact style and viewport measurement key.
+     * @param session The completed session supplying all content-page starts.
+     */
     private suspend fun storePageWindows(
         documentId: DocumentId,
         document: ReaderDocument,
@@ -1003,6 +1048,48 @@ class DocumentRepositoryImpl(
         storePageStarts(documentId, document, key, session.allMeasuredStarts())
     }
 
+    /**
+     * Stores a partial page layout — one measured against the currently-known prefix of a document
+     * whose import has not yet completed. Partial rows are distinguished from complete ones by
+     * [PageLayoutEntity.isPartial] = true, and are promoted once the import finishes and the final
+     * characterCount matches.
+     *
+     * @param documentId The document whose partial layout to store.
+     * @param document The document in its current prefix state.
+     * @param key The style/viewport the layout was measured at.
+     * @param session The completed pagination session for the current prefix.
+     */
+    private suspend fun storePartialPageWindows(
+        documentId: DocumentId,
+        document: ReaderDocument,
+        key: PageWindowKey,
+        session: PaginationSession,
+    ) {
+        pageLayoutDao.upsertPageLayout(
+            PageLayoutEntity(
+                documentId = documentId.value,
+                fontSizeSp = key.layoutKey.fontSizeSp,
+                lineHeightMultiplier = key.layoutKey.lineHeightMultiplier,
+                fontFamilyName = key.layoutKey.fontFamilyName.orEmpty(),
+                viewportWidthPx = key.viewportSize.widthPx,
+                viewportHeightPx = key.viewportSize.heightPx,
+                characterCount = document.characterCount,
+                pageStartsBlob = encodePageStartsBlob(session.allMeasuredStarts()),
+                writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                isPartial = true,
+            ),
+        )
+    }
+
+    /**
+     * Writes final page starts and trims older layout variants so style changes cannot grow storage
+     * without bound.
+     *
+     * @param documentId The document whose final page starts are being stored.
+     * @param document The complete document whose character count versions the row.
+     * @param key The exact style and viewport measurement key.
+     * @param contentPageStarts The measured starts in strictly increasing reading order.
+     */
     private suspend fun storePageStarts(
         documentId: DocumentId,
         document: ReaderDocument,
@@ -1739,8 +1826,8 @@ class DocumentRepositoryImpl(
                 addedAtEpochMillis = existingDocument?.addedAtEpochMillis ?: importedAtEpochMillis,
                 lastOpenedAtEpochMillis = importedAtEpochMillis,
                 pageCount = document.pageCount.takeIf { isFullyImported },
-                characterCount = document.characterCount.takeIf { isFullyImported },
-                wordCount = document.wordCount.takeIf { isFullyImported },
+                characterCount = document.characterCount,
+                wordCount = document.wordCount,
                 isBookmarked = existingDocument?.isBookmarked ?: false,
                 folderId = existingDocument?.folderId,
                 folderName = existingDocument?.folderName,
@@ -1749,6 +1836,8 @@ class DocumentRepositoryImpl(
             coverBytes = coverBytes,
             importCompletedAtEpochMillis = if (isFullyImported) Clock.System.now().toEpochMilliseconds() else null,
             keepScratchCopy = true,
+            embeddedFontHrefsJson = json.encodeToString(extractFontHrefs(document.blocks)),
+            sectionSourcePaths = phase0SectionPaths,
         )
         if (isFullyImported) {
             clearEpubScratchContainer(id)
@@ -1770,13 +1859,109 @@ class DocumentRepositoryImpl(
         documentDao.getDocument(documentId.value)?.importCompletedAtEpochMillis != null
 
     /**
+     * The persisted build facts a progressive import extends without rereading completed prefix text.
+     *
+     * @property characterCount characters in every section stored before the next batch.
+     * @property wordCount words in every section stored before the next batch.
+     * @property embeddedFontHrefs exact font hrefs referenced by every block stored before the next batch.
+     */
+    private data class ImportBuildState(
+        val characterCount: Long,
+        val wordCount: Long,
+        val embeddedFontHrefs: Set<String>,
+    )
+
+    /**
+     * Resolves the accumulators a new import batch starts from. Version-9 imports read them directly from
+     * the document row. A document interrupted on an older schema has null accumulators, so that one
+     * migration-boundary resume reconstructs them from stored sections and blocks before any new section
+     * is added; every later batch returns to the indexed path.
+     *
+     * @param documentId the progressive EPUB being resumed.
+     * @param entity its row before the new batch is stored.
+     * @return complete prefix counts and font references for safe append arithmetic.
+     */
+    private suspend fun resolveImportBuildState(
+        documentId: DocumentId,
+        entity: DocumentEntity,
+    ): ImportBuildState {
+        val indexedFonts = entity.embeddedFontHrefsJson?.let { encoded ->
+            runCatching { json.decodeFromString<List<String>>(encoded).toSet() }.getOrNull()
+        }
+        val indexedCharacterCount = entity.characterCount
+        val indexedWordCount = entity.wordCount
+        if (indexedCharacterCount != null && indexedWordCount != null && indexedFonts != null) {
+            return ImportBuildState(indexedCharacterCount, indexedWordCount, indexedFonts)
+        }
+        val document = getReaderDocument(documentId)
+        val fontHrefs = indexedFonts ?: getReferencedEmbeddedFontHrefs(documentId)
+        return ImportBuildState(
+            characterCount = indexedCharacterCount ?: document?.characterCount ?: 0L,
+            wordCount = indexedWordCount ?: document?.wordCount ?: 0L,
+            embeddedFontHrefs = fontHrefs,
+        )
+    }
+
+    /**
+     * Completes and stores a measured layout for the document prefix that exists before a new import
+     * batch lands. Reusing the live pagination session preserves sections the pane already measured; once
+     * this returns, the new batch can append only its own page starts without remeasuring that prefix.
+     *
+     * @param documentId the document whose current prefix must have a stored layout.
+     * @param style the layout style shared with the incoming batch.
+     * @param viewportSize the measured viewport shared with the incoming batch.
+     * @param viewportDensity density used by estimate-only helpers inside pagination.
+     * @param pageBreaker the real text measurer for this style and viewport.
+     * @param expectedCharacterCount the exact character count of the current stored prefix.
+     */
+    private suspend fun ensurePartialLayoutForCurrentPrefix(
+        documentId: DocumentId,
+        style: ReaderStyle,
+        viewportSize: ViewportSize,
+        viewportDensity: Float,
+        pageBreaker: ReaderPageBreaker,
+        expectedCharacterCount: Long,
+    ) {
+        val layoutKey = style.layoutKey()
+        val stored = pageLayoutDao.getPageLayout(
+            documentId = documentId.value,
+            fontSizeSp = layoutKey.fontSizeSp,
+            lineHeightMultiplier = layoutKey.lineHeightMultiplier,
+            fontFamilyName = layoutKey.fontFamilyName.orEmpty(),
+            viewportWidthPx = viewportSize.widthPx,
+            viewportHeightPx = viewportSize.heightPx,
+        )
+        if (stored?.isPartial == true && stored.characterCount == expectedCharacterCount) return
+        if (stored != null) pageLayoutDao.deletePageLayouts(documentId.value)
+
+        getPageWindows(
+            documentId = documentId,
+            style = style,
+            viewportSize = viewportSize,
+            viewportDensity = viewportDensity,
+            pageBreaker = pageBreaker,
+            anchorOffset = null,
+        )
+        while (true) {
+            val progress = continuePagination(
+                documentId = documentId,
+                style = style,
+                viewportSize = viewportSize,
+                viewportDensity = viewportDensity,
+                pageBreaker = pageBreaker,
+            )
+            if (progress.isComplete) return
+        }
+    }
+
+    /**
      * One batch of a progressive EPUB import: parses up to [count] more spine items starting from where
      * the last batch (or [importEpubPhase0]) left off, stores them, extends the stored page layout in
      * place (via [appendMeasuredPageStarts]) instead of re-measuring the whole book, and — only once the
      * whole spine is finally exhausted — runs [finishEpubImport] to resolve navigation and stamp the
-     * document complete. Earlier batches deliberately defer navigation resolution and the title/word-count
-     * roll-up to that final step because both need every section to exist first: a table-of-contents entry
-     * can name any spine item, and a word count is a sum over sections not all of which are parsed yet.
+     * document complete. Each batch incrementally persists character/word counts and exact font hrefs;
+     * only navigation and section-title resolution wait for completion because a table-of-contents entry
+     * can name any spine item.
      *
      * A no-op — reporting already complete — when [documentId] is not on the shelf, its import is already
      * complete, it is not an EPUB, or [documentFileSource] is unavailable. When the EPUB has no OPF at
@@ -1817,6 +2002,17 @@ class DocumentRepositoryImpl(
         val path = epubScratchCopy(entity.toDocumentMetadata(), fileSource)
         val container = openEpubScratchContainer(documentId, path, entity.name)
             ?: return@withContext finishNonProgressiveEpubImport(documentId, entity)
+        var buildState = resolveImportBuildState(documentId, entity)
+        if (pageBreaker != null) {
+            ensurePartialLayoutForCurrentPrefix(
+                documentId = documentId,
+                style = style,
+                viewportSize = viewportSize,
+                viewportDensity = viewportDensity,
+                pageBreaker = pageBreaker,
+                expectedCharacterCount = buildState.characterCount,
+            )
+        }
 
         val lastSection = searchIndexDao.getLastSection(documentId.value)
         var sectionIndex = (lastSection?.sectionIndex?.plus(1)) ?: 0
@@ -1834,8 +2030,14 @@ class DocumentRepositoryImpl(
             val blocks = parsed.blocks.toMutableList()
             fillIntrinsicImageSizes(blocks, container.zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
             val relativeBlocks = blocks.rebasedBy(parsed.section.range.start)
-            sectionPathByIndex[parsed.section.index] = container.linearSpineItems[spinePosition - 1].path
-            newEntries += parsed.section.toSearchIndexEntity(documentId = documentId, blocks = relativeBlocks, json = json)
+            val spinePath = container.linearSpineItems[spinePosition - 1].path
+            sectionPathByIndex[parsed.section.index] = spinePath
+            newEntries += parsed.section.toSearchIndexEntity(
+                documentId = documentId,
+                blocks = relativeBlocks,
+                json = json,
+                sourcePath = spinePath,
+            )
             newSections += parsed.section to relativeBlocks
             offset = parsed.section.range.end + SectionSeparatorLength
             sectionIndex += 1
@@ -1843,49 +2045,63 @@ class DocumentRepositoryImpl(
         }
 
         if (newEntries.isNotEmpty()) {
-            searchIndexDao.upsertSearchIndex(newEntries)
+            val batchStarted = TimeSource.Monotonic.markNow()
+            val expectedExistingCharacterCount = buildState.characterCount
+            val batchCharCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
+            val batchWordCount = newSections.sumOf { (section, _) -> section.text.wordCount().toLong() }
+            val batchFontHrefs = extractFontHrefs(newSections.flatMap { (_, blocks) -> blocks })
+            val mergedFontHrefs = buildState.embeddedFontHrefs + batchFontHrefs
+            buildState = ImportBuildState(
+                characterCount = expectedExistingCharacterCount + batchCharCount,
+                wordCount = buildState.wordCount + batchWordCount,
+                embeddedFontHrefs = mergedFontHrefs,
+            )
+            searchIndexDao.upsertImportBatch(
+                documentDao = documentDao,
+                entries = newEntries,
+                documentId = documentId.value,
+                characterCount = buildState.characterCount,
+                wordCount = buildState.wordCount,
+                embeddedFontHrefsJson = json.encodeToString(mergedFontHrefs.sorted()),
+            )
             rememberSectionPaths(documentId, sectionPathByIndex)
-            appendMeasuredPageStarts(documentId, style, viewportSize, viewportDensity, pageBreaker, newSections)
+            appendMeasuredPageStarts(
+                documentId = documentId,
+                style = style,
+                viewportSize = viewportSize,
+                viewportDensity = viewportDensity,
+                pageBreaker = pageBreaker,
+                newSections = newSections,
+                expectedExistingCharacterCount = expectedExistingCharacterCount,
+            )
+            logger.d {
+                "${entity.name.take(12)}: import batch $sectionsImported sections, " +
+                    "+$batchCharCount chars, ${buildState.embeddedFontHrefs.size} fonts indexed " +
+                    "in ${batchStarted.elapsedNow().inWholeMilliseconds} ms"
+            }
         }
         rememberNextSpineCursor(documentId, spinePosition)
 
         val isComplete = spinePosition >= container.linearSpineItems.size
         if (!isComplete) return@withContext ImportProgress(isComplete = false, sectionsImported = sectionsImported)
 
-        finishEpubImport(documentId, entity, container)
+        finishEpubImport(documentId, entity, container, buildState)
         ImportProgress(isComplete = true, sectionsImported = sectionsImported)
     }
 
-    /**
-     * Extends an already-stored page layout with the pages [newSections] measure on their own, instead
-     * of re-measuring the whole book from scratch on every batch. A no-op when there is nothing stored
-     * yet for [style]/[viewportSize] (the reader has not measured this document at all yet) or no real
-     * [pageBreaker] to measure with — the next real [getPageWindows] call falls back to measuring the
-     * whole currently-known book once, exactly as it already does for any document with no stored
-     * layout (see that function's own fallback).
-     *
-     * Once a row is found, it may still not be one this call can extend — its `pageStartsBlob` missing,
-     * or [newSections] measuring to zero page starts. In either case the row is deleted rather than left
-     * in place: leaving it would leave its `characterCount` silently behind the document's — exactly the
-     * drift [restorePageWindows] later "fixes" by deleting every layout for the document. Deleting it
-     * here instead, the moment it is found to be unextendable, is the same outcome reached honestly:
-     * nothing stale survives for a later mismatch to blame on the wrong batch. This is only reachable at
-     * all for a row left over from before [storePageWindows] learned to wait for [isImportComplete] — a
-     * fresh import now never writes a row in the first place, so there is nothing here to find until one
-     * finishes.
-     *
-     * @param documentId The document whose stored layout to extend.
-     * @param style The style the stored layout must match to be extended.
-     * @param viewportSize The viewport the stored layout must match to be extended.
-     * @param pageBreaker The real page-breaking measurement for [newSections], or null to skip extending
-     *   (nothing was actually measured to append).
-     * @param newSections The sections [importNextSections] just imported, each paired with its blocks.
-     */
     /**
      * [TextPageLayoutEngine.pageStartsForSection], run on the one dispatcher a real measurement is
      * allowed on ([ReaderPageMeasureDispatcher]) — the single funnel every measuring call site goes
      * through, so no platform's text-stack threading rule depends on which caller measured. An
      * estimate-only call (null [pageBreaker]) lays out no text and stays on the caller's dispatcher.
+     *
+     * @param section The content section whose page starts are needed.
+     * @param sectionBlocks The section-relative blocks carrying its measured styling.
+     * @param style The reader typography used for measurement.
+     * @param viewportSize The pane dimensions used for line breaking.
+     * @param pageBreaker The real text measurer, or null for estimate-only starts.
+     * @param viewportDensity The pane density used by the text layout engine.
+     * @return Absolute document offsets for every page start in [section].
      */
     private suspend fun measuredPageStartsForSection(
         section: ReaderSection,
@@ -1902,6 +2118,21 @@ class DocumentRepositoryImpl(
         }
     }
 
+    /**
+     * Extends the version-matched partial layout with only [newSections]. A missing, complete, or
+     * mismatched row is deleted and replaced by measuring the now-current prefix once; a null
+     * [pageBreaker] deletes partial rows because the newly stored text cannot be appended accurately.
+     * This keeps every persisted row aligned with the exact prefix its `characterCount` names.
+     *
+     * @param documentId The progressive EPUB whose partial row is being extended.
+     * @param style The style the stored row and new measurements share.
+     * @param viewportSize The viewport the stored row and new measurements share.
+     * @param viewportDensity The density used by the page breaker.
+     * @param pageBreaker The real text measurer, or null when no accurate append is possible.
+     * @param newSections The newly persisted sections and their section-relative blocks.
+     * @param expectedExistingCharacterCount The prefix version that must already be in the row before
+     *   these sections can be appended.
+     */
     private suspend fun appendMeasuredPageStarts(
         documentId: DocumentId,
         style: ReaderStyle,
@@ -1909,8 +2140,18 @@ class DocumentRepositoryImpl(
         viewportDensity: Float,
         pageBreaker: ReaderPageBreaker?,
         newSections: List<Pair<ReaderSection, List<ReaderBlock>>>,
+        expectedExistingCharacterCount: Long,
     ) {
-        if (pageBreaker == null || newSections.isEmpty()) return
+        if (newSections.isEmpty()) {
+            if (pageBreaker == null) {
+                pageLayoutDao.deletePartialPageLayouts(documentId.value)
+            }
+            return
+        }
+        if (pageBreaker == null) {
+            pageLayoutDao.deletePartialPageLayouts(documentId.value)
+            return
+        }
         val layoutKey = style.layoutKey()
         val stored = pageLayoutDao.getPageLayout(
             documentId = documentId.value,
@@ -1919,26 +2160,41 @@ class DocumentRepositoryImpl(
             fontFamilyName = layoutKey.fontFamilyName.orEmpty(),
             viewportWidthPx = viewportSize.widthPx,
             viewportHeightPx = viewportSize.heightPx,
-        ) ?: return
-        val existingStarts = stored.pageStartsBlob?.let(::decodePageStartsBlob) ?: run {
-            pageLayoutDao.deletePageLayouts(documentId.value)
-            return
-        }
-        val appendedArrays = newSections.map { (section, blocks) ->
-            measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity)
-        }
-        if (appendedArrays.all { it.isEmpty() }) {
-            pageLayoutDao.deletePageLayouts(documentId.value)
-            return
-        }
-        val addedCharacterCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
-        pageLayoutDao.upsertPageLayout(
-            stored.copy(
-                characterCount = stored.characterCount + addedCharacterCount,
-                pageStartsBlob = encodePageStartsBlob(concatPageStarts(existingStarts, appendedArrays)),
-                writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
-            ),
         )
+        if (stored != null && stored.isPartial && stored.characterCount == expectedExistingCharacterCount) {
+            val existingStarts = stored.pageStartsBlob?.let(::decodePageStartsBlob) ?: run {
+                pageLayoutDao.deletePageLayouts(documentId.value)
+                return
+            }
+            val addedCharacterCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
+            val appendedArrays = newSections.map { (section, blocks) ->
+                measuredPageStartsForSection(section, blocks, style, viewportSize, pageBreaker, viewportDensity)
+            }
+            if (appendedArrays.all { it.isEmpty() }) {
+                pageLayoutDao.deletePageLayouts(documentId.value)
+                return
+            }
+            pageLayoutDao.upsertPageLayout(
+                stored.copy(
+                    characterCount = stored.characterCount + addedCharacterCount,
+                    pageStartsBlob = encodePageStartsBlob(concatPageStarts(existingStarts, appendedArrays)),
+                    writtenAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                    isPartial = true,
+                ),
+            )
+        } else {
+            pageLayoutDao.deletePageLayouts(documentId.value)
+            invalidateDocumentCache(documentId)
+            ensurePartialLayoutForCurrentPrefix(
+                documentId = documentId,
+                style = style,
+                viewportSize = viewportSize,
+                viewportDensity = viewportDensity,
+                pageBreaker = pageBreaker,
+                expectedCharacterCount = expectedExistingCharacterCount +
+                    newSections.sumOf { (section, _) -> section.text.length.toLong() },
+            )
+        }
     }
 
     /**
@@ -2033,11 +2289,10 @@ class DocumentRepositoryImpl(
     /**
      * The last step of a progressive EPUB import, run by [importNextSections] only once the final batch
      * exhausts the spine: resolve navigation now that every section is known, retitle whichever sections
-     * the table of contents names, roll up the document's real `characterCount`/`wordCount` over every
-     * stored section, and stamp the document complete. Every one of these deliberately waits for this
-     * final step because each needs the whole book, not a prefix of it: navigation can point at any
-     * spine item including ones not yet parsed by an earlier batch, and a word/character count is a sum
-     * over sections that would be wrong — not just incomplete — if taken mid-import.
+     * the table of contents names, stamp the accumulated counts, promote a matching partial layout, and
+     * mark the document complete. Counts and font hrefs were already accumulated per batch; completion
+     * therefore avoids the former whole-section text query while navigation still waits for the full
+     * spine because an entry can point at any section.
      *
      * [invalidateDocumentCache] runs before the completion stamp is written, not after: writing the
      * stamp first left a window where `documents.importCompletedAtEpochMillis` was already visible to
@@ -2051,44 +2306,65 @@ class DocumentRepositoryImpl(
      * @param entity The document's current stored row, copied forward with the rolled-up counts and the
      *   completion stamp.
      * @param container The EPUB's parsed container, for resolving navigation against.
+     * @param buildState The final batch-inclusive counts and exact embedded-font href set.
      */
     private suspend fun finishEpubImport(
         documentId: DocumentId,
         entity: DocumentEntity,
         container: EpubImportContainer,
+        buildState: ImportBuildState,
     ) {
-        val entries = searchIndexDao.getDocumentSectionsWithoutBlocks(documentId.value)
+        val finishStarted = TimeSource.Monotonic.markNow()
         val coverSectionIndex = 0.takeIf { container.coverDecision.hasCoverSection }
-        val firstReadableContentSectionIndex = entries
-            .firstOrNull { it.sectionIndex != coverSectionIndex && it.text.isNotBlank() }
-            ?.sectionIndex
+        val sectionCount = searchIndexDao.getSectionCount(documentId.value)
+        val firstReadableContentSectionIndex = searchIndexDao.getFirstReadableContentSectionIndex(
+            documentId = documentId.value,
+            excludeSectionIndex = coverSectionIndex ?: -1,
+        )
         val cachedSectionPaths = epubImportCursorLock.withLock {
             epubSectionPathByIndexByDocumentId.remove(documentId)?.toMap()
         }
+        val sectionPathByIndex: Map<Int, String> = if (cachedSectionPaths != null && cachedSectionPaths.size >= sectionCount) {
+            cachedSectionPaths
+        } else {
+            val storedPaths = searchIndexDao.getSectionSourcePaths(documentId.value)
+            val hasAllPaths = storedPaths.all { it.sourcePath != null }
+            if (hasAllPaths) {
+                storedPaths.associate { it.sectionIndex to it.sourcePath.orEmpty() }
+            } else {
+                buildSectionPathByIndex(container, coverSectionIndex, sectionCount)
+            }
+        }
         val navigation = resolveEpubNavigationAtCompletion(
             container = container,
-            sectionPathByIndex = cachedSectionPaths?.takeIf { it.size >= entries.size }
-                ?: buildSectionPathByIndex(container, coverSectionIndex, entries.size),
+            sectionPathByIndex = sectionPathByIndex,
             coverSectionIndex = coverSectionIndex,
             firstReadableContentSectionIndex = firstReadableContentSectionIndex,
         )
-        navigation.items.filter { it.offset == 0L }.forEach { item ->
-            searchIndexDao.updateSectionTitle(documentId.value, item.spineIndex, item.title)
-        }
-        searchIndexDao.updateDocumentTitleAndNavigation(
+        val titleUpdates = navigation.items.filter { it.offset == 0L }
+        searchIndexDao.updateCompletedNavigation(
             documentId = documentId.value,
             sectionIndex = 0,
             documentTitle = container.documentTitle,
             navigationJson = json.encodeToString(navigation),
+            titleUpdates = titleUpdates.map { item -> SectionTitleUpdate(item.spineIndex, item.title) },
         )
         invalidateDocumentCache(documentId)
-        documentDao.upsertDocument(
-            entity.copy(
-                characterCount = entries.sumOf { it.text.length.toLong() },
-                wordCount = entries.sumOf { it.text.wordCount().toLong() },
-                importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
-            ),
+        val finalCharCount = buildState.characterCount
+        val finalWordCount = buildState.wordCount
+        documentDao.updateCountsAndMarkComplete(
+            documentId = documentId.value,
+            characterCount = finalCharCount,
+            wordCount = finalWordCount,
+            importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
         )
+        pageLayoutDao.promotePartialLayouts(documentId.value, finalCharCount)
+        logger.d {
+            "${entity.name.take(12)}: finishEpubImport completed in " +
+                "${finishStarted.elapsedNow().inWholeMilliseconds} ms, " +
+                "$sectionCount sections, ${titleUpdates.size} title updates, " +
+                "no full section text query"
+        }
         epubImportCursorLock.withLock {
             epubNextSpineCursorByDocumentId.remove(documentId)
             epubSectionPathByIndexByDocumentId.remove(documentId)
@@ -2099,9 +2375,9 @@ class DocumentRepositoryImpl(
     /**
      * Defensive fallback for [importNextSections]: reached only if a document's import somehow never got
      * stamped complete even though its EPUB has no OPF at all, a case [importEpubPhase0] already
-     * finishes in one shot. Rolls up `characterCount`/`wordCount` and stamps completion, the same as
-     * [finishEpubImport]'s final step, but with no navigation to resolve since there was never a spine to
-     * walk.
+     * finishes in one shot. Resolves or legacy-backfills its persisted counts and stamps completion,
+     * the same as [finishEpubImport]'s final step, but with no navigation to resolve since there was never
+     * a spine to walk.
      *
      * Same as [finishEpubImport], [invalidateDocumentCache] runs before the completion stamp is written,
      * not after — otherwise a reader landing between the two statements would see [isImportComplete]
@@ -2114,14 +2390,15 @@ class DocumentRepositoryImpl(
      *   only stamps a book that was already fully imported.
      */
     private suspend fun finishNonProgressiveEpubImport(documentId: DocumentId, entity: DocumentEntity): ImportProgress {
-        val entries = searchIndexDao.getDocumentSectionsWithoutBlocks(documentId.value)
+        val buildState = resolveImportBuildState(documentId, entity)
         invalidateDocumentCache(documentId)
-        documentDao.upsertDocument(
-            entity.copy(
-                characterCount = entries.sumOf { it.text.length.toLong() },
-                wordCount = entries.sumOf { it.text.wordCount().toLong() },
-                importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
-            ),
+        val finalCharCount = buildState.characterCount
+        val finalWordCount = buildState.wordCount
+        documentDao.updateCountsAndMarkComplete(
+            documentId = documentId.value,
+            characterCount = finalCharCount,
+            wordCount = finalWordCount,
+            importCompletedAtEpochMillis = Clock.System.now().toEpochMilliseconds(),
         )
         epubImportCursorLock.withLock {
             epubNextSpineCursorByDocumentId.remove(documentId)
@@ -2186,6 +2463,10 @@ class DocumentRepositoryImpl(
      *   marked unfinished (see above).
      * @param keepScratchCopy True to preserve the in-memory EPUB scratch binding for this document while
      *   rewriting storage; phase-0 uses this so continuation can keep reading the same copied file.
+     * @param embeddedFontHrefsJson The exact referenced-font index encoded for direct lookup, or null for
+     *   formats and legacy writes that do not supply one.
+     * @param sectionSourcePaths The archive-relative source path for each EPUB section index, used to
+     *   resolve navigation without replaying every spine item at completion.
      */
     private suspend fun persistParsedDocument(
         metadata: DocumentMetadata,
@@ -2193,9 +2474,16 @@ class DocumentRepositoryImpl(
         coverBytes: ByteArray? = null,
         importCompletedAtEpochMillis: Long? = Clock.System.now().toEpochMilliseconds(),
         keepScratchCopy: Boolean = false,
+        embeddedFontHrefsJson: String? = null,
+        sectionSourcePaths: Map<Int, String> = emptyMap(),
     ) {
         invalidateCaches(metadata.id, keepScratchCopy = keepScratchCopy)
-        documentDao.upsertDocument(metadata.toDocumentEntity().copy(importCompletedAtEpochMillis = importCompletedAtEpochMillis))
+        documentDao.upsertDocument(
+            metadata.toDocumentEntity().copy(
+                importCompletedAtEpochMillis = importCompletedAtEpochMillis,
+                embeddedFontHrefsJson = embeddedFontHrefsJson,
+            ),
+        )
         searchIndexDao.deleteSearchIndex(metadata.id.value)
         if (document.sections.isNotEmpty()) {
             val blocksPerSection = distributeBlocksIntoSections(
@@ -2211,6 +2499,7 @@ class DocumentRepositoryImpl(
                         documentTitle = document.title.takeIf { section.index == firstSectionIndex },
                         navigation = document.navigation.takeIf { section.index == firstSectionIndex },
                         json = json,
+                        sourcePath = sectionSourcePaths[section.index],
                     )
                 },
             )
@@ -2338,6 +2627,24 @@ private fun List<ReaderSection>.hasBrokenText(): Boolean = any { section ->
  */
 private fun requireDocumentBytes(source: DocumentImportSource): ByteArray =
     source.bytes ?: error("Document bytes required for ${source.location.displayName}")
+
+/**
+ * Extracts the distinct set of embedded-font hrefs referenced anywhere in [blocks], by unioning
+ * `block.style.fontHref` and each `span.styleDelta.fontHref`. This is the precise calculation —
+ * no OPF superset estimation — as specified by the optimization contract.
+ *
+ * @param blocks The block list to scan.
+ * @return A set of every distinct font href found, sorted for deterministic JSON encoding.
+ */
+private fun extractFontHrefs(blocks: List<ReaderBlock>): List<String> =
+    blocks.asSequence()
+        .flatMap { block ->
+            sequenceOf(block.style?.fontHref)
+                .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
+        }
+        .filterNotNull()
+        .toMutableSet()
+        .sorted()
 
 /**
  * Where [documentId]'s cover is cached. Named by a hash of the id rather than the id itself — a

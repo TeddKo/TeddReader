@@ -106,6 +106,29 @@ internal val TeddReaderMigration7To8 = Migration(7, 8) { connection ->
 }
 
 /**
+ * Three columns that support the page-count finalization optimisation: an indexed font-href cache on
+ * `documents`, a source-path column on `search_index` that lets `finishEpubImport` skip a full-text
+ * scan, and a partial-layout flag on `page_layouts` that distinguishes a measurement made against an
+ * incomplete import prefix from a complete one.
+ *
+ * All three are nullable/defaulted so existing rows stay valid without a data backfill: the font index
+ * and source path are populated lazily or on the next import batch, and the `isPartial` column defaults
+ * to `0` (false) which is correct for every row that existed before progressive layout caching was
+ * introduced.
+ */
+internal val TeddReaderMigration8To9 = Migration(8, 9) { connection ->
+    connection.execSQL(
+        "ALTER TABLE documents ADD COLUMN embeddedFontHrefsJson TEXT",
+    )
+    connection.execSQL(
+        "ALTER TABLE search_index ADD COLUMN sourcePath TEXT",
+    )
+    connection.execSQL(
+        "ALTER TABLE page_layouts ADD COLUMN isPartial INTEGER NOT NULL DEFAULT 0",
+    )
+}
+
+/**
  * Every migration, in order, and the single source both platform builders register from.
  *
  * One list rather than a hand-written call per platform: Room's `RoomDatabase.Builder` keeps no way to
@@ -121,4 +144,5 @@ internal val TeddReaderMigrationList: List<Migration> = listOf(
     TeddReaderMigration5To6,
     TeddReaderMigration6To7,
     TeddReaderMigration7To8,
+    TeddReaderMigration8To9,
 )

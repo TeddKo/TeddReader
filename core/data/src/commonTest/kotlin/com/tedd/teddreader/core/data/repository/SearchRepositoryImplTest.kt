@@ -285,4 +285,17 @@ private class FakeSearchIndexDao : SearchIndexDao {
     override suspend fun deleteSearchIndex(documentId: String) {
         entries.removeAll { entry -> entry.documentId == documentId }
     }
+
+    override suspend fun getSectionSourcePaths(documentId: String): List<com.tedd.teddreader.core.room.dao.SectionSourcePathEntry> =
+        entries.filter { it.documentId == documentId }
+            .sortedBy { it.sectionIndex }
+            .map { com.tedd.teddreader.core.room.dao.SectionSourcePathEntry(it.sectionIndex, it.sourcePath) }
+
+    override suspend fun getFirstReadableContentSectionIndex(documentId: String, excludeSectionIndex: Int): Int? =
+        entries.filter { it.documentId == documentId && it.sectionIndex != excludeSectionIndex && it.text.isNotBlank() }
+            .minByOrNull { it.sectionIndex }
+            ?.sectionIndex
+
+    override suspend fun getSectionCount(documentId: String): Int =
+        entries.count { it.documentId == documentId }
 }

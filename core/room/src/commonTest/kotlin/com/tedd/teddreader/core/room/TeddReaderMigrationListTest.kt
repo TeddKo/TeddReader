@@ -21,15 +21,15 @@ class TeddReaderMigrationListTest {
     /** `currentDatabaseVersion` below is kept in sync by hand with `@Database(version = ...)` in TeddReaderDatabase. */
     @Test
     fun migrationListCoversEveryVersionUpToTheCurrentDatabaseVersionWithNoGaps() {
-        val currentDatabaseVersion = 8
+        val currentDatabaseVersion = 9
         val versions = TeddReaderMigrationList.map { it.startVersion to it.endVersion }
 
         assertEquals((1 until currentDatabaseVersion).map { version -> version to version + 1 }, versions)
     }
 
     @Test
-    fun migration7To8IsRegisteredExactlyOnceAndLast() {
-        assertSame(TeddReaderMigration7To8, TeddReaderMigrationList.last())
-        assertEquals(1, TeddReaderMigrationList.count { migration -> migration === TeddReaderMigration7To8 })
+    fun migration8To9IsRegisteredExactlyOnceAndLast() {
+        assertSame(TeddReaderMigration8To9, TeddReaderMigrationList.last())
+        assertEquals(1, TeddReaderMigrationList.count { migration -> migration === TeddReaderMigration8To9 })
     }
 }
