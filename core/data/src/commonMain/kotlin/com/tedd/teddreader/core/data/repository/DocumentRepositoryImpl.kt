@@ -210,7 +210,18 @@ class DocumentRepositoryImpl(
      */
     private val paginationContinuationLock = Mutex()
 
-    /** Guards [epubScratchDocumentId]/[epubScratchPath]/[epubScratchContainer] below. */
+    /**
+     * Guards [epubScratchDocumentId], [epubScratchPath], [epubScratchContainer], and
+     * [epubEmbeddedFontFilesByHref]. Every I/O operation on the scratch copy file — reading
+     * embedded images or fonts, opening the ZIP for the progressive import container — must hold
+     * this lock for the duration of the read, or at minimum re-verify [epubScratchDocumentId]
+     * inside a `withLock` block before touching the path. [invalidateCaches] acquires this lock
+     * to delete the scratch file, so holding it prevents the file from vanishing mid-read.
+     *
+     * This is a non-reentrant [Mutex]: callers that already invoke [epubScratchCopy] (which
+     * acquires the lock internally) must not wrap that call in their own `withLock` — instead
+     * they call [epubScratchCopy] first, then re-acquire the lock to use the path.
+     */
     private val epubScratchLock = Mutex()
     /** Guards [epubNextSpineCursorByDocumentId] below. */
     private val epubImportCursorLock = Mutex()
@@ -348,11 +359,25 @@ class DocumentRepositoryImpl(
      * Inline image bytes for an EPUB, extracted through the shared [epubScratchCopy] rather than a fresh
      * whole-file read per image (see [epubScratchLock]'s own doc).
      *
+     * Extraction happens entirely within [epubScratchLock] so that a concurrent document
+     * deletion or replacement cannot remove the scratch file while this call is reading from it.
+     * The trade-off is that a large batch of images serialises against any other scratch-copy
+     * consumer (progressive import, font extraction, or another image request) for the duration
+     * of the ZIP reads. In practice the images requested per page are small and few, so the hold
+     * time stays in the low tens of milliseconds; a pathological case (many large images in one
+     * call) would delay the next scratch-copy consumer by that same time.
+     *
+     * The document ID is re-verified inside the lock after the scratch copy is established: if
+     * another coroutine replaced the scratch between [epubScratchCopy] releasing its internal
+     * lock and this call's own re-acquisition, the stale path is not used and an empty map is
+     * returned instead.
+     *
      * @param documentId The EPUB to extract images from; a no-op returning an empty map for any other
      *   format.
      * @param hrefs Archive-relative paths of the images to extract, trimmed and de-duplicated before use.
      * @return Extracted bytes keyed by the hrefs that were actually found, or an empty map when [hrefs]
-     *   is empty (after trimming), the format isn't EPUB, or [documentFileSource] is unavailable.
+     *   is empty (after trimming), the format isn't EPUB, [documentFileSource] is unavailable, or the
+     *   scratch copy was invalidated by a concurrent deletion before extraction could begin.
      */
     override suspend fun getEmbeddedImages(
         documentId: DocumentId,
@@ -364,8 +389,12 @@ class DocumentRepositoryImpl(
         val fileSource = documentFileSource ?: return@withContext emptyMap()
         val normalizedHrefs = hrefs.map(String::trim).filterTo(mutableSetOf(), String::isNotEmpty)
         if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
-        val path = epubScratchCopy(metadata, fileSource)
-        epubDocumentParser.extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs)
+        epubScratchCopy(metadata, fileSource)
+        epubScratchLock.withLock {
+            val path = epubScratchPath
+            if (epubScratchDocumentId != documentId || path == null) return@withLock emptyMap()
+            epubDocumentParser.extractEmbeddedImageBytes(path = path, hrefs = normalizedHrefs)
+        }
     }
 
     /**
@@ -375,6 +404,25 @@ class DocumentRepositoryImpl(
      * This streams each requested ZIP entry straight to its own temp file, one href at a time, so both
      * the long-lived cache and the extraction peak stay at file paths plus a small copy buffer rather than
      * whole font byte arrays. Only the requested hrefs are touched.
+     *
+     * Extraction runs entirely within [epubScratchLock] so that a concurrent document deletion or
+     * replacement cannot remove the scratch file while this call is streaming from it. The
+     * document ID is re-verified inside the lock: if the scratch was invalidated between
+     * [epubScratchCopy] releasing its internal lock and the re-acquisition here, the stale path
+     * is not used and an empty map is returned. The locked [epubScratchPath] is used directly
+     * rather than the path variable captured before the lock, closing the window where a
+     * concurrent [invalidateCaches] could delete the file the captured variable still names.
+     *
+     * The trade-off is that font streaming serialises against other scratch-copy consumers for
+     * its duration; in practice only a handful of font files are requested per document, each a
+     * few hundred kilobytes, so the hold time is small.
+     *
+     * @param documentId The EPUB to extract fonts from; a no-op returning an empty map for any other
+     *   format.
+     * @param hrefs Archive-relative paths of the font files to extract, trimmed and de-duplicated before
+     *   use.
+     * @return File paths of the extracted temp fonts keyed by the hrefs that were found, or an empty map
+     *   when nothing matches or the scratch copy was invalidated concurrently.
      */
     override suspend fun getEmbeddedFontFiles(
         documentId: DocumentId,
@@ -386,9 +434,10 @@ class DocumentRepositoryImpl(
         val fileSource = documentFileSource ?: return@withContext emptyMap()
         val normalizedHrefs = hrefs.map(String::trim).filterTo(linkedSetOf(), String::isNotEmpty)
         if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
-        val path = epubScratchCopy(metadata, fileSource)
+        epubScratchCopy(metadata, fileSource)
         epubScratchLock.withLock {
-            if (epubScratchDocumentId != documentId) return@withLock emptyMap()
+            val path = epubScratchPath
+            if (epubScratchDocumentId != documentId || path == null) return@withLock emptyMap()
             val missingHrefs = normalizedHrefs.filter { href ->
                 epubEmbeddedFontFilesByHref[href]?.let(systemFileSystem()::exists) != true
             }.toSet()
@@ -1395,8 +1444,8 @@ class DocumentRepositoryImpl(
     }
 
     /**
-     * A scratch copy of the EPUB behind [documentId], made once and reused for every later embedded
-     * image/font extraction and progressive import batch.
+     * A scratch copy of the EPUB behind [metadata]'s document, made once and reused for every later
+     * embedded image/font extraction and progressive import batch.
      *
      * Only one is kept: the reader has one book open, and holding a second copy of a previous one on
      * disk buys nothing. A copy this long-lived cannot be removed in a `finally`, so the process holds
@@ -1404,6 +1453,14 @@ class DocumentRepositoryImpl(
      * the process dies, and the copy it named is not — one abandoned copy per run, the size of the whole
      * book. [deleteAbandonedScratchCopies] sweeping the ones no longer named here is what keeps a shelf
      * of large books from filling the cache.
+     *
+     * **Lifetime contract.** The returned path is valid only as long as [epubScratchLock] is not
+     * re-acquired by a concurrent coroutine that replaces or deletes the scratch (see
+     * [invalidateCaches]). Callers that need to *use* the path for I/O must re-acquire
+     * [epubScratchLock] immediately after this call returns and re-verify [epubScratchDocumentId]
+     * before touching the file — or accept that the path may refer to a file that no longer exists.
+     * [getEmbeddedImages] and [getEmbeddedFontFiles] follow this pattern; [openEpubScratchContainer]
+     * adds a `runCatching` around the ZIP open for the window it cannot lock around.
      *
      * @param metadata The document the EPUB belongs to; a scratch copy already held for the same id is
      *   reused as-is when it still exists on disk.
@@ -1430,6 +1487,30 @@ class DocumentRepositoryImpl(
         path
     }
 
+    /**
+     * Returns (or creates and caches) the [EpubImportContainer] for [documentId]'s scratch copy at
+     * [path], used by progressive import to iterate spine items without re-parsing the OPF each batch.
+     *
+     * The cached container is returned immediately when it matches. On a cache miss, the container is
+     * built outside [epubScratchLock] to avoid holding the mutex during OPF/manifest parsing, which
+     * can be significant for EPUBs with thousands of spine items. A document-ID and path re-verification
+     * guards both sides:
+     *
+     * - Before opening the ZIP: [epubScratchDocumentId] and [epubScratchPath] must still match
+     *   [documentId] and [path], confirming the scratch file has not been deleted or replaced by a
+     *   concurrent [invalidateCaches].
+     * - After building the container: the same check decides whether the result is worth caching
+     *   (a concurrent invalidation that ran during parsing makes the container stale).
+     *
+     * Returns null both when no OPF is found (non-progressive fallback) and when the scratch copy
+     * was invalidated mid-flight — the caller ([importNextSections]) treats both as "nothing more to
+     * import progressively" and completes the document via [finishNonProgressiveEpubImport].
+     *
+     * @param documentId The document whose container to open or reuse.
+     * @param path The scratch copy path that [epubScratchCopy] returned for this document.
+     * @param title Fallback title for the container when the OPF has none.
+     * @return The container, or null when the OPF is missing or the scratch was invalidated.
+     */
     private suspend fun openEpubScratchContainer(
         documentId: DocumentId,
         path: Path,
@@ -1439,8 +1520,10 @@ class DocumentRepositoryImpl(
             if (epubScratchDocumentId == documentId && epubScratchPath == path) {
                 epubScratchContainer?.let { return it }
             }
+            if (epubScratchDocumentId != documentId || epubScratchPath != path) return null
         }
-        val container = openEpubImportContainer(systemFileSystem().openZip(path), title)
+        val zip = runCatching { systemFileSystem().openZip(path) }.getOrNull() ?: return null
+        val container = openEpubImportContainer(zip, title)
         epubScratchLock.withLock {
             if (epubScratchDocumentId == documentId && epubScratchPath == path) {
                 epubScratchContainer = container
