@@ -6,11 +6,13 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 /**
  * Pins [PdfDocumentParser]'s delegation contract to its injected [PdfMetadataReader]: the reader's page
  * count and cover bytes pass through unchanged, and an invalid (zero or negative) page count is
- * floored to 1 rather than producing a page-less document.
+ * floored to 1 rather than producing a page-less document. Also verifies the location-first contract:
+ * callers may pass `bytes = null` when [DocumentLocation.sourceUri] points at a reachable local file.
  */
 class PdfDocumentParserTest {
     /**
@@ -26,7 +28,7 @@ class PdfDocumentParserTest {
 
     /**
      * The parser's page count and format come straight from the injected [PdfMetadataReader], and no
-     * sections are produced.
+     * sections are produced. Bytes are passed through to the reader unchanged.
      */
     @Test
     fun usesPlatformMetadataReaderPageCount() {
@@ -73,8 +75,8 @@ class PdfDocumentParserTest {
         val bytes = byteArrayOf(9, 8, 7)
         val parser = PdfDocumentParser(
             object : PdfMetadataReader {
-                override fun pageCount(location: DocumentLocation, bytes: ByteArray): Int = 1
-                override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray): ByteArray? = bytes
+                override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int = 1
+                override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? = bytes
             },
         )
 
@@ -82,5 +84,99 @@ class PdfDocumentParserTest {
             bytes,
             parser.coverImageBytes(location, bytes),
         )
+    }
+
+    /**
+     * When bytes are null (location-first path), the parser passes null through to the metadata
+     * reader, which resolves the document from [DocumentLocation.sourceUri] instead.
+     */
+    @Test
+    fun passesNullBytesToMetadataReaderWhenLocationFirst() {
+        var receivedBytes: ByteArray? = byteArrayOf(99)
+        val parser = PdfDocumentParser { passedLocation, passedBytes ->
+            assertEquals(location, passedLocation)
+            receivedBytes = passedBytes
+            5
+        }
+
+        val document = parser.parse(
+            id = DocumentId("pdf-2"),
+            title = "Book",
+            location = location,
+            bytes = null,
+        )
+
+        assertEquals(5, document.pageCount)
+        assertNull(receivedBytes)
+    }
+
+    /**
+     * Cover extraction with null bytes delegates to [PdfMetadataReader.coverImageBytes] with null,
+     * so the platform reader resolves from location. A fake that returns null when bytes are null
+     * confirms the null is forwarded.
+     */
+    @Test
+    fun coverImageBytesWithNullBytesDelegatesToLocation() {
+        val parser = PdfDocumentParser(
+            object : PdfMetadataReader {
+                override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int = 1
+                override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? {
+                    return if (bytes == null) byteArrayOf(1, 2, 3) else null
+                }
+            },
+        )
+
+        val result = parser.coverImageBytes(location, null)
+        assertContentEquals(byteArrayOf(1, 2, 3), result)
+    }
+
+    /**
+     * Mutation guard: verifies that a metadata reader that distinguishes between a location-only
+     * call (bytes = null) and a bytes-provided call yields different results through the parser,
+     * proving the parser does not silently supply a default or ignore the null.
+     */
+    @Test
+    fun metadataReaderReceivesDistinctBytesPresence() {
+        var pageCountCallBytes: ByteArray? = byteArrayOf(99)
+        var coverCallBytes: ByteArray? = byteArrayOf(99)
+        val parser = PdfDocumentParser(
+            object : PdfMetadataReader {
+                override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int {
+                    pageCountCallBytes = bytes
+                    return if (bytes == null) 10 else 20
+                }
+
+                override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? {
+                    coverCallBytes = bytes
+                    return if (bytes == null) byteArrayOf(0xA) else byteArrayOf(0xB)
+                }
+            },
+        )
+
+        val documentLocationOnly = parser.parse(
+            id = DocumentId("pdf-loc"),
+            title = "Book",
+            location = location,
+            bytes = null,
+        )
+        assertEquals(10, documentLocationOnly.pageCount)
+        assertNull(pageCountCallBytes)
+
+        val coverLocationOnly = parser.coverImageBytes(location, null)
+        assertContentEquals(byteArrayOf(0xA), coverLocationOnly)
+        assertNull(coverCallBytes)
+
+        val documentWithBytes = parser.parse(
+            id = DocumentId("pdf-bytes"),
+            title = "Book",
+            location = location,
+            bytes = byteArrayOf(1),
+        )
+        assertEquals(20, documentWithBytes.pageCount)
+        assertContentEquals(byteArrayOf(1), pageCountCallBytes)
+
+        val coverWithBytes = parser.coverImageBytes(location, byteArrayOf(2))
+        assertContentEquals(byteArrayOf(0xB), coverWithBytes)
+        assertContentEquals(byteArrayOf(2), coverCallBytes)
     }
 }
