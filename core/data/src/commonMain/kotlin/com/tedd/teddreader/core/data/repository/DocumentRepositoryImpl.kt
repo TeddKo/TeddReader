@@ -132,6 +132,21 @@ class DocumentRepositoryImpl(
     private val logger = Logger.withTag("Pagination")
 
     /**
+     * Owns everything about a document's cover picture — its cache file, and extracting it from an EPUB
+     * or PDF that has none cached yet. See [DocumentCoverStore] for why this is a collaborator rather
+     * than four methods scattered through this class.
+     *
+     * CBZ covers are the exception and stay here, in [getDocumentCover]: a comic's cover comes out of
+     * [cbzArchive], the same mutex-guarded slot page requests read, so it cannot move without moving
+     * that lock with it.
+     */
+    private val coverStore = DocumentCoverStore(
+        epubDocumentParser = epubDocumentParser,
+        pdfDocumentParser = pdfDocumentParser,
+        documentFileSource = documentFileSource,
+    )
+
+    /**
      * Guards [cachedDocumentId], [cachedReaderDocument], [cachedSectionBlocks], the page-window
      * cache fields below them ([cachedPageWindowKey], [cachedPageWindows], [cachedPageWindowsAreMeasured],
      * [paginationSession]), and [documentCacheGeneration] — every read or write of any of those fields
@@ -323,60 +338,22 @@ class DocumentRepositoryImpl(
             DocumentFormat.CBZ,
                 -> {
                 val fileSource = documentFileSource ?: return@withContext null
-                val coverPath = coverFilePath(fileSource, documentId)
-                readCoverFile(coverPath)?.let {
+                coverStore.cached(documentId)?.let {
                     logger.d { "cover: served ${it.size} B from file for ${metadata.location.displayName}" }
                     return@withContext it
                 }
-                logger.d { "cover: no cached file at $coverPath for ${metadata.location.displayName}, extracting" }
+                logger.d {
+                    "cover: no cached file at ${coverStore.pathFor(documentId)} for ${metadata.location.displayName}, extracting"
+                }
                 val extracted = when (metadata.format) {
-                    DocumentFormat.EPUB -> extractEpubCoverWithoutBuffering(metadata, fileSource)
-                    DocumentFormat.PDF -> {
-                        pdfDocumentParser.coverImageBytes(metadata.location, bytes = null)
-                    }
                     DocumentFormat.CBZ -> cbzScratchLock.withLock {
                         cbzArchiveLocked(metadata, fileSource).coverImageBytes()
                     }
-                    else -> null
+                    else -> coverStore.extract(metadata)
                 }
                 logger.d { "cover: extraction gave ${extracted?.size ?: -1} B for ${metadata.location.displayName}" }
-                extracted?.also { writeCoverFile(coverPath, it) }
+                extracted?.also { coverStore.store(documentId, it) }
             }
-        }
-    }
-
-    /**
-     * Extracts an EPUB's cover by streaming the book to its own short-lived temporary file and reading
-     * only the cover entry back out of it.
-     *
-     * The obvious alternatives are both wrong here. Reading the file into a [ByteArray] first — what
-     * this path used to do — charged the whole book's size to the heap to reach one picture, and an
-     * illustrated book of a few hundred megabytes could exhaust the process on a low-memory device.
-     * Reusing [epubScratchCopy]'s long-lived scratch slot would be worse in a different way: the home
-     * screen asks for many documents' covers, and each request would evict the scratch copy of whatever
-     * book the reader currently has open, forcing that book to be copied again on the next page turn.
-     *
-     * The temporary file is deleted in a `finally`, so a failed extraction does not leave the book's
-     * full size behind on disk. [deleteAbandonedScratchCopies] does not sweep this prefix because
-     * nothing outlives this function that would need sweeping.
-     *
-     * @param metadata The EPUB whose cover to extract; its location is what gets streamed.
-     * @param fileSource Where the original file is streamed from.
-     * @return The cover image's bytes, or null when the copy failed or the book declares no readable
-     *   cover.
-     */
-    private suspend fun extractEpubCoverWithoutBuffering(
-        metadata: DocumentMetadata,
-        fileSource: DocumentFileSource,
-    ): ByteArray? {
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
-            "tedd-reader-epub-cover-source-${Random.nextLong().toString(16)}.epub"
-        return try {
-            suspendRunCatching { fileSource.copyTo(metadata.location, path) }.getOrNull()
-                ?: return null
-            epubDocumentParser.coverImageBytes(path)
-        } finally {
-            runCatching { systemFileSystem().delete(path) }
         }
     }
 
@@ -1395,7 +1372,7 @@ class DocumentRepositoryImpl(
     override suspend fun deleteDocument(documentId: DocumentId) {
         documentDao.deleteDocument(documentId.value)
         invalidateCaches(documentId)
-        deleteCachedCover(documentId)
+        coverStore.delete(documentId)
     }
 
     override suspend fun deleteDocuments(documentIds: Collection<DocumentId>) {
@@ -1403,7 +1380,7 @@ class DocumentRepositoryImpl(
         documentDao.deleteDocuments(documentIds.map(DocumentId::value))
         documentIds.forEach { documentId ->
             invalidateCaches(documentId)
-            deleteCachedCover(documentId)
+            coverStore.delete(documentId)
         }
     }
 
@@ -1450,12 +1427,6 @@ class DocumentRepositoryImpl(
                 cbzScratchDocumentId = null
                 cbzScratchPath = null
             }
-        }
-    }
-
-    private fun deleteCachedCover(documentId: DocumentId) {
-        documentFileSource?.let { fileSource ->
-            runCatching { systemFileSystem().delete(coverFilePath(fileSource, documentId)) }
         }
     }
 
@@ -2688,7 +2659,7 @@ class DocumentRepositoryImpl(
             )
         }
         if (coverBytes != null) {
-            documentFileSource?.let { fileSource -> writeCoverFile(coverFilePath(fileSource, metadata.id), coverBytes) }
+            coverStore.store(metadata.id, coverBytes)
         }
         invalidateDocumentCache(metadata.id)
     }
@@ -2844,33 +2815,6 @@ private fun extractFontHrefs(blocks: List<ReaderBlock>): List<String> =
  */
 internal fun coverFilePath(fileSource: DocumentFileSource, documentId: DocumentId): Path =
     fileSource.appPrivateDirectory() / "covers" / "${documentId.value.encodeUtf8().sha1().hex()}.img"
-
-/**
- * Reads a cached cover file, using Okio's own `read { }` scoping rather than `use { }`:
- * `okio.Closeable` is not `kotlin.AutoCloseable` on Kotlin/Native, so `use` compiles on Android and
- * fails the iOS targets. [writeCoverFile] below follows the same precedent with `write { }`.
- *
- * @param path The cover file to read.
- * @return The cover bytes, or null when nothing is cached at [path] or the read fails.
- */
-private fun readCoverFile(path: Path): ByteArray? =
-    runCatching {
-        systemFileSystem().read(path) { readByteArray() }
-    }.getOrNull()
-
-/**
- * Writes [bytes] to [path] as a cached cover file, creating the parent directory first if needed.
- * Failures are swallowed: a cover that fails to cache is simply extracted again on the next request.
- *
- * @param path The destination to write the cover to.
- * @param bytes The cover image bytes to write.
- */
-private fun writeCoverFile(path: Path, bytes: ByteArray) {
-    runCatching {
-        path.parent?.let { parent -> systemFileSystem().createDirectories(parent) }
-        systemFileSystem().write(path) { write(bytes) }
-    }
-}
 
 /**
  * The identity of a [DocumentRepositoryImpl.cachedPageWindows] answer: which document, at which style,
