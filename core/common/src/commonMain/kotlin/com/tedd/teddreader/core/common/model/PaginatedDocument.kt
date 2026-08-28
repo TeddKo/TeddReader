@@ -154,6 +154,37 @@ class PaginatedDocument(
         return null
     }
 
+    /**
+     * The zero-based page position and page count inside the chapter containing [page].
+     *
+     * Chapter boundaries follow [chapterTitleAt]: an untitled section belongs to the previous titled
+     * section, and the next titled section starts the next chapter. Page lookups stay logarithmic so
+     * this never walks the lazily built [pageWindows] list.
+     */
+    fun chapterPageIndexAt(page: Int): PageIndex? {
+        val pageWindow = pageWindows.getOrNull(page) ?: return null
+        if (pageWindow.blocks.any { block -> block.kind == ReaderBlockKind.COVER_IMAGE }) return null
+        val start = pageWindow.textRange?.start ?: return null
+        val chapterSection = titledSectionPositionAtOrBefore(sectionPositionAtOrBefore(start) ?: return null)
+            ?: return null
+        val chapterStartPage = pageOf(sections[chapterSection].range.start) ?: return null
+        val nextChapterSection = (chapterSection + 1..sections.lastIndex)
+            .firstOrNull { index -> sections[index].title != null }
+        val chapterEndPage = nextChapterSection
+            ?.let { index -> pageOf(sections[index].range.start) }
+            ?: pageCount
+        return PageIndex(current = page - chapterStartPage, total = chapterEndPage - chapterStartPage)
+    }
+
+    private fun titledSectionPositionAtOrBefore(sectionPosition: Int): Int? {
+        var position = sectionPosition
+        while (position >= 0) {
+            if (sections[position].title != null) return position
+            position--
+        }
+        return null
+    }
+
     private fun sectionPositionAtOrBefore(offset: Long): Int? {
         var low = 0
         var high = sections.lastIndex
