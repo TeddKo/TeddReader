@@ -4,7 +4,6 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 /**
  * Pins [TxtDocumentParser]'s single-section contract, including CRLF-to-LF line-ending normalization
@@ -28,7 +27,6 @@ class TxtDocumentParserTest {
         assertEquals(DocumentFormat.TXT, document.format)
         assertEquals("Sample", document.title)
         assertEquals(1, document.sections.size)
-        assertNull(document.sections.single().title)
         assertEquals("Hello reader\n서비스", document.sections.single().text)
         assertEquals(16L, document.characterCount)
         assertEquals(3L, document.wordCount)

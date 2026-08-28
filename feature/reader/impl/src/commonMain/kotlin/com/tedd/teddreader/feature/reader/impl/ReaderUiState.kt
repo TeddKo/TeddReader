@@ -50,11 +50,6 @@ import kotlinx.collections.immutable.persistentSetOf
  *   resolved, so a renderer can stop waiting for it.
  * @property chapterTitle The heading of the section this page belongs to, when the reader chrome
  *   needs to show it outside of the page body itself.
- * @property chapterPageIndex This page's position within its own chapter — `current` its zero-based
- *   offset inside the chapter, `total` the chapter's page count — for a position label that counts
- *   within the chapter instead of the whole document. Null whenever [chapterTitle] is too (a cover
- *   page, a format with no chapters, or a page with no measured range yet), so the label falls back
- *   to the document-wide fraction.
  * @property isSectionTail True when this page is the last page of its EPUB section — the honest,
  *   by-construction signal `EpubPageSurface` centres a short page on, in place of how much of the
  *   sheet it rendered to fill (see that composable's own doc for why the rendered-height signal
@@ -73,7 +68,6 @@ data class ReaderPageUi(
     val failedEmbeddedImageHrefs: ImmutableSet<String> = persistentSetOf(),
     val failedEmbeddedFontHrefs: ImmutableSet<String> = persistentSetOf(),
     val chapterTitle: String? = null,
-    val chapterPageIndex: PageIndex? = null,
     val isSectionTail: Boolean = false,
 )
 
