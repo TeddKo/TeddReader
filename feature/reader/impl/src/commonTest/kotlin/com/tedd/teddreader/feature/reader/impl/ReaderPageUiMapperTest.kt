@@ -7,6 +7,7 @@ import com.tedd.teddreader.core.common.model.ReaderBlockStyle
 import com.tedd.teddreader.core.common.model.PageWindow
 import com.tedd.teddreader.core.common.model.PaginatedDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
+import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderSpan
 import com.tedd.teddreader.core.common.model.ReaderSpanStyle
 import com.tedd.teddreader.core.common.model.TextRange
@@ -237,6 +238,40 @@ class ReaderPageUiMapperTest {
         assertEquals(emptySet(), page?.failedEmbeddedFontHrefs?.toSet())
     }
 
+    @Test
+    fun pageUiCarriesItsChapterLocalPageIndex() {
+        val pages = (0 until 5).map { page ->
+            PageWindow(
+                pageIndex = PageIndex(page, 5),
+                location = ReaderLocation.TextOffset(page * 10L),
+                text = "page $page",
+                textRange = TextRange(page * 10L, (page + 1) * 10L),
+            )
+        }
+        val page = readerPageUi(
+            page = 3,
+            context = ReaderPageUiContext(
+                pageIndex = PageIndex(3, 5),
+                documentUri = null,
+                isPdfMode = false,
+                paginated = PaginatedDocument(
+                    pageWindows = pages,
+                    sections = listOf(
+                        ReaderSection(0, "", TextRange(0, 20), "One"),
+                        ReaderSection(1, "", TextRange(20, 50), "Two"),
+                    ),
+                ),
+                embeddedImages = emptyMap(),
+                embeddedFontFiles = emptyMap(),
+                failedEmbeddedImageHrefs = emptySet(),
+                failedEmbeddedFontHrefs = emptySet(),
+            ),
+        )
+
+        assertEquals("Two", page?.chapterTitle)
+        assertEquals(PageIndex(current = 1, total = 3), page?.chapterPageIndex)
+    }
+
     /**
      * A list that counts every element read, so a mapper walking its blocks N times is caught as N
      * reads. The single-pass mapper reads each block index exactly once regardless of how many
@@ -258,13 +293,10 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * Guards the near-single-pass invariant on the resource resolution. Mapping one page reads its
-     * block list three times by design: the [toImmutableList] copy handed to the UI, the
-     * [PaginatedDocument.chapterTitleAt] cover-image scan, and the one resource walk this refactor
-     * folds image bytes, font files, failed images, and failed fonts into. The old mapper resolved
-     * those four resource kinds in four separate walks, so it read the block list six times rather
-     * than three; this asserts the exact three-pass count and that it stays under the old six-pass
-     * cost, so reverting the fold to per-kind passes fails here.
+     * Guards the near-single-pass invariant on resource resolution. Mapping one page reads its block
+     * list four times by design: the immutable copy, the chapter-title and chapter-page cover scans,
+     * and one resource walk that folds images, fonts, and failures together. The old mapper's four
+     * separate resource walks would still cost seven passes with both chapter queries present.
      */
     @Test
     fun pageUiWalksBlocksInOneResourcePassBeyondTheCopy() {
@@ -310,14 +342,15 @@ class ReaderPageUiMapperTest {
 
         val copyPass = blocks.size
         val chapterTitlePass = blocks.size
+        val chapterPagePass = blocks.size
         val singleResourcePass = blocks.size
         assertEquals(
-            copyPass + chapterTitlePass + singleResourcePass,
+            copyPass + chapterTitlePass + chapterPagePass + singleResourcePass,
             blocks.readCount,
-            "mapping a page must read its blocks exactly three times (copy, chapter-title scan, one " +
+            "mapping a page must read its blocks exactly four times (copy, two chapter scans, one " +
                 "resource pass), but it read ${blocks.readCount} for ${blocks.size} blocks",
         )
-        val oldFourResourcePassReads = copyPass + chapterTitlePass + 4 * blocks.size
+        val oldFourResourcePassReads = copyPass + chapterTitlePass + chapterPagePass + 4 * blocks.size
         assertTrue(
             blocks.readCount < oldFourResourcePassReads,
             "the old four-resource-pass mapper would read blocks $oldFourResourcePassReads times; " +

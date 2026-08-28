@@ -66,6 +66,7 @@ internal fun readerPageUi(page: Int, context: ReaderPageUiContext): ReaderPageUi
         failedEmbeddedImageHrefs = resources.failedEmbeddedImageHrefs,
         failedEmbeddedFontHrefs = resources.failedEmbeddedFontHrefs,
         chapterTitle = context.paginated.chapterTitleAt(page),
+        chapterPageIndex = context.paginated.chapterPageIndexAt(page),
         isSectionTail = context.paginated.isSectionTail(page),
     )
 }
