@@ -964,10 +964,10 @@ class DocumentRepositoryImpl(
             cachedSectionBlocks.takeIf { cachedDocumentId == documentId }
         } ?: return emptySet()
         return withContext(Dispatchers.Default) {
-            cache.prewarm(cache.knownSectionIndexes)
-            val hrefs = cache.knownSectionIndexes
+            val snapshot = cache.snapshotAllBlocks()
+            val hrefs = snapshot.values
                 .asSequence()
-                .flatMap { sectionIndex -> cache.blocksFor(sectionIndex).asSequence() }
+                .flatMap { blocks -> blocks.asSequence() }
                 .flatMap { block ->
                     sequenceOf(block.style?.fontHref)
                         .plus(block.spans.asSequence().map { span -> span.styleDelta?.fontHref })
@@ -3102,6 +3102,14 @@ private class RestoredPageWindowsResult(
  * decoded, so reconstruct can distinguish "genuinely no blocks" from "not fetched yet" instead of
  * silently treating every not-yet-fetched section as the former.
  *
+ * The published cache ([decoded]) is bounded to [MaxWarmSectionsRetained] entries so pagination's
+ * working-set never grows unbounded. [prewarm] always trims after fetching. When a full-document scan
+ * needs every section — such as the legacy embedded-font-href extraction in
+ * [DocumentRepositoryImpl.getReferencedEmbeddedFontHrefs] — [snapshotAllBlocks] returns a complete,
+ * independent copy of all decoded blocks under the same [lock], then trims the published cache back to
+ * [MaxWarmSectionsRetained]. The snapshot outlives any trim, so the caller scans accurately without
+ * permanently inflating the cache.
+ *
  * [blocksFor] answers relative to the section's own start, not as an absolute document offset — that
  * is how [DocumentRepositoryImpl.persistParsedDocument] now writes `blocksJson` (see there for why).
  * [TextPageLayoutEngine] wants exactly that shape. A caller that wants the document's usual absolute
@@ -3135,8 +3143,6 @@ private class SectionBlocksCache(
     @Volatile
     private var decoded: Map<Int, List<ReaderBlock>> = emptyMap()
     private val lock = Mutex()
-    @Volatile
-    private var retainAll = false
 
     /**
      * @param sectionIndex The section to fetch blocks for.
@@ -3158,7 +3164,10 @@ private class SectionBlocksCache(
     /**
      * Fetches and decodes whichever of [sectionIndexes] are not decoded yet, in one query. A section
      * this document doesn't have is filtered out instead of asking the database for a row that will
-     * never exist.
+     * never exist. After merging, the published cache is trimmed to the most recent
+     * [MaxWarmSectionsRetained] entries so the pagination working set never grows unbounded — a
+     * full-document scan that needs every section without disturbing the published cache should use
+     * [snapshotAllBlocks] instead.
      *
      * @param sectionIndexes The sections to ensure are decoded.
      * @return How many sections this call actually decoded, so [DocumentRepositoryImpl.warmSectionBlocks]
@@ -3166,9 +3175,6 @@ private class SectionBlocksCache(
      */
     suspend fun prewarm(sectionIndexes: Collection<Int>): Int {
         return lock.withLock {
-            if (sectionIndexes.size >= knownSections.size && knownSections.all(sectionIndexes::contains)) {
-                retainAll = true
-            }
             val current = decoded
             val requestedKnown = sectionIndexes.filterTo(linkedSetOf()) { it in knownSections }
             val missing = requestedKnown.filterTo(linkedSetOf()) { it !in current }
@@ -3193,14 +3199,51 @@ private class SectionBlocksCache(
                 merged.remove(row.sectionIndex)
                 merged[row.sectionIndex] = decode(row.blocksJson)
             }
-            if (!retainAll) {
-                while (merged.size > MaxWarmSectionsRetained) {
-                    val oldest = merged.entries.firstOrNull()?.key ?: break
-                    merged.remove(oldest)
-                }
+            while (merged.size > MaxWarmSectionsRetained) {
+                val oldest = merged.entries.firstOrNull()?.key ?: break
+                merged.remove(oldest)
             }
             decoded = merged
             rows.size
+        }
+    }
+
+    /**
+     * Fetches every known section's blocks under [lock], takes a complete snapshot for a full-document
+     * scan such as legacy embedded-font-href extraction, then trims the published [decoded] map back to
+     * [MaxWarmSectionsRetained] so pagination's working-set invariant is restored. The returned map is
+     * an independent copy that outlives any subsequent [prewarm] or trim — callers may iterate it freely
+     * without racing the cache's own eviction.
+     *
+     * Atomicity: a concurrent [prewarm] cannot interleave between the fetch and the snapshot because
+     * both happen inside the same [lock] acquisition. The snapshot therefore always reflects a complete,
+     * consistent view of every section this document has.
+     *
+     * @return A map from every known section index to its decoded blocks, relative to each section's own
+     *   start (same coordinate space as [blocksFor]).
+     */
+    suspend fun snapshotAllBlocks(): Map<Int, List<ReaderBlock>> {
+        return lock.withLock {
+            val current = decoded
+            val missing = knownSections.filterTo(linkedSetOf()) { it !in current }
+            val full = LinkedHashMap<Int, List<ReaderBlock>>(knownSections.size)
+            knownSections.forEach { index ->
+                current[index]?.let { full[index] = it }
+            }
+            if (missing.isNotEmpty()) {
+                val rows = searchIndexDao.getSectionBlocksJson(documentId.value, missing.toList())
+                rows.forEach { row ->
+                    full[row.sectionIndex] = decode(row.blocksJson)
+                }
+            }
+            val trimmed = LinkedHashMap<Int, List<ReaderBlock>>(minOf(full.size, MaxWarmSectionsRetained))
+            val entries = full.entries.toList()
+            val start = maxOf(0, entries.size - MaxWarmSectionsRetained)
+            for (i in start until entries.size) {
+                trimmed[entries[i].key] = entries[i].value
+            }
+            decoded = trimmed
+            full
         }
     }
 
