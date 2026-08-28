@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.data.repository
 
+import com.tedd.teddreader.core.common.suspendRunCatching
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
@@ -314,7 +315,7 @@ class DocumentRepositoryImpl(
                 logger.d { "cover: no cached file at $coverPath for ${metadata.location.displayName}, extracting" }
                 val extracted = when (metadata.format) {
                     DocumentFormat.EPUB -> {
-                        val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
+                        val bytes = suspendRunCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
                         epubDocumentParser.coverImageBytes(bytes)
                     }
                     DocumentFormat.PDF -> {
@@ -625,7 +626,7 @@ class DocumentRepositoryImpl(
         if (document.format.isVisualPageFormat()) return@withContext emptyList()
 
         val restoreStarted = TimeSource.Monotonic.markNow()
-        val restored = runCatching { restorePageWindows(documentId, document, key) }
+        val restored = suspendRunCatching { restorePageWindows(documentId, document, key) }
             .onFailure { error -> logger.w(error) { "Failed to restore stored page layout for $documentId" } }
             .getOrNull()
         if (restored != null) {
@@ -1670,7 +1671,7 @@ class DocumentRepositoryImpl(
      */
     private suspend fun repairTxtDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
-        return runCatching {
+        return suspendRunCatching {
             val document = txtDocumentParser.parse(
                 id = metadata.id,
                 title = metadata.location.displayName,
@@ -1713,7 +1714,7 @@ class DocumentRepositoryImpl(
      */
     private suspend fun repairEpubDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
-        return runCatching {
+        return suspendRunCatching {
             importEpubPhase0(
                 id = metadata.id,
                 source = DocumentImportSource(location = metadata.location, bytes = null),
