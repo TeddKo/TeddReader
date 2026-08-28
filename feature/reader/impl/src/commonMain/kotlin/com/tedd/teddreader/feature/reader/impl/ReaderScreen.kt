@@ -50,7 +50,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.composed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -2502,6 +2501,10 @@ private fun previewReaderUiState(
  * [PointerEventPass.Initial] so this observation happens before the pager's own swipe/tap detection
  * downstream, without consuming the event and blocking that detection from also seeing it.
  *
+ * A `@Composable` factory rather than `Modifier.composed { }` for the same reason as
+ * [readerPinchZoomGesture]: `composed` is opaque to modifier comparison, so this segment was
+ * re-materialized on every recomposition of the page content rather than reused.
+ *
  * @receiver The modifier to chain this pointer input onto.
  * @param controlsVisible Whether the controls are visible right now; read fresh at the start of
  * each gesture via [rememberUpdatedState] so a value captured by an earlier, still-running gesture
@@ -2510,16 +2513,17 @@ private fun previewReaderUiState(
  * down.
  * @param onToggleControls Invoked to hide the controls once the drag clears the touch slop.
  */
+@Composable
 private fun Modifier.readerControlsDragObserver(
     controlsVisible: Boolean,
     gestureBlocked: Boolean,
     onToggleControls: () -> Unit,
-): Modifier = composed {
+): Modifier {
     val latestControlsVisible by rememberUpdatedState(controlsVisible)
     val latestGestureBlocked by rememberUpdatedState(gestureBlocked)
     val latestOnToggleControls by rememberUpdatedState(onToggleControls)
 
-    pointerInput(Unit) {
+    return pointerInput(Unit) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val controlsVisibleAtStart = latestControlsVisible
