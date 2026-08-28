@@ -2,10 +2,10 @@ package com.tedd.teddreader.feature.reader.impl
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -194,11 +194,18 @@ internal fun readerDoubleTapVisualTransform(
  * than two separate `pointerInput` blocks because they are mutually exclusive on any given page and
  * a caller only ever wants one of them live at a time.
  *
- * Every parameter is captured through `rememberUpdatedState` inside `composed { }` rather than read
- * directly, because the `pointerInput(Unit)` gesture-detection coroutine below is keyed on the
- * constant `Unit` and therefore never restarts across recomposition — without that indirection it
- * would keep observing the values captured on its first launch for as long as the composable stays
- * on screen.
+ * Every parameter is captured through [rememberUpdatedState] rather than read directly, because the
+ * `pointerInput(Unit)` gesture-detection coroutine below is keyed on the constant `Unit` and
+ * therefore never restarts across recomposition — without that indirection it would keep observing
+ * the values captured on its first launch for as long as the composable stays on screen.
+ *
+ * This is a `@Composable` modifier factory rather than a `Modifier.composed { }` block: `composed`
+ * hides its contents from modifier comparison, so the whole segment was re-materialized on every
+ * recomposition of the page content instead of participating in node reuse. The captures above are
+ * the only reason composition access is needed at all, and a plain composable function gives that
+ * without the opaque wrapper. Note the captures are established before the [enabled] check, because a
+ * composable must not make its `remember` calls conditional — flipping [enabled] would otherwise
+ * shift every later slot in the composition.
  *
  * A pinch starting always turns auto-scroll off first ([onAutoScrollEnabledChange]), since scrolling
  * out from under a page the reader is actively resizing or zooming is not useful, and a text pinch's
@@ -231,6 +238,7 @@ internal fun readerDoubleTapVisualTransform(
  *   gesture changes it.
  * @return This modifier with the gesture attached, or itself unchanged when [enabled] is false.
  */
+@Composable
 internal fun Modifier.readerPinchZoomGesture(
     enabled: Boolean,
     viewportSize: IntSize,
@@ -243,9 +251,7 @@ internal fun Modifier.readerPinchZoomGesture(
     onTextGestureScaleChange: (Float) -> Unit,
     onTextFontSizeCommit: (Int) -> Unit,
     onPdfTransformChange: (ReaderPdfTransform) -> Unit,
-): Modifier = composed {
-    if (!enabled) return@composed this
-
+): Modifier {
     val latestViewportSize by rememberUpdatedState(viewportSize)
     val latestIsVisualMode by rememberUpdatedState(isVisualMode)
     val latestTextStartFontSizeSp by rememberUpdatedState(textStartFontSizeSp)
@@ -257,7 +263,9 @@ internal fun Modifier.readerPinchZoomGesture(
     val latestOnTextFontSizeCommit by rememberUpdatedState(onTextFontSizeCommit)
     val latestOnPdfTransformChange by rememberUpdatedState(onPdfTransformChange)
 
-    pointerInput(Unit) {
+    if (!enabled) return this
+
+    return pointerInput(Unit) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             var gestureOwned = false
