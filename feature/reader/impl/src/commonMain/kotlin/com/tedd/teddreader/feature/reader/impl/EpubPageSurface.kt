@@ -59,6 +59,8 @@ import com.tedd.teddreader.core.ui.reader.buildReaderSemanticText
 import com.tedd.teddreader.core.ui.reader.readerFloatTextFitter
 import com.tedd.teddreader.core.ui.reader.readerLayoutInputs
 import com.tedd.teddreader.core.ui.reader.readerReferencedFontHrefs
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -81,7 +83,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun EpubPageSurface(
     page: ReaderPageUi,
     style: ReaderStyle,
-    embeddedFontFamiliesByHref: Map<String, FontFamily> = emptyMap(),
+    embeddedFontFamiliesByHref: ImmutableMap<String, FontFamily> = persistentMapOf(),
     modifier: Modifier = Modifier,
 ) {
     val plateBlock = epubFullPagePlate(text = page.text, blocks = page.blocks)
