@@ -22,8 +22,7 @@ class TxtDocumentParser {
      * Wraps [text] as a one-section document, normalizing its line endings first.
      *
      * @param id identity of the source file, carried through unchanged.
-     * @param title label used for the document only; a TXT file has no chapter title, so its one section
-     *   intentionally carries `null` as its title.
+     * @param title label used for both the document and its single section.
      * @param text the file's full decoded contents; how the original bytes were decoded into this
      *   string (encoding detection, BOM handling) happens before this call, not here.
      * @return a [ReaderDocument] of [DocumentFormat.TXT] with one [ReaderSection] holding all of
@@ -42,7 +41,7 @@ class TxtDocumentParser {
             sections = listOf(
                 ReaderSection(
                     index = 0,
-                    title = null,
+                    title = title,
                     text = normalizedText,
                     range = TextRange(0L, normalizedText.length.toLong()),
                 ),

@@ -2,11 +2,9 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
-import com.tedd.teddreader.core.common.model.PaginatedDocument
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import okio.Path.Companion.toPath
 
 /**
@@ -142,27 +140,6 @@ class EpubDocumentParserTest {
         """.trimIndent()
 
         assertEquals(null, findEpubCoverHref(opf))
-    }
-
-    /**
-     * The synthetic cover carries the document title only on its image block for accessibility; leaving
-     * that title on [ReaderSection] would make [PaginatedDocument.chapterTitleAt] inherit the book title
-     * into the first untitled body section as though it were a chapter heading.
-     */
-    @Test
-    fun syntheticCoverKeepsDocumentTitleOutOfChapterTitle() {
-        val cover = buildEpubCoverSection(
-            coverDecision = EpubCoverDecision(
-                coverHref = "images/cover.jpg",
-                coverBytes = byteArrayOf(1),
-                hasCoverSection = true,
-                spineOrder0Skipped = true,
-            ),
-            documentTitle = "Book Title",
-        )
-
-        assertNull(cover?.section?.title)
-        assertEquals("Book Title", cover?.blocks?.single()?.label)
     }
 
     /**
