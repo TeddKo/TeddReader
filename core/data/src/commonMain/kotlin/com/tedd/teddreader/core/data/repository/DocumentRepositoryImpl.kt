@@ -260,6 +260,22 @@ class DocumentRepositoryImpl(
 
     /** Filesystem path of the scratch copy for [epubScratchDocumentId] — see that property's doc. */
     private var epubScratchPath: Path? = null
+
+    /**
+     * Counts how many times [invalidateCaches] has torn down EPUB scratch state, so [epubScratchCopy]
+     * can tell whether a deletion landed while it was copying a book outside [epubScratchLock].
+     *
+     * A counter is needed because the state alone cannot answer that question: a document deleted while
+     * its scratch slot was already empty leaves [epubScratchDocumentId] null both before and after the
+     * deletion, so a copy finishing afterwards would happily install a scratch copy for a document that
+     * no longer exists. Installing it is exactly the resurrection this counter prevents.
+     *
+     * The count is bumped for every invalidation rather than only the ones that match the document being
+     * copied. That makes an unrelated deletion during a copy abort the install too, which costs one
+     * empty result the caller retries on its next request — cheap, and far preferable to tracking
+     * per-document invalidation state that would grow with the shelf.
+     */
+    private var epubScratchInvalidationCount = 0L
     /** Open import container for the currently-held scratch copy, reused across progressive batches. */
     private var epubScratchContainer: EpubImportContainer? = null
     /** Reusable temp font files keyed by the href they were extracted from for the current EPUB. */
@@ -1383,12 +1399,15 @@ class DocumentRepositoryImpl(
             epubSectionPathByIndexByDocumentId.remove(documentId)
         }
         epubScratchLock.withLock {
-            if (!keepScratchCopy && epubScratchDocumentId == documentId) {
-                epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
-                clearEmbeddedFontScratchFilesLocked()
-                epubScratchDocumentId = null
-                epubScratchPath = null
-                epubScratchContainer = null
+            if (!keepScratchCopy) {
+                epubScratchInvalidationCount += 1
+                if (epubScratchDocumentId == documentId) {
+                    epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
+                    clearEmbeddedFontScratchFilesLocked()
+                    epubScratchDocumentId = null
+                    epubScratchPath = null
+                    epubScratchContainer = null
+                }
             }
         }
         cbzScratchLock.withLock {
@@ -1461,29 +1480,68 @@ class DocumentRepositoryImpl(
      * [getEmbeddedImages] and [getEmbeddedFontFiles] follow this pattern; [openEpubScratchContainer]
      * adds a `runCatching` around the ZIP open for the window it cannot lock around.
      *
+     * **Why the copy runs outside the lock.** Copying a book is the one genuinely slow step here — a
+     * large EPUB arriving through Android's SAF takes seconds — and holding [epubScratchLock] across it
+     * stalled every other scratch consumer for that whole time, so turning to an illustrated page during
+     * a first open blocked until the copy finished. The copy is therefore performed unlocked and the
+     * result *installed* under the lock, in three cases the install has to distinguish:
+     *
+     * - Another coroutine already established a usable scratch for this same document while this copy
+     *   was running: the freshly copied file is deleted and that established path is returned, so both
+     *   callers converge on one copy instead of fighting over the slot.
+     * - [invalidateCaches] ran during the copy, which [epubScratchInvalidationCount] is what detects:
+     *   nothing is installed and the copied file is deleted. The path is still returned, and the
+     *   caller's own re-verification inside [epubScratchLock] then sees the slot does not name this
+     *   document and gives up — which is how a deleted document yields an empty result instead of a
+     *   resurrected scratch copy.
+     * - Otherwise the copy is installed, replacing whatever the slot held, which is the same
+     *   last-writer-wins behavior the fully locked version had.
+     *
+     * A caller that only *reuses* an already-established copy never leaves the lock at all: that check
+     * is the first thing this function does, and it returns without ever reaching the copy.
+     *
      * @param metadata The document the EPUB belongs to; a scratch copy already held for the same id is
      *   reused as-is when it still exists on disk.
      * @param fileSource Where to copy the original file bytes from when a fresh copy is needed.
-     * @return The scratch copy's path.
+     * @return The scratch copy's path. When an invalidation aborted the install, this names a file that
+     *   has already been deleted, and the caller's re-verification under [epubScratchLock] is what
+     *   turns that into an empty result.
      */
     private suspend fun epubScratchCopy(
         metadata: DocumentMetadata,
         fileSource: DocumentFileSource,
-    ): Path = epubScratchLock.withLock {
-        epubScratchPath?.takeIf { epubScratchDocumentId == metadata.id && systemFileSystem().exists(it) }
-            ?.let { return@withLock it }
+    ): Path {
+        epubScratchLock.withLock {
+            epubScratchPath?.takeIf { epubScratchDocumentId == metadata.id && systemFileSystem().exists(it) }
+                ?.let { return it }
+        }
 
-        epubScratchPath?.let { previous -> runCatching { systemFileSystem().delete(previous) } }
-        clearEmbeddedFontScratchFilesLocked(keepDocumentId = metadata.id)
-        epubScratchContainer = null
+        val invalidationsBeforeCopy = epubScratchLock.withLock { epubScratchInvalidationCount }
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
             "tedd-reader-epub-open-${Random.nextLong().toString(16)}.epub"
-        deleteAbandonedScratchCopies(keep = path)
-        deleteAbandonedEmbeddedFontScratchFiles(keep = epubEmbeddedFontFilesByHref.values.toSet())
         fileSource.copyTo(metadata.location, path)
-        epubScratchDocumentId = metadata.id
-        epubScratchPath = path
-        path
+
+        return epubScratchLock.withLock {
+            epubScratchPath?.takeIf { epubScratchDocumentId == metadata.id && systemFileSystem().exists(it) }
+                ?.let { established ->
+                    runCatching { systemFileSystem().delete(path) }
+                    return@withLock established
+                }
+
+            if (epubScratchInvalidationCount != invalidationsBeforeCopy) {
+                runCatching { systemFileSystem().delete(path) }
+                return@withLock path
+            }
+
+            epubScratchPath?.let { previous -> runCatching { systemFileSystem().delete(previous) } }
+            clearEmbeddedFontScratchFilesLocked(keepDocumentId = metadata.id)
+            epubScratchContainer = null
+            deleteAbandonedScratchCopies(keep = path)
+            deleteAbandonedEmbeddedFontScratchFiles(keep = epubEmbeddedFontFilesByHref.values.toSet())
+            epubScratchDocumentId = metadata.id
+            epubScratchPath = path
+            path
+        }
     }
 
     /**
