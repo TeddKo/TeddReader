@@ -259,13 +259,12 @@ class ReaderPageUiMapperTest {
 
     /**
      * Guards the near-single-pass invariant on the resource resolution. Mapping one page reads its
-     * block list four times by design: the [toImmutableList] copy handed to the UI, the
-     * [PaginatedDocument.chapterTitleAt] cover-image scan, the [PaginatedDocument.chapterPageIndexAt]
-     * cover-image scan behind the chapter-local page fraction, and the one resource walk this refactor
+     * block list three times by design: the [toImmutableList] copy handed to the UI, the
+     * [PaginatedDocument.chapterTitleAt] cover-image scan, and the one resource walk this refactor
      * folds image bytes, font files, failed images, and failed fonts into. The old mapper resolved
-     * those four resource kinds in four separate walks, so it read the block list seven times rather
-     * than four; this asserts the exact four-pass count and that it stays under that old cost, so
-     * reverting the fold to per-kind resource passes fails here.
+     * those four resource kinds in four separate walks, so it read the block list six times rather
+     * than three; this asserts the exact three-pass count and that it stays under the old six-pass
+     * cost, so reverting the fold to per-kind passes fails here.
      */
     @Test
     fun pageUiWalksBlocksInOneResourcePassBeyondTheCopy() {
@@ -311,15 +310,14 @@ class ReaderPageUiMapperTest {
 
         val copyPass = blocks.size
         val chapterTitlePass = blocks.size
-        val chapterPageIndexPass = blocks.size
         val singleResourcePass = blocks.size
         assertEquals(
-            copyPass + chapterTitlePass + chapterPageIndexPass + singleResourcePass,
+            copyPass + chapterTitlePass + singleResourcePass,
             blocks.readCount,
-            "mapping a page must read its blocks exactly four times (copy, two chapter cover-image " +
-                "scans, one resource pass), but it read ${blocks.readCount} for ${blocks.size} blocks",
+            "mapping a page must read its blocks exactly three times (copy, chapter-title scan, one " +
+                "resource pass), but it read ${blocks.readCount} for ${blocks.size} blocks",
         )
-        val oldFourResourcePassReads = copyPass + chapterTitlePass + chapterPageIndexPass + 4 * blocks.size
+        val oldFourResourcePassReads = copyPass + chapterTitlePass + 4 * blocks.size
         assertTrue(
             blocks.readCount < oldFourResourcePassReads,
             "the old four-resource-pass mapper would read blocks $oldFourResourcePassReads times; " +

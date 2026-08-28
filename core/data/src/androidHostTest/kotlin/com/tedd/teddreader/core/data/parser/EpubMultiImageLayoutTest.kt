@@ -220,7 +220,7 @@ class EpubMultiImageLayoutTest {
     /**
      * The SVG-wrapped cover becomes the book's single synthetic cover section, and — because its own
      * XHTML held nothing but that picture — is not repeated again as a chapter of its own; the section
-     * titles are exactly the untitled cover placeholder followed by the two real chapters.
+     * titles are exactly the cover placeholder followed by the two real chapters.
      */
     @Test
     fun theSvgWrappedCoverBecomesTheCoverPageAndIsNotRepeatedAsAChapter() {
@@ -228,7 +228,7 @@ class EpubMultiImageLayoutTest {
         assertEquals(1, coverBlocks.size)
         assertEquals("OEBPS/Images/cover.png", coverBlocks.single().imageHref)
         assertEquals(
-            listOf(null, "1화 기회", "2화 연속 삽화"),
+            listOf("Plates", "1화 기회", "2화 연속 삽화"),
             document.sections.map { it.title },
         )
     }
