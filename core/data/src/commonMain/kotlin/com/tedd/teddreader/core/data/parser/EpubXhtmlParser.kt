@@ -1088,7 +1088,7 @@ private fun ReaderBlockKind.isTableCellKind(): Boolean =
 
 /** This tag's `class` attribute, split on whitespace into its individual class names. */
 private fun XhtmlTag.classNames(): List<String> =
-    attributes["class"].orEmpty().split(Regex("""\s+""")).map(String::trim).filter(String::isNotEmpty)
+    attributes["class"].orEmpty().split(WhitespaceRunRegex).map(String::trim).filter(String::isNotEmpty)
 
 /** An `<ol>`'s `start` attribute as the first ordinal its items should be labeled with, defaulting to 1. */
 private fun Map<String, String>.startOrdinal(): Int = this["start"]?.toIntOrNull() ?: 1
@@ -1218,8 +1218,8 @@ private fun CssDeclarations.toReaderImageStyle(): ReaderBlockStyle? = ReaderBloc
  * is left null rather than guessed; the real pixels are sniffed from the image bytes instead.
  */
 private fun Map<String, String>.declaredImageAspectRatio(): Float? {
-    val declaredWidth = this["width"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "width") }
-    val declaredHeight = this["height"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, "height") }
+    val declaredWidth = this["width"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, CssWidthPxRegex) }
+    val declaredHeight = this["height"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, CssHeightPxRegex) }
     if (declaredWidth == null || declaredHeight == null || declaredWidth <= 0f || declaredHeight <= 0f) return null
     return declaredWidth / declaredHeight
 }
@@ -1231,14 +1231,19 @@ private fun Map<String, String>.declaredImageAspectRatio(): Float? {
 private fun String.toPixelValue(): Float? = trim().takeIf { it.isNotEmpty() && it.none(Char::isLetter) }?.toFloatOrNull()
 
 /**
- * [property]'s pixel value out of an inline `style` attribute, or null if [property] is absent or not
- * declared in `px`.
+ * The pixel value [dimension] matches out of an inline `style` attribute, or null if the property is
+ * absent or not declared in `px`.
+ *
+ * Takes the pattern already compiled rather than a property name so that measuring a page of images
+ * does not recompile one regex per `<img>`: [CssWidthPxRegex] and [CssHeightPxRegex] are the only two
+ * properties any caller asks for, and both are built once for the process.
  *
  * @param style raw inline `style` attribute text.
- * @param property CSS property name to look for, e.g. `"width"`.
+ * @param dimension pattern whose first group captures the numeric `px` value, i.e. [CssWidthPxRegex]
+ *   or [CssHeightPxRegex].
  */
-private fun cssPixelDimension(style: String, property: String): Float? =
-    Regex("""$property\s*:\s*([0-9.]+)px""").find(style)?.groupValues?.get(1)?.toFloatOrNull()
+private fun cssPixelDimension(style: String, dimension: Regex): Float? =
+    dimension.find(style)?.groupValues?.get(1)?.toFloatOrNull()
 
 /**
  * This tag's alignment from its `align` attribute or an inline `style`'s `text-align`, or null if neither
@@ -1319,6 +1324,21 @@ private fun Int.toCharsOrNull(): String? = when {
 
 /** Matches one `name="value"` or `name='value'` attribute pair inside a tag body. */
 private val TagAttributeRegex = Regex("""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+/**
+ * Matches one run of whitespace, used to split a `class` attribute into its individual names.
+ *
+ * Hoisted out of [classNames] because that runs on every opening tag the parser sees: a full-length
+ * book imports on the order of a hundred thousand tags, and compiling this pattern per tag made the
+ * import pay for a regex compilation it can pay for once per process instead.
+ */
+private val WhitespaceRunRegex = Regex("""\s+""")
+
+/** Captures the numeric `px` value of an inline `style`'s `width` declaration; see [cssPixelDimension]. */
+private val CssWidthPxRegex = Regex("""width\s*:\s*([0-9.]+)px""")
+
+/** Captures the numeric `px` value of an inline `style`'s `height` declaration; see [cssPixelDimension]. */
+private val CssHeightPxRegex = Regex("""height\s*:\s*([0-9.]+)px""")
 
 /** Captures an inline `style` attribute's `text-align` value. */
 private val TextAlignRegex = Regex("""text-align\s*:\s*([a-zA-Z]+)""")
