@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.document_info.impl
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.suspendRunCatching
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
 import com.tedd.teddreader.core.domain.usecase.GetDocumentInfoUseCase
 import kotlinx.collections.immutable.toImmutableList
@@ -32,7 +33,7 @@ class DocumentInfoViewModel(
 
         infoJob?.cancel()
         infoJob = viewModelScope.launch {
-            runCatching { getDocumentInfo(documentId) }
+            suspendRunCatching { getDocumentInfo(documentId) }
                 .onSuccess { info ->
                     if (_uiState.value.documentId == documentIdValue) {
                         _uiState.update {

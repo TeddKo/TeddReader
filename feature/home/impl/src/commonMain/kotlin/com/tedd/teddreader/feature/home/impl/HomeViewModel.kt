@@ -13,6 +13,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import com.tedd.teddreader.core.common.suspendRunCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,7 +108,7 @@ class HomeViewModel(
 
     fun setDocumentsBookmarked(documentIds: Collection<DocumentId>, isBookmarked: Boolean) {
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 documentRepository.setDocumentsBookmarked(documentIds, isBookmarked)
             }.onFailure {
                 controls.update { current -> current.copy(errorMessage = "Failed to update document.") }
@@ -117,7 +118,7 @@ class HomeViewModel(
 
     fun createFolder(name: String, documentIds: Collection<DocumentId>) {
         viewModelScope.launch {
-            runCatching { createLibraryFolder(name, documentIds) }
+            suspendRunCatching { createLibraryFolder(name, documentIds) }
                 .onFailure { controls.update { it.copy(errorMessage = FolderUpdateFailedMessage) } }
         }
     }
@@ -125,7 +126,7 @@ class HomeViewModel(
     fun moveDocumentsToFolder(documentIds: Collection<DocumentId>, folderId: String) {
         val folder = uiState.value.libraryFolders.firstOrNull { it.id == folderId } ?: return
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 documentRepository.setDocumentsFolder(documentIds, folder.id, folder.name)
             }.onFailure { controls.update { it.copy(errorMessage = FolderUpdateFailedMessage) } }
         }
@@ -135,21 +136,21 @@ class HomeViewModel(
         val trimmedName = name.trim()
         if (trimmedName.isBlank()) return
         viewModelScope.launch {
-            runCatching { documentRepository.renameFolder(folderId, trimmedName) }
+            suspendRunCatching { documentRepository.renameFolder(folderId, trimmedName) }
                 .onFailure { controls.update { it.copy(errorMessage = FolderUpdateFailedMessage) } }
         }
     }
 
     fun deleteFolder(folderId: String) {
         viewModelScope.launch {
-            runCatching { documentRepository.clearFolder(folderId) }
+            suspendRunCatching { documentRepository.clearFolder(folderId) }
                 .onFailure { controls.update { it.copy(errorMessage = FolderUpdateFailedMessage) } }
         }
     }
 
     fun deleteDocuments(documentIds: Collection<DocumentId>) {
         viewModelScope.launch {
-            runCatching {
+            suspendRunCatching {
                 documentIds.forEach { documentId -> clearCoverState(documentId.value, publish = false) }
                 publishCoverSnapshot()
                 documentRepository.deleteDocuments(documentIds)

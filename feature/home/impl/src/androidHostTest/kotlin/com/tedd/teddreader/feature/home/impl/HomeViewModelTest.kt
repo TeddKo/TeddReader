@@ -12,6 +12,7 @@ import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.usecase.CreateLibraryFolderUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -603,6 +604,29 @@ class HomeViewModelTest {
         assertSame(beforeCover.libraryFolders, afterCover.libraryFolders)
     }
 
+    /**
+     * Verifies that a [CancellationException] thrown inside a suspend operation does not produce
+     * an error message. If [suspendRunCatching] were reverted to plain `runCatching`, the
+     * cancellation would be caught by `onFailure` and written as "Failed to delete document." —
+     * this assertion catches that regression.
+     */
+    @Test
+    fun cancellationExceptionFromRepositoryDoesNotProduceErrorMessage() = runTest {
+        val repository = object : FakeDocumentRepository() {
+            override suspend fun deleteDocument(documentId: DocumentId) {
+                throw CancellationException("scope cancelled")
+            }
+        }
+        val viewModel = createViewModel(repository)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        viewModel.deleteDocument(repository.documentId)
+        advanceUntilIdle()
+
+        assertEquals(null, viewModel.uiState.value.errorMessage)
+    }
+
 }
 
 /**
@@ -617,7 +641,7 @@ class HomeViewModelTest {
  * @param initiallyBookmarkedIds Ids that should start out bookmarked.
  * @param documents A fully custom seed list, overriding the two-document default entirely.
  */
-private class FakeDocumentRepository(
+private open class FakeDocumentRepository(
     includeSecondDocument: Boolean = false,
     secondDocumentFormat: DocumentFormat = DocumentFormat.TXT,
     initiallyBookmarkedIds: Set<String> = emptySet(),

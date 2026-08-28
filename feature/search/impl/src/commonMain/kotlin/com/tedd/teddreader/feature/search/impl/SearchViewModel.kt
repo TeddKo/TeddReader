@@ -3,6 +3,7 @@ package com.tedd.teddreader.feature.search.impl
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.suspendRunCatching
 import com.tedd.teddreader.core.domain.usecase.SearchDocumentUseCase
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -36,7 +37,7 @@ class SearchViewModel(
             )
         }
         searchJob = viewModelScope.launch {
-            val result = runCatching { searchDocument(DocumentId(documentId), "") }
+            val result = suspendRunCatching { searchDocument(DocumentId(documentId), "") }
                 .getOrElse { throwable ->
                     if (_uiState.value.documentId == documentId) {
                         _uiState.update {
@@ -78,7 +79,7 @@ class SearchViewModel(
         val requestedQuery = state.query
         searchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            val result = runCatching { searchDocument(DocumentId(state.documentId), requestedQuery) }
+            val result = suspendRunCatching { searchDocument(DocumentId(state.documentId), requestedQuery) }
                 .getOrElse { throwable ->
                     if (_uiState.value.documentId == state.documentId && _uiState.value.query == requestedQuery) {
                         _uiState.update {
