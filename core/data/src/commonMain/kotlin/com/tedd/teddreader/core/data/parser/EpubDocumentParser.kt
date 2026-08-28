@@ -63,7 +63,7 @@ data class EpubParseResult(
  * become text.
  */
 @Single
-class EpubDocumentParser {
+open class EpubDocumentParser {
     /**
      * Parses the EPUB in [bytes] into a [ReaderDocument], discarding the cover bytes [parseWithCover]
      * also decodes along the way. Prefer [parseWithCover] instead when the caller is about to persist
@@ -451,7 +451,7 @@ class EpubDocumentParser {
      * @return bytes keyed by the href that produced them; an href with no matching entry, or whose
      *   entry could not be read, is simply absent from the result.
      */
-    fun extractEmbeddedImageBytes(
+    internal open fun extractEmbeddedImageBytes(
         path: Path,
         hrefs: Set<String>,
         fileSystem: FileSystem = systemFileSystem(),
