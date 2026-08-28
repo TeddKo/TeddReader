@@ -68,11 +68,12 @@ import org.jetbrains.compose.resources.stringResource
  * @param chapterTitle The heading of the chapter the current page belongs to, shown before the
  *   chapter-local page fraction so the position label reads "chapter · 4 / 12" — the page's place
  *   within its own chapter, not the whole document. Null or blank — a format with no chapters (TXT,
- *   PDF) or a page before the first titled section — falls back to the document-wide fraction alone.
+ *   PDF) or a page before the first titled section — hides the position label entirely, leaving the
+ *   slider to carry the position alone rather than showing a document-wide page number.
  * @param chapterPageIndex The current page's position inside its chapter (`current` zero-based within
  *   the chapter, `total` the chapter's page count), paired with [chapterTitle] to build the
- *   chapter-local fraction. Null or a zero total falls back to the document-wide fraction even when
- *   [chapterTitle] is present, so a chapter whose bounds cannot be resolved yet never shows "n / 0".
+ *   chapter-local fraction. Null or a zero total hides the position label even when [chapterTitle] is
+ *   present, so a chapter whose bounds cannot be resolved yet never shows "n / 0".
  * @param windowInsets Insets reserved so the bar avoids system chrome (e.g. the navigation bar).
  * @param canGoPrevious Whether the previous-page button is enabled; defaults to "not on the first
  *   page."
@@ -117,15 +118,8 @@ fun ReaderBottomActionBar(
         latestSelectedPage = selectedPage
     }
 
-    val documentFraction = if (pageIndex.total == 0) {
-        stringResource(Res.string.page_fraction_zero)
-    } else if (isPaginationComplete) {
-        "${latestSelectedPage + 1} / ${pageIndex.total}"
-    } else {
-        "${latestSelectedPage + 1} / ${pageIndex.total}+"
-    }
-    val pageLabel = if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
-        documentFraction
+    val chapterLabel = if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
+        null
     } else {
         "$chapterTitle · ${chapterPageIndex.current + 1} / ${chapterPageIndex.total}"
     }
@@ -149,12 +143,14 @@ fun ReaderBottomActionBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(spacing.xxSmall),
                     ) {
-                        TeddText(
-                            text = pageLabel,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = typography.readerCaption,
-                        )
+                        if (chapterLabel != null) {
+                            TeddText(
+                                text = chapterLabel,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = typography.readerCaption,
+                            )
+                        }
                         TeddSlider(
                             value = displayedSliderValue,
                             onValueChange = { value ->
