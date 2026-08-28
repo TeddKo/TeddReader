@@ -948,6 +948,10 @@ private fun ReaderContent(
                                 },
                                 sliderValue = actionBarSliderValue,
                                 onSliderValueChange = onBottomSliderValueChange,
+                                chapterTitle = uiState.currentPage.chapterTitle
+                                    .takeIf { uiState.documentFormat == DocumentFormat.EPUB },
+                                chapterPageIndex = uiState.currentPage.chapterPageIndex
+                                    .takeIf { uiState.documentFormat == DocumentFormat.EPUB },
                                 canGoPrevious = uiState.pageIndex.current > 0,
                                 canGoNext = readerNextPage(
                                     currentPage = uiState.pageIndex.current,

@@ -35,6 +35,13 @@ import com.tedd.teddreader.core.ui.reader.ReaderBottomControls
 import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.stringResource
 
+internal fun readerChapterPageLabel(chapterTitle: String?, chapterPageIndex: PageIndex?): String? =
+    if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
+        null
+    } else {
+        "$chapterTitle • ${chapterPageIndex.current + 1}/${chapterPageIndex.total}"
+    }
+
 /**
  * The reader's bottom chrome: the page-position slider/label and the previous/next/auto-scroll
  * controls, faded in and out together with the rest of the reader controls.
@@ -65,6 +72,10 @@ import org.jetbrains.compose.resources.stringResource
  * @param sliderValue The slider's current (possibly mid-drag) value, owned by the caller.
  * @param onSliderValueChange Called continuously as the slider is dragged, before the drag finishes.
  * @param modifier The modifier applied to the whole bottom bar.
+ * @param chapterTitle EPUB chapter title shown before its local page fraction; null keeps the
+ *   document-wide page label.
+ * @param chapterPageIndex Zero-based position and total inside [chapterTitle]; null or an empty total
+ *   keeps the document-wide page label.
  * @param windowInsets Insets reserved so the bar avoids system chrome (e.g. the navigation bar).
  * @param canGoPrevious Whether the previous-page button is enabled; defaults to "not on the first
  *   page."
@@ -90,6 +101,8 @@ fun ReaderBottomActionBar(
     sliderValue: Float,
     onSliderValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    chapterTitle: String? = null,
+    chapterPageIndex: PageIndex? = null,
     windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     canGoPrevious: Boolean = pageIndex.current > 0,
     canGoNext: Boolean = pageIndex.current < (pageIndex.total - 1).coerceAtLeast(0),
@@ -107,13 +120,15 @@ fun ReaderBottomActionBar(
         latestSelectedPage = selectedPage
     }
 
-    val pageLabel = if (pageIndex.total == 0) {
+    val documentPageLabel = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
     } else if (isPaginationComplete) {
         "${latestSelectedPage + 1} / ${pageIndex.total}"
     } else {
         "${latestSelectedPage + 1} / ${pageIndex.total}+"
     }
+    val chapterPageLabel = readerChapterPageLabel(chapterTitle, chapterPageIndex)
+    val pageLabel = chapterPageLabel ?: documentPageLabel
 
     AnimatedContent(
         modifier = modifier,
@@ -136,6 +151,7 @@ fun ReaderBottomActionBar(
                     ) {
                         TeddText(
                             text = pageLabel,
+                            modifier = if (chapterPageLabel != null) Modifier.weight(1f) else Modifier,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             style = typography.readerCaption,
@@ -150,7 +166,7 @@ fun ReaderBottomActionBar(
                             onValueChangeFinished = { onPageSelected(latestSelectedPage) },
                             valueRange = sliderRange,
                             enabled = pageIndex.total > 1 && !isAutoScrollEnabled && isPaginationComplete,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(if (chapterPageLabel != null) 2f else 1f),
                         )
                     }
                 }

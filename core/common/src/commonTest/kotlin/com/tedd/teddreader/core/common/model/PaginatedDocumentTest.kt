@@ -357,6 +357,27 @@ class PaginatedDocumentTest {
         assertNull(document.chapterTitleAt(0))
     }
 
+    /** A page is numbered from its chapter start, not from the start of the whole document. */
+    @Test
+    fun chapterPageIndexAtCountsWithinTheCurrentChapter() {
+        val document = PaginatedDocument(
+            pageWindows = listOf(
+                page(range = TextRange(0, 10)),
+                page(range = TextRange(10, 20)),
+                page(range = TextRange(20, 30)),
+                page(range = TextRange(30, 40)),
+                page(range = TextRange(40, 50)),
+            ),
+            sections = listOf(
+                section(index = 0, start = 0, end = 20, title = "One"),
+                section(index = 1, start = 20, end = 50, title = "Two"),
+            ),
+        )
+
+        assertEquals(PageIndex(current = 0, total = 3), document.chapterPageIndexAt(2))
+        assertEquals(PageIndex(current = 2, total = 3), document.chapterPageIndexAt(4))
+    }
+
     /**
      * Only the page whose end meets its section's end is a tail, which is how the reader tells a page that
      * ends a chapter from one merely sitting inside it.
