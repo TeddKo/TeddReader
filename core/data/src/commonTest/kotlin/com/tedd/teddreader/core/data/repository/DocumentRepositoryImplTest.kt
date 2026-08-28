@@ -1437,9 +1437,14 @@ class DocumentRepositoryImplTest {
     /**
      * A book with no cached cover file — `documentDao` below stands in for a book imported before cover
      * caching existed: a document row and search index exist, but nothing ever wrote a cover file for
-     * it, the only way that happens today — must fall back to a full read on the first
+     * it, the only way that happens today — must fall back to extracting the cover on the first
      * [DocumentRepositoryImpl.getDocumentCover] call, and must cache the result on the way out so a
-     * second call does not read the whole file again.
+     * second call does not touch the source file again.
+     *
+     * The fallback streams the book to a temporary file instead of reading it into a [ByteArray], so
+     * this also asserts `readCount` stays at zero: buffering the whole book charged its full size to the
+     * heap to reach a single image, which is what could exhaust a low-memory device on an illustrated
+     * book of a few hundred megabytes.
      */
     @Test
     fun getDocumentCoverFallsBackForABookImportedBeforeCoverCachingThenCachesItForNextTime() = runTest {
@@ -1480,14 +1485,19 @@ class DocumentRepositoryImplTest {
 
         val firstCover = repository.getDocumentCover(documentId)
         assertTrue(firstCover != null && firstCover.isNotEmpty())
-        assertEquals(1, fileSource.readCount, "with no cached file yet, the first call must fall back to a full read.")
+        assertEquals(1, fileSource.copyCount, "with no cached file yet, the first call must fall back to streaming the source once.")
+        assertEquals(
+            0,
+            fileSource.readCount,
+            "the fallback must stream the book to a temporary file rather than hold all of it in memory.",
+        )
 
         repository.getDocumentCover(documentId)
 
         assertEquals(
             1,
-            fileSource.readCount,
-            "the fallback must cache the cover on the way out so a second call does not read the whole file again.",
+            fileSource.copyCount,
+            "the fallback must cache the cover on the way out so a second call does not stream the whole file again.",
         )
     }
 

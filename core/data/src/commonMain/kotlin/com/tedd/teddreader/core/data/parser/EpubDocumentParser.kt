@@ -424,16 +424,21 @@ open class EpubDocumentParser {
     }
 
     /**
-     * The book's cover image bytes, read directly from the EPUB at [path].
+     * The book's cover image bytes, read directly from the EPUB already on disk at [path].
+     *
+     * Preferred over the `bytes` overload whenever the caller can stream the file to disk itself: that
+     * overload has to hold the entire book in memory before it can even open it as a ZIP, so an
+     * illustrated book of a few hundred megabytes paid its whole size in heap just to reach one
+     * picture. Only the cover entry is read out of the archive here.
      *
      * @param path location of the EPUB file.
-     * @param fileSystem file system [path] is read through.
-     * @return the cover image's raw bytes, or null under the same conditions as the `bytes` overload of
-     *   [coverImageBytes].
+     * @param fileSystem file system [path] is read through; defaults to the real platform file system.
+     * @return the cover image's raw bytes, or null if the EPUB declares no cover, has no OPF, or the
+     *   declared cover entry could not be read.
      */
-    private fun coverImageBytes(
+    fun coverImageBytes(
         path: Path,
-        fileSystem: FileSystem,
+        fileSystem: FileSystem = systemFileSystem(),
     ): ByteArray? {
         val zip = fileSystem.openZip(path)
         val opfPath = zip.readUtf8OrNull(ContainerPath.toPath())?.let(::findRootFilePath) ?: return null

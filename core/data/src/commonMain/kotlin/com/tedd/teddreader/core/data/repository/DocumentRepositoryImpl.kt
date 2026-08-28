@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.data.repository
 
+import com.tedd.teddreader.core.common.suspendRunCatching
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentMetadata
@@ -313,10 +314,7 @@ class DocumentRepositoryImpl(
                 }
                 logger.d { "cover: no cached file at $coverPath for ${metadata.location.displayName}, extracting" }
                 val extracted = when (metadata.format) {
-                    DocumentFormat.EPUB -> {
-                        val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
-                        epubDocumentParser.coverImageBytes(bytes)
-                    }
+                    DocumentFormat.EPUB -> extractEpubCoverWithoutBuffering(metadata, fileSource)
                     DocumentFormat.PDF -> {
                         pdfDocumentParser.coverImageBytes(metadata.location, bytes = null)
                     }
@@ -328,6 +326,41 @@ class DocumentRepositoryImpl(
                 logger.d { "cover: extraction gave ${extracted?.size ?: -1} B for ${metadata.location.displayName}" }
                 extracted?.also { writeCoverFile(coverPath, it) }
             }
+        }
+    }
+
+    /**
+     * Extracts an EPUB's cover by streaming the book to its own short-lived temporary file and reading
+     * only the cover entry back out of it.
+     *
+     * The obvious alternatives are both wrong here. Reading the file into a [ByteArray] first — what
+     * this path used to do — charged the whole book's size to the heap to reach one picture, and an
+     * illustrated book of a few hundred megabytes could exhaust the process on a low-memory device.
+     * Reusing [epubScratchCopy]'s long-lived scratch slot would be worse in a different way: the home
+     * screen asks for many documents' covers, and each request would evict the scratch copy of whatever
+     * book the reader currently has open, forcing that book to be copied again on the next page turn.
+     *
+     * The temporary file is deleted in a `finally`, so a failed extraction does not leave the book's
+     * full size behind on disk. [deleteAbandonedScratchCopies] does not sweep this prefix because
+     * nothing outlives this function that would need sweeping.
+     *
+     * @param metadata The EPUB whose cover to extract; its location is what gets streamed.
+     * @param fileSource Where the original file is streamed from.
+     * @return The cover image's bytes, or null when the copy failed or the book declares no readable
+     *   cover.
+     */
+    private suspend fun extractEpubCoverWithoutBuffering(
+        metadata: DocumentMetadata,
+        fileSource: DocumentFileSource,
+    ): ByteArray? {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+            "tedd-reader-epub-cover-source-${Random.nextLong().toString(16)}.epub"
+        return try {
+            suspendRunCatching { fileSource.copyTo(metadata.location, path) }.getOrNull()
+                ?: return null
+            epubDocumentParser.coverImageBytes(path)
+        } finally {
+            runCatching { systemFileSystem().delete(path) }
         }
     }
 
