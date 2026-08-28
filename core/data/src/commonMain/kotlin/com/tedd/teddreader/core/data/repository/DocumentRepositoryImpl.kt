@@ -318,8 +318,7 @@ class DocumentRepositoryImpl(
                         epubDocumentParser.coverImageBytes(bytes)
                     }
                     DocumentFormat.PDF -> {
-                        val bytes = runCatching { fileSource.readBytes(metadata.location) }.getOrNull() ?: return@withContext null
-                        pdfDocumentParser.coverImageBytes(metadata.location, bytes)
+                        pdfDocumentParser.coverImageBytes(metadata.location, bytes = null)
                     }
                     DocumentFormat.CBZ -> cbzScratchLock.withLock {
                         cbzArchiveLocked(metadata, fileSource).coverImageBytes()
@@ -1226,7 +1225,7 @@ class DocumentRepositoryImpl(
                 id = id,
                 title = source.location.displayName,
                 location = source.location,
-                bytes = requireDocumentBytes(source),
+                bytes = source.bytes,
             )
 
             DocumentFormat.CBZ -> source.bytes?.let { bytes ->

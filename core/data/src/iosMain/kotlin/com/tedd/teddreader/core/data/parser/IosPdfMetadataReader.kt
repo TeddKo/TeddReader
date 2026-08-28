@@ -20,58 +20,104 @@ import kotlin.random.Random
 internal actual fun defaultPdfMetadataReader(): PdfMetadataReader = IosPdfMetadataReader()
 
 /**
- * iOS's [PdfMetadataReader], built on PDFKit. Unusually, [pageCount] and [coverImageBytes] resolve
- * the document differently from each other here: [pageCount] opens `PDFDocument` directly from
- * [DocumentLocation.sourceUri]'s file path and never touches `bytes` at all, while [coverImageBytes]
- * instead writes `bytes` out to a fresh temporary file and opens that. Both must therefore describe
- * the same document for the two methods to agree.
+ * iOS's [PdfMetadataReader], built on PDFKit. Both [pageCount] and [coverImageBytes] resolve the
+ * document **location-first**: they open a `PDFDocument` directly from the file path encoded in
+ * [DocumentLocation.sourceUri], avoiding any temporary-file write when the path is reachable. Only
+ * when the path cannot be opened and [bytes] is non-null does this implementation fall back to
+ * writing [bytes] to a temporary file — the legacy path for callers that have not yet materialized
+ * the document into the sandbox.
+ *
+ * Before this change, [pageCount] already used the location directly while [coverImageBytes]
+ * unconditionally wrote bytes to a temp file — a redundant copy for every cover extraction of a
+ * PDF already sitting in the app's sandbox. Both methods now share the same location-first
+ * resolution strategy.
  */
 @OptIn(ExperimentalForeignApi::class)
 class IosPdfMetadataReader : PdfMetadataReader {
     /**
      * @param location The document's location; the page count is read from the file at
      *   [DocumentLocation.sourceUri] directly.
-     * @param bytes Unused by this implementation.
-     * @return The page count, or `1` if no file exists at `location`'s path or it cannot be opened as
-     *   a PDF — this never throws.
+     * @param bytes Fallback bytes used only when [location]'s path cannot be opened as a
+     *   `PDFDocument`. Null when the caller guarantees [location] is a reachable local file.
+     * @return The page count, or `1` if no file exists at `location`'s path and no bytes fallback
+     *   is available, or the file cannot be opened as a PDF — this never throws.
      */
-    override fun pageCount(location: DocumentLocation, bytes: ByteArray): Int = runCatching {
-        val path = location.sourceUri.removePrefix("file://")
-        val url = NSURL.fileURLWithPath(path)
-        PDFDocument(url).pageCount.toInt().coerceAtLeast(1)
-    }.getOrDefault(1)
+    override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int =
+        withPdfDocument(location, bytes) { document ->
+            document.pageCount.toInt().coerceAtLeast(1)
+        } ?: 1
 
     /**
-     * @param location Unused by this implementation.
-     * @param bytes The document's raw bytes, written to a temporary file for PDFKit to open.
+     * @param location The document's location; the cover is rendered from the file at
+     *   [DocumentLocation.sourceUri] directly when reachable.
+     * @param bytes Fallback bytes used only when [location]'s path cannot be opened as a
+     *   `PDFDocument`. Null when the caller guarantees [location] is a reachable local file.
      * @return A PNG-encoded thumbnail of the first page, sized to fit a 360×480 box by PDFKit's own
      *   `thumbnailOfSize`, or `null` if the document has no first page or rendering fails for any
-     *   reason. The temporary file is always deleted before returning.
+     *   reason.
      */
-    override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray): ByteArray? {
+    override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? =
+        withPdfDocument(location, bytes) { document ->
+            val page = document.pageAtIndex(0UL) ?: return@withPdfDocument null
+            val thumbnail = page.thumbnailOfSize(
+                size = CGSizeMake(360.0, 480.0),
+                forBox = kPDFDisplayBoxMediaBox,
+            )
+            UIImagePNGRepresentation(thumbnail)?.toByteArray()
+        }
+
+    /**
+     * Opens a [PDFDocument] using the location-first strategy: tries the local file path from
+     * [location] first, then falls back to writing [bytes] to a temporary file. Executes [block]
+     * against whichever document was successfully opened, cleaning up any temporary file afterward.
+     *
+     * @param location The document's location to try opening first.
+     * @param bytes Fallback bytes to materialize into a temp file when [location] cannot be opened.
+     * @param block The work to do with the opened [PDFDocument].
+     * @return The result of [block], or null if no document could be opened.
+     */
+    private fun <T> withPdfDocument(
+        location: DocumentLocation,
+        bytes: ByteArray?,
+        block: (PDFDocument) -> T,
+    ): T? {
+        val documentFromLocation = openFromLocation(location)
+        if (documentFromLocation != null) {
+            return runCatching { block(documentFromLocation) }.getOrNull()
+        }
+        if (bytes == null) return null
         val fileSystem = systemFileSystem()
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-pdf-cover-${Random.nextLong().toString(16)}.pdf"
-        val sink = fileSystem.sink(path).buffer()
+        val tempPath = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+            "tedd-reader-pdf-cover-${Random.nextLong().toString(16)}.pdf"
+        val sink = fileSystem.sink(tempPath).buffer()
         try {
             sink.write(bytes)
         } finally {
             sink.close()
         }
         return try {
-            val url = NSURL.fileURLWithPath(path.toString())
+            val url = NSURL.fileURLWithPath(tempPath.toString())
             val document = PDFDocument(url)
-            val page = document.pageAtIndex(0UL) ?: return null
-            val thumbnail = page.thumbnailOfSize(
-                size = CGSizeMake(360.0, 480.0),
-                forBox = kPDFDisplayBoxMediaBox,
-            )
-            UIImagePNGRepresentation(thumbnail)?.toByteArray()
+            block(document)
         } catch (_: Throwable) {
             null
         } finally {
-            fileSystem.delete(path)
+            fileSystem.delete(tempPath)
         }
     }
+
+    /**
+     * Attempts to open a [PDFDocument] from [location]'s file path. Returns null when the URI is
+     * not a `file://` path or the file at that path cannot be opened as a valid PDF.
+     *
+     * @param location The document location to resolve.
+     * @return An opened [PDFDocument], or null when direct access is not possible.
+     */
+    private fun openFromLocation(location: DocumentLocation): PDFDocument? = runCatching {
+        val path = location.sourceUri.removePrefix("file://")
+        val url = NSURL.fileURLWithPath(path)
+        PDFDocument(url)
+    }.getOrNull()
 }
 
 /**
