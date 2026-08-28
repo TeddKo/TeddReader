@@ -39,6 +39,7 @@ import okio.buffer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -68,6 +69,7 @@ class DocumentRepositoryEpubAndroidTest {
 
         assertEquals("Package Title", document.title)
         assertEquals(ReaderBlockKind.COVER_IMAGE, document.blocks.first().kind)
+        assertNull(document.sections.first().title)
         assertEquals("Contents", document.navigation?.heading)
         assertEquals(listOf("Chapter One", "Scene One"), document.navigation?.items?.map { it.title })
         assertEquals(listOf(1, 2), document.navigation?.items?.map { it.level })
