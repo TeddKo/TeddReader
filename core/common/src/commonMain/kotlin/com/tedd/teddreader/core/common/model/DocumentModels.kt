@@ -385,14 +385,33 @@ data class ReadingHistoryEntry(
 }
 
 /**
- * The number of whitespace-separated words in this text, treating any run of whitespace as one
- * separator so repeated spaces or line breaks between words never inflate the count.
+ * The number of whitespace-separated words in this text, counted in a single left-to-right pass
+ * with no intermediate allocations. A word boundary is any transition from a whitespace character
+ * to a non-whitespace character; consecutive whitespace of any kind collapses into a single
+ * separator, and leading/trailing whitespace is effectively skipped because no transition into a
+ * word is recorded for it beyond incrementing the count at entry.
+ *
+ * Whitespace is defined by [Char.isWhitespace], which covers ASCII control whitespace
+ * (space, tab, newline, vertical tab, form feed, carriage return) and Unicode category-Zs
+ * characters (non-breaking space, en/em space, ideographic space, and others). This gives
+ * consistent behaviour across JVM and Kotlin/Native, where the former Java `Regex("\\s+")`
+ * split only recognised ASCII whitespace on JVM but matched Unicode whitespace on Native via
+ * ICU — a silent cross-platform inconsistency the old implementation carried.
  *
  * @receiver the text to count.
- * @return 0 for blank or empty text; otherwise the number of non-blank tokens found between whitespace.
+ * @return 0 for blank or empty text; otherwise the number of non-whitespace tokens separated by
+ *   one or more whitespace characters.
  */
-fun String.wordCount(): Int = trim()
-    .takeIf { text -> text.isNotEmpty() }
-    ?.split(Regex("\\s+"))
-    ?.count { word -> word.isNotBlank() }
-    ?: 0
+fun String.wordCount(): Int {
+    var count = 0
+    var inWord = false
+    for (ch in this) {
+        if (ch.isWhitespace()) {
+            inWord = false
+        } else {
+            if (!inWord) count++
+            inWord = true
+        }
+    }
+    return count
+}
