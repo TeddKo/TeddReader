@@ -123,7 +123,9 @@ import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
 import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -712,7 +714,7 @@ private fun HomeLibraryPreviewSection(
     previewLimit: Int,
     selectedDocumentIds: Set<String>,
     actionDocumentTarget: HomeDocumentActionTarget?,
-    documentCoverImages: Map<String, ByteArray>,
+    documentCoverImages: ImmutableMap<String, ByteArray>,
     onDocumentClick: (DocumentId) -> Unit,
     onStartSelection: (DocumentId) -> Unit,
     onShowActions: (String) -> Unit,
@@ -882,7 +884,7 @@ private fun HomeDocumentCollection(
     onBookmarkClick: (DocumentMetadata) -> Unit,
     onDeleteClick: (DocumentMetadata) -> Unit,
     modifier: Modifier = Modifier,
-    documentCoverImages: Map<String, ByteArray> = emptyMap(),
+    documentCoverImages: ImmutableMap<String, ByteArray> = persistentMapOf(),
     onLoadCover: (DocumentId) -> Unit,
     showFavoriteIcon: Boolean = false,
 ) {
@@ -954,7 +956,7 @@ private fun HomeDocumentPager(
     onDismissActions: () -> Unit,
     onBookmarkClick: (DocumentMetadata) -> Unit,
     onDeleteClick: (DocumentMetadata) -> Unit,
-    documentCoverImages: Map<String, ByteArray>,
+    documentCoverImages: ImmutableMap<String, ByteArray>,
     onLoadCover: (DocumentId) -> Unit,
     modifier: Modifier = Modifier,
 ) {
