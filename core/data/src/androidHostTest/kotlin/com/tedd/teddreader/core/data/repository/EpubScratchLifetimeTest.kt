@@ -152,6 +152,138 @@ class EpubScratchLifetimeTest {
             proceedWithExtraction.countDown()
         }
     }
+
+    /**
+     * Proves the two halves of moving the scratch copy outside `epubScratchLock`.
+     *
+     * The performance half: `deleteDocument` must be able to run to completion *while* a book is being
+     * copied, which is the whole point of not holding the lock across the copy. The safety half: when
+     * that deletion lands mid-copy, the finished copy must not be installed — `getEmbeddedImages` has
+     * to return an empty map for the now-deleted document rather than serving images out of a scratch
+     * copy it resurrected after the delete.
+     *
+     * The second half is what the invalidation counter exists for. State alone cannot detect this case:
+     * the scratch slot is empty before the copy starts and empty again after the deletion, so a copy
+     * finishing afterwards looks exactly like a first open and would install itself.
+     *
+     * Sequence:
+     * 1. Extraction starts and blocks inside [CopyGatedFileSource.copyTo].
+     * 2. While the copy is blocked, deletion runs and is asserted to complete — not blocked by the lock.
+     * 3. The copy is released and finishes.
+     * 4. Extraction must yield an empty map, and no abandoned copy may be left on disk.
+     */
+    @Test
+    fun deletionDuringUnlockedCopyDoesNotResurrectTheScratchCopy() = runTest {
+        val copyStarted = CountDownLatch(1)
+        val proceedWithCopy = CountDownLatch(1)
+        val copiedPath = AtomicReference<Path?>(null)
+
+        val epubBytes = minimalEpubBytes()
+        val location = DocumentLocation(
+            sourceUri = "file:///copy-race.epub",
+            displayName = "copy-race.epub",
+            mimeType = "application/epub+zip",
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val dao = MutableDocumentDao(
+            DocumentEntity(
+                id = location.sourceUri,
+                name = location.displayName,
+                sourceUri = location.sourceUri,
+                format = DocumentFormat.EPUB.name,
+                mimeType = location.mimeType,
+                sizeBytes = 0L,
+                addedAtEpochMillis = 1_000,
+            ),
+        )
+        val repository = buildRepository(
+            documentDao = dao,
+            fileSource = CopyGatedFileSource(
+                location = location,
+                bytes = epubBytes,
+                copyStarted = copyStarted,
+                proceedWithCopy = proceedWithCopy,
+                copiedPath = copiedPath,
+            ),
+            epubDocumentParser = EpubDocumentParser(),
+        )
+
+        val deletionCompleted = AtomicBoolean(false)
+
+        val extraction = async(Dispatchers.Default) {
+            repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
+        }
+
+        try {
+            assertTrue(copyStarted.await(5, TimeUnit.SECONDS), "The scratch copy must start within 5 s")
+
+            val deletion = async(Dispatchers.Default) {
+                repository.deleteDocument(documentId)
+                deletionCompleted.set(true)
+            }
+
+            Thread.sleep(300)
+
+            assertTrue(
+                deletionCompleted.get(),
+                "Deletion must NOT be blocked by an in-flight scratch copy — the copy runs outside the lock",
+            )
+
+            proceedWithCopy.countDown()
+            deletion.await()
+
+            val extracted = extraction.await()
+            assertTrue(
+                extracted.isEmpty(),
+                "A copy that finished after the document was deleted must not be installed or served",
+            )
+
+            val path = copiedPath.get()
+            assertNotNull(path, "The file source must have been asked to copy")
+            assertFalse(
+                FileSystem.SYSTEM.exists(path),
+                "The abandoned copy must be deleted rather than left behind at full book size",
+            )
+        } finally {
+            proceedWithCopy.countDown()
+        }
+    }
+}
+
+/**
+ * A [DocumentFileSource] that blocks the calling thread inside [copyTo] until an external latch is
+ * released, making the window between "the copy started" and "the copy finished" observable to a test.
+ *
+ * @property location The single location this source serves.
+ * @property bytes The EPUB archive bytes written once the copy is allowed to proceed.
+ * @property copyStarted Counted down the instant [copyTo] is entered.
+ * @property proceedWithCopy Awaited before any bytes are written, so a test can act during the copy.
+ * @property copiedPath Captures the destination so a test can assert whether the file survived.
+ */
+private class CopyGatedFileSource(
+    private val location: DocumentLocation,
+    private val bytes: ByteArray,
+    private val copyStarted: CountDownLatch,
+    private val proceedWithCopy: CountDownLatch,
+    private val copiedPath: AtomicReference<Path?>,
+) : DocumentFileSource {
+    private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+        "tedd-reader-scratch-copy-gate-${kotlin.random.Random.nextLong().toString(16)}"
+
+    override suspend fun readBytes(location: DocumentLocation): ByteArray {
+        check(this.location == location)
+        return bytes
+    }
+
+    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
+        check(this.location == location)
+        copiedPath.set(destination)
+        copyStarted.countDown()
+        proceedWithCopy.await(30, TimeUnit.SECONDS)
+        FileSystem.SYSTEM.sink(destination).buffer().use { sink -> sink.write(bytes) }
+    }
+
+    override fun appPrivateDirectory(): Path = privateDirectory
 }
 
 /**
