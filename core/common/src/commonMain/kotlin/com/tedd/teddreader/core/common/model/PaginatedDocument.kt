@@ -154,6 +154,55 @@ class PaginatedDocument(
         return null
     }
 
+    /**
+     * Where [page] sits within its own chapter, rather than within the whole document — the pair a
+     * position label pins next to a chapter title so it reads "chapter · 4 / 12" instead of the page's
+     * document-wide number.
+     *
+     * The chapter is the same one [chapterTitleAt] names: the run of pages that inherit their title from
+     * one titled section, bounded below by that section and above by the next titled section (or the end
+     * of the document when none follows). The bounds are resolved through [pageOf] on those sections'
+     * start offsets — a binary search each, never a walk of [pageWindows] — so this keeps the invariant
+     * that type protects even while a progressive import is still growing the book.
+     *
+     * @param page a page index.
+     * @return a [PageIndex] whose `current` is [page]'s zero-based offset inside its chapter and whose
+     *   `total` is that chapter's page count, or null exactly when [chapterTitleAt] would also return
+     *   null for [page] (no window, a cover page, no measured range yet, or no titled section at or
+     *   before it) — the caller shows the document-wide fraction in that case.
+     */
+    fun chapterPageIndexAt(page: Int): PageIndex? {
+        val pageWindow = pageWindows.getOrNull(page) ?: return null
+        if (pageWindow.blocks.any { block -> block.kind == ReaderBlockKind.COVER_IMAGE }) return null
+        val start = pageWindow.textRange?.start ?: return null
+        val anchorSectionIndex = titledSectionIndexAtOrBefore(sectionPositionAtOrBefore(start) ?: return null)
+            ?: return null
+        val chapterStartPage = pageOf(sections[anchorSectionIndex].range.start) ?: return null
+        val nextTitledSectionIndex = (anchorSectionIndex + 1..sections.lastIndex)
+            .firstOrNull { index -> sections[index].title != null }
+        val chapterEndPage = nextTitledSectionIndex
+            ?.let { index -> pageOf(sections[index].range.start) }
+            ?: pageCount
+        return PageIndex(current = page - chapterStartPage, total = chapterEndPage - chapterStartPage)
+    }
+
+    /**
+     * The index of the titled section at or before [sectionIndex], the section a chapter title is
+     * inherited from — walking back from [sectionIndex] to the first section that carries a title.
+     *
+     * @param sectionIndex a section index to walk back from, inclusive.
+     * @return the titled section's index, or null when no section at or before [sectionIndex] has a
+     *   title.
+     */
+    private fun titledSectionIndexAtOrBefore(sectionIndex: Int): Int? {
+        var index = sectionIndex
+        while (index >= 0) {
+            if (sections[index].title != null) return index
+            index--
+        }
+        return null
+    }
+
     private fun sectionPositionAtOrBefore(offset: Long): Int? {
         var low = 0
         var high = sections.lastIndex

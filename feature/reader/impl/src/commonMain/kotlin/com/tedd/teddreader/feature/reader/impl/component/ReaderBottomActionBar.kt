@@ -65,6 +65,14 @@ import org.jetbrains.compose.resources.stringResource
  * @param sliderValue The slider's current (possibly mid-drag) value, owned by the caller.
  * @param onSliderValueChange Called continuously as the slider is dragged, before the drag finishes.
  * @param modifier The modifier applied to the whole bottom bar.
+ * @param chapterTitle The heading of the chapter the current page belongs to, shown before the
+ *   chapter-local page fraction so the position label reads "chapter · 4 / 12" — the page's place
+ *   within its own chapter, not the whole document. Null or blank — a format with no chapters (TXT,
+ *   PDF) or a page before the first titled section — falls back to the document-wide fraction alone.
+ * @param chapterPageIndex The current page's position inside its chapter (`current` zero-based within
+ *   the chapter, `total` the chapter's page count), paired with [chapterTitle] to build the
+ *   chapter-local fraction. Null or a zero total falls back to the document-wide fraction even when
+ *   [chapterTitle] is present, so a chapter whose bounds cannot be resolved yet never shows "n / 0".
  * @param windowInsets Insets reserved so the bar avoids system chrome (e.g. the navigation bar).
  * @param canGoPrevious Whether the previous-page button is enabled; defaults to "not on the first
  *   page."
@@ -90,6 +98,8 @@ fun ReaderBottomActionBar(
     sliderValue: Float,
     onSliderValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    chapterTitle: String? = null,
+    chapterPageIndex: PageIndex? = null,
     windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     canGoPrevious: Boolean = pageIndex.current > 0,
     canGoNext: Boolean = pageIndex.current < (pageIndex.total - 1).coerceAtLeast(0),
@@ -107,12 +117,17 @@ fun ReaderBottomActionBar(
         latestSelectedPage = selectedPage
     }
 
-    val pageLabel = if (pageIndex.total == 0) {
+    val documentFraction = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
     } else if (isPaginationComplete) {
         "${latestSelectedPage + 1} / ${pageIndex.total}"
     } else {
         "${latestSelectedPage + 1} / ${pageIndex.total}+"
+    }
+    val pageLabel = if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
+        documentFraction
+    } else {
+        "$chapterTitle · ${chapterPageIndex.current + 1} / ${chapterPageIndex.total}"
     }
 
     AnimatedContent(
