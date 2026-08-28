@@ -228,7 +228,7 @@ open class EpubDocumentParser {
                 index = nextIndex,
                 text = " ",
                 range = coverRange,
-                title = null,
+                title = documentTitle,
             )
             blocks += ReaderBlock(
                 kind = ReaderBlockKind.COVER_IMAGE,
@@ -586,10 +586,8 @@ private fun resolveEpubCoverDecision(zip: FileSystem, packageData: PackageData):
  * section 0, since a cover (when [EpubCoverDecision.hasCoverSection]) is always the very first thing a
  * book parses, progressively or not.
  *
- * @param coverDecision the settled cover decision; it determines whether the synthetic section exists.
- * @param documentTitle the document title used only as the cover image block's accessibility label; it
- *   must not become the section title because the cover is not a chapter and would otherwise be inherited
- *   by the first untitled body section as its chapter label.
+ * @param coverDecision the book's settled cover state; see [resolveEpubCoverDecision].
+ * @param documentTitle title to label the synthetic section with.
  * @return the one-character cover section and its single [ReaderBlockKind.COVER_IMAGE] block, or null
  *   when [coverDecision] has no cover section to build.
  */
@@ -597,7 +595,7 @@ internal fun buildEpubCoverSection(coverDecision: EpubCoverDecision, documentTit
     val coverHref = coverDecision.coverHref?.takeIf { coverDecision.hasCoverSection } ?: return null
     val range = TextRange(0L, 1L)
     return EpubParsedSection(
-        section = ReaderSection(index = 0, text = " ", range = range, title = null),
+        section = ReaderSection(index = 0, text = " ", range = range, title = documentTitle),
         blocks = listOf(ReaderBlock(kind = ReaderBlockKind.COVER_IMAGE, range = range, imageHref = coverHref, label = documentTitle)),
     )
 }
