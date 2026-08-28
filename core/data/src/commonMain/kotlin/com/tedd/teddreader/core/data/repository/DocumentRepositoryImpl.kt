@@ -658,7 +658,7 @@ class DocumentRepositoryImpl(
         if (document.format.isVisualPageFormat()) return@withContext emptyList()
 
         val restoreStarted = TimeSource.Monotonic.markNow()
-        val restored = runCatching { restorePageWindows(documentId, document, key) }
+        val restored = suspendRunCatching { restorePageWindows(documentId, document, key) }
             .onFailure { error -> logger.w(error) { "Failed to restore stored page layout for $documentId" } }
             .getOrNull()
         if (restored != null) {
@@ -1703,7 +1703,7 @@ class DocumentRepositoryImpl(
      */
     private suspend fun repairTxtDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
-        return runCatching {
+        return suspendRunCatching {
             val document = txtDocumentParser.parse(
                 id = metadata.id,
                 title = metadata.location.displayName,
@@ -1746,7 +1746,7 @@ class DocumentRepositoryImpl(
      */
     private suspend fun repairEpubDocument(metadata: DocumentMetadata): ReaderDocument? {
         val fileSource = documentFileSource ?: return null
-        return runCatching {
+        return suspendRunCatching {
             importEpubPhase0(
                 id = metadata.id,
                 source = DocumentImportSource(location = metadata.location, bytes = null),
