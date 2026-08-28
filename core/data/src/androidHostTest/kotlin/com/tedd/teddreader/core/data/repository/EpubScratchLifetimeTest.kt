@@ -22,11 +22,14 @@ import com.tedd.teddreader.core.room.entity.DocumentEntity
 import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
@@ -36,53 +39,63 @@ import okio.FileSystem
 import okio.Path
 import okio.buffer
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Deterministic regression tests for the EPUB scratch-copy lifetime contract introduced by the
- * fix/epub-scratch-lifetime branch. The core invariant: [DocumentRepositoryImpl.getEmbeddedImages]
- * and [DocumentRepositoryImpl.getEmbeddedFontFiles] must never operate on a scratch file that a
- * concurrent [DocumentRepositoryImpl.deleteDocument] has already deleted — they must either
- * complete with the real data (deletion lost the race to acquire [epubScratchLock]) or return an
- * empty map (deletion won the race and the document-ID re-verification inside the lock detected
- * the stale state).
+ * Deterministic regression test for the EPUB scratch-copy lifetime contract: while
+ * [DocumentRepositoryImpl.getEmbeddedImages] is extracting bytes from the scratch EPUB,
+ * [DocumentRepositoryImpl.deleteDocument] must not be able to delete that scratch file.
  *
- * The tests use controlled concurrency: a [Mutex]-based gate in the [DocumentFileSource] fake
- * pauses the scratch-copy creation at the I/O step, giving the deletion coroutine a deterministic
- * window to run. This is not a stress test — it exercises the specific interleaving the bug
- * manifested under.
+ * The fix holds `epubScratchLock` for the entire duration of
+ * [EpubDocumentParser.extractEmbeddedImageBytes], so a concurrent [invalidateCaches] (called by
+ * [deleteDocument]) blocks on that same mutex until extraction finishes. This test verifies
+ * that mutual exclusion by injecting a [GatedEpubDocumentParser] whose extraction blocks at a
+ * thread-level latch, then observing that deletion cannot proceed until the latch is released.
+ *
+ * Mutation verification: reverting the fix to the old pattern (extraction outside the lock)
+ * causes [deletionCannotProceedWhileExtractionHoldsLock] to fail because deletion acquires the
+ * lock immediately and completes while extraction is still running.
  */
 class EpubScratchLifetimeTest {
 
     /**
-     * When [deleteDocument] races with [getEmbeddedImages] and wins the lock after the scratch copy
-     * is established but before extraction begins, the extraction must observe the invalidated state
-     * (document-ID cleared) and return an empty map rather than attempting I/O on the now-deleted
-     * scratch file.
+     * Proves that `deleteDocument` cannot delete the scratch file while `getEmbeddedImages` is
+     * extracting from it, because both operations contend on the same non-reentrant mutex.
      *
-     * Sequence exercised:
-     * 1. `getEmbeddedImages` calls `epubScratchCopy`, which creates the file and returns.
-     * 2. `deleteDocument` acquires `epubScratchLock`, deletes the scratch, clears the document ID.
-     * 3. `getEmbeddedImages` re-acquires `epubScratchLock`, finds `epubScratchDocumentId` differs,
-     *    and returns an empty map.
+     * Sequence:
+     * 1. Prime the scratch copy so it exists on disk.
+     * 2. Launch extraction — the [GatedEpubDocumentParser] signals "started" then thread-blocks.
+     * 3. While extraction holds `epubScratchLock`, launch deletion on another coroutine.
+     * 4. Assert deletion does NOT complete within a generous window (it is mutex-blocked).
+     * 5. Verify the scratch file still exists on disk (not deleted while extraction was running).
+     * 6. Release the extraction latch — extraction finishes, lock releases, deletion proceeds.
+     * 7. Assert both coroutines complete without exceptions.
      *
-     * The test forces this ordering by priming the scratch copy in a separate warm-up call (so step 1
-     * is a no-op reuse), then launching deletion and extraction concurrently. Because both contend on
-     * the same non-reentrant mutex, one of two outcomes is valid: either extraction finishes first
-     * (returns the image bytes) or deletion finishes first (extraction returns empty). Both are safe;
-     * a crash or an IOException from a missing file is the regression this test guards against.
+     * When the fix is reverted (extraction outside the lock), step 4 fails: deletion acquires the
+     * lock immediately and completes, and step 5 would find the file deleted.
      */
     @Test
-    fun getEmbeddedImagesReturnsEmptyOrValidBytesWhenDeletionRaces() = runTest {
-        val epubBytes = scratchLifetimeEpubBytes()
+    fun deletionCannotProceedWhileExtractionHoldsLock() = runTest {
+        val extractionStarted = CountDownLatch(1)
+        val proceedWithExtraction = CountDownLatch(1)
+        val scratchPathDuringExtraction = AtomicReference<Path?>(null)
+
+        val gatedParser = GatedEpubDocumentParser(
+            extractionStarted = extractionStarted,
+            proceedWithExtraction = proceedWithExtraction,
+            scratchPathDuringExtraction = scratchPathDuringExtraction,
+        )
+
+        val epubBytes = minimalEpubBytes()
         val location = DocumentLocation(
-            sourceUri = "file:///race.epub",
-            displayName = "race.epub",
+            sourceUri = "file:///lock-test.epub",
+            displayName = "lock-test.epub",
             mimeType = "application/epub+zip",
         )
         val documentId = DocumentId(location.sourceUri)
-        val dao = DeletableDocumentDao(
+        val dao = MutableDocumentDao(
             DocumentEntity(
                 id = location.sourceUri,
                 name = location.displayName,
@@ -93,205 +106,107 @@ class EpubScratchLifetimeTest {
                 addedAtEpochMillis = 1_000,
             ),
         )
-        val repository = scratchLifetimeRepository(
+        val repository = buildRepository(
             documentDao = dao,
-            fileSource = ScratchLifetimeFileSource(location, epubBytes),
+            fileSource = InMemoryFileSource(location, epubBytes),
+            epubDocumentParser = gatedParser,
         )
 
-        repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
+        val deletionCompleted = AtomicBoolean(false)
 
-        val results = coroutineScope {
-            val extraction = async {
-                repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
-            }
-            val deletion = async {
-                repository.deleteDocument(documentId)
-            }
-            listOf(extraction, deletion).awaitAll()
+        val extraction = async(Dispatchers.Default) {
+            repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
         }
 
-        @Suppress("UNCHECKED_CAST")
-        val extracted = results[0] as Map<String, ByteArray>
-        val validEmpty = extracted.isEmpty()
-        val validData = extracted["OEBPS/images/pic.png"]?.contentEquals(byteArrayOf(1, 2, 3, 4)) == true
-        assertTrue(validEmpty || validData, "Must be empty (deletion won) or valid bytes (extraction won)")
-    }
+        try {
+            assertTrue(
+                extractionStarted.await(5, TimeUnit.SECONDS),
+                "Extraction must start within 5 s",
+            )
 
-    /**
-     * When [deleteDocument] races with [getEmbeddedFontFiles] and wins the lock after the scratch
-     * copy is established, the font extraction must observe the invalidated state and return an
-     * empty map rather than attempting I/O on the deleted scratch file.
-     *
-     * Same interleaving as [getEmbeddedImagesReturnsEmptyOrValidBytesWhenDeletionRaces] but for
-     * fonts, which follow a similar lock-then-verify pattern.
-     */
-    @Test
-    fun getEmbeddedFontFilesReturnsEmptyOrValidPathsWhenDeletionRaces() = runTest {
-        val epubBytes = scratchLifetimeEpubBytesWithFont()
-        val location = DocumentLocation(
-            sourceUri = "file:///font-race.epub",
-            displayName = "font-race.epub",
-            mimeType = "application/epub+zip",
-        )
-        val documentId = DocumentId(location.sourceUri)
-        val dao = DeletableDocumentDao(
-            DocumentEntity(
-                id = location.sourceUri,
-                name = location.displayName,
-                sourceUri = location.sourceUri,
-                format = DocumentFormat.EPUB.name,
-                mimeType = location.mimeType,
-                sizeBytes = 0L,
-                addedAtEpochMillis = 1_000,
-            ),
-        )
-        val repository = scratchLifetimeRepository(
-            documentDao = dao,
-            fileSource = ScratchLifetimeFileSource(location, epubBytes),
-        )
-
-        repository.getEmbeddedFontFiles(documentId, setOf("OEBPS/fonts/Body.otf"))
-
-        val results = coroutineScope {
-            val extraction = async {
-                repository.getEmbeddedFontFiles(documentId, setOf("OEBPS/fonts/Body.otf"))
-            }
-            val deletion = async {
+            val deletion = async(Dispatchers.Default) {
                 repository.deleteDocument(documentId)
+                deletionCompleted.set(true)
             }
-            listOf(extraction, deletion).awaitAll()
+
+            Thread.sleep(300)
+
+            assertFalse(
+                deletionCompleted.get(),
+                "Deletion must NOT complete while extraction holds epubScratchLock",
+            )
+
+            val capturedPath = scratchPathDuringExtraction.get()
+            assertNotNull(capturedPath, "Parser must have captured the scratch path")
+            assertTrue(
+                FileSystem.SYSTEM.exists(capturedPath),
+                "Scratch file must still exist on disk while extraction is running",
+            )
+
+            proceedWithExtraction.countDown()
+            extraction.await()
+            deletion.await()
+
+            assertTrue(deletionCompleted.get(), "Deletion must complete after extraction releases the lock")
+        } finally {
+            proceedWithExtraction.countDown()
         }
-
-        @Suppress("UNCHECKED_CAST")
-        val extracted = results[0] as Map<String, String>
-        val validEmpty = extracted.isEmpty()
-        val validData = extracted.containsKey("OEBPS/fonts/Body.otf")
-        assertTrue(validEmpty || validData, "Must be empty (deletion won) or valid path (extraction won)")
-    }
-
-    /**
-     * After [deleteDocument] completes, a subsequent [getEmbeddedImages] call for the same document
-     * must return an empty map — the scratch copy is gone and must not be resurrected from a stale
-     * path reference.
-     */
-    @Test
-    fun getEmbeddedImagesReturnsEmptyAfterDeletion() = runTest {
-        val epubBytes = scratchLifetimeEpubBytes()
-        val location = DocumentLocation(
-            sourceUri = "file:///deleted.epub",
-            displayName = "deleted.epub",
-            mimeType = "application/epub+zip",
-        )
-        val documentId = DocumentId(location.sourceUri)
-        val dao = DeletableDocumentDao(
-            DocumentEntity(
-                id = location.sourceUri,
-                name = location.displayName,
-                sourceUri = location.sourceUri,
-                format = DocumentFormat.EPUB.name,
-                mimeType = location.mimeType,
-                sizeBytes = 0L,
-                addedAtEpochMillis = 1_000,
-            ),
-        )
-        val repository = scratchLifetimeRepository(
-            documentDao = dao,
-            fileSource = ScratchLifetimeFileSource(location, epubBytes),
-        )
-
-        val before = repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
-        assertContentEquals(byteArrayOf(1, 2, 3, 4), before["OEBPS/images/pic.png"])
-
-        repository.deleteDocument(documentId)
-
-        val after = repository.getEmbeddedImages(documentId, setOf("OEBPS/images/pic.png"))
-        assertTrue(after.isEmpty(), "After deletion, extraction must return empty")
-    }
-
-    /**
-     * When a second document replaces the first in the scratch slot, [getEmbeddedImages] for the
-     * first document must return empty — the re-verification inside the lock detects that
-     * [epubScratchDocumentId] no longer matches the requested document.
-     */
-    @Test
-    fun getEmbeddedImagesReturnsEmptyWhenScratchReplacedByAnotherDocument() = runTest {
-        val epub1Bytes = scratchLifetimeEpubBytes()
-        val epub2Bytes = scratchLifetimeEpubBytes()
-        val location1 = DocumentLocation(
-            sourceUri = "file:///book1.epub",
-            displayName = "book1.epub",
-            mimeType = "application/epub+zip",
-        )
-        val location2 = DocumentLocation(
-            sourceUri = "file:///book2.epub",
-            displayName = "book2.epub",
-            mimeType = "application/epub+zip",
-        )
-        val dao = MultiDocumentDao(
-            listOf(
-                DocumentEntity(
-                    id = location1.sourceUri,
-                    name = location1.displayName,
-                    sourceUri = location1.sourceUri,
-                    format = DocumentFormat.EPUB.name,
-                    mimeType = location1.mimeType,
-                    sizeBytes = 0L,
-                    addedAtEpochMillis = 1_000,
-                ),
-                DocumentEntity(
-                    id = location2.sourceUri,
-                    name = location2.displayName,
-                    sourceUri = location2.sourceUri,
-                    format = DocumentFormat.EPUB.name,
-                    mimeType = location2.mimeType,
-                    sizeBytes = 0L,
-                    addedAtEpochMillis = 2_000,
-                ),
-            ),
-        )
-        val repository = scratchLifetimeRepository(
-            documentDao = dao,
-            fileSource = MultiFileSource(
-                mapOf(location1 to epub1Bytes, location2 to epub2Bytes),
-            ),
-        )
-
-        val doc1Id = DocumentId(location1.sourceUri)
-        val doc2Id = DocumentId(location2.sourceUri)
-
-        val first = repository.getEmbeddedImages(doc1Id, setOf("OEBPS/images/pic.png"))
-        assertContentEquals(byteArrayOf(1, 2, 3, 4), first["OEBPS/images/pic.png"])
-
-        repository.getEmbeddedImages(doc2Id, setOf("OEBPS/images/pic.png"))
-
-        val stale = repository.getEmbeddedImages(doc1Id, setOf("OEBPS/images/pic.png"))
-        assertContentEquals(
-            byteArrayOf(1, 2, 3, 4),
-            stale["OEBPS/images/pic.png"],
-            "Requesting doc1 again re-creates its scratch copy and extracts successfully",
-        )
     }
 }
 
 /**
- * Wires a [DocumentRepositoryImpl] with real parsers but fake storage, the same shape as
- * [DocumentRepositoryEpubAndroidTest]'s factory but accepting [DeletableDocumentDao] so a test can
- * exercise the deletion path that invalidates the scratch copy.
+ * An [EpubDocumentParser] subclass that blocks the calling thread inside
+ * [extractEmbeddedImageBytes] until an external latch is released. This simulates a slow ZIP
+ * extraction and makes the mutex-exclusion contract observable: if the caller holds a coroutine
+ * [Mutex] around this call, no other coroutine can acquire that same mutex until the latch
+ * releases.
  *
- * @param documentDao The shelf-metadata fake to use — must support deletion for race tests.
- * @param fileSource Where the repository reads/copies the original file bytes from.
- * @return The wired repository.
+ * @property extractionStarted Counted down the instant extraction begins, signalling that the
+ *   calling coroutine is now inside the lock-protected region.
+ * @property proceedWithExtraction The latch the parser awaits before returning — the test holds
+ *   this to keep the lock occupied while verifying deletion cannot proceed.
+ * @property scratchPathDuringExtraction Captures the [path] argument so the test can verify the
+ *   file still exists on disk while extraction is blocked.
  */
-private fun scratchLifetimeRepository(
+private class GatedEpubDocumentParser(
+    private val extractionStarted: CountDownLatch,
+    private val proceedWithExtraction: CountDownLatch,
+    private val scratchPathDuringExtraction: AtomicReference<Path?>,
+) : EpubDocumentParser() {
+
+    override fun extractEmbeddedImageBytes(
+        path: Path,
+        hrefs: Set<String>,
+        fileSystem: FileSystem,
+    ): Map<String, ByteArray> {
+        scratchPathDuringExtraction.set(path)
+        extractionStarted.countDown()
+        proceedWithExtraction.await(30, TimeUnit.SECONDS)
+        return super.extractEmbeddedImageBytes(path, hrefs, fileSystem)
+    }
+}
+
+/**
+ * Wires a [DocumentRepositoryImpl] with the caller's parser and fakes for all other
+ * collaborators. Only the scratch-lock behaviour is exercised — import, pagination, and search
+ * paths are stubbed to no-ops.
+ *
+ * @param documentDao Must support deletion so the test exercises the full [deleteDocument] path.
+ * @param fileSource Serves the EPUB bytes for [epubScratchCopy].
+ * @param epubDocumentParser The parser to inject — [GatedEpubDocumentParser] for the lock test.
+ * @return A repository wired for the scratch-lock test.
+ */
+private fun buildRepository(
     documentDao: DocumentDao,
     fileSource: DocumentFileSource,
+    epubDocumentParser: EpubDocumentParser,
 ): DocumentRepositoryImpl = DocumentRepositoryImpl(
     documentDao = documentDao,
-    searchIndexDao = ScratchLifetimeSearchIndexDao(),
-    pageLayoutDao = ScratchLifetimePageLayoutDao(),
+    searchIndexDao = ScratchTestSearchIndexDao(),
+    pageLayoutDao = ScratchTestPageLayoutDao(),
     formatDetector = DocumentFormatDetector(),
     txtDocumentParser = TxtDocumentParser(),
-    epubDocumentParser = EpubDocumentParser(),
+    epubDocumentParser = epubDocumentParser,
     pdfDocumentParser = PdfDocumentParser(),
     comicBookDocumentParser = ComicBookDocumentParser(),
     imageDocumentParser = ImageDocumentParser(),
@@ -300,13 +215,12 @@ private fun scratchLifetimeRepository(
 )
 
 /**
- * A [DocumentDao] that actually removes the document on [deleteDocument], so that a subsequent
- * [getDocument] for the same id returns null — the prerequisite for testing the deletion-races
- * scenario where the repository must detect that the document is gone and bail out gracefully.
+ * A [DocumentDao] that removes entries on [deleteDocument], enabling the test to exercise the
+ * full deletion path including [invalidateCaches].
  *
- * @property documents The mutable list of "stored" documents; [deleteDocument] removes matching entries.
+ * @property documents Mutable backing list protected by [lock].
  */
-private class DeletableDocumentDao(
+private class MutableDocumentDao(
     vararg initial: DocumentEntity,
 ) : DocumentDao {
     private val lock = Mutex()
@@ -322,7 +236,6 @@ private class DeletableDocumentDao(
     }
 
     override fun observeRecentDocuments(): Flow<List<DocumentEntity>> = flowOf(documents.toList())
-
     override suspend fun updateBookmarked(documentIds: List<String>, isBookmarked: Boolean) = Unit
     override suspend fun updateFolder(documentIds: List<String>, folderId: String?, folderName: String?) = Unit
     override suspend fun renameFolder(folderId: String, folderName: String) = Unit
@@ -345,67 +258,18 @@ private class DeletableDocumentDao(
 }
 
 /**
- * A [DocumentDao] holding multiple documents, supporting the scratch-replacement test where two EPUBs
- * compete for the single scratch slot.
+ * A [DocumentFileSource] that writes pre-loaded bytes to the destination. No I/O gating — the
+ * race is exercised via the [GatedEpubDocumentParser], not the file copy.
  *
- * @property documents The documents on the "shelf", keyed by id for O(1) lookup.
+ * @property location The single location this source serves.
+ * @property bytes The EPUB archive bytes for that location.
  */
-private class MultiDocumentDao(
-    initial: List<DocumentEntity>,
-) : DocumentDao {
-    private val documents = initial.associateBy { it.id }.toMutableMap()
-
-    override suspend fun upsertDocument(document: DocumentEntity) { documents[document.id] = document }
-    override suspend fun getDocument(documentId: String): DocumentEntity? = documents[documentId]
-    override fun observeRecentDocuments(): Flow<List<DocumentEntity>> = flowOf(documents.values.toList())
-    override suspend fun updateBookmarked(documentIds: List<String>, isBookmarked: Boolean) = Unit
-    override suspend fun updateFolder(documentIds: List<String>, folderId: String?, folderName: String?) = Unit
-    override suspend fun renameFolder(folderId: String, folderName: String) = Unit
-    override suspend fun clearFolder(folderId: String) = Unit
-    override suspend fun updateLastOpenedAt(documentId: String, openedAtEpochMillis: Long) = Unit
-    override suspend fun deleteDocument(documentId: String) { documents.remove(documentId) }
-    override suspend fun deleteDocuments(documentIds: List<String>) { documentIds.forEach(documents::remove) }
-    override suspend fun updateCountsAndFontIndex(documentId: String, characterCount: Long, wordCount: Long, embeddedFontHrefsJson: String?) = Unit
-    override suspend fun updateCountsAndMarkComplete(documentId: String, characterCount: Long, wordCount: Long, importCompletedAtEpochMillis: Long) = Unit
-    override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) = Unit
-}
-
-/**
- * A [DocumentFileSource] that serves bytes keyed by location, for multi-document tests.
- *
- * @property bytesByLocation The content to hand back for each location.
- */
-private class MultiFileSource(
-    private val bytesByLocation: Map<DocumentLocation, ByteArray>,
-) : DocumentFileSource {
-    private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
-        "tedd-reader-scratch-test-multi-${kotlin.random.Random.nextLong().toString(16)}"
-
-    override suspend fun readBytes(location: DocumentLocation): ByteArray =
-        bytesByLocation.getValue(location)
-
-    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
-        FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
-            sink.write(bytesByLocation.getValue(location))
-        }
-    }
-
-    override fun appPrivateDirectory(): Path = privateDirectory
-}
-
-/**
- * A [DocumentFileSource] for the single-document scratch-lifetime tests that writes the EPUB bytes
- * to the destination without any gating — the race is exercised at the mutex level, not the I/O level.
- *
- * @property location The one location this source serves.
- * @property bytes The EPUB bytes for that location.
- */
-private class ScratchLifetimeFileSource(
+private class InMemoryFileSource(
     private val location: DocumentLocation,
     private val bytes: ByteArray,
 ) : DocumentFileSource {
     private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
-        "tedd-reader-scratch-test-${kotlin.random.Random.nextLong().toString(16)}"
+        "tedd-reader-scratch-lock-test-${kotlin.random.Random.nextLong().toString(16)}"
 
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
         check(this.location == location)
@@ -421,9 +285,9 @@ private class ScratchLifetimeFileSource(
 }
 
 /**
- * No-op [SearchIndexDao] for scratch-lifetime tests that never exercise section storage.
+ * No-op [SearchIndexDao] — the scratch-lock test never exercises import or search storage.
  */
-private class ScratchLifetimeSearchIndexDao : SearchIndexDao {
+private class ScratchTestSearchIndexDao : SearchIndexDao {
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) = Unit
     override suspend fun search(documentId: String, query: String, limit: Int) = emptyList<com.tedd.teddreader.core.room.dao.SearchIndexSearchEntry>()
     override suspend fun getDocumentSectionsWithoutBlocks(documentId: String) = emptyList<SearchIndexSectionEntry>()
@@ -438,9 +302,9 @@ private class ScratchLifetimeSearchIndexDao : SearchIndexDao {
 }
 
 /**
- * No-op [PageLayoutDao] for scratch-lifetime tests that never exercise stored page layouts.
+ * No-op [PageLayoutDao] — the scratch-lock test never exercises stored page layouts.
  */
-private class ScratchLifetimePageLayoutDao : PageLayoutDao {
+private class ScratchTestPageLayoutDao : PageLayoutDao {
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit
     override suspend fun getPageLayout(documentId: String, fontSizeSp: Float, lineHeightMultiplier: Float, fontFamilyName: String, viewportWidthPx: Int, viewportHeightPx: Int): PageLayoutEntity? = null
     override suspend fun getNewestPageLayoutForStyle(documentId: String, fontSizeSp: Float, lineHeightMultiplier: Float, fontFamilyName: String): PageLayoutEntity? = null
@@ -451,12 +315,12 @@ private class ScratchLifetimePageLayoutDao : PageLayoutDao {
 }
 
 /**
- * A minimal EPUB with one inline image, used to exercise the scratch-copy race in
- * [getEmbeddedImages].
+ * A minimal valid EPUB with one 4-byte image at `OEBPS/images/pic.png`, used to exercise the
+ * scratch copy creation and ZIP extraction paths.
  *
- * @return The encoded EPUB bytes containing a single 4-byte "image" at `OEBPS/images/pic.png`.
+ * @return The encoded EPUB bytes.
  */
-private fun scratchLifetimeEpubBytes(): ByteArray {
+private fun minimalEpubBytes(): ByteArray {
     val output = ByteArrayOutputStream()
     ZipOutputStream(output).use { zip ->
         zip.putNextEntry(ZipEntry("META-INF/container.xml"))
@@ -476,7 +340,7 @@ private fun scratchLifetimeEpubBytes(): ByteArray {
             """
                 <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
                   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-                    <dc:title>Race EPUB</dc:title>
+                    <dc:title>Lock Test EPUB</dc:title>
                   </metadata>
                   <manifest>
                     <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
@@ -494,55 +358,6 @@ private fun scratchLifetimeEpubBytes(): ByteArray {
         zip.closeEntry()
         zip.putNextEntry(ZipEntry("OEBPS/images/pic.png"))
         zip.write(byteArrayOf(1, 2, 3, 4))
-        zip.closeEntry()
-    }
-    return output.toByteArray()
-}
-
-/**
- * A minimal EPUB with one embedded font, used to exercise the scratch-copy race in
- * [getEmbeddedFontFiles].
- *
- * @return The encoded EPUB bytes containing a single 4-byte "font" at `OEBPS/fonts/Body.otf`.
- */
-private fun scratchLifetimeEpubBytesWithFont(): ByteArray {
-    val output = ByteArrayOutputStream()
-    ZipOutputStream(output).use { zip ->
-        zip.putNextEntry(ZipEntry("META-INF/container.xml"))
-        zip.write(
-            """
-                <?xml version="1.0"?>
-                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-                  <rootfiles>
-                    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-                  </rootfiles>
-                </container>
-            """.trimIndent().encodeToByteArray(),
-        )
-        zip.closeEntry()
-        zip.putNextEntry(ZipEntry("OEBPS/content.opf"))
-        zip.write(
-            """
-                <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
-                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-                    <dc:title>Font Race EPUB</dc:title>
-                  </metadata>
-                  <manifest>
-                    <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
-                    <item id="font-1" href="fonts/Body.otf" media-type="font/otf"/>
-                  </manifest>
-                  <spine>
-                    <itemref idref="chapter-1"/>
-                  </spine>
-                </package>
-            """.trimIndent().encodeToByteArray(),
-        )
-        zip.closeEntry()
-        zip.putNextEntry(ZipEntry("OEBPS/chapter-1.xhtml"))
-        zip.write("<html><body><p>Body</p></body></html>".encodeToByteArray())
-        zip.closeEntry()
-        zip.putNextEntry(ZipEntry("OEBPS/fonts/Body.otf"))
-        zip.write(byteArrayOf(9, 8, 7, 6))
         zip.closeEntry()
     }
     return output.toByteArray()
