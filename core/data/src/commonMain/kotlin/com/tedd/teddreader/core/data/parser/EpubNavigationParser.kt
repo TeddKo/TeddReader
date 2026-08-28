@@ -48,14 +48,14 @@ internal data class ParsedNavigationEntry(
  *   yields nothing to show).
  */
 internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
-    val navMatch = Regex("""(?is)<nav\b[^>]*>""")
+    val navMatch = NavOpenTagRegex
         .findAll(xhtml)
         .firstOrNull { match ->
             navTypeTokens(parseAttributes(match.value)).contains("toc")
         } ?: return ParsedNavigation()
-    val navEnd = findMatchingEndTag(xhtml, navMatch.range.first, "nav") ?: return ParsedNavigation()
+    val navEnd = findMatchingEndTag(xhtml, navMatch.range.first, NavTagPairRegex) ?: return ParsedNavigation()
     val navBody = xhtml.substring(navMatch.range.last + 1, navEnd.start)
-    val heading = Regex("""(?is)<(h[1-6]|p)\b[^>]*>(.*?)</\1>""")
+    val heading = NavHeadingRegex
         .find(navBody)
         ?.groupValues
         ?.get(2)
@@ -63,7 +63,7 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
         ?.takeIf(String::isNotBlank)
 
     val entries = mutableListOf<ParsedNavigationEntry>()
-    val tokens = Regex("""(?s)<[^>]+>|[^<]+""").findAll(navBody)
+    val tokens = MarkupTokenRegex.findAll(navBody)
     var listDepth = 0
     var captureDepth = 0
     var pendingHref: String? = null
@@ -91,7 +91,7 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
             !tag.isClosing && captureDepth > 0 -> captureDepth += 1
             tag.isClosing && captureDepth > 0 && tag.name == "a" -> {
                 val href = pendingHref
-                val title = label.toString().replace(Regex("""\s+"""), " ").trim()
+                val title = label.toString().replace(WhitespaceRunRegex, " ").trim()
                 if (href != null && title.isNotEmpty()) {
                     entries += ParsedNavigationEntry(
                         title = title,
@@ -120,7 +120,7 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
  *   are malformed enough that none can be matched.
  */
 internal fun parseNcxDocument(xml: String): ParsedNavigation {
-    val heading = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
+    val heading = NcxDocTitleRegex
         .find(xml)
         ?.groupValues
         ?.get(1)
@@ -145,17 +145,17 @@ internal fun parseNcxDocument(xml: String): ParsedNavigation {
 private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<ParsedNavigationEntry>) {
     var index = 0
     while (true) {
-        val start = Regex("""(?is)<navPoint\b[^>]*>""").find(xml, index) ?: break
-        val end = findMatchingEndTag(xml, start.range.first, "navPoint") ?: break
+        val start = NcxNavPointOpenRegex.find(xml, index) ?: break
+        val end = findMatchingEndTag(xml, start.range.first, NcxNavPointTagPairRegex) ?: break
         val body = xml.substring(start.range.last + 1, end.start)
-        val title = Regex("""(?is)<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""")
+        val title = NcxNavLabelTextRegex
             .find(body)
             ?.groupValues
             ?.get(1)
             ?.let(::stripMarkup)
             ?.trim()
             .orEmpty()
-        val href = Regex("""(?is)<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""")
+        val href = NcxContentSrcRegex
             .find(body)
             ?.groupValues
             ?.get(1)
@@ -173,20 +173,25 @@ private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<Pars
 private data class EndTagRange(val start: Int, val end: Int)
 
 /**
- * Finds the closing tag that matches the [tagName] element opened at [startIndex], accounting for
- * other same-named elements nested inside it (an `<ol>` inside an `<ol>`, say) and for self-closing
- * tags, which never increase nesting depth in the first place.
+ * Finds the closing tag that matches the element opened at [startIndex], accounting for other
+ * same-named elements nested inside it (an `<ol>` inside an `<ol>`, say) and for self-closing tags,
+ * which never increase nesting depth in the first place.
+ *
+ * Takes the tag pattern already compiled rather than an element name, because
+ * [parseNcxNavPoints] calls this once per `navPoint` while walking a book's whole table of contents
+ * and recursing into each entry's children — building the pattern from a name here charged a regex
+ * compilation to every entry at every nesting level.
  *
  * @param text The markup to scan.
  * @param startIndex Position of (at or before) the opening tag's own `<`.
- * @param tagName The element name to match; case-insensitive.
+ * @param tagPair Pattern matching both the opening and closing form of the element, capturing `/` in
+ *   group 1 for the closing form, i.e. [NavTagPairRegex] or [NcxNavPointTagPairRegex].
  * @return The matching close tag's range, or `null` if [text] has no balanced close for it — markup
  *   this parser treats as malformed and gives up on for that element, rather than guessing.
  */
-private fun findMatchingEndTag(text: String, startIndex: Int, tagName: String): EndTagRange? {
-    val tokenRegex = Regex("""(?is)<(/?)$tagName\b[^>]*>""")
+private fun findMatchingEndTag(text: String, startIndex: Int, tagPair: Regex): EndTagRange? {
     var depth = 0
-    generateSequence(tokenRegex.find(text, startIndex)) { previous -> tokenRegex.find(text, previous.range.last + 1) }.forEach { match ->
+    generateSequence(tagPair.find(text, startIndex)) { previous -> tagPair.find(text, previous.range.last + 1) }.forEach { match ->
         val raw = match.value
         val selfClosing = raw.endsWith("/>")
         val isClosing = match.groupValues[1] == "/"
@@ -243,10 +248,10 @@ private data class NavToken(
  *   leading/trailing whitespace removed.
  */
 internal fun stripMarkup(value: String): String = buildString {
-    Regex("""(?s)<[^>]+>|[^<]+""").findAll(value).forEach { token ->
+    MarkupTokenRegex.findAll(value).forEach { token ->
         if (!token.value.startsWith('<')) append(decodeXmlEntities(token.value))
     }
-}.replace(Regex("""\s+"""), " ").trim()
+}.replace(WhitespaceRunRegex, " ").trim()
 
 /**
  * The lowercase, whitespace-split token set carried by a `<nav>` tag's `epub:type` attribute — or,
@@ -260,8 +265,50 @@ internal fun stripMarkup(value: String): String = buildString {
 private fun navTypeTokens(attributes: Map<String, String>): Set<String> =
     sequenceOf(attributes["epub:type"], attributes["type"], attributes["role"])
         .filterNotNull()
-        .flatMap { value -> decodeXmlEntities(value).split(Regex("""\s+""")).asSequence() }
+        .flatMap { value -> decodeXmlEntities(value).split(WhitespaceRunRegex).asSequence() }
         .map(String::trim)
         .filter(String::isNotEmpty)
         .map(String::lowercase)
         .toSet()
+
+/**
+ * Matches a `<nav>` opening tag, whose attributes [parseEpubNavDocument] then checks for the `toc`
+ * type token.
+ */
+private val NavOpenTagRegex = Regex("""(?is)<nav\b[^>]*>""")
+
+/** Matches both `<nav …>` and `</nav>` so [findMatchingEndTag] can balance nesting depth. */
+private val NavTagPairRegex = Regex("""(?is)<(/?)nav\b[^>]*>""")
+
+/** Matches the first heading element inside a nav document's body, whose group 2 is its markup. */
+private val NavHeadingRegex = Regex("""(?is)<(h[1-6]|p)\b[^>]*>(.*?)</\1>""")
+
+/**
+ * Splits markup into a flat stream of tags and the text between them, the tokenization both
+ * [parseEpubNavDocument]'s state machine and [stripMarkup] walk.
+ */
+private val MarkupTokenRegex = Regex("""(?s)<[^>]+>|[^<]+""")
+
+/**
+ * Matches one run of whitespace, for collapsing a label's internal whitespace and for splitting a
+ * `nav` type attribute into tokens.
+ *
+ * Hoisted because [stripMarkup] runs once per table-of-contents entry and per heading, so a book with
+ * a large outline compiled this pattern hundreds of times per import.
+ */
+private val WhitespaceRunRegex = Regex("""\s+""")
+
+/** Captures an NCX `docTitle`'s text content in group 1, the heading [parseNcxDocument] reports. */
+private val NcxDocTitleRegex = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
+
+/** Matches a `navPoint` opening tag, the element [parseNcxNavPoints] walks. */
+private val NcxNavPointOpenRegex = Regex("""(?is)<navPoint\b[^>]*>""")
+
+/** Matches both `<navPoint …>` and `</navPoint>` so [findMatchingEndTag] can balance nesting depth. */
+private val NcxNavPointTagPairRegex = Regex("""(?is)<(/?)navPoint\b[^>]*>""")
+
+/** Captures a `navPoint`'s `navLabel`/`text` title in group 1. */
+private val NcxNavLabelTextRegex = Regex("""(?is)<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""")
+
+/** Captures a `navPoint`'s `content` `src` link target in group 1. */
+private val NcxContentSrcRegex = Regex("""(?is)<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""")
