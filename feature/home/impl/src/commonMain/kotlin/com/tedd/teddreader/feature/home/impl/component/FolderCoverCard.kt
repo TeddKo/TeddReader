@@ -47,6 +47,7 @@ import com.tedd.teddreader.core.ui.generated.resources.rename_folder
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import com.tedd.teddreader.feature.home.impl.LibraryFolder
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -75,7 +76,7 @@ fun FolderCoverCard(
     folder: LibraryFolder,
     previewDocuments: ImmutableList<DocumentMetadata>,
     remainingDocumentCount: Int,
-    documentCoverImages: Map<String, ByteArray>,
+    documentCoverImages: ImmutableMap<String, ByteArray>,
     onClick: () -> Unit,
     singleClick: Boolean = false,
     modifier: Modifier = Modifier,
@@ -191,7 +192,7 @@ fun FolderCoverCard(
 private fun FolderCoverMosaic(
     previewDocuments: ImmutableList<DocumentMetadata>,
     remainingDocumentCount: Int,
-    documentCoverImages: Map<String, ByteArray>,
+    documentCoverImages: ImmutableMap<String, ByteArray>,
     modifier: Modifier = Modifier,
     onLoadCover: ((DocumentMetadata) -> Unit)? = null,
 ) {

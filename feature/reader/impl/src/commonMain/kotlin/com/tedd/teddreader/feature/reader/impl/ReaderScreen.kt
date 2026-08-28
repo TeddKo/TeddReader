@@ -120,6 +120,12 @@ import com.tedd.teddreader.feature.reader.impl.component.ReaderStatusFooter
 import com.tedd.teddreader.feature.reader.impl.component.foundationMovieCarouselDimAlpha
 import com.tedd.teddreader.feature.reader.impl.image.ImagePageSurface
 import com.tedd.teddreader.feature.reader.impl.pdf.PdfPageSurface
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -622,14 +628,16 @@ private fun ReaderContent(
     // type ran longer was clipped when drawn.
     val embeddedFontResolutionComplete = uiState.areEmbeddedFontsResolved &&
         resolvedEmbeddedFontFamilies?.first == uiState.embeddedFontFiles
-    val sharedEmbeddedFontFamilies = resolvedEmbeddedFontFamilies?.second.orEmpty()
+    val sharedEmbeddedFontFamilies = remember(resolvedEmbeddedFontFamilies) {
+        resolvedEmbeddedFontFamilies?.second?.toImmutableMap() ?: persistentMapOf()
+    }
     val failedResolvedFontHrefs = remember(
         uiState.embeddedFontFiles,
         embeddedFontResolutionComplete,
         sharedEmbeddedFontFamilies,
     ) {
-        if (!embeddedFontResolutionComplete) emptySet()
-        else uiState.embeddedFontFiles.keys - sharedEmbeddedFontFamilies.keys
+        if (!embeddedFontResolutionComplete) persistentSetOf()
+        else (uiState.embeddedFontFiles.keys - sharedEmbeddedFontFamilies.keys).toImmutableSet()
     }
 
     ModalNavigationDrawer(
@@ -1104,9 +1112,9 @@ private fun ReaderPagePane(
     uiState: ReaderUiState,
     page: Int,
     onPageBreakerChanged: (ReaderStyle, ViewportSize, ViewportSize, ReaderPageBreaker, Boolean) -> Unit,
-    embeddedFontFamiliesByHref: Map<String, FontFamily>,
+    embeddedFontFamiliesByHref: ImmutableMap<String, FontFamily>,
     embeddedFontResolutionComplete: Boolean,
-    failedResolvedFontHrefs: Set<String>,
+    failedResolvedFontHrefs: ImmutableSet<String>,
     reportViewportSize: Boolean = true,
     windowInsets: WindowInsets = readerSystemBarsInsets().only(WindowInsetsSides.Vertical),
     contentPadding: PaddingValues? = null,
