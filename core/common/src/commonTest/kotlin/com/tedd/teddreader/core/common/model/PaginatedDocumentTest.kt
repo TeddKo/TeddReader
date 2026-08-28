@@ -358,9 +358,107 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * Only the page whose end meets its section's end is a tail, which is how the reader tells a page that
-     * ends a chapter from one merely sitting inside it.
+     * A page's chapter-local position counts within its own chapter, not the whole document: a book of
+     * two three-page chapters puts page 4 at "page 1 of chapter 2", not "page 4 of six".
+     *
+     * The chapter is bounded by titled sections, so the second chapter runs from section 1's start to the
+     * document's end, and every page inside it counts from that chapter's own first page.
      */
+    @Test
+    fun chapterPageIndexAtCountsWithinTheChapterNotTheDocument() {
+        val chapterOne = section(index = 0, start = 0, end = 30, title = "One")
+        val chapterTwo = section(index = 1, start = 30, end = 60, title = "Two")
+        val document = PaginatedDocument(
+            pageWindows = listOf(
+                page(range = TextRange(0, 10)),
+                page(range = TextRange(10, 20)),
+                page(range = TextRange(20, 30)),
+                page(range = TextRange(30, 40)),
+                page(range = TextRange(40, 50)),
+                page(range = TextRange(50, 60)),
+            ),
+            sections = listOf(chapterOne, chapterTwo),
+        )
+
+        assertEquals(PageIndex(current = 0, total = 3), document.chapterPageIndexAt(0))
+        assertEquals(PageIndex(current = 2, total = 3), document.chapterPageIndexAt(2))
+        assertEquals(PageIndex(current = 0, total = 3), document.chapterPageIndexAt(3))
+        assertEquals(PageIndex(current = 2, total = 3), document.chapterPageIndexAt(5))
+    }
+
+    /**
+     * The last chapter's page count reaches the end of the measured book, since no titled section follows
+     * to bound it — so its total is "pages from here to the end", growing with the book during import.
+     */
+    @Test
+    fun chapterPageIndexAtBoundsTheLastChapterByTheDocumentEnd() {
+        val onlyChapter = section(index = 0, start = 0, end = 40, title = "Only")
+        val document = PaginatedDocument(
+            pageWindows = listOf(
+                page(range = TextRange(0, 10)),
+                page(range = TextRange(10, 20)),
+                page(range = TextRange(20, 30)),
+                page(range = TextRange(30, 40)),
+            ),
+            sections = listOf(onlyChapter),
+        )
+
+        assertEquals(PageIndex(current = 3, total = 4), document.chapterPageIndexAt(3))
+    }
+
+    /**
+     * An untitled section between two titled ones belongs to the earlier chapter, exactly as
+     * [PaginatedDocument.chapterTitleAt] inherits its title — so its pages keep counting inside that
+     * chapter rather than starting a new count.
+     */
+    @Test
+    fun chapterPageIndexAtKeepsAnUntitledSectionInsideTheInheritedChapter() {
+        val chapterOne = section(index = 0, start = 0, end = 20, title = "One")
+        val untitledTail = section(index = 1, start = 20, end = 40, title = null)
+        val chapterTwo = section(index = 2, start = 40, end = 60, title = "Two")
+        val document = PaginatedDocument(
+            pageWindows = listOf(
+                page(range = TextRange(0, 10)),
+                page(range = TextRange(10, 20)),
+                page(range = TextRange(20, 30)),
+                page(range = TextRange(30, 40)),
+                page(range = TextRange(40, 50)),
+                page(range = TextRange(50, 60)),
+            ),
+            sections = listOf(chapterOne, untitledTail, chapterTwo),
+        )
+
+        assertEquals(PageIndex(current = 3, total = 4), document.chapterPageIndexAt(3))
+        assertEquals(PageIndex(current = 0, total = 2), document.chapterPageIndexAt(4))
+    }
+
+    /** A cover page has no chapter to count within, matching [PaginatedDocument.chapterTitleAt]'s null. */
+    @Test
+    fun chapterPageIndexAtIsNullForACoverPage() {
+        val coverBlock = ReaderBlock(
+            kind = ReaderBlockKind.COVER_IMAGE,
+            range = TextRange(0, 1),
+            imageHref = "cover.jpg",
+        )
+        val document = PaginatedDocument(
+            pageWindows = listOf(page(range = TextRange(0, 10), blocks = listOf(coverBlock))),
+            sections = listOf(section(index = 0, start = 0, end = 100, title = "Book")),
+        )
+
+        assertNull(document.chapterPageIndexAt(0))
+    }
+
+    /** With no titled section anywhere, there is no chapter to count within, so the answer is null. */
+    @Test
+    fun chapterPageIndexAtIsNullWhenNoSectionHasATitle() {
+        val document = PaginatedDocument(
+            pageWindows = listOf(page(range = TextRange(0, 10))),
+            sections = listOf(section(index = 0, start = 0, end = 10, title = null)),
+        )
+
+        assertNull(document.chapterPageIndexAt(0))
+    }
+
     @Test
     fun isSectionTailIsTrueExactlyWhenThePagesEndMatchesItsSectionsEnd() {
         val document = PaginatedDocument(
