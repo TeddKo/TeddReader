@@ -448,6 +448,83 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
+     * Verifies a whole-page flip projects from the rotating leaf's moving free edge rather than a
+     * fixed screen edge, and that its cast extends from that edge back underneath the leaf toward
+     * the pivot. Opposite turns must mirror around the page center.
+     */
+    @Test
+    fun `whole page flip shadow follows moving edge toward pivot`() {
+        val next = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.5f,
+                layout = FoundationPageFlipLayout.WholePage,
+            ),
+        )
+        val previous = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = -0.5f,
+                layout = FoundationPageFlipLayout.WholePage,
+            ),
+        )
+
+        assertTrue(next.movingEdgeFraction > 0.5f)
+        assertEquals(FoundationFluidSide.End, next.receiverSide)
+        assertEquals(FoundationFluidSide.Start, next.castDirection)
+        assertEquals(1f, next.movingEdgeFraction + previous.movingEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.Start, previous.receiverSide)
+        assertEquals(FoundationFluidSide.End, previous.castDirection)
+    }
+
+    /**
+     * Verifies a split-half leaf moves through the spine onto the opposite receiver half, switching
+     * the cast direction after edge-on instead of keeping a sign-derived shadow on the wrong half.
+     */
+    @Test
+    fun `spread page flip shadow crosses the spine with the leaf`() {
+        val beforeSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.25f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+        val atSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.5f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+        val afterSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.75f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+
+        assertTrue(beforeSpine.movingEdgeFraction > 0.5f)
+        assertEquals(FoundationFluidSide.End, beforeSpine.receiverSide)
+        assertEquals(FoundationFluidSide.Start, beforeSpine.castDirection)
+        assertEquals(0.5f, atSpine.movingEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.Start, atSpine.receiverSide)
+        assertEquals(FoundationFluidSide.End, atSpine.castDirection)
+        assertTrue(afterSpine.movingEdgeFraction < 0.5f)
+        assertEquals(FoundationFluidSide.Start, afterSpine.receiverSide)
+        assertEquals(FoundationFluidSide.End, afterSpine.castDirection)
+    }
+
+    /**
+     * Verifies projected PAGE_FLIP shadows are absent at every settled endpoint, matching the
+     * existing lighting contract and preventing a stale contact line after cancel or completion.
+     */
+    @Test
+    fun `page flip projection vanishes at settled endpoints`() {
+        FoundationPageFlipLayout.entries.forEach { layout ->
+            assertEquals(null, foundationPageFlipProjectionSpec(0f, layout))
+            assertEquals(null, foundationPageFlipProjectionSpec(1f, layout))
+            assertEquals(null, foundationPageFlipProjectionSpec(-1f, layout))
+        }
+    }
+
+    /**
      * Verifies [foundationPageFlipZIndex]'s single-pane stacking order for the whole drag: the
      * current page always ranks above both neighbours; turning back, the arriving previous page
      * must outrank the next page (or it would show through the half the folding page leaves
