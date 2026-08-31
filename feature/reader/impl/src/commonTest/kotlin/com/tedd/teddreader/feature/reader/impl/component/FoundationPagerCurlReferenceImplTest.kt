@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl.component
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.tedd.teddreader.core.common.model.PageTurnMode
 import kotlin.math.PI
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -364,6 +365,130 @@ class FoundationPagerCurlReferenceImplTest {
             FoundationReferenceCurlTapAction.ToggleControls,
             foundationReferenceCurlTapAction(Offset(90f, 100f), size, FoundationReferenceCurlAxis.Horizontal, true, false),
         )
+    }
+
+    /**
+     * Verifies the Play Books-style 3D curl always resolves to the horizontal axis, while the
+     * standard curl continues to honor the reader's configured vertical direction.
+     */
+    @Test
+    fun threeDimensionalCurlAlwaysUsesHorizontalSwipeAxis() {
+        assertEquals(
+            FoundationReferenceCurlAxis.Horizontal,
+            foundationReferenceCurlAxis(
+                pageTurnMode = PageTurnMode.VERTICAL,
+                style = FoundationReferenceCurlStyle.ThreeDimensional,
+            ),
+        )
+        assertEquals(
+            FoundationReferenceCurlAxis.Vertical,
+            foundationReferenceCurlAxis(
+                pageTurnMode = PageTurnMode.VERTICAL,
+                style = FoundationReferenceCurlStyle.Standard,
+            ),
+        )
+    }
+
+    /**
+     * Verifies the 3D curl accepts only horizontal-dominant movement and fixes forward/backward
+     * from the X direction, so a mostly vertical drag cannot start a page turn.
+     */
+    @Test
+    fun threeDimensionalCurlRejectsVerticalDominantDrag() {
+        assertEquals(
+            FoundationReferenceCurlDirection.Forward,
+            foundationReferenceThreeDCurlDirection(
+                start = Offset(80f, 50f),
+                current = Offset(60f, 55f),
+                canGoBackward = true,
+                canGoForward = true,
+            ),
+        )
+        assertEquals(
+            FoundationReferenceCurlDirection.Backward,
+            foundationReferenceThreeDCurlDirection(
+                start = Offset(20f, 50f),
+                current = Offset(40f, 45f),
+                canGoBackward = true,
+                canGoForward = true,
+            ),
+        )
+        assertNull(
+            foundationReferenceThreeDCurlDirection(
+                start = Offset(50f, 20f),
+                current = Offset(45f, 80f),
+                canGoBackward = true,
+                canGoForward = true,
+            ),
+        )
+    }
+
+    /**
+     * Verifies the 3D curl derives its rolling crease from X alone: changing pointer Y leaves the
+     * edge unchanged, its interior crease remains non-degenerate, and both endpoints exactly match
+     * the existing flat rest edges used by the renderer's early returns.
+     */
+    @Test
+    fun threeDimensionalCurlRollingEdgeIgnoresPointerY() {
+        val size = IntSize(100, 200)
+        val highPointer = foundationReferenceThreeDCurlEdge(size, Offset(50f, 10f))
+        val lowPointer = foundationReferenceThreeDCurlEdge(size, Offset(50f, 190f))
+
+        assertEquals(highPointer, lowPointer)
+        assertTrue(highPointer.top.x != highPointer.bottom.x)
+        assertEquals(FoundationReferenceCurlEdge.left(size), foundationReferenceThreeDCurlEdge(size, Offset(0f, 10f)))
+        assertEquals(FoundationReferenceCurlEdge.right(size), foundationReferenceThreeDCurlEdge(size, Offset(100f, 190f)))
+    }
+
+    /**
+     * Verifies an accepted 3D drag begins at its direction's flat rest edge regardless of where the
+     * finger touched: a small rightward backward drag reveals only that small displacement instead
+     * of jumping to the pointer's absolute X position, and forward mirrors the same rule.
+     */
+    @Test
+    fun threeDimensionalCurlDragStartsFromRestByDisplacement() {
+        val size = IntSize(100, 200)
+        val backward = foundationReferenceThreeDCurlDragEdge(
+            size = size,
+            start = Offset(70f, 20f),
+            current = Offset(72f, 180f),
+            direction = FoundationReferenceCurlDirection.Backward,
+        )
+        val forward = foundationReferenceThreeDCurlDragEdge(
+            size = size,
+            start = Offset(70f, 20f),
+            current = Offset(68f, 180f),
+            direction = FoundationReferenceCurlDirection.Forward,
+        )
+
+        assertEquals(2f, (backward.top.x + backward.bottom.x) / 2f, 0.0001f)
+        assertEquals(98f, (forward.top.x + forward.bottom.x) / 2f, 0.0001f)
+    }
+
+    /**
+     * Verifies the PlayLikeCurl profile uses its reference 25-column mesh, leaves every strip
+     * unwarped at rest, keeps projected boundaries contiguous while bent, and moves the completed
+     * page fully beyond the start edge instead of rendering one planar reflected flap.
+     */
+    @Test
+    fun threeDimensionalCurlUsesCylindricalStripMesh() {
+        val rest = foundationReferenceThreeDCurlStripSpecs(0f)
+        val bent = foundationReferenceThreeDCurlStripSpecs(0.5f)
+        val complete = foundationReferenceThreeDCurlStripSpecs(1f)
+
+        assertEquals(25, rest.size)
+        rest.forEach { strip ->
+            assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
+            assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
+            assertEquals(1f, strip.verticalScale, 0.0001f)
+        }
+        bent.zipWithNext().forEach { (left, right) ->
+            assertEquals(left.destinationEndFraction, right.destinationStartFraction, 0.0001f)
+        }
+        assertTrue(bent.any { it.depthFraction > 0f })
+        assertTrue(bent.any { it.verticalScale > 1f })
+        assertTrue(bent.last().destinationEndFraction < 1f)
+        assertTrue(complete.maxOf { it.destinationEndFraction } < 0f)
     }
 
     /**
