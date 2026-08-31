@@ -389,6 +389,21 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
+    /** Drag tracking is direct state, not a spring animation queued behind pointer events. */
+    @Test
+    fun dragUpdateUsesTheLatestPointerEdgeImmediately() {
+        val size = IntSize(100, 200)
+        val target = foundationReferenceThreeDCurlEdge(size, Offset(43f, 120f))
+
+        val activeDrag = foundationReferenceUpdateDragEdge(
+            direction = FoundationReferenceCurlDirection.Forward,
+            target = target,
+        )
+
+        assertEquals(FoundationReferenceCurlDirection.Forward, activeDrag.direction)
+        assertEquals(target, activeDrag.edge)
+    }
+
     /**
      * Verifies the 3D curl accepts only horizontal-dominant movement and fixes forward/backward
      * from the X direction, so a mostly vertical drag cannot start a page turn.
@@ -476,7 +491,7 @@ class FoundationPagerCurlReferenceImplTest {
         val bent = foundationReferenceThreeDCurlStripSpecs(0.5f)
         val complete = foundationReferenceThreeDCurlStripSpecs(1f)
 
-        assertEquals(25, rest.size)
+        assertEquals(foundationPagerRenderProfile.threeDCurlGrid, rest.size)
         rest.forEach { strip ->
             assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
             assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)

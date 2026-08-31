@@ -15,12 +15,15 @@ import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
 import com.tedd.teddreader.app.reader.importer.GoogleDrivePickerBridge
 import com.tedd.teddreader.app.reader.importer.rememberDocumentImporter
 import com.tedd.teddreader.app.reader.navigation.ReaderNavHost
+import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
+import com.tedd.teddreader.core.common.model.resolveSystemTheme
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
-import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.domain.repository.ReaderSettings
 import com.tedd.teddreader.core.domain.repository.ReaderSettingsRepository
 import com.tedd.teddreader.core.ui.ProvideTeddLocalization
+import com.tedd.teddreader.core.ui.system.SystemBarsThemeEffect
 import org.koin.compose.KoinApplication
 import org.koin.compose.koinInject
 import org.koin.dsl.koinConfiguration
@@ -70,12 +73,17 @@ fun TeddReaderApp(
             themeMode = settings.style.themeMode,
             systemInDarkTheme = darkTheme,
         )
+        val systemBarBackground = appSystemBarBackground(
+            style = settings.style,
+            systemInDarkTheme = darkTheme,
+        )
         ProvideTeddLocalization(appLanguage = settings.appLanguage) {
             TeddReaderTheme(
                 darkTheme = appDarkTheme,
             ) {
+                SystemBarsThemeEffect(backgroundColor = systemBarBackground)
                 Box(
-                    modifier = modifier.fillMaxSize().background(teddReaderColors().background),
+                    modifier = modifier.fillMaxSize().background(systemBarBackground),
                 ) {
                     ReaderNavHost(
                         modifier = Modifier.fillMaxSize(),
@@ -87,6 +95,10 @@ fun TeddReaderApp(
         }
     }
 }
+
+/** Resolves the persisted global theme to the opaque colour drawn behind every system bar. */
+internal fun appSystemBarBackground(style: ReaderStyle, systemInDarkTheme: Boolean) =
+    style.resolveSystemTheme(systemInDarkTheme).readerColors().background.copy(alpha = 1f)
 
 /**
  * Resolves the user's saved [ReaderThemeMode] and the platform's live system setting into the

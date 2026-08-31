@@ -187,12 +187,16 @@ internal fun FoundationPagerCurlReferenceImpl(
         }
         var renderedPageKey by remember { mutableStateOf(pageKey) }
         var animationJob by remember(axis, leafSize, style) { mutableStateOf<Job?>(null) }
+        var activeDrag by remember(axis, leafSize, style) {
+            mutableStateOf<FoundationReferenceActiveDrag?>(null)
+        }
         val previousPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, -1)
         val nextPage = readerPagerAdjacentPage(pageKey, pageCount, pageStep, 1)
         val canGoBackward = previousPage != null
         val canGoForward = readerPagerCanAdvanceForward(nextPage != null, canRequestNextPage)
 
         suspend fun reset() {
+            activeDrag = null
             forwardEdge.snapTo(rightEdge)
             backwardEdge.snapTo(backwardRestEdge)
             if (pagerState.currentPage != FoundationReferenceCenterPage) {
@@ -316,8 +320,8 @@ internal fun FoundationPagerCurlReferenceImpl(
                             canGoBackward = canGoBackward,
                             onDragStart = {
                                 animationJob?.cancel()
-                                scope.launch { reset() }
                             },
+                            onDragEdgeChange = { activeDrag = it },
                             onComplete = { direction ->
                                 complete(direction)
                             },
@@ -349,17 +353,25 @@ internal fun FoundationPagerCurlReferenceImpl(
                 pageOffset = pageOffset,
                 canRequestNextPage = canRequestNextPage,
             )
+            val animatedBackwardEdge = activeDrag
+                ?.takeIf { it.direction == FoundationReferenceCurlDirection.Backward }
+                ?.edge
+                ?: backwardEdge.value
+            val animatedForwardEdge = activeDrag
+                ?.takeIf { it.direction == FoundationReferenceCurlDirection.Forward }
+                ?.edge
+                ?: forwardEdge.value
             val leafEdge = when (pageOffset) {
                 -1 -> foundationReferenceVisibleCurlEdge(
                     pageKey,
                     renderedPageKey,
-                    backwardEdge.value,
+                    animatedBackwardEdge,
                     backwardRestEdge,
                 )
                 0 -> foundationReferenceVisibleCurlEdge(
                     pageKey,
                     renderedPageKey,
-                    forwardEdge.value,
+                    animatedForwardEdge,
                     rightEdge,
                 )
                 else -> null
@@ -370,7 +382,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                     foundationReferenceVisibleCurlEdge(
                         pageKey,
                         renderedPageKey,
-                        forwardEdge.value,
+                        animatedForwardEdge,
                         rightEdge,
                     ) != rightEdge)
             Box(
@@ -666,6 +678,17 @@ private data class FoundationReferenceDragConfig(
     val end: FoundationReferenceCurlEdge,
 )
 
+internal data class FoundationReferenceActiveDrag(
+    val direction: FoundationReferenceCurlDirection,
+    val edge: FoundationReferenceCurlEdge,
+)
+
+/** Pointer events replace this value synchronously; no drag-frame coroutine or spring is created. */
+internal fun foundationReferenceUpdateDragEdge(
+    direction: FoundationReferenceCurlDirection,
+    target: FoundationReferenceCurlEdge,
+) = FoundationReferenceActiveDrag(direction, target)
+
 /**
  * Drives one page-turn drag from first touch to its resolved outcome: fling-completed, dragged past the
  * threshold, or snapped back.
@@ -714,12 +737,14 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     canGoForward: Boolean,
     canGoBackward: Boolean,
     onDragStart: () -> Unit,
+    onDragEdgeChange: (FoundationReferenceActiveDrag?) -> Unit,
     onComplete: (FoundationReferenceCurlDirection) -> Unit,
     style: FoundationReferenceCurlStyle,
 ) {
     val velocityTracker = VelocityTracker()
     var config: FoundationReferenceDragConfig? = null
     var startOffset = Offset.Zero
+    var currentDragEdge: FoundationReferenceCurlEdge? = null
 
     detectFoundationReferenceCustomDragGestures(
         onDragStart = { start, current ->
@@ -750,7 +775,15 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                     FoundationReferenceDragConfig(it, edge, FoundationReferenceCurlEdge.left(canonicalSize), FoundationReferenceCurlEdge.right(canonicalSize))
                 }
             }
-            if (config != null) onDragStart()
+            if (config != null) {
+                onDragStart()
+                currentDragEdge = config?.start
+                onDragEdgeChange(
+                    currentDragEdge?.let { edge ->
+                        foundationReferenceUpdateDragEdge(requireNotNull(direction), edge)
+                    },
+                )
+            }
             config != null
         },
         onDragEnd = { endOffset, complete ->
@@ -777,7 +810,10 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                         it.y.coerceIn(0f, canonicalSize.height.toFloat() - 1f),
                     )
                 }
+                val releaseEdge = currentDragEdge ?: dragConfig.edge.value
                 scope.launch {
+                    dragConfig.edge.snapTo(releaseEdge)
+                    onDragEdgeChange(null)
                     if (
                         complete && foundationReferenceCurlDragSucceeds(
                             direction = foundationReferenceCurlGeometryDirection(dragConfig.direction, isSpread),
@@ -819,23 +855,21 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
                 leafWidth,
             )
             velocityTracker.addPosition(change.uptimeMillis, current)
-            scope.launch {
-                dragConfig.edge.animateTo(
-                    if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
-                        foundationReferenceThreeDCurlDragEdge(
-                            size = canonicalSize,
-                            start = startOffset,
-                            current = current,
-                            direction = foundationReferenceCurlGeometryDirection(
-                                dragConfig.direction,
-                                isSpread,
-                            ),
-                        )
-                    } else {
-                        foundationReferenceCurlEdge(canonicalSize, startOffset, current)
-                    },
+            val target = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
+                foundationReferenceThreeDCurlDragEdge(
+                    size = canonicalSize,
+                    start = startOffset,
+                    current = current,
+                    direction = foundationReferenceCurlGeometryDirection(
+                        dragConfig.direction,
+                        isSpread,
+                    ),
                 )
+            } else {
+                foundationReferenceCurlEdge(canonicalSize, startOffset, current)
             }
+            currentDragEdge = target
+            onDragEdgeChange(foundationReferenceUpdateDragEdge(dragConfig.direction, target))
         },
     )
 }
@@ -1361,7 +1395,7 @@ private fun foundationReferenceThreeDCurlTapSpec(
  *
  * The PlayLikeCurl-style [FoundationReferenceCurlStyle.ThreeDimensional] roll takes a different mid-turn
  * path entirely: instead of one planar reflected flap it renders the leaf through
- * [foundationReferenceDrawThreeDCurlMesh]'s [FoundationReferenceThreeDCurlGrid]-column sinusoidal texture mesh,
+ * [foundationReferenceDrawThreeDCurlMesh]'s platform-profiled sinusoidal texture mesh,
  * so the leading edge bows toward the viewer while the trailing part stays flat. Its two rest positions
  * still short-circuit on the same `left`/`right` early returns.
  *
@@ -2059,7 +2093,7 @@ internal data class FoundationReferenceThreeDCurlStripSpec(
  *
  * @param progress turn progress from 0 at the flat current page to 1 after it leaves the viewport; values
  *   outside this range are clamped.
- * @return [FoundationReferenceThreeDCurlGrid] ordered intervals with bit-identical shared boundaries.
+ * @return the platform profile's ordered intervals with bit-identical shared boundaries.
  */
 internal fun foundationReferenceThreeDCurlStripSpecs(
     progress: Float,
@@ -2072,11 +2106,12 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
     } else {
         0f
     }
-    val boundaries = FloatArray(FoundationReferenceThreeDCurlGrid + 1)
-    val depths = FloatArray(FoundationReferenceThreeDCurlGrid + 1)
-    val scales = FloatArray(FoundationReferenceThreeDCurlGrid + 1)
+    val grid = foundationPagerRenderProfile.threeDCurlGrid
+    val boundaries = FloatArray(grid + 1)
+    val depths = FloatArray(grid + 1)
+    val scales = FloatArray(grid + 1)
     for (index in boundaries.indices) {
-        val source = index.toFloat() / FoundationReferenceThreeDCurlGrid
+        val source = index.toFloat() / grid
         val depth = if (radius <= FoundationReferenceThreeDCurlFlatEpsilon) {
             0f
         } else {
@@ -2093,10 +2128,10 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
         depths[index] = depth
         scales[index] = scale
     }
-    return List(FoundationReferenceThreeDCurlGrid) { index ->
+    return List(grid) { index ->
         FoundationReferenceThreeDCurlStripSpec(
-            sourceStartFraction = index.toFloat() / FoundationReferenceThreeDCurlGrid,
-            sourceEndFraction = (index + 1).toFloat() / FoundationReferenceThreeDCurlGrid,
+            sourceStartFraction = index.toFloat() / grid,
+            sourceEndFraction = (index + 1).toFloat() / grid,
             destinationStartFraction = boundaries[index],
             destinationEndFraction = boundaries[index + 1],
             verticalScale = max(scales[index], scales[index + 1]),
@@ -2327,6 +2362,13 @@ internal data class FoundationPagerCurlPolygon(val vertices: List<Offset>) {
     private fun wrap(index: Int): Int = ((index % vertices.size) + vertices.size) % vertices.size
 }
 
+internal data class FoundationPagerRenderProfile(
+    val threeDCurlGrid: Int,
+    val curlShadowLayers: Int,
+)
+
+internal expect val foundationPagerRenderProfile: FoundationPagerRenderProfile
+
 /**
  * Draws the folded-over part's drop shadow, expected once per platform because Compose Multiplatform's
  * common [DrawScope] has no shared way to blur a shape into a shadow — each platform's actual reaches
@@ -2445,12 +2487,6 @@ private const val FoundationReferenceThreeDRimWidthPx = 2f
  * narrow page with a fixed pixel distance.
  */
 private const val FoundationReferenceThreeDCurlTiltRatio = 0.18f
-
-/**
- * Number of vertical intervals in the PlayLikeCurl texture mesh. The archived reference uses 25 columns;
- * this implementation preserves that sampling density while all intervals reuse one offscreen texture.
- */
-private const val FoundationReferenceThreeDCurlGrid = 25
 
 /**
  * Maximum sine-wave depth amplitude as a fraction of leaf width, copied from PlayLikeCurl's `RADIUS`.

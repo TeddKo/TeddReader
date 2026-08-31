@@ -19,33 +19,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 
 /**
- * Android's [ReaderSystemBarsEffect]: takes over the enclosing [android.app.Activity]'s [Window]
- * chrome for as long as this composable stays on screen, then hands every mutated piece of window
- * state back to what it was on [DisposableEffect]'s `onDispose` — bar colors, the decor view's
- * background, contrast enforcement, and icon appearance are all captured with `remember(window)`
- * before this effect touches anything, specifically so leaving the reader (or backgrounding the
- * activity) cannot leave the rest of the app looking like the reader.
- *
- * The actual application runs from both [SideEffect] (so it lands after every successful
- * recomposition, even ones that did not change [visible]/[backgroundColor]/[keepScreenOn]) and
- * [LaunchedEffect] keyed on those three values plus `window`/`view` (so hiding the bars, which needs
- * a second, deferred `view.post` call to take effect reliably, only re-runs when something the
- * effect actually cares about changed). Running the visible bar-hide from both is intentional
- * duplication that keeps the immediate frame and the settled state consistent.
- *
- * @param visible Whether the status/navigation bars should be shown; false also degrades contrast
- * enforcement so the reader's own background can show through the bar areas.
- * @param backgroundColor Colors the status/navigation bars and the decor view background to match
- * the reader page, and its [luminance] decides whether system bar icons render light or dark.
- * @param keepScreenOn Sets the reader's view `keepScreenOn` flag for as long as this effect is
- * composed; always cleared back to false on dispose.
+ * Applies the global reader theme to Android's status/navigation bars for the lifetime of the app
+ * composition. The app root owns this effect, so every destination receives the same colour and
+ * icon-contrast update when the persisted theme changes.
  */
 @Composable
-actual fun ReaderSystemBarsEffect(
-    visible: Boolean,
-    backgroundColor: Color,
-    keepScreenOn: Boolean,
-) {
+actual fun SystemBarsThemeEffect(backgroundColor: Color) {
     val view = LocalView.current
     val window = view.context.findActivity()?.window ?: return
     val lightBackground = backgroundColor.luminance() > 0.5f
@@ -73,21 +52,14 @@ actual fun ReaderSystemBarsEffect(
         window.navigationBarColor = color
         window.decorView.setBackgroundColor(color)
         window.setSystemBarContrastEnforced(false)
-        view.keepScreenOn = keepScreenOn
-        window.setSystemBarsVisible(visible)
         window.setSystemBarIconAppearance(lightBackground)
-        if (!visible) {
-            view.post { window.setSystemBarsVisible(false) }
-        }
     }
 
     SideEffect { apply() }
-    LaunchedEffect(window, view, visible, backgroundColor, keepScreenOn) { apply() }
+    LaunchedEffect(window, view, backgroundColor) { apply() }
 
-    DisposableEffect(window, view) {
+    DisposableEffect(window) {
         onDispose {
-            view.keepScreenOn = false
-            window.setSystemBarsVisible(true)
             window.restoreSystemBarIconAppearance(originalSystemBarIconAppearance)
             window.statusBarColor = originalStatusBarColor
             window.navigationBarColor = originalNavigationBarColor
@@ -96,6 +68,34 @@ actual fun ReaderSystemBarsEffect(
                 statusBar = originalStatusBarContrastEnforced,
                 navigationBar = originalNavigationBarContrastEnforced,
             )
+        }
+    }
+}
+
+/** Reader-only immersive visibility and keep-awake behavior; global theme colours stay untouched. */
+@Composable
+actual fun ReaderSystemBarsEffect(
+    visible: Boolean,
+    keepScreenOn: Boolean,
+) {
+    val view = LocalView.current
+    val window = view.context.findActivity()?.window ?: return
+
+    fun apply() {
+        view.keepScreenOn = keepScreenOn
+        window.setSystemBarsVisible(visible)
+        if (!visible) {
+            view.post { window.setSystemBarsVisible(false) }
+        }
+    }
+
+    SideEffect { apply() }
+    LaunchedEffect(window, view, visible, keepScreenOn) { apply() }
+
+    DisposableEffect(window, view) {
+        onDispose {
+            view.keepScreenOn = false
+            window.setSystemBarsVisible(true)
         }
     }
 }
@@ -139,16 +139,20 @@ private fun Window.setSystemBarsVisible(visible: Boolean) {
                 View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         }
     } else {
-        decorView.systemUiVisibility = if (visible) {
+        val iconAppearance = decorView.systemUiVisibility and (
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        )
+        val visibility = if (visible) {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         } else {
             View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
+        decorView.systemUiVisibility = visibility or iconAppearance
     }
 }
 

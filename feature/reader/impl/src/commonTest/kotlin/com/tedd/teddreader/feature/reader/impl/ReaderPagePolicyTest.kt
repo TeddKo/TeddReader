@@ -8,6 +8,7 @@ import com.tedd.teddreader.core.common.model.ReaderNavigation
 import com.tedd.teddreader.core.common.model.ReaderNavigationItem
 import com.tedd.teddreader.core.common.model.ReaderSection
 import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
 import com.tedd.teddreader.core.common.model.ViewportSize
 import kotlin.test.Test
@@ -48,6 +49,80 @@ class ReaderPagePolicyTest {
         },
         navigation = navigation,
     )
+
+    /** Publisher/system-follow is one adaptive option, never two rows for the same fallback policy. */
+    @Test
+    fun documentDefaultThemeIsOneOptionAdaptedToTheFormat() {
+        val publisherOptions = listOf(
+            ReaderThemeMode.PUBLISHER,
+            ReaderThemeMode.LIGHT,
+            ReaderThemeMode.DARK,
+            ReaderThemeMode.SEPIA,
+        )
+        val readerOptions = listOf(
+            ReaderThemeMode.SYSTEM,
+            ReaderThemeMode.LIGHT,
+            ReaderThemeMode.DARK,
+            ReaderThemeMode.SEPIA,
+        )
+
+        assertEquals(publisherOptions, readerThemeModeOptions(DocumentFormat.EPUB))
+        assertEquals(publisherOptions, readerThemeModeOptions(DocumentFormat.PDF))
+        listOf(DocumentFormat.TXT, DocumentFormat.CBZ, DocumentFormat.IMAGE, DocumentFormat.UNKNOWN).forEach { format ->
+            assertEquals(readerOptions, readerThemeModeOptions(format))
+        }
+    }
+
+    /** Legacy values normalize both ways so the single adaptive row is selected for every format. */
+    @Test
+    fun documentDefaultThemeModeAdaptsToTheFormat() {
+        val publisherStyle = ReaderStyle(themeMode = ReaderThemeMode.PUBLISHER)
+        val systemStyle = ReaderStyle(themeMode = ReaderThemeMode.SYSTEM)
+
+        assertEquals(ReaderThemeMode.PUBLISHER, readerStyleForDocumentFormat(publisherStyle, DocumentFormat.EPUB).themeMode)
+        assertEquals(ReaderThemeMode.PUBLISHER, readerStyleForDocumentFormat(systemStyle, DocumentFormat.EPUB).themeMode)
+        assertEquals(ReaderThemeMode.PUBLISHER, readerStyleForDocumentFormat(systemStyle, DocumentFormat.PDF).themeMode)
+        assertEquals(ReaderThemeMode.SYSTEM, readerStyleForDocumentFormat(publisherStyle, DocumentFormat.TXT).themeMode)
+        assertEquals(
+            ReaderThemeMode.DARK,
+            readerStyleForDocumentFormat(ReaderStyle(themeMode = ReaderThemeMode.DARK), DocumentFormat.TXT).themeMode,
+        )
+    }
+
+    @Test
+    fun publisherFontMeasurementWaitsForTheCurrentEmbeddedFontFiles() {
+        val embeddedFiles = mapOf("fonts/book.woff2" to "/tmp/book.woff2")
+        val publisherStyle = ReaderStyle(fontFamilyName = null)
+        val overrideStyle = ReaderStyle(fontFamilyName = "serif")
+
+        assertEquals(
+            false,
+            readerEmbeddedFontsReadyForMeasurement(
+                style = publisherStyle,
+                areEmbeddedFontsResolved = true,
+                embeddedFontFiles = embeddedFiles,
+                loadedEmbeddedFontFiles = null,
+            ),
+        )
+        assertEquals(
+            true,
+            readerEmbeddedFontsReadyForMeasurement(
+                style = publisherStyle,
+                areEmbeddedFontsResolved = true,
+                embeddedFontFiles = embeddedFiles,
+                loadedEmbeddedFontFiles = embeddedFiles,
+            ),
+        )
+        assertEquals(
+            true,
+            readerEmbeddedFontsReadyForMeasurement(
+                style = overrideStyle,
+                areEmbeddedFontsResolved = false,
+                embeddedFontFiles = embeddedFiles,
+                loadedEmbeddedFontFiles = null,
+            ),
+        )
+    }
 
     /** The mount window is the one definition of "pages the pager keeps ready": two back, three forward. */
     @Test
@@ -241,5 +316,12 @@ class ReaderPagePolicyTest {
                 currentViewportSp = viewportSp,
             ),
         )
+    }
+
+    /** Only the primary pane owns whole-document measurement and viewport reporting. */
+    @Test
+    fun secondaryPaneDoesNotCreateAPageBreaker() {
+        assertEquals(true, readerPagePaneShouldMeasure(reportViewportSize = true))
+        assertEquals(false, readerPagePaneShouldMeasure(reportViewportSize = false))
     }
 }

@@ -5,9 +5,12 @@ import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderBlockStyle
 import com.tedd.teddreader.core.common.model.ReaderBoxStyle
 import com.tedd.teddreader.core.common.model.ReaderColor
+import com.tedd.teddreader.core.common.model.ReaderDarkTextArgb
+import com.tedd.teddreader.core.common.model.ReaderLightTextArgb
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.designsystem.toColor
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.collections.immutable.toPersistentSet
@@ -66,6 +69,41 @@ class EpubPageSurfaceTest {
 
         assertEquals(0xFF111111, epubPageContainerBackgroundColor(page, ReaderStyle(themeMode = ReaderThemeMode.PUBLISHER))?.argb)
     }
+
+    @Test
+    fun darkPublisherPageBackgroundUsesLightFallbackText() {
+        val page = pageWithPublisherBackground(0xFF111111)
+        val style = ReaderStyle(
+            textColor = ReaderColor(ReaderLightTextArgb),
+            themeMode = ReaderThemeMode.PUBLISHER,
+        )
+
+        assertEquals(ReaderColor(ReaderDarkTextArgb).toColor(), epubPageTextStyle(page, style).color)
+    }
+
+    @Test
+    fun lightPublisherPageBackgroundUsesDarkFallbackText() {
+        val page = pageWithPublisherBackground(0xFFF8F8F8)
+        val style = ReaderStyle(
+            textColor = ReaderColor(ReaderDarkTextArgb),
+            themeMode = ReaderThemeMode.PUBLISHER,
+        )
+
+        assertEquals(ReaderColor(ReaderLightTextArgb).toColor(), epubPageTextStyle(page, style).color)
+    }
+
+    private fun pageWithPublisherBackground(argb: Long) = ReaderPageUi(
+        text = "body",
+        blocks = persistentListOf(
+            ReaderBlock(
+                ReaderBlockKind.CONTAINER,
+                TextRange(0, 4),
+                level = 1,
+                style = ReaderBlockStyle(boxStyle = ReaderBoxStyle(backgroundColor = ReaderColor(argb))),
+                isPageContainer = true,
+            ),
+        ),
+    )
 
     @Test
     fun borderInsetUsesDensityScaledStrokeWidth() {

@@ -139,6 +139,19 @@ class ReaderModelsTest {
     }
 
     /**
+     * Publisher/document style follows the same live system fallback as app chrome when the book
+     * does not provide a color of its own. Explicit EPUB colors remain gated by the PUBLISHER mode.
+     */
+    @Test
+    fun publisherThemeTakesDarkFallbackColoursOnADarkDevice() {
+        val resolved = ReaderStyle().withThemeMode(ReaderThemeMode.PUBLISHER).resolveSystemTheme(true)
+
+        assertEquals(ReaderColor(ReaderDarkBackgroundArgb), resolved.backgroundColor)
+        assertEquals(ReaderColor(ReaderDarkTextArgb), resolved.textColor)
+        assertEquals(ReaderThemeMode.PUBLISHER, resolved.themeMode)
+    }
+
+    /**
      * Resolving for the system keeps the mode as `SYSTEM`, so the setting still reads back as
      * "follow system" rather than appearing to have rewritten itself to an explicit dark choice.
      */

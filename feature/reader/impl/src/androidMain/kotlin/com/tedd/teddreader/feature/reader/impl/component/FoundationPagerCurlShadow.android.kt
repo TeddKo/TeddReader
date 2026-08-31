@@ -12,6 +12,11 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 
+
+internal actual val foundationPagerRenderProfile = FoundationPagerRenderProfile(
+    threeDCurlGrid = 25,
+    curlShadowLayers = 1,
+)
 /**
  * Android's answer: a real, native blurred shadow via `android.graphics.Paint.setShadowLayer`,
  * drawn along [polygon]'s own path. `Canvas.drawPath` only actually renders a shadow layer on a

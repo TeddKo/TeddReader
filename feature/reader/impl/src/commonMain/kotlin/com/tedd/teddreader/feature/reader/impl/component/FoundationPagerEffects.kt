@@ -758,13 +758,11 @@ private fun FoundationSpreadPageFlipBox(
         return
     }
     val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
-    val lighting = foundationPageFlipLightingSpec(pageOffset)
+    val shadow = foundationPageFlipShadowSpec(pageOffset, FoundationPageFlipLayout.SplitHalfFold)
     Box(modifier = modifier) {
         FoundationPageFlipHalfBox(
             half = spec.incomingHalf,
             spec = FoundationPageFlipHalfSpec(0f, 0f),
-            surface = FoundationPageFlipSurface.Back,
-            lighting = lighting,
             content = content,
         )
         Box(
@@ -780,8 +778,7 @@ private fun FoundationSpreadPageFlipBox(
             FoundationPageFlipHalfBox(
                 half = spec.outgoingHalf,
                 spec = spec.outgoing,
-                surface = FoundationPageFlipSurface.Front,
-                lighting = lighting,
+                shadow = shadow,
                 content = content,
             )
         }
@@ -789,8 +786,7 @@ private fun FoundationSpreadPageFlipBox(
             FoundationPageFlipHalfBox(
                 half = spec.incomingHalf,
                 spec = spec.incoming,
-                surface = FoundationPageFlipSurface.Back,
-                lighting = lighting,
+                shadow = shadow,
                 content = incomingContent,
             )
         }
@@ -822,7 +818,7 @@ private fun FoundationWholePageFlipBox(
         return
     }
     val transform = foundationWholePageFlipSpec(axis = axis, pageOffset = pageOffset)
-    val lighting = foundationPageFlipLightingSpec(pageOffset)
+    val shadow = foundationPageFlipShadowSpec(pageOffset, FoundationPageFlipLayout.WholePage)
     Box(modifier = modifier) {
         if (incomingContent != null) {
             Box(
@@ -832,11 +828,6 @@ private fun FoundationWholePageFlipBox(
                         axis = axis,
                         pageOffset = pageOffset,
                         layout = FoundationPageFlipLayout.WholePage,
-                    )
-                    .foundationPageFlipSurfaceLighting(
-                        axis = axis,
-                        lighting = lighting,
-                        surface = FoundationPageFlipSurface.Back,
                     ),
             ) {
                 incomingContent()
@@ -851,10 +842,9 @@ private fun FoundationWholePageFlipBox(
                     rotationX = transform.rotationX
                     rotationY = transform.rotationY
                 }
-                .foundationPageFlipSurfaceLighting(
+                .foundationPageFlipInnerShadow(
                     axis = axis,
-                    lighting = lighting,
-                    surface = FoundationPageFlipSurface.Front,
+                    shadow = shadow,
                 ),
         ) {
             content()
@@ -863,25 +853,21 @@ private fun FoundationWholePageFlipBox(
 }
 
 /**
- * One quarter- or half-page seat used by the split-half fold: clips [content] to [half]'s
- * rectangle, rotates it by [spec], and applies [foundationPageFlipSurfaceLighting] for the visible
- * physical face.
+ * One quarter- or half-page seat used by the split-half fold. The moving leaf receives the
+ * reference implementation's clipped inner shadow; a flat seat passes no [shadow].
  *
  * @param half Which quadrant/half of the page this box seats.
  * @param spec The rotation to apply.
  * @param modifier Additional layout or drawing applied to this clipped half.
- * @param surface Whether this half exposes the physical front or back face.
- * @param lighting Unified lighting intensities for the current turn progress.
- * @param content The content seated in this half — the current page, the incoming neighbour, or
- *   the neighbour's back face, depending on the caller.
+ * @param shadow Reference outer/inner dimensions for this frame, or null for a stationary seat.
+ * @param content The page content seated in this half.
  */
 @Composable
 private fun FoundationPageFlipHalfBox(
     half: FoundationPageFlipHalf,
     spec: FoundationPageFlipHalfSpec,
     modifier: Modifier = Modifier,
-    surface: FoundationPageFlipSurface,
-    lighting: FoundationPageFlipLightingSpec,
+    shadow: FoundationPageFlipShadowSpec? = null,
     content: @Composable () -> Unit,
 ) {
     val axis = when (half) {
@@ -892,16 +878,7 @@ private fun FoundationPageFlipHalfBox(
         FoundationPageFlipHalf.Bottom,
             -> FoundationPagerAxis.Vertical
     }
-    val surfaceLighting = lighting.copy(
-        side = when (half) {
-            FoundationPageFlipHalf.Left,
-            FoundationPageFlipHalf.Top,
-                -> FoundationFluidSide.End
-            FoundationPageFlipHalf.Right,
-            FoundationPageFlipHalf.Bottom,
-                -> FoundationFluidSide.Start
-        },
-    )
+    val innerShadow = shadow?.copy(side = foundationPageFlipHalfShadowSide(half))
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -913,89 +890,68 @@ private fun FoundationPageFlipHalfBox(
                 rotationX = spec.rotationX
                 rotationY = spec.rotationY
             }
-            .foundationPageFlipSurfaceLighting(
-                axis = axis,
-                lighting = surfaceLighting,
-                surface = surface,
-            ),
+            .foundationPageFlipInnerShadow(axis = axis, shadow = innerShadow),
     ) {
         content()
     }
 }
 
 /**
- * Lights one PAGE_FLIP leaf surface independently: the front receives the stronger diffuse shade,
- * the back receives a lighter paper shade, and both carry the same narrow turning-edge highlight.
- *
- * @receiver The modifier chain this surface lighting is appended to.
- * @param axis Whether the turning edge runs vertically or horizontally on screen.
- * @param lighting Unified lighting intensities for the current turn frame.
- * @param surface Whether this content is the physical front or back of the leaf.
- * @return A modifier drawing content with its face-specific gradient and rim highlight.
+ * Draws StPageFlip's inner shadow on the moving leaf. Its width is 75% of the outer shadow and its
+ * 5/15/35/100% stops are mirrored around the turning edge for start/end folds.
  */
-private fun Modifier.foundationPageFlipSurfaceLighting(
+private fun Modifier.foundationPageFlipInnerShadow(
     axis: FoundationPagerAxis,
-    lighting: FoundationPageFlipLightingSpec,
-    surface: FoundationPageFlipSurface,
+    shadow: FoundationPageFlipShadowSpec?,
 ): Modifier = drawWithCache {
-    val side = lighting.side
-    val shadeAlpha = when (surface) {
-        FoundationPageFlipSurface.Front -> lighting.frontShadeAlpha
-        FoundationPageFlipSurface.Back -> lighting.backShadeAlpha
-    }
-    if (side == null || (shadeAlpha <= 0f && lighting.rimAlpha <= 0f)) {
+    val side = shadow?.side
+    val alpha = shadow?.opacity ?: 0f
+    val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
+    val band = extent * (shadow?.innerWidthFraction ?: 0f)
+    if (side == null || alpha <= 0f || band <= 0f) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
-    val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
-    val band = extent * FoundationPageFlipHingeWidthRatio
+
     val edge = if (side == FoundationFluidSide.Start) 0f else extent
     val inner = if (side == FoundationFluidSide.Start) band else extent - band
-    val colors = if (side == FoundationFluidSide.Start) {
-        listOf(Color.Black.copy(alpha = shadeAlpha), Color.Transparent)
+    val faint = min(alpha, FoundationPageFlipInnerFaintAlpha)
+    val colorStops = if (side == FoundationFluidSide.Start) {
+        arrayOf(
+            0.05f to Color.Black.copy(alpha = alpha),
+            0.15f to Color.Black.copy(alpha = faint),
+            0.35f to Color.Black.copy(alpha = alpha),
+            1f to Color.Transparent,
+        )
     } else {
-        listOf(Color.Transparent, Color.Black.copy(alpha = shadeAlpha))
+        arrayOf(
+            0f to Color.Transparent,
+            0.65f to Color.Black.copy(alpha = alpha),
+            0.85f to Color.Black.copy(alpha = faint),
+            0.95f to Color.Black.copy(alpha = alpha),
+        )
     }
-    val shadeBrush = if (axis == FoundationPagerAxis.Horizontal) {
-        Brush.horizontalGradient(colors, startX = min(edge, inner), endX = max(edge, inner))
+    val brush = if (axis == FoundationPagerAxis.Horizontal) {
+        Brush.horizontalGradient(
+            colorStops = colorStops,
+            startX = min(edge, inner),
+            endX = max(edge, inner),
+        )
     } else {
-        Brush.verticalGradient(colors, startY = min(edge, inner), endY = max(edge, inner))
+        Brush.verticalGradient(
+            colorStops = colorStops,
+            startY = min(edge, inner),
+            endY = max(edge, inner),
+        )
     }
 
     onDrawWithContent {
         drawContent()
-        if (surface == FoundationPageFlipSurface.Back) {
-            drawRect(Color.White.copy(alpha = lighting.rimAlpha * FoundationPageFlipBackLightRatio))
-        }
         if (axis == FoundationPagerAxis.Horizontal) {
             val left = min(edge, inner)
-            drawRect(
-                brush = shadeBrush,
-                topLeft = Offset(left, 0f),
-                size = Size(abs(edge - inner), size.height),
-            )
-            drawRect(
-                color = Color.White.copy(alpha = lighting.rimAlpha),
-                topLeft = Offset(
-                    x = if (side == FoundationFluidSide.Start) 0f else size.width - FoundationPageFlipRimWidth,
-                    y = 0f,
-                ),
-                size = Size(FoundationPageFlipRimWidth, size.height),
-            )
+            drawRect(brush = brush, topLeft = Offset(left, 0f), size = Size(abs(edge - inner), size.height))
         } else {
             val top = min(edge, inner)
-            drawRect(
-                brush = shadeBrush,
-                topLeft = Offset(0f, top),
-                size = Size(size.width, abs(edge - inner)),
-            )
-            drawRect(
-                color = Color.White.copy(alpha = lighting.rimAlpha),
-                topLeft = Offset(
-                    x = 0f,
-                    y = if (side == FoundationFluidSide.Start) 0f else size.height - FoundationPageFlipRimWidth,
-                ),
-                size = Size(size.width, FoundationPageFlipRimWidth),
-            )
+            drawRect(brush = brush, topLeft = Offset(0f, top), size = Size(size.width, abs(edge - inner)))
         }
     }
 }
@@ -1313,38 +1269,23 @@ internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
     (FoundationMovieShadowAlpha * sin(progress.coerceIn(0f, 1f) * PI.toFloat())).coerceAtLeast(0f)
 
 /**
- * Draws PAGE_FLIP's wide cast shadow and narrow contact shadow on the underlying page. Whole-page
- * turns anchor both bands to the same directional hinge used by [foundationWholePageFlipSpec], so
- * a left-to-right previous-page swipe shades the right edge and casts inward beneath the sheet;
- * forward turns mirror that on the left. Split-half turns keep their contact on the moving edge and
- * cast toward the spine as it crosses between halves. Intensities come from
- * [foundationPageFlipLightingSpec], so both bands vanish on every settled endpoint.
- *
- * The shadow is painted after the underlying page content and before the rotating leaf sibling,
- * keeping it visible only beneath the raised sheet.
- *
- * @receiver The underlying page modifier this projected shadow is appended to.
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset Signed turn progress in `[-1, 1]`.
- * @param layout Whether the leaf folds the whole page as one sheet or splits it along the spine.
- * @return A modifier drawing the page and the projected cast/contact shadow above it.
+ * Draws StPageFlip's outer shadow on the uncovered page. Width grows linearly with turn progress,
+ * opacity fades linearly, and the band runs from the moving leaf edge to transparent. Existing
+ * projection math still chooses the uncovered receiver side.
  */
 private fun Modifier.foundationPageFlipProjectedShadow(
     axis: FoundationPagerAxis,
     pageOffset: Float,
     layout: FoundationPageFlipLayout,
 ): Modifier = drawWithCache {
-    val lighting = foundationPageFlipLightingSpec(pageOffset)
+    val shadow = foundationPageFlipShadowSpec(pageOffset, layout)
     val projection = foundationPageFlipProjectionSpec(pageOffset, layout)
-    val alpha = lighting.castAlpha
-    if (projection == null || alpha <= 0f) {
+    val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
+    val castWidth = (extent * shadow.outerWidthFraction).coerceAtMost(extent)
+    if (projection == null || shadow.opacity <= 0f || castWidth <= 0f) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
 
-    val lift = (lighting.castAlpha / FoundationPageFlipMaxCastAlpha).coerceIn(0f, 1f)
-    val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
-    val castWidth = (FoundationPageFlipPageShadowWidth + extent * FoundationPageFlipCastGrowthRatio * lift)
-        .coerceAtMost(extent)
     val contactPx = (projection.shadowEdgeFraction * extent).coerceIn(0f, extent)
     val castStart = when (projection.castDirection) {
         FoundationFluidSide.Start -> (contactPx - castWidth).coerceIn(0f, extent)
@@ -1354,36 +1295,24 @@ private fun Modifier.foundationPageFlipProjectedShadow(
         FoundationFluidSide.Start -> contactPx
         FoundationFluidSide.End -> (contactPx + castWidth).coerceIn(0f, extent)
     }
-    val castColors = when (projection.castDirection) {
-        FoundationFluidSide.Start -> listOf(Color.Transparent, Color.Black.copy(alpha = alpha))
-        FoundationFluidSide.End -> listOf(Color.Black.copy(alpha = alpha), Color.Transparent)
+    val colors = when (projection.castDirection) {
+        FoundationFluidSide.Start -> listOf(Color.Transparent, Color.Black.copy(alpha = shadow.opacity))
+        FoundationFluidSide.End -> listOf(Color.Black.copy(alpha = shadow.opacity), Color.Transparent)
     }
-    val contactStart = (contactPx - FoundationPageFlipContactWidth / 2f).coerceIn(0f, extent)
-    val contactSpan = (FoundationPageFlipContactWidth).coerceAtMost(extent - contactStart)
 
     onDrawWithContent {
         drawContent()
         if (axis == FoundationPagerAxis.Horizontal) {
             drawRect(
-                brush = Brush.horizontalGradient(colors = castColors, startX = castStart, endX = castEnd),
+                brush = Brush.horizontalGradient(colors = colors, startX = castStart, endX = castEnd),
                 topLeft = Offset(castStart, 0f),
                 size = Size((castEnd - castStart).coerceAtLeast(0f), size.height),
             )
-            drawRect(
-                color = Color.Black.copy(alpha = lighting.contactAlpha),
-                topLeft = Offset(contactStart, 0f),
-                size = Size(contactSpan.coerceAtLeast(0f), size.height),
-            )
         } else {
             drawRect(
-                brush = Brush.verticalGradient(colors = castColors, startY = castStart, endY = castEnd),
+                brush = Brush.verticalGradient(colors = colors, startY = castStart, endY = castEnd),
                 topLeft = Offset(0f, castStart),
                 size = Size(size.width, (castEnd - castStart).coerceAtLeast(0f)),
-            )
-            drawRect(
-                color = Color.Black.copy(alpha = lighting.contactAlpha),
-                topLeft = Offset(0f, contactStart),
-                size = Size(size.width, contactSpan.coerceAtLeast(0f)),
             )
         }
     }
@@ -1837,12 +1766,6 @@ internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Flo
     FoundationPagerPage.Previous, FoundationPagerPage.Next -> 2f - abs(pageOffset).coerceIn(0f, 1f)
 }
 
-/** Which physical face of a PAGE_FLIP leaf is currently visible and therefore lit. */
-internal enum class FoundationPageFlipSurface {
-    Front,
-    Back,
-}
-
 /**
  * Which quadrant (for [FoundationPageFlipLayout.WholePage]'s hinge shadow) or half (for
  * [FoundationPageFlipLayout.SplitHalfFold]'s spine) of the page a [FoundationPageFlipHalfBox] or
@@ -1853,6 +1776,16 @@ internal enum class FoundationPageFlipHalf {
     Bottom,
     Left,
     Right,
+}
+
+/** The outer free edge of a clipped half, where StPageFlip's inner shadow begins. */
+internal fun foundationPageFlipHalfShadowSide(half: FoundationPageFlipHalf): FoundationFluidSide = when (half) {
+    FoundationPageFlipHalf.Left,
+    FoundationPageFlipHalf.Top,
+        -> FoundationFluidSide.Start
+    FoundationPageFlipHalf.Right,
+    FoundationPageFlipHalf.Bottom,
+        -> FoundationFluidSide.End
 }
 
 /** Whether [PageAnimation.PAGE_FLIP] folds the whole page as one sheet, or splits it into two hinged halves. */
@@ -1883,64 +1816,55 @@ internal data class FoundationWholePageFlipSpec(
 )
 
 /**
- * Unified PAGE_FLIP lighting for the turning leaf and the page underneath it.
+ * Reference-driven dimensions for PAGE_FLIP's outer cast and moving-leaf inner shadow.
  *
- * @property side The physical edge the cast/contact shadow hugs, or null while settled.
- * @property frontShadeAlpha Diffuse shade over the outgoing leaf's front face.
- * @property backShadeAlpha Lighter shade over the incoming leaf's back face.
- * @property rimAlpha Highlight intensity directly on the turning edge.
- * @property castAlpha Wide shadow opacity projected onto the underlying page.
- * @property contactAlpha Narrow shadow opacity at the leaf's contact edge.
+ * @property side The moving free edge, or null at the untouched start position.
+ * @property outerWidthFraction Outer-shadow width as a fraction of the full viewport extent.
+ * @property innerWidthFraction Inner-shadow width as a fraction of the full viewport extent.
+ * @property opacity Shared shadow opacity.
  */
-internal data class FoundationPageFlipLightingSpec(
+internal data class FoundationPageFlipShadowSpec(
     val side: FoundationFluidSide?,
-    val frontShadeAlpha: Float,
-    val backShadeAlpha: Float,
-    val rimAlpha: Float,
-    val castAlpha: Float,
-    val contactAlpha: Float,
+    val outerWidthFraction: Float,
+    val innerWidthFraction: Float,
+    val opacity: Float,
 )
 
 /**
- * Computes one PAGE_FLIP lighting frame from signed turn progress. Every intensity follows a
- * half-sine: zero on both settled pages and strongest while the sheet is edge-on. The sign changes
- * only the physical shadow edge, keeping forward/backward and horizontal/vertical lighting equal.
- *
- * @param pageOffset Signed pager progress in `[-1, 1]`; values outside are clamped.
- * @return Surface and projected-shadow intensities for this turn frame.
+ * Implements StPageFlip's `0.75 * leafWidth * progress` outer width and
+ * `maxOpacity * (1 - progress)` fade. The maximum alpha follows Harism's page-curl shadow color;
+ * split spreads use half the viewport because one leaf occupies half the spread.
  */
-internal fun foundationPageFlipLightingSpec(pageOffset: Float): FoundationPageFlipLightingSpec {
+internal fun foundationPageFlipShadowSpec(
+    pageOffset: Float,
+    layout: FoundationPageFlipLayout,
+): FoundationPageFlipShadowSpec {
     val offset = pageOffset.coerceIn(-1f, 1f)
     val progress = abs(offset)
-    val intensity = if (progress == 0f || progress == 1f) {
-        0f
-    } else {
-        sin(progress * PI.toFloat()).coerceIn(0f, 1f)
+    val leafWidthFraction = when (layout) {
+        FoundationPageFlipLayout.WholePage -> 1f
+        FoundationPageFlipLayout.SplitHalfFold -> 0.5f
     }
-    return FoundationPageFlipLightingSpec(
+    val outerWidth = FoundationPageFlipOuterWidthRatio * leafWidthFraction * progress
+    return FoundationPageFlipShadowSpec(
         side = when {
-            offset > 0f -> FoundationFluidSide.Start
-            offset < 0f -> FoundationFluidSide.End
+            offset > 0f -> FoundationFluidSide.End
+            offset < 0f -> FoundationFluidSide.Start
             else -> null
         },
-        frontShadeAlpha = 0.22f * intensity,
-        backShadeAlpha = 0.10f * intensity,
-        rimAlpha = 0.18f * intensity,
-        castAlpha = FoundationPageFlipMaxCastAlpha * intensity,
-        contactAlpha = 0.34f * intensity,
+        outerWidthFraction = outerWidth,
+        innerWidthFraction = outerWidth * FoundationPageFlipInnerWidthRatio,
+        opacity = FoundationPageFlipMaxShadowAlpha * (1f - progress),
     )
 }
 
 /**
  * Describes where PAGE_FLIP's contact/cast shadow originates and which way it extends on the
- * underlying page. Whole-page turns use the directional rotation hinge; split-half turns use the
- * moving fold edge as it crosses the spine. [Modifier.foundationPageFlipProjectedShadow] consumes
- * both fields directly.
+ * underlying page. Both layouts use the moving free edge and cast onto the uncovered side of the
+ * incoming page. [Modifier.foundationPageFlipProjectedShadow] consumes both fields directly.
  *
- * @property shadowEdgeFraction Where the contact and cast shadow originate. Whole-page turns use
- *   the fixed directional hinge; split-half turns retain the moving edge that crosses the spine.
- * @property castDirection Which way the cast extends from [shadowEdgeFraction]: inward beneath a
- *   whole-page sheet or toward the spine for a split-half fold.
+ * @property shadowEdgeFraction Where the contact and cast shadow originate along the turn axis.
+ * @property castDirection Which uncovered side the cast extends onto from [shadowEdgeFraction].
  */
 internal data class FoundationPageFlipProjectionSpec(
     val shadowEdgeFraction: Float,
@@ -1951,19 +1875,19 @@ internal data class FoundationPageFlipProjectionSpec(
  * Computes the shadow/contact edge and cast direction for one PAGE_FLIP frame, or null on settled
  * endpoints so no stale band survives a completed or cancelled turn.
  *
- * A whole-page leaf uses the same directional pivot as [foundationWholePageFlipSpec]: the start edge
- * for a forward turn and the end edge for a backward turn. The cast extends inward from that hinge
- * beneath the raised sheet.
+ * A whole-page leaf uses the same directional pivot as [foundationWholePageFlipSpec], while its
+ * free edge sweeps toward that pivot along the projected cosine of the rotation. The cast extends
+ * away from the leaf onto the incoming page exposed beyond that moving edge.
  *
  * A split-half leaf always pivots on the spine at `0.5`. Its free edge starts at the outgoing
  * half's outer edge, reaches the spine while edge-on, then continues onto the opposite incoming half
  * as the fold completes, along `0.5 + direction * 0.5 * cos(progress * PI)`, where `direction` is
  * the outgoing side (toward the end for a forward turn, toward the start for a backward one). The
  * receiver follows the half the edge is actually in before vs. after the spine crossing, and the
- * cast points back toward the spine — the side opposite the receiver — rather than staying on the
- * sign-derived half the whole turn. At the exact edge-on midpoint the moving edge lands on the spine
- * itself (`cos(PI/2) = 0`); the receiver is then resolved deterministically toward the incoming
- * half (the side the leaf is crossing onto), so the frame is never ambiguous.
+ * cast extends farther into that uncovered half rather than underneath the opaque leaf toward the
+ * spine. At the exact edge-on midpoint the moving edge lands on the spine itself (`cos(PI/2) = 0`);
+ * the receiver is then resolved deterministically toward the incoming half (the side the leaf is
+ * crossing onto), so the frame is never ambiguous.
  *
  * @param pageOffset Signed pager progress in `[-1, 1]`; its magnitude is the turn progress and its
  *   sign the turn direction. Values outside the range are clamped.
@@ -1982,9 +1906,11 @@ internal fun foundationPageFlipProjectionSpec(
     return when (layout) {
         FoundationPageFlipLayout.WholePage -> {
             val pivot = if (offset > 0f) 0f else 1f
+            val free = 1f - pivot
+            val movingEdge = pivot + (free - pivot) * cos(progress * (PI.toFloat() / 2f))
             val cast = if (pivot == 0f) FoundationFluidSide.End else FoundationFluidSide.Start
             FoundationPageFlipProjectionSpec(
-                shadowEdgeFraction = pivot,
+                shadowEdgeFraction = movingEdge,
                 castDirection = cast,
             )
         }
@@ -1998,10 +1924,7 @@ internal fun foundationPageFlipProjectionSpec(
                 movingEdge < 0.5f - FoundationPageFlipSpineEpsilon -> FoundationFluidSide.Start
                 else -> incomingSide
             }
-            val cast = when (receiver) {
-                FoundationFluidSide.End -> FoundationFluidSide.Start
-                FoundationFluidSide.Start -> FoundationFluidSide.End
-            }
+            val cast = receiver
             FoundationPageFlipProjectionSpec(
                 shadowEdgeFraction = movingEdge,
                 castDirection = cast,
@@ -3428,26 +3351,17 @@ private const val FoundationMovieEdgeShadowAlpha = 0.28f
 /** The width, in pixels, of the movie-carousel's incoming-edge shadow ([Modifier.foundationMovieCarouselShadow]); chosen by eye, no formula. */
 private const val FoundationMovieShadowWidth = 54f
 
-/** The PAGE_FLIP cast shadow's peak opacity, shared by its pure lighting spec and width normalisation. */
-private const val FoundationPageFlipMaxCastAlpha = 0.22f
+/** StPageFlip's outer-shadow width relative to one leaf at full progress. */
+private const val FoundationPageFlipOuterWidthRatio = 0.75f
 
-/** The minimum PAGE_FLIP cast-shadow width in pixels before lift-dependent growth. */
-private const val FoundationPageFlipPageShadowWidth = 44f
+/** StPageFlip's inner-shadow width relative to its outer shadow. */
+private const val FoundationPageFlipInnerWidthRatio = 0.75f
 
-/** The additional fraction of the page extent covered by the cast shadow while the leaf is edge-on. */
-private const val FoundationPageFlipCastGrowthRatio = 0.18f
+/** Harism page-curl's maximum inner shadow alpha. */
+private const val FoundationPageFlipMaxShadowAlpha = 0.5f
 
-/** The narrow PAGE_FLIP contact-shadow width in pixels at the outer edge or spread spine. */
-private const val FoundationPageFlipContactWidth = 3f
+/** StPageFlip's faint inner-shadow stop between its two dark bands. */
+private const val FoundationPageFlipInnerFaintAlpha = 0.05f
 
 /** Numerical tolerance around the normalized spread spine used for deterministic receiver selection. */
 private const val FoundationPageFlipSpineEpsilon = 0.0001f
-
-/** The fraction of rim intensity reused as soft paper-colored bounce light on the back face. */
-private const val FoundationPageFlipBackLightRatio = 0.35f
-
-/** The PAGE_FLIP turning-edge highlight width in pixels. */
-private const val FoundationPageFlipRimWidth = 2f
-
-/** The surface-gradient width as a fraction of the leaf extent. */
-private const val FoundationPageFlipHingeWidthRatio = 0.22f
