@@ -79,6 +79,7 @@ import com.tedd.teddreader.core.common.model.ReaderPageBreaker
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.resolveSystemTheme
+import com.tedd.teddreader.core.common.model.withThemeMode
 import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -92,7 +93,6 @@ import com.tedd.teddreader.core.ui.component.TeddFullScreenLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddIcon
 import com.tedd.teddreader.core.ui.component.TeddIconButton
 import com.tedd.teddreader.core.ui.icon.TeddIcons
-import com.tedd.teddreader.core.ui.component.TeddLoadingIndicator
 import com.tedd.teddreader.core.ui.component.TeddModalBottomSheet
 import com.tedd.teddreader.core.ui.component.TeddOptionGroup
 import com.tedd.teddreader.core.ui.component.TeddRadioRow
@@ -182,7 +182,10 @@ fun ReaderRouteScreen(
     // colour, so no pagination is invalidated.
     val systemInDarkTheme = isSystemInDarkTheme()
     val uiState = remember(persistedUiState, systemInDarkTheme) {
-        persistedUiState.copy(style = persistedUiState.style.resolveSystemTheme(systemInDarkTheme))
+        persistedUiState.copy(
+            style = readerStyleForDocumentFormat(persistedUiState.style, persistedUiState.documentFormat)
+                .resolveSystemTheme(systemInDarkTheme),
+        )
     }
 
     var goToPageText by rememberSaveable(documentId, uiState.pageIndex.current) {
@@ -566,11 +569,6 @@ private fun ReaderContent(
 
     ReaderSystemBarsEffect(
         visible = uiState.isControlsVisible || uiState.activeSheet != null,
-        backgroundColor = if (uiState.isControlsVisible) {
-            uiState.style.readerColors().controls
-        } else {
-            uiState.style.readerColors().background
-        },
         keepScreenOn = uiState.keepScreenOn,
     )
     val movieTransitionProgress = remember { mutableFloatStateOf(0f) }
@@ -602,31 +600,25 @@ private fun ReaderContent(
             }
         }
     }
-    // The loaded families are held TOGETHER with the file map they were loaded from. produceState keeps
-    // its previous value for the frame between a key change and its producer running, so a value without
-    // its provenance let one frame pair the previous (empty) families with a fresh "fonts resolved" flag
-    // — and that one frame was enough to measure the whole book in fallback type.
+    // Keep loaded publisher families attached to the file set, not to a transient live/draw font
+    // choice. A font override can then switch back to publisher type without one fallback-font
+    // measurement escaping before the real families are ready.
     val resolvedEmbeddedFontFamilies by produceState<Pair<Map<String, String>, Map<String, FontFamily>>?>(
-        initialValue = if (uiState.pageDrawStyle.fontFamilyName != null) uiState.embeddedFontFiles to emptyMap() else null,
+        initialValue = null,
         uiState.embeddedFontFiles,
-        uiState.pageDrawStyle.fontFamilyName,
     ) {
         val fontFiles = uiState.embeddedFontFiles
-        value = if (uiState.pageDrawStyle.fontFamilyName != null) {
-            fontFiles to emptyMap()
-        } else {
-            value = null
-            fontFiles to withContext(Dispatchers.Default) {
-                loadReaderEmbeddedFontFamilies(fontFiles)
-            }
+        value = null
+        value = fontFiles to withContext(Dispatchers.Default) {
+            loadReaderEmbeddedFontFamilies(fontFiles)
         }
     }
-    // Complete = the view-model has resolved the whole document's font set AND those exact files are
-    // loaded as families here. Measuring pages is a whole-book act, so the gate must carry the whole
-    // book's final fonts: any weaker gate measured the book in fallback type, and every page whose real
-    // type ran longer was clipped when drawn.
-    val embeddedFontResolutionComplete = uiState.areEmbeddedFontsResolved &&
-        resolvedEmbeddedFontFamilies?.first == uiState.embeddedFontFiles
+    val embeddedFontResolutionComplete = readerEmbeddedFontsReadyForMeasurement(
+        style = uiState.style,
+        areEmbeddedFontsResolved = uiState.areEmbeddedFontsResolved,
+        embeddedFontFiles = uiState.embeddedFontFiles,
+        loadedEmbeddedFontFiles = resolvedEmbeddedFontFamilies?.first,
+    )
     val sharedEmbeddedFontFamilies = remember(resolvedEmbeddedFontFamilies) {
         resolvedEmbeddedFontFamilies?.second?.toImmutableMap() ?: persistentMapOf()
     }
@@ -1083,17 +1075,10 @@ private fun ReaderContent(
  * — [EpubPageSurface] and `ReaderPageSurface` — draw with [ReaderUiState.pageDrawStyle], so the
  * slices they draw are never a step ahead of the type they were actually cut for.
  *
- * One hole this split does not close: the `produceState` in `ReaderContent`, above this function,
- * keys `embeddedFontFamiliesByHref` on [ReaderUiState.pageDrawStyle]'s font family so a document
- * font pinned mid-window still gets its publisher families. Going the other way — a reader font
- * pinned while the live style asks for the document's own font again — keeps that map empty while
- * the breaker measures the live, publisher-font style, so the book is sliced once in fallback type;
- * once the pin catches up and the real families load, the corrected report lands at the same style
- * and pixel box and is silently ignored as a no-op. Pages then stay sliced in fallback type while
- * drawn in the real publisher fonts. This is pre-existing on `develop` — an unkeyed `remember`
- * there already lets the same stale families/style pair survive the one composition where the font
- * flips, with the same silent ignore — so this change only widens the window, it does not create or
- * fix it.
+ * Embedded publisher families are retained by file set above this function rather than keyed to
+ * either style. When the live style switches back to publisher type, measurement stays closed until
+ * those exact files have produced families; [ReaderUiState.pageDrawStyle] can therefore keep drawing
+ * the old override while the new breaker waits, without a fallback-font page layout escaping.
  *
  * @param uiState The reader's current state; supplies the style, format, and page content this pane
  * renders.
@@ -1110,6 +1095,8 @@ private fun ReaderContent(
  * vertical insets (see `TeddReaderSpacing`), the reader text-page contract `DESIGN.md` specifies.
  * @param modifier Applied to this pane's root.
  */
+internal fun readerPagePaneShouldMeasure(reportViewportSize: Boolean): Boolean = reportViewportSize
+
 @Composable
 private fun ReaderPagePane(
     uiState: ReaderUiState,
@@ -1155,22 +1142,26 @@ private fun ReaderPagePane(
             var textAreaPx by remember { mutableStateOf(IntSize.Zero) }
             val currentSlot = uiState.pageSlot(page)
             val publisherPageMargins = uiState.publisherPageMargins
-            val pageBreaker = rememberReaderPageBreaker(
-                style = uiState.style,
-                widthPx = textAreaPx.width,
-                heightPx = textAreaPx.height,
-                embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
-                canMeasure = if (uiState.documentFormat == DocumentFormat.EPUB) {
-                    // The breaker measures the whole book, so the gate carries the whole book's fonts —
-                    // a page-local check let a fontless cover page open the gate for every styled page.
-                    embeddedFontResolutionComplete && (
-                        currentSlot == null ||
-                            canMeasureEpubPage(currentSlot, uiState.style, embeddedFontFamiliesByHref, failedResolvedFontHrefs)
-                        )
-                } else {
-                    true
-                },
-            )
+            val pageBreaker = if (readerPagePaneShouldMeasure(reportViewportSize)) {
+                rememberReaderPageBreaker(
+                    style = uiState.style,
+                    widthPx = textAreaPx.width,
+                    heightPx = textAreaPx.height,
+                    embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
+                    canMeasure = if (uiState.documentFormat == DocumentFormat.EPUB) {
+                        // The breaker measures the whole book, so the gate carries the whole book's fonts —
+                        // a page-local check let a fontless cover page open the gate for every styled page.
+                        embeddedFontResolutionComplete && (
+                            currentSlot == null ||
+                                canMeasureEpubPage(currentSlot, uiState.style, embeddedFontFamiliesByHref, failedResolvedFontHrefs)
+                            )
+                    } else {
+                        true
+                    },
+                )
+            } else {
+                null
+            }
             LaunchedEffect(pageBreaker, textAreaPx, reportViewportSize, embeddedFontResolutionComplete) {
                 if (pageBreaker != null && reportViewportSize && textAreaPx.width > 0 && textAreaPx.height > 0) {
                     onPageBreakerChanged(
@@ -1297,10 +1288,9 @@ private fun ReaderAutoScrollEffect(
 
 /**
  * Hosts whichever reader option sheet is currently open, in a shared [TeddModalBottomSheet], and
- * dispatches to the one sheet composable matching [sheet]. Also shows a saving indicator while
- * [ReaderUiState.isSavingSettings], so every sheet gets that feedback without repeating it. Every
- * parameter beyond [sheet]/[uiState]/[onDismiss] belongs to one specific sheet and is forwarded
- * straight through to it; this composable does not otherwise interpret them.
+ * dispatches to the one sheet composable matching [sheet]. Every parameter beyond
+ * [sheet]/[uiState]/[onDismiss] belongs to one specific sheet and is forwarded straight through to
+ * it; this composable does not otherwise interpret them.
  *
  * @param sheet Which option sheet to show.
  * @param uiState The reader's current state, read by every individual sheet.
@@ -1385,9 +1375,6 @@ private fun ReaderActiveSheet(
                 .fillMaxWidth()
                 .verticalScroll(scrollState),
         ) {
-            if (uiState.isSavingSettings) {
-                TeddLoadingIndicator(message = stringResource(Res.string.saving_reader_settings))
-            }
             when (sheet) {
                 ReaderOptionSheet.TableOfContents -> TableOfContentsSheet(
                     uiState = uiState,
@@ -1442,7 +1429,6 @@ private fun ReaderActiveSheet(
                     onSpeedChange = onAutoScrollSpeedChange,
                 )
                 ReaderOptionSheet.Brightness -> BrightnessOptionsSheet(
-                    uiState = uiState,
                     brightnessDraft = brightnessDraft,
                     onBrightnessDraftChange = onBrightnessDraftChange,
                     onBrightnessOverlayAlphaChange = onBrightnessOverlayAlphaChange,
@@ -1669,8 +1655,6 @@ private fun GoToPageSheet(
  * drag finishes, not on every intermediate value, and is clamped to 0.8 so some page content always
  * stays visible even at the darkest setting.
  *
- * @param uiState The reader's current state; used here only to disable the slider while settings
- * are saving.
  * @param brightnessDraft The slider's in-progress value, before it is committed.
  * @param onBrightnessDraftChange Invoked as the slider is dragged.
  * @param onBrightnessOverlayAlphaChange Invoked with the resulting overlay alpha once the drag
@@ -1679,7 +1663,6 @@ private fun GoToPageSheet(
  */
 @Composable
 private fun BrightnessOptionsSheet(
-    uiState: ReaderUiState,
     brightnessDraft: Float,
     onBrightnessDraftChange: (Float) -> Unit,
     onBrightnessOverlayAlphaChange: (Float) -> Unit,
@@ -1699,7 +1682,6 @@ private fun BrightnessOptionsSheet(
             },
             valueRange = 20f..100f,
             valueLabel = "${brightnessDraft.roundToInt()}%",
-            enabled = !uiState.isSavingSettings,
         )
     }
 }
@@ -1709,8 +1691,7 @@ private fun BrightnessOptionsSheet(
  * format, plus a zoom slider that only appears in visual (PDF/image) mode, where zoom is a page
  * transform rather than a text-layout concern.
  *
- * @param uiState The reader's current state; determines whether visual mode is active and whether
- * controls should be disabled while saving.
+ * @param uiState The reader's current state; determines whether visual mode is active.
  * @param pdfZoom The current visual-mode zoom level, shown and adjusted by the slider.
  * @param onPdfZoomChange Invoked as the zoom slider is dragged.
  * @param onKeepScreenOnChange Invoked when the keep-screen-on switch is toggled.
@@ -1729,9 +1710,9 @@ private fun ViewOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(title = stringResource(Res.string.display), modifier = modifier) {
-        TeddSwitchRow(stringResource(Res.string.keep_screen_on), uiState.keepScreenOn, onKeepScreenOnChange, enabled = !uiState.isSavingSettings)
-        TeddSwitchRow(stringResource(Res.string.fullscreen_reader), uiState.fullscreen, onFullscreenChange, enabled = !uiState.isSavingSettings)
-        TeddSwitchRow(stringResource(Res.string.show_progress), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(stringResource(Res.string.keep_screen_on), uiState.keepScreenOn, onKeepScreenOnChange)
+        TeddSwitchRow(stringResource(Res.string.fullscreen_reader), uiState.fullscreen, onFullscreenChange)
+        TeddSwitchRow(stringResource(Res.string.show_progress), uiState.showProgress, onShowProgressChange)
         if (uiState.isVisualMode) {
             TeddSliderRow(
                 title = stringResource(Res.string.visual_zoom),
@@ -1741,7 +1722,6 @@ private fun ViewOptionsSheet(
                 valueRange = 100f..400f,
                 steps = 11,
                 valueLabel = "${(pdfZoom * 100f).roundToInt()}%",
-                enabled = !uiState.isSavingSettings,
             )
         }
     }
@@ -1753,7 +1733,7 @@ private fun ViewOptionsSheet(
  * result while still dragging instead of only after releasing the slider.
  *
  * @param uiState The reader's current state; supplies the committed style everything but the
- * preview is based on, and whether controls should be disabled while saving.
+ * preview is based on.
  * @param fontSizeDraft The font size slider's in-progress value, before it is committed.
  * @param onFontSizeDraftChange Invoked as the font size slider is dragged.
  * @param lineHeightPercentDraft The line height slider's in-progress value, as a percentage.
@@ -1796,7 +1776,6 @@ private fun FontOptionsSheet(
                 valueRange = ReaderPinchFontSizeRange,
                 steps = FontSizeSliderSteps,
                 valueLabel = "${fontSizeDraft.roundToInt()}sp",
-                enabled = !uiState.isSavingSettings,
             )
             TeddSliderRow(
                 title = stringResource(Res.string.line_height),
@@ -1806,7 +1785,6 @@ private fun FontOptionsSheet(
                 valueRange = 100f..300f,
                 steps = LineHeightSliderSteps,
                 valueLabel = "${lineHeightPercentDraft.roundToInt()}%",
-                enabled = !uiState.isSavingSettings,
             )
         }
         TeddOptionGroup(
@@ -1818,25 +1796,21 @@ private fun FontOptionsSheet(
                 title = stringResource(Res.string.font_family_document),
                 selected = uiState.style.fontFamilyName == null,
                 onClick = { onFontFamilyChange(null) },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_family_sans),
                 selected = uiState.style.fontFamilyName == "sans",
                 onClick = { onFontFamilyChange("sans") },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_family_serif),
                 selected = uiState.style.fontFamilyName == "serif",
                 onClick = { onFontFamilyChange("serif") },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_family_mono),
                 selected = uiState.style.fontFamilyName == "mono",
                 onClick = { onFontFamilyChange("mono") },
-                enabled = !uiState.isSavingSettings,
             )
         }
         TeddOptionGroup(
@@ -1848,25 +1822,21 @@ private fun FontOptionsSheet(
                 title = stringResource(Res.string.font_weight_light),
                 selected = uiState.style.fontWeight == 300,
                 onClick = { onFontWeightChange(300) },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_weight_regular),
                 selected = uiState.style.fontWeight == 400,
                 onClick = { onFontWeightChange(400) },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_weight_medium),
                 selected = uiState.style.fontWeight == 500,
                 onClick = { onFontWeightChange(500) },
-                enabled = !uiState.isSavingSettings,
             )
             TeddRadioRow(
                 title = stringResource(Res.string.font_weight_semibold),
                 selected = uiState.style.fontWeight == 600,
                 onClick = { onFontWeightChange(600) },
-                enabled = !uiState.isSavingSettings,
             )
         }
         ReaderOptionPreview(
@@ -1879,15 +1849,41 @@ private fun FontOptionsSheet(
     }
 }
 
+/** The first theme row adapts to the format instead of duplicating document and system fallback modes. */
+internal fun readerThemeModeOptions(documentFormat: DocumentFormat): List<ReaderThemeMode> = listOf(
+    if (documentFormat.hasPublisherAppearance) ReaderThemeMode.PUBLISHER else ReaderThemeMode.SYSTEM,
+    ReaderThemeMode.LIGHT,
+    ReaderThemeMode.DARK,
+    ReaderThemeMode.SEPIA,
+)
+
+/** Normalizes legacy document/system values to the single adaptive mode supported by this format. */
+internal fun readerStyleForDocumentFormat(style: ReaderStyle, documentFormat: DocumentFormat): ReaderStyle =
+    if (style.themeMode == ReaderThemeMode.PUBLISHER || style.themeMode == ReaderThemeMode.SYSTEM) {
+        style.withThemeMode(
+            if (documentFormat.hasPublisherAppearance) ReaderThemeMode.PUBLISHER else ReaderThemeMode.SYSTEM,
+        )
+    } else {
+        style
+    }
+
+private val DocumentFormat.hasPublisherAppearance: Boolean
+    get() = this == DocumentFormat.EPUB || this == DocumentFormat.PDF
+
+internal fun readerEmbeddedFontsReadyForMeasurement(
+    style: ReaderStyle,
+    areEmbeddedFontsResolved: Boolean,
+    embeddedFontFiles: Map<String, String>,
+    loadedEmbeddedFontFiles: Map<String, String>?,
+): Boolean =
+    style.fontFamilyName != null ||
+        (areEmbeddedFontsResolved && (
+            embeddedFontFiles.isEmpty() || loadedEmbeddedFontFiles == embeddedFontFiles
+        ))
+
 /**
- * The theme sheet: a live preview of the current style followed by a radio choice between the
- * reader's theme modes. [ReaderThemeMode.CUSTOM] is deliberately not offered here as a selectable
- * option — it exists as a state a style can be in, not one this sheet lets the user choose into.
- *
- * @param uiState The reader's current state; supplies the style shown in the preview and the active
- * theme mode.
- * @param onThemeModeChange Invoked when a theme radio option is chosen.
- * @param modifier Applied to the sheet's content column.
+ * The theme sheet: a live preview of the current style followed by the choices supported by this
+ * document format. [ReaderThemeMode.CUSTOM] remains a stored state, not a selectable option.
  */
 @Composable
 private fun ThemeOptionsSheet(
@@ -1906,12 +1902,11 @@ private fun ThemeOptionsSheet(
             previewText = stringResource(Res.string.theme_preview_text),
         )
         TeddOptionGroup(title = null, isSelectableGroup = true) {
-            listOf(ReaderThemeMode.PUBLISHER, ReaderThemeMode.SYSTEM, ReaderThemeMode.LIGHT, ReaderThemeMode.DARK, ReaderThemeMode.SEPIA).forEach { mode ->
+            readerThemeModeOptions(uiState.documentFormat).forEach { mode ->
                 TeddRadioRow(
-                    title = mode.themeLabel(uiState.documentFormat),
+                    title = mode.themeLabel(),
                     selected = uiState.style.themeMode == mode,
                     onClick = { onThemeModeChange(mode) },
-                    enabled = !uiState.isSavingSettings,
                 )
             }
         }
@@ -1925,8 +1920,7 @@ private fun ThemeOptionsSheet(
  * [ReaderUiState.pageAnimation], since a "default transition" and a "page effect" are the same
  * underlying setting presented as two different pickers.
  *
- * @param uiState The reader's current state; supplies the active direction/animation and whether
- * controls should be disabled while saving.
+ * @param uiState The reader's current state; supplies the active direction and animation.
  * @param onPageTurnModeChange Invoked when a direction radio option is chosen.
  * @param onPageAnimationChange Invoked when a transition or effect radio option is chosen.
  * @param modifier Applied to the sheet's content column.
@@ -1945,7 +1939,6 @@ private fun PageTurnOptionsSheet(
                     title = mode.pageTurnLabel(),
                     selected = uiState.pageTurnMode == mode,
                     onClick = { onPageTurnModeChange(mode) },
-                    enabled = !uiState.isSavingSettings,
                 )
             }
         }
@@ -1955,7 +1948,6 @@ private fun PageTurnOptionsSheet(
                     title = animation.pageAnimationLabel(),
                     selected = uiState.pageAnimation == animation,
                     onClick = { onPageAnimationChange(animation) },
-                    enabled = !uiState.isSavingSettings,
                 )
             }
         }
@@ -1965,7 +1957,6 @@ private fun PageTurnOptionsSheet(
                     title = animation.pageAnimationLabel(),
                     selected = uiState.pageAnimation == animation,
                     onClick = { onPageAnimationChange(animation) },
-                    enabled = !uiState.isSavingSettings,
                 )
             }
         }
@@ -1999,9 +1990,9 @@ private fun AutoScrollOptionsSheet(
     modifier: Modifier = Modifier,
 ) {
     TeddOptionGroup(title = null, modifier = modifier) {
-        TeddSwitchRow(stringResource(Res.string.enabled), uiState.autoScrollConfig.enabled, onEnabledChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(stringResource(Res.string.enabled), uiState.autoScrollConfig.enabled, onEnabledChange)
         AutoScrollMode.entries.forEach { mode ->
-            val isModeEnabled = !uiState.isSavingSettings && !(uiState.isVisualMode && mode == AutoScrollMode.LINE)
+            val isModeEnabled = !(uiState.isVisualMode && mode == AutoScrollMode.LINE)
             TeddRadioRow(
                 title = mode.autoScrollLabel(),
                 selected = uiState.autoScrollConfig.mode == mode,
@@ -2016,7 +2007,6 @@ private fun AutoScrollOptionsSheet(
             onValueChangeFinished = { onSpeedChange(speedDraft) },
             valueRange = AutoScrollConfig.MIN_SPEED..AutoScrollConfig.MAX_SPEED,
             steps = SpeedSliderSteps,
-            enabled = !uiState.isSavingSettings,
         )
     }
 }
@@ -2025,8 +2015,7 @@ private fun AutoScrollOptionsSheet(
  * The bottom-bar sheet: currently a single switch for whether the reading-progress indicator shows
  * in the bottom action bar.
  *
- * @param uiState The reader's current state; supplies whether progress is currently shown and
- * whether the switch should be disabled while saving.
+ * @param uiState The reader's current state; supplies whether progress is currently shown.
  * @param onShowProgressChange Invoked when the show-progress switch is toggled.
  * @param modifier Applied to the sheet's content group.
  */
@@ -2041,7 +2030,7 @@ private fun ControlOptionsSheet(
         modifier = modifier,
         description = stringResource(Res.string.bottom_bar_description),
     ) {
-        TeddSwitchRow(stringResource(Res.string.show_page_progress), uiState.showProgress, onShowProgressChange, enabled = !uiState.isSavingSettings)
+        TeddSwitchRow(stringResource(Res.string.show_page_progress), uiState.showProgress, onShowProgressChange)
     }
 }
 
@@ -2373,13 +2362,10 @@ private fun ReaderUiState.pageTextFor(page: Int): String {
  * @receiver The theme mode to label.
  */
 @Composable
-private fun ReaderThemeMode.themeLabel(documentFormat: DocumentFormat): String = when (this) {
-    ReaderThemeMode.PUBLISHER -> when (documentFormat) {
-        DocumentFormat.EPUB -> stringResource(Res.string.epub_style)
-        DocumentFormat.PDF -> stringResource(Res.string.pdf_style)
-        else -> stringResource(Res.string.document_style)
-    }
-    ReaderThemeMode.SYSTEM -> stringResource(Res.string.follow_system)
+private fun ReaderThemeMode.themeLabel(): String = when (this) {
+    ReaderThemeMode.PUBLISHER,
+    ReaderThemeMode.SYSTEM,
+        -> stringResource(Res.string.system_style)
     ReaderThemeMode.LIGHT -> stringResource(Res.string.light)
     ReaderThemeMode.DARK -> stringResource(Res.string.dark)
     ReaderThemeMode.SEPIA -> stringResource(Res.string.sepia)

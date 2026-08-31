@@ -62,7 +62,13 @@ internal actual fun PlatformPdfPageSurface(
         },
         update = { view ->
             if (view.document !== document) view.document = document
-            document.pageAtIndex(pageIndex.current.coerceAtLeast(0).toULong())?.let(view::goToPage)
+            val targetPage = document.pageAtIndex(pageIndex.current.coerceAtLeast(0).toULong())
+            if (targetPage != null && readerPdfShouldNavigate(view.currentPage, targetPage)) {
+                view.goToPage(targetPage)
+            }
         },
     )
 }
+
+internal fun readerPdfShouldNavigate(currentPage: Any?, targetPage: Any?): Boolean =
+    targetPage != null && currentPage !== targetPage

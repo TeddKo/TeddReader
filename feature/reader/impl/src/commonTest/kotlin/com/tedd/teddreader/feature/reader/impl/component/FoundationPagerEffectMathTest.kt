@@ -431,29 +431,28 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationPageFlipLightingSpec] mirrors only the physical shadow side between
-     * forward and backward turns while keeping both directions equally lit.
+     * Verifies the reference shadow stays on the turning leaf's free edge while forward and
+     * backward turns retain identical dimensions and opacity.
      */
     @Test
-    fun `page flip lighting is symmetric across turn directions`() {
-        val next = foundationPageFlipLightingSpec(0.5f)
-        val previous = foundationPageFlipLightingSpec(-0.5f)
+    fun `page flip shadow follows swipe free edge`() {
+        val next = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val previous = foundationPageFlipShadowSpec(-0.5f, FoundationPageFlipLayout.WholePage)
 
-        assertEquals(FoundationFluidSide.Start, next.side)
-        assertEquals(FoundationFluidSide.End, previous.side)
-        assertEquals(next.frontShadeAlpha, previous.frontShadeAlpha, tolerance)
-        assertEquals(next.backShadeAlpha, previous.backShadeAlpha, tolerance)
-        assertEquals(next.castAlpha, previous.castAlpha, tolerance)
-        assertEquals(next.contactAlpha, previous.contactAlpha, tolerance)
+        assertEquals(FoundationFluidSide.End, next.side)
+        assertEquals(FoundationFluidSide.Start, previous.side)
+        assertEquals(next.outerWidthFraction, previous.outerWidthFraction, tolerance)
+        assertEquals(next.innerWidthFraction, previous.innerWidthFraction, tolerance)
+        assertEquals(next.opacity, previous.opacity, tolerance)
     }
 
     /**
-     * Verifies a whole-page flip keeps its cast/contact shadow on the physical hinge while the free
-     * edge moves across the page. A previous-page turn is a left-to-right swipe hinged at the right
-     * edge, so its shadow must originate on the right and cast inward; the forward turn mirrors it.
+     * Verifies a whole-page flip casts from the raised leaf's moving free edge onto the exposed
+     * incoming page. A forward/left swipe exposes the end side beyond that edge; a backward/right
+     * swipe mirrors the edge and cast around the page center.
      */
     @Test
-    fun `whole page flip shadow stays on directional hinge`() {
+    fun `whole page flip shadow follows moving edge onto incoming page`() {
         val next = requireNotNull(
             foundationPageFlipProjectionSpec(
                 pageOffset = 0.5f,
@@ -467,18 +466,18 @@ class FoundationPagerEffectMathTest {
             ),
         )
 
-        assertEquals(0f, next.shadowEdgeFraction, tolerance)
+        assertTrue(next.shadowEdgeFraction > 0.5f)
         assertEquals(FoundationFluidSide.End, next.castDirection)
-        assertEquals(1f, previous.shadowEdgeFraction, tolerance)
+        assertEquals(1f, next.shadowEdgeFraction + previous.shadowEdgeFraction, tolerance)
         assertEquals(FoundationFluidSide.Start, previous.castDirection)
     }
 
     /**
-     * Verifies a split-half leaf moves through the spine onto the opposite receiver half, switching
-     * the cast direction after edge-on instead of keeping a sign-derived shadow on the wrong half.
+     * Verifies a split-half leaf's shadow follows its moving edge and extends onto the uncovered
+     * receiver side instead of underneath the opaque leaf toward the spine.
      */
     @Test
-    fun `spread page flip shadow crosses the spine with the leaf`() {
+    fun `spread page flip shadow crosses the spine onto uncovered side`() {
         val beforeSpine = requireNotNull(
             foundationPageFlipProjectionSpec(
                 pageOffset = 0.25f,
@@ -499,16 +498,16 @@ class FoundationPagerEffectMathTest {
         )
 
         assertTrue(beforeSpine.shadowEdgeFraction > 0.5f)
-        assertEquals(FoundationFluidSide.Start, beforeSpine.castDirection)
+        assertEquals(FoundationFluidSide.End, beforeSpine.castDirection)
         assertEquals(0.5f, atSpine.shadowEdgeFraction, tolerance)
-        assertEquals(FoundationFluidSide.End, atSpine.castDirection)
+        assertEquals(FoundationFluidSide.Start, atSpine.castDirection)
         assertTrue(afterSpine.shadowEdgeFraction < 0.5f)
-        assertEquals(FoundationFluidSide.End, afterSpine.castDirection)
+        assertEquals(FoundationFluidSide.Start, afterSpine.castDirection)
     }
 
     /**
      * Verifies projected PAGE_FLIP shadows are absent at every settled endpoint, matching the
-     * existing lighting contract and preventing a stale contact line after cancel or completion.
+     * reference shadow contract and preventing a stale band after cancel or completion.
      */
     @Test
     fun `page flip projection vanishes at settled endpoints`() {
@@ -544,35 +543,42 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies PAGE_FLIP lighting is absent on both settled pages and peaks while the leaf is
-     * edge-on, so no stale dimming remains after either a completed or cancelled turn.
+     * Verifies the StPageFlip reference progression: outer width grows to 75% of one leaf while
+     * opacity falls linearly from Harism's 0.5 inner-shadow alpha to zero.
      */
     @Test
-    fun `page flip lighting peaks mid turn and vanishes at both ends`() {
-        val start = foundationPageFlipLightingSpec(0f)
-        val middle = foundationPageFlipLightingSpec(0.5f)
-        val end = foundationPageFlipLightingSpec(1f)
+    fun `page flip shadow follows reference width and opacity progression`() {
+        val start = foundationPageFlipShadowSpec(0f, FoundationPageFlipLayout.WholePage)
+        val middle = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val end = foundationPageFlipShadowSpec(1f, FoundationPageFlipLayout.WholePage)
 
-        assertEquals(0f, start.castAlpha, tolerance)
-        assertEquals(0f, start.contactAlpha, tolerance)
-        assertEquals(0f, end.castAlpha, tolerance)
-        assertEquals(0f, end.contactAlpha, tolerance)
-        assertTrue(middle.castAlpha > 0f)
-        assertTrue(middle.contactAlpha > middle.castAlpha)
+        assertEquals(0f, start.outerWidthFraction, tolerance)
+        assertEquals(0.5f, start.opacity, tolerance)
+        assertEquals(0.375f, middle.outerWidthFraction, tolerance)
+        assertEquals(0.25f, middle.opacity, tolerance)
+        assertEquals(0.75f, end.outerWidthFraction, tolerance)
+        assertEquals(0f, end.opacity, tolerance)
+        assertEquals(middle.outerWidthFraction * 0.75f, middle.innerWidthFraction, tolerance)
     }
 
-    /**
-     * Verifies the turning leaf's front and back use distinct surface lighting while retaining a
-     * visible rim highlight at the fold, rather than applying one flat dim overlay to both faces.
-     */
+    /** A spread leaf is half a viewport, so both reference shadow bands must be half as wide. */
     @Test
-    fun `page flip lights front and back surfaces independently`() {
-        val lighting = foundationPageFlipLightingSpec(0.5f)
+    fun `spread page flip shadow uses half viewport leaf width`() {
+        val whole = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val spread = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.SplitHalfFold)
 
-        assertTrue(lighting.frontShadeAlpha > 0f)
-        assertTrue(lighting.backShadeAlpha > 0f)
-        assertTrue(lighting.frontShadeAlpha != lighting.backShadeAlpha)
-        assertTrue(lighting.rimAlpha > 0f)
+        assertEquals(whole.outerWidthFraction * 0.5f, spread.outerWidthFraction, tolerance)
+        assertEquals(whole.innerWidthFraction * 0.5f, spread.innerWidthFraction, tolerance)
+        assertEquals(whole.opacity, spread.opacity, tolerance)
+    }
+
+    /** The inner band must touch each clipped half's outer free edge, not land outside its clip. */
+    @Test
+    fun `spread page flip inner shadow follows clipped half free edge`() {
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Left))
+        assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Right))
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Top))
+        assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Bottom))
     }
 
     /**

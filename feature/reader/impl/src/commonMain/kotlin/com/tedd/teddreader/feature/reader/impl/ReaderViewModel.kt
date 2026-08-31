@@ -40,6 +40,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
@@ -239,6 +241,9 @@ class ReaderViewModel(
      */
     private var savedPlacesJob: Job? = null
 
+    /** The live subscription that keeps this open reader aligned with app-wide persisted settings. */
+    private var readerSettingsJob: Job? = null
+
     /**
      * The in-flight fetch [loadVisualPagesAround] started for the pages currently missing from
      * [visualPageCache]; cancelled and replaced by the next call.
@@ -334,7 +339,12 @@ class ReaderViewModel(
      */
     fun openDocument(documentIdValue: String) {
         val documentId = DocumentId(documentIdValue)
-        if (currentDocumentId == documentId) return
+        val currentState = _uiState.value
+        if (
+            currentDocumentId == documentId &&
+            !currentState.isLoading &&
+            currentState.errorMessage == null
+        ) return
         currentDocumentId = documentId
         openDocumentJob?.cancel()
         viewportReloadJob?.cancel()
@@ -343,6 +353,7 @@ class ReaderViewModel(
         embeddedFontLoadJob?.cancel()
         importContinuationJob?.cancel()
         paginationContinuationJob?.cancel()
+        readerSettingsJob?.cancel()
         paginated = PaginatedDocument()
         paginatedStyle = null
         anchorOffset = null
@@ -367,6 +378,7 @@ class ReaderViewModel(
             try {
                 val state = loadOpenState(documentId) ?: return@launch
                 if (!publishFirstFrame(state)) return@launch
+                observeReaderSettings(state.documentId)
                 if (state.documentFormat == DocumentFormat.EPUB) loadAllEmbeddedFonts()
                 publishRest(state)
                 startContinuations(state)
@@ -1302,26 +1314,56 @@ class ReaderViewModel(
         saveReaderSettings { readerSettingsRepository.updateAutoScrollConfig(normalizedConfig) }
     }
 
+    private fun observeReaderSettings(documentId: DocumentId) {
+        readerSettingsJob?.cancel()
+        readerSettingsJob = viewModelScope.launch {
+            var isInitialEmission = true
+            readerSettingsRepository.settings.collect { settings ->
+                if (currentDocumentId != documentId) return@collect
+                applyReaderSettings(
+                    settings = settings,
+                    preserveAutoScrollEnabled = isInitialEmission,
+                )
+                isInitialEmission = false
+            }
+        }
+    }
+
+    private fun applyReaderSettings(
+        settings: ReaderSettings,
+        preserveAutoScrollEnabled: Boolean = false,
+    ) {
+        val before = _uiState.value
+        val style = styleWithPublisherFontKey(settings.style, before.documentFormat)
+        if (before.style.layoutKey() != style.layoutKey()) pendingMoveNextStep = null
+        val autoScrollConfig = if (preserveAutoScrollEnabled) {
+            settings.autoScrollConfig.copy(enabled = before.autoScrollConfig.enabled)
+        } else {
+            settings.autoScrollConfig
+        }
+        _uiState.update { state ->
+            state.copy(
+                style = styleWithPublisherFontKey(settings.style, state.documentFormat),
+                pageTurnMode = settings.pageTurnMode,
+                pageAnimation = settings.pageAnimation,
+                autoScrollConfig = autoScrollConfig,
+                isControlsVisible = state.isControlsVisible && !autoScrollConfig.enabled,
+            )
+        }
+    }
+
     /**
-     * Runs [block] as a persistence write, publishing [ReaderUiState.isSavingSettings] around it and
-     * an error message if it throws — the shared shape every settings setter in this class persists
-     * through, so each of them does not repeat its own loading/error bookkeeping.
-     *
-     * @param block the suspending write to perform; any exception it throws is caught and turned
-     *   into [ReaderUiState.errorMessage] rather than propagating.
+     * Persists one reader setting without blocking or rearranging the option sheet. The repository
+     * flow is the shared source of truth; a failed optimistic reader update is restored from it.
      */
     private fun saveReaderSettings(block: suspend () -> Unit) {
-        _uiState.update { state -> state.copy(isSavingSettings = true, errorMessage = null) }
         viewModelScope.launch {
-            suspendRunCatching { block() }
-                .onFailure { throwable ->
-                    _uiState.update {
-                        it.copy(
-                            errorMessage = throwable.message ?: "Failed to save reader settings."
-                        )
-                    }
+            val failure = suspendRunCatching { block() }.exceptionOrNull() ?: return@launch
+            logger.w(failure) { "Failed to save reader settings" }
+            suspendRunCatching { readerSettingsRepository.settings.first() }
+                .onSuccess { settings ->
+                    applyReaderSettings(settings, preserveAutoScrollEnabled = true)
                 }
-            _uiState.update { state -> state.copy(isSavingSettings = false) }
         }
     }
 

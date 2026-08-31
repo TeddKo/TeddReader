@@ -216,14 +216,14 @@ fun ReaderSettingsSheet(
         ) {
             listOf(
                 ReaderThemeMode.PUBLISHER,
-                ReaderThemeMode.SYSTEM,
                 ReaderThemeMode.LIGHT,
                 ReaderThemeMode.DARK,
                 ReaderThemeMode.SEPIA,
             ).forEach { mode ->
                 TeddRadioRow(
                     title = mode.displayName(),
-                    selected = uiState.style.themeMode == mode,
+                    selected = uiState.style.themeMode == mode ||
+                        (mode == ReaderThemeMode.PUBLISHER && uiState.style.themeMode == ReaderThemeMode.SYSTEM),
                     onClick = { onStyleChange(uiState.style.withThemeMode(mode)) },
                 )
             }
@@ -365,8 +365,9 @@ private fun AppLanguage.displayName(): String = when (this) {
  */
 @Composable
 private fun ReaderThemeMode.displayName(): String = when (this) {
-    ReaderThemeMode.PUBLISHER -> stringResource(Res.string.document_style)
-    ReaderThemeMode.SYSTEM -> stringResource(Res.string.follow_system)
+    ReaderThemeMode.PUBLISHER,
+    ReaderThemeMode.SYSTEM,
+        -> stringResource(Res.string.system_style)
     ReaderThemeMode.LIGHT -> stringResource(Res.string.light)
     ReaderThemeMode.DARK -> stringResource(Res.string.dark)
     ReaderThemeMode.SEPIA -> stringResource(Res.string.sepia)

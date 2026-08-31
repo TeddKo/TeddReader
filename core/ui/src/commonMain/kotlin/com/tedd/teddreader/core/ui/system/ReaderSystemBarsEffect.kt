@@ -4,24 +4,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 /**
- * Puts the reader screen into (and cleanly back out of) its own system-chrome state while it is on
- * screen: syncing the status/navigation bar color to the page background, hiding them entirely when
- * the reader's own controls are hidden, and keeping the screen awake while reading — all state that
- * belongs to the OS window, not to Compose, and that must be restored to what it was before the
- * reader took it over once the reader leaves. Android and iOS expose entirely different APIs for
- * this (or, on iOS, none at all), hence the `expect`/`actual` split rather than a shared
- * implementation.
+ * Applies the app-wide theme colour and matching icon contrast to the platform system bars.
+ * This is composed once at the app root so home, search, settings, document info, and reader all
+ * receive the same persisted reader-theme update.
  *
- * @param visible Whether the system status/navigation bars should be shown; false hides them for an
- * immersive reading view.
- * @param backgroundColor The reader's current page background, used both to color the system bars
- * and to decide whether their icons should render light or dark for contrast.
- * @param keepScreenOn Whether the device's screen should be prevented from sleeping while this
- * effect is active.
+ * @param backgroundColor The current global theme's opaque page colour.
+ */
+@Composable
+expect fun SystemBarsThemeEffect(backgroundColor: Color)
+
+/**
+ * Owns only the reader-specific window behavior: immersive visibility and keeping the screen awake.
+ * System bar colour and icon contrast remain the app root's responsibility.
+ *
+ * @param visible Whether the system status/navigation bars should be shown.
+ * @param keepScreenOn Whether the device's screen should stay awake while reading.
  */
 @Composable
 expect fun ReaderSystemBarsEffect(
     visible: Boolean,
-    backgroundColor: Color,
     keepScreenOn: Boolean,
 )

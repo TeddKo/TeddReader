@@ -492,31 +492,26 @@ fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) 
 }
 
 /**
- * Applies the platform's current dark-theme setting to a style that asked to follow it.
+ * Applies the platform's current dark-theme setting to a style whose fallback colours follow it.
  *
- * [ReaderThemeMode.SYSTEM] cannot be resolved at the moment it is chosen, because the answer changes
- * later — the user flips the system switch, or the device crosses into its night schedule, without ever
- * reopening this app's settings. So the stored style keeps the light page colours as a resting value
- * and the real decision is deferred to here, where the live system flag is available.
+ * [ReaderThemeMode.SYSTEM] and [ReaderThemeMode.PUBLISHER] both drive app chrome from the live system
+ * setting. Their stored fallback stays light because that setting can change later; on a dark device
+ * this function resolves both to dark paper and light ink so ReaderScreen does not combine dark chrome
+ * with a black-text fallback. EPUB foreground/background colours explicitly supplied by the publisher
+ * still override these fallbacks in the renderer because the mode remains [ReaderThemeMode.PUBLISHER].
  *
- * Without this step the app read as two halves under `SYSTEM` on a dark device: chrome resolved through
- * the system flag and went dark, while the page kept the light colours that were persisted when the mode
- * was picked. Only the page colours move; the mode itself is preserved so the setting still reads back as
- * "follow system" rather than silently rewriting itself to dark.
- *
- * Every other mode is returned untouched — an explicit light, dark, or sepia choice is a decision to
- * ignore the system setting, and [ReaderThemeMode.PUBLISHER] keeps the document's own colours.
- *
- * Page layout is unaffected: [layoutKey] covers type size, line height, family, and weight, so changing
- * colour never invalidates a stored pagination.
+ * Explicit light, dark, sepia, and custom modes are returned untouched. Page layout is unaffected:
+ * [layoutKey] contains no colour fields.
  *
  * @receiver the persisted style, whose [ReaderStyle.themeMode] decides whether anything changes.
  * @param systemInDarkTheme the platform's live dark-theme flag, sampled by the UI layer.
- * @return this style with the page colours the system currently calls for, or unchanged when the mode
- * does not follow the system.
+ * @return this style with dark fallback colours when its mode follows a dark system, otherwise unchanged.
  */
 fun ReaderStyle.resolveSystemTheme(systemInDarkTheme: Boolean): ReaderStyle =
-    if (themeMode == ReaderThemeMode.SYSTEM && systemInDarkTheme) {
+    if (
+        systemInDarkTheme &&
+        (themeMode == ReaderThemeMode.SYSTEM || themeMode == ReaderThemeMode.PUBLISHER)
+    ) {
         copy(
             textColor = ReaderColor(ReaderDarkTextArgb),
             backgroundColor = ReaderColor(ReaderDarkBackgroundArgb),

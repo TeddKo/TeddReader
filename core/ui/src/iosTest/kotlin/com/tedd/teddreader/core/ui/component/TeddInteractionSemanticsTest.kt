@@ -2,12 +2,14 @@ package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onParent
@@ -41,6 +43,24 @@ class TeddInteractionSemanticsTest {
      * test fails if someone lowers the token, instead of silently agreeing with the new value.
      */
     private val touchTarget = 48.dp
+
+    /** The dismiss scrim is the sheet's only click target; its visual drag handle is not one. */
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun bottomSheetDragHandleIsNotAClickTarget() = runComposeUiTest {
+        setContent {
+            TeddReaderTheme {
+                TeddModalBottomSheet(
+                    title = "Options",
+                    onDismissRequest = {},
+                ) {
+                    TeddText("Body")
+                }
+            }
+        }
+
+        onAllNodes(hasClickAction()).assertCountEquals(1)
+    }
 
     /**
      * A tappable chip reserves the 48dp touch floor while the pill it draws stays compact.

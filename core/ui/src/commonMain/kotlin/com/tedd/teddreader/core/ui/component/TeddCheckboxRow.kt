@@ -1,14 +1,13 @@
 package com.tedd.teddreader.core.ui.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LocalContentColor
@@ -75,6 +74,7 @@ fun TeddCheckboxRow(
                 )
                 .padding(resolvedContentPadding),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(spacing.medium),
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 TeddText(text = title, style = typography.settingTitle)
@@ -86,7 +86,6 @@ fun TeddCheckboxRow(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(spacing.medium))
             Checkbox(
                 checked = checked,
                 onCheckedChange = null,

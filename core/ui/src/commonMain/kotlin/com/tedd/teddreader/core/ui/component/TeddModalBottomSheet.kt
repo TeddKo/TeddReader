@@ -1,16 +1,17 @@
 package com.tedd.teddreader.core.ui.component
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.tedd.teddreader.core.designsystem.teddReaderColors
@@ -36,7 +37,9 @@ import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
  * expands an alias back to the annotated original.
  *
  * Sheets in this app open one at a time, so a per-sheet state behaves the same as the shared one it
- * replaced: only the sheet currently in composition has a state at all.
+ * replaced: only the sheet currently in composition has a state at all. Material's drag-handle slot
+ * is deliberately disabled and the same visual handle is rendered as ordinary content instead: the
+ * handle remains a swipe affordance without exposing Material's extra click-to-toggle action.
  *
  * @param title The sheet's header text, shown in [teddReaderTypography]'s `titleLarge` style.
  * @param onDismissRequest Invoked when the user dismisses the sheet (tap outside, swipe down, or
@@ -69,11 +72,16 @@ fun TeddModalBottomSheet(
         onDismissRequest = onDismissRequest,
         modifier = modifier,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = null,
     ) {
+        BottomSheetDefaults.DragHandle(
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .consumeUnconsumedVerticalScroll(),
+            verticalArrangement = Arrangement.spacedBy(spacing.medium),
         ) {
             Column(
                 modifier = Modifier.padding(
@@ -81,6 +89,7 @@ fun TeddModalBottomSheet(
                     top = spacing.large,
                     end = spacing.sheetPadding,
                 ),
+                verticalArrangement = Arrangement.spacedBy(spacing.xxSmall),
             ) {
                 TeddText(
                     text = title,
@@ -89,13 +98,11 @@ fun TeddModalBottomSheet(
                 if (description != null) {
                     TeddText(
                         text = description,
-                        modifier = Modifier.padding(top = spacing.xxSmall),
                         style = typography.settingDescription,
                         color = teddReaderColors().onSurfaceVariant,
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(spacing.medium))
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

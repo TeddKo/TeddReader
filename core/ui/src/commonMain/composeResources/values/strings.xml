@@ -51,14 +51,11 @@
     <string name="hands_free_reading">Hands-free reading</string>
     <string name="hands_free_reading_description">Automatic movement when you want the document to keep going.</string>
     <string name="system_default">System default</string>
-    <string name="follow_system">Follow system</string>
+    <string name="system_style">System style</string>
     <string name="light">Light</string>
     <string name="dark">Dark</string>
     <string name="sepia">Sepia</string>
     <string name="custom">Custom</string>
-    <string name="document_style">Document style</string>
-    <string name="pdf_style">PDF style</string>
-    <string name="epub_style">EPUB style</string>
     <string name="horizontal">Horizontal</string>
     <string name="vertical">Vertical</string>
     <string name="animation_none">None</string>
@@ -129,7 +126,6 @@
     <string name="remove_from_favorites">Remove from favorites</string>
     <string name="add_to_favorites">Add to favorites</string>
     <string name="opening_document">Opening document</string>
-    <string name="saving_reader_settings">Saving reader settings</string>
     <string name="contents">Contents</string>
     <string name="no_table_of_contents">No table of contents.</string>
     <string name="outline_section_title">Section %1$s</string>

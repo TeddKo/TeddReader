@@ -14,10 +14,17 @@ internal actual fun readerFontFamilyFromFile(path: String): FontFamily? =
         FontFamily(
             Font(
                 identity = path,
-                getData = { NSData.dataWithContentsOfFile(path)?.toByteArray() ?: ByteArray(0) },
+                getData = cachedReaderFontData {
+                    NSData.dataWithContentsOfFile(path)?.toByteArray() ?: ByteArray(0)
+                },
             ),
         )
     }.getOrNull()
+
+internal fun cachedReaderFontData(load: () -> ByteArray): () -> ByteArray {
+    val data by lazy(load)
+    return { data }
+}
 
 @OptIn(ExperimentalForeignApi::class)
 private fun NSData.toByteArray(): ByteArray {
