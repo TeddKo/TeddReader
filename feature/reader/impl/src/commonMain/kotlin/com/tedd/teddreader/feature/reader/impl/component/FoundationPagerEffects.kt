@@ -1313,19 +1313,15 @@ internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
     (FoundationMovieShadowAlpha * sin(progress.coerceIn(0f, 1f) * PI.toFloat())).coerceAtLeast(0f)
 
 /**
- * Draws PAGE_FLIP's wide cast shadow and narrow contact shadow on the page underneath the raised
- * leaf, anchored to the leaf's moving free edge rather than a fixed screen edge or spine. The
- * contact band sits exactly where [foundationPageFlipProjectionSpec] reports the moving edge, and
- * the cast fans out from there in the projection's [FoundationPageFlipProjectionSpec.castDirection]
- * — back under the leaf toward the pivot for a whole page, toward the spine for a spread — so the
- * shadow sweeps across the page with the leaf and switches halves when the edge crosses the centre,
- * instead of clinging to the outer edge or spine for the whole turn. Intensities come from
- * [foundationPageFlipLightingSpec], so the cast widens and darkens toward edge-on then vanishes
- * completely on both settled pages; a null projection at those endpoints skips all drawing.
+ * Draws PAGE_FLIP's wide cast shadow and narrow contact shadow on the underlying page. Whole-page
+ * turns anchor both bands to the same directional hinge used by [foundationWholePageFlipSpec], so
+ * a left-to-right previous-page swipe shades the right edge and casts inward beneath the sheet;
+ * forward turns mirror that on the left. Split-half turns keep their contact on the moving edge and
+ * cast toward the spine as it crosses between halves. Intensities come from
+ * [foundationPageFlipLightingSpec], so both bands vanish on every settled endpoint.
  *
- * The whole shadow is painted after the underlying page's own content, so it lies above that
- * content; the rotating leaf is a later sibling in the box and therefore still draws over the
- * shadow.
+ * The shadow is painted after the underlying page content and before the rotating leaf sibling,
+ * keeping it visible only beneath the raised sheet.
  *
  * @receiver The underlying page modifier this projected shadow is appended to.
  * @param axis Whether the fold turns along the horizontal or vertical axis.
@@ -1349,7 +1345,7 @@ private fun Modifier.foundationPageFlipProjectedShadow(
     val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
     val castWidth = (FoundationPageFlipPageShadowWidth + extent * FoundationPageFlipCastGrowthRatio * lift)
         .coerceAtMost(extent)
-    val contactPx = (projection.movingEdgeFraction * extent).coerceIn(0f, extent)
+    val contactPx = (projection.shadowEdgeFraction * extent).coerceIn(0f, extent)
     val castStart = when (projection.castDirection) {
         FoundationFluidSide.Start -> (contactPx - castWidth).coerceIn(0f, extent)
         FoundationFluidSide.End -> contactPx
@@ -1936,39 +1932,28 @@ internal fun foundationPageFlipLightingSpec(pageOffset: Float): FoundationPageFl
 }
 
 /**
- * Where the raised leaf's moving free edge currently sits on the underlying page and which way the
- * shadow it casts falls, so [Modifier.foundationPageFlipProjectedShadow] can anchor the cast to the
- * leaf's edge as it sweeps across the page instead of pinning the shadow to a fixed outer edge or
- * spine. The edge tracks the leaf: it starts at the free edge, races toward the pivot (whole page)
- * or across the spine (spread) as the leaf goes edge-on, and the receiver/cast flip when it crosses
- * the page centre, which is what fixing the split-fold's "shadow on the wrong half after edge-on"
- * regression requires.
+ * Describes where PAGE_FLIP's contact/cast shadow originates and which way it extends on the
+ * underlying page. Whole-page turns use the directional rotation hinge; split-half turns use the
+ * moving fold edge as it crosses the spine. [Modifier.foundationPageFlipProjectedShadow] consumes
+ * both fields directly.
  *
- * @property movingEdgeFraction Where the leaf's moving free edge sits along the turn axis, as a
- *   fraction of page extent in `[0, 1]`; the cast is darkest here and fades away from it.
- * @property receiverSide Which half of the page the moving edge currently lies in, and therefore
- *   which half receives the projected shadow.
- * @property castDirection Which way the cast band extends from the moving edge: for a whole page it
- *   points back under the leaf toward the pivot, for a spread it points toward the spine (the
- *   opposite side from [receiverSide]).
+ * @property shadowEdgeFraction Where the contact and cast shadow originate. Whole-page turns use
+ *   the fixed directional hinge; split-half turns retain the moving edge that crosses the spine.
+ * @property castDirection Which way the cast extends from [shadowEdgeFraction]: inward beneath a
+ *   whole-page sheet or toward the spine for a split-half fold.
  */
 internal data class FoundationPageFlipProjectionSpec(
-    val movingEdgeFraction: Float,
-    val receiverSide: FoundationFluidSide,
+    val shadowEdgeFraction: Float,
     val castDirection: FoundationFluidSide,
 )
 
 /**
- * Locates the raised leaf's moving free edge and the direction its shadow falls for one PAGE_FLIP
- * turn frame, or null on both settled endpoints so no stale contact line survives a completed or
- * cancelled turn (matching [foundationPageFlipLightingSpec]'s own vanish-at-endpoints contract).
+ * Computes the shadow/contact edge and cast direction for one PAGE_FLIP frame, or null on settled
+ * endpoints so no stale band survives a completed or cancelled turn.
  *
- * A whole-page leaf pivots on the edge the swipe hinges from — the start edge turning forward, the
- * end edge turning back — and its free edge is the opposite one. That free edge sweeps from the far
- * side of the page back toward the pivot along `pivot + (free - pivot) * cos(progress * PI / 2)`, so
- * it starts flat against the page (`cos 0 = 1`, edge at the free side) and reaches the pivot only
- * when the leaf is fully edge-on (`cos(PI/2) = 0`). The receiver is whichever half that edge lands
- * in, and the cast falls from the edge back under the leaf toward the pivot.
+ * A whole-page leaf uses the same directional pivot as [foundationWholePageFlipSpec]: the start edge
+ * for a forward turn and the end edge for a backward turn. The cast extends inward from that hinge
+ * beneath the raised sheet.
  *
  * A split-half leaf always pivots on the spine at `0.5`. Its free edge starts at the outgoing
  * half's outer edge, reaches the spine while edge-on, then continues onto the opposite incoming half
@@ -1997,13 +1982,9 @@ internal fun foundationPageFlipProjectionSpec(
     return when (layout) {
         FoundationPageFlipLayout.WholePage -> {
             val pivot = if (offset > 0f) 0f else 1f
-            val free = 1f - pivot
-            val movingEdge = pivot + (free - pivot) * cos(progress * (PI.toFloat() / 2f))
-            val receiver = if (movingEdge >= 0.5f) FoundationFluidSide.End else FoundationFluidSide.Start
-            val cast = if (pivot == 0f) FoundationFluidSide.Start else FoundationFluidSide.End
+            val cast = if (pivot == 0f) FoundationFluidSide.End else FoundationFluidSide.Start
             FoundationPageFlipProjectionSpec(
-                movingEdgeFraction = movingEdge,
-                receiverSide = receiver,
+                shadowEdgeFraction = pivot,
                 castDirection = cast,
             )
         }
@@ -2022,8 +2003,7 @@ internal fun foundationPageFlipProjectionSpec(
                 FoundationFluidSide.Start -> FoundationFluidSide.End
             }
             FoundationPageFlipProjectionSpec(
-                movingEdgeFraction = movingEdge,
-                receiverSide = receiver,
+                shadowEdgeFraction = movingEdge,
                 castDirection = cast,
             )
         }
