@@ -448,12 +448,12 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies a whole-page flip projects from the rotating leaf's moving free edge rather than a
-     * fixed screen edge, and that its cast extends from that edge back underneath the leaf toward
-     * the pivot. Opposite turns must mirror around the page center.
+     * Verifies a whole-page flip keeps its cast/contact shadow on the physical hinge while the free
+     * edge moves across the page. A previous-page turn is a left-to-right swipe hinged at the right
+     * edge, so its shadow must originate on the right and cast inward; the forward turn mirrors it.
      */
     @Test
-    fun `whole page flip shadow follows moving edge toward pivot`() {
+    fun `whole page flip shadow stays on directional hinge`() {
         val next = requireNotNull(
             foundationPageFlipProjectionSpec(
                 pageOffset = 0.5f,
@@ -467,12 +467,10 @@ class FoundationPagerEffectMathTest {
             ),
         )
 
-        assertTrue(next.movingEdgeFraction > 0.5f)
-        assertEquals(FoundationFluidSide.End, next.receiverSide)
-        assertEquals(FoundationFluidSide.Start, next.castDirection)
-        assertEquals(1f, next.movingEdgeFraction + previous.movingEdgeFraction, tolerance)
-        assertEquals(FoundationFluidSide.Start, previous.receiverSide)
-        assertEquals(FoundationFluidSide.End, previous.castDirection)
+        assertEquals(0f, next.shadowEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.End, next.castDirection)
+        assertEquals(1f, previous.shadowEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.Start, previous.castDirection)
     }
 
     /**
@@ -500,14 +498,11 @@ class FoundationPagerEffectMathTest {
             ),
         )
 
-        assertTrue(beforeSpine.movingEdgeFraction > 0.5f)
-        assertEquals(FoundationFluidSide.End, beforeSpine.receiverSide)
+        assertTrue(beforeSpine.shadowEdgeFraction > 0.5f)
         assertEquals(FoundationFluidSide.Start, beforeSpine.castDirection)
-        assertEquals(0.5f, atSpine.movingEdgeFraction, tolerance)
-        assertEquals(FoundationFluidSide.Start, atSpine.receiverSide)
+        assertEquals(0.5f, atSpine.shadowEdgeFraction, tolerance)
         assertEquals(FoundationFluidSide.End, atSpine.castDirection)
-        assertTrue(afterSpine.movingEdgeFraction < 0.5f)
-        assertEquals(FoundationFluidSide.Start, afterSpine.receiverSide)
+        assertTrue(afterSpine.shadowEdgeFraction < 0.5f)
         assertEquals(FoundationFluidSide.End, afterSpine.castDirection)
     }
 
