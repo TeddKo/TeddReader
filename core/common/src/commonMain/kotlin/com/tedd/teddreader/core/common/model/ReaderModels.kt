@@ -573,6 +573,7 @@ enum class PageAnimation {
     SHEET_FLIP,
     FLUID_PAGER,
     CURL_PAGER,
+    THREE_D_CURL,
     CIRCLE_REVEAL,
     MOVIE_CAROUSEL,
     PAGE_FLIP,

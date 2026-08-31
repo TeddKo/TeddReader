@@ -66,6 +66,7 @@
     <string name="animation_fade">페이드</string>
     <string name="animation_scroll">스크롤</string>
     <string name="animation_curl_pager">컬 페이지</string>
+    <string name="animation_three_d_curl">3D 컬</string>
     <string name="animation_fluid_pager">플루이드 페이지</string>
     <string name="animation_circle_reveal">원형 전환</string>
     <string name="animation_movie_carousel">무비 캐러셀</string>

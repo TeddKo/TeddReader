@@ -2089,6 +2089,7 @@ internal val readerDefaultTransitionOptions: List<PageAnimation> = listOf(
 internal val readerPageEffectOptions: List<PageAnimation> = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
+    PageAnimation.THREE_D_CURL,
     PageAnimation.CIRCLE_REVEAL,
     PageAnimation.MOVIE_CAROUSEL,
     PageAnimation.PAGE_FLIP,
@@ -2165,6 +2166,7 @@ internal fun readerAutoScrollPageMovement(
             PageAnimation.PAGE_FLIP,
             PageAnimation.BOOK_CURL,
             PageAnimation.CURL_PAGER,
+            PageAnimation.THREE_D_CURL,
                 -> null
 
             PageAnimation.NONE,
@@ -2420,6 +2422,7 @@ private fun PageAnimation.pageAnimationLabel(): String = when (this) {
     PageAnimation.BOOK_CURL,
     PageAnimation.CURL_PAGER,
         -> stringResource(Res.string.animation_curl_pager)
+    PageAnimation.THREE_D_CURL -> stringResource(Res.string.animation_three_d_curl)
     PageAnimation.FLUID_PAGER -> stringResource(Res.string.animation_fluid_pager)
     PageAnimation.CIRCLE_REVEAL -> stringResource(Res.string.animation_circle_reveal)
     PageAnimation.MOVIE_CAROUSEL -> stringResource(Res.string.animation_movie_carousel)

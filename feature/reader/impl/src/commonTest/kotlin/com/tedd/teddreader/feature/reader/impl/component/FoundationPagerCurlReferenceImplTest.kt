@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl.component
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import kotlin.math.PI
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -363,6 +364,31 @@ class FoundationPagerCurlReferenceImplTest {
             FoundationReferenceCurlTapAction.ToggleControls,
             foundationReferenceCurlTapAction(Offset(90f, 100f), size, FoundationReferenceCurlAxis.Horizontal, true, false),
         )
+    }
+
+    /**
+     * Verifies the 3D curl's front/back/rim/cast lighting exists only while the leaf is bent,
+     * peaks at a quarter turn, and vanishes again at both flat orientations.
+     */
+    @Test
+    fun threeDimensionalCurlLightingPeaksWhileLeafIsBent() {
+        val open = foundationReferenceThreeDCurlLightingSpec(0f)
+        val bent = foundationReferenceThreeDCurlLightingSpec((PI / 2.0).toFloat())
+        val closed = foundationReferenceThreeDCurlLightingSpec(PI.toFloat())
+
+        assertEquals(0f, open.frontShadeAlpha)
+        assertEquals(0f, open.backShadeAlpha)
+        assertEquals(0f, open.rimAlpha)
+        assertEquals(0f, open.shadowAlpha)
+        assertTrue(bent.frontShadeAlpha > 0f)
+        assertTrue(bent.backShadeAlpha > 0f)
+        assertTrue(bent.backLightAlpha > 0f)
+        assertTrue(bent.rimAlpha > 0f)
+        assertTrue(bent.shadowAlpha > 0f)
+        assertEquals(0f, closed.frontShadeAlpha, 0.0001f)
+        assertEquals(0f, closed.backShadeAlpha, 0.0001f)
+        assertEquals(0f, closed.rimAlpha, 0.0001f)
+        assertEquals(0f, closed.shadowAlpha, 0.0001f)
     }
 
     /**

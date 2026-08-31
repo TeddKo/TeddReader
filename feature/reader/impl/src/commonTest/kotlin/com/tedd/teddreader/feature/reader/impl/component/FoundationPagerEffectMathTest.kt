@@ -431,18 +431,20 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationWholePageFlipShadowSpec] casts its hinge shadow from the outgoing whole
-     * page's trailing edge — the start edge when turning forward, the end edge when turning back —
-     * and produces no spec at all at zero offset, where there is no fold to shade.
+     * Verifies [foundationPageFlipLightingSpec] mirrors only the physical shadow side between
+     * forward and backward turns while keeping both directions equally lit.
      */
     @Test
-    fun `page flip page shadow hinge follows outgoing whole page edge`() {
-        val next = foundationWholePageFlipShadowSpec(0.5f)
-        val previous = foundationWholePageFlipShadowSpec(-0.5f)
+    fun `page flip lighting is symmetric across turn directions`() {
+        val next = foundationPageFlipLightingSpec(0.5f)
+        val previous = foundationPageFlipLightingSpec(-0.5f)
 
-        assertEquals(FoundationFluidSide.Start, next?.side)
-        assertEquals(FoundationFluidSide.End, previous?.side)
-        assertEquals(null, foundationWholePageFlipShadowSpec(0f))
+        assertEquals(FoundationFluidSide.Start, next.side)
+        assertEquals(FoundationFluidSide.End, previous.side)
+        assertEquals(next.frontShadeAlpha, previous.frontShadeAlpha, tolerance)
+        assertEquals(next.backShadeAlpha, previous.backShadeAlpha, tolerance)
+        assertEquals(next.castAlpha, previous.castAlpha, tolerance)
+        assertEquals(next.contactAlpha, previous.contactAlpha, tolerance)
     }
 
     /**
@@ -470,34 +472,35 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationWholePageFlipShadowSpec]'s hinge-contact alpha grows monotonically as
-     * the fold offset approaches a full turn, rather than saturating early or non-monotonically.
+     * Verifies PAGE_FLIP lighting is absent on both settled pages and peaks while the leaf is
+     * edge-on, so no stale dimming remains after either a completed or cancelled turn.
      */
     @Test
-    fun `whole page shadow contact alpha grows monotonically toward edge on`() {
-        val quarter = foundationWholePageFlipShadowSpec(0.25f)
-        val half = foundationWholePageFlipShadowSpec(0.5f)
-        val full = foundationWholePageFlipShadowSpec(1f)
+    fun `page flip lighting peaks mid turn and vanishes at both ends`() {
+        val start = foundationPageFlipLightingSpec(0f)
+        val middle = foundationPageFlipLightingSpec(0.5f)
+        val end = foundationPageFlipLightingSpec(1f)
 
-        assertTrue(quarter != null)
-        assertTrue(half != null)
-        assertTrue(full != null)
-        assertTrue(quarter.contactAlpha > 0f)
-        assertTrue(quarter.contactAlpha < half.contactAlpha)
-        assertTrue(half.contactAlpha < full.contactAlpha)
+        assertEquals(0f, start.castAlpha, tolerance)
+        assertEquals(0f, start.contactAlpha, tolerance)
+        assertEquals(0f, end.castAlpha, tolerance)
+        assertEquals(0f, end.contactAlpha, tolerance)
+        assertTrue(middle.castAlpha > 0f)
+        assertTrue(middle.contactAlpha > middle.castAlpha)
     }
 
     /**
-     * Verifies [foundationWholePageFlipShadowSpec]'s whole-page ambient shade stays lighter than
-     * its hinge-contact shade, so the fold's crease reads darker than the rest of the turning page.
+     * Verifies the turning leaf's front and back use distinct surface lighting while retaining a
+     * visible rim highlight at the fold, rather than applying one flat dim overlay to both faces.
      */
     @Test
-    fun `whole page shadow keeps ambient shade below hinge contact shade`() {
-        val shadow = foundationWholePageFlipShadowSpec(0.5f)
+    fun `page flip lights front and back surfaces independently`() {
+        val lighting = foundationPageFlipLightingSpec(0.5f)
 
-        assertTrue(shadow != null)
-        assertTrue(shadow.ambientAlpha > 0f)
-        assertTrue(shadow.ambientAlpha < shadow.contactAlpha)
+        assertTrue(lighting.frontShadeAlpha > 0f)
+        assertTrue(lighting.backShadeAlpha > 0f)
+        assertTrue(lighting.frontShadeAlpha != lighting.backShadeAlpha)
+        assertTrue(lighting.rimAlpha > 0f)
     }
 
     /**

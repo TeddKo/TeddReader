@@ -70,6 +70,7 @@ class AutoScrollBehaviorTest {
             PageAnimation.PAGE_FLIP,
             PageAnimation.BOOK_CURL,
             PageAnimation.CURL_PAGER,
+            PageAnimation.THREE_D_CURL,
         )
         incrementalAnimations.forEach { animation ->
             assertNull(readerAutoScrollPageMovement(AutoScrollMode.PIXEL, animation))
