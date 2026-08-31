@@ -466,12 +466,12 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the PlayLikeCurl profile uses its reference 25-column mesh, leaves every strip
-     * unwarped at rest, keeps projected boundaries contiguous while bent, and moves the completed
-     * page fully beyond the start edge instead of rendering one planar reflected flap.
+     * Verifies the PlayLikeCurl profile uses its reference 25-column sinusoidal texture mesh, leaves every
+     * interval unwarped at rest, keeps projected boundaries monotonic and contiguous while bent, and moves
+     * the completed page fully beyond the start edge without reversed strips that can tear text.
      */
     @Test
-    fun threeDimensionalCurlUsesCylindricalStripMesh() {
+    fun threeDimensionalCurlUsesSinusoidalTextureMesh() {
         val rest = foundationReferenceThreeDCurlStripSpecs(0f)
         val bent = foundationReferenceThreeDCurlStripSpecs(0.5f)
         val complete = foundationReferenceThreeDCurlStripSpecs(1f)
@@ -485,8 +485,9 @@ class FoundationPagerCurlReferenceImplTest {
         bent.zipWithNext().forEach { (left, right) ->
             assertEquals(left.destinationEndFraction, right.destinationStartFraction, 0.0001f)
         }
-        assertTrue(bent.any { it.depthFraction > 0f })
-        assertTrue(bent.any { it.verticalScale > 1f })
+        assertTrue(bent.all { it.destinationEndFraction > it.destinationStartFraction })
+        assertTrue(bent.all { it.depthFraction > 0f })
+        assertTrue(bent.all { it.verticalScale > 1f })
         assertTrue(bent.last().destinationEndFraction < 1f)
         assertTrue(complete.maxOf { it.destinationEndFraction } < 0f)
     }
