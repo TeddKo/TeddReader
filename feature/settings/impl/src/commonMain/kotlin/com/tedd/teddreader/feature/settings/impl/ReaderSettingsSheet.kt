@@ -334,6 +334,7 @@ private val settingsDefaultTransitionOptions = listOf(
 private val settingsPageEffectOptions = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
+    PageAnimation.THREE_D_CURL,
     PageAnimation.CIRCLE_REVEAL,
     PageAnimation.MOVIE_CAROUSEL,
     PageAnimation.PAGE_FLIP,
@@ -408,6 +409,7 @@ private fun PageAnimation.displayName(): String = when (this) {
     PageAnimation.BOOK_CURL,
     PageAnimation.CURL_PAGER,
         -> stringResource(Res.string.animation_curl_pager)
+    PageAnimation.THREE_D_CURL -> stringResource(Res.string.animation_three_d_curl)
     PageAnimation.FLUID_PAGER -> stringResource(Res.string.animation_fluid_pager)
     PageAnimation.CIRCLE_REVEAL -> stringResource(Res.string.animation_circle_reveal)
     PageAnimation.MOVIE_CAROUSEL -> stringResource(Res.string.animation_movie_carousel)

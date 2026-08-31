@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
@@ -61,6 +62,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -84,6 +86,7 @@ import kotlin.math.sin
  * @param pageCount The total number of pages known so far.
  * @param pageStep How many pages one turn advances.
  * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
+ * @param style Whether the shared curl geometry uses the original paint treatment or 3D lighting.
  * @param canRequestNextPage Whether a text document at its known end should still forward a next
  *   request while pagination remains incomplete.
  * @param pageMoveRequest A pending programmatic page-move request, or null when none is
@@ -112,6 +115,7 @@ internal fun FoundationPagerCurlReferenceImpl(
     pageCount: Int,
     pageStep: Int,
     pageTurnMode: PageTurnMode,
+    style: FoundationReferenceCurlStyle,
     canRequestNextPage: Boolean,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
@@ -357,7 +361,11 @@ internal fun FoundationPagerCurlReferenceImpl(
                     .foundationCancelPagerPlacement(axis, pageOffset)
                     .zIndex(foundationReferenceCurlZIndex(pageOffset))
                     .run {
-                        if (isSpread || leafEdge == null) this else foundationReferenceDrawCurl(axis, leafEdge)
+                        if (isSpread || leafEdge == null) {
+                            this
+                        } else {
+                            foundationReferenceDrawCurl(axis, leafEdge, style)
+                        }
                     },
             ) {
                 if (documentPage != null && !skipSpreadPage) {
@@ -367,6 +375,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 previousLeftPage = documentPage,
                                 currentLeftPage = pageKey,
                                 axis = axis,
+                                style = style,
                                 leafEdge = requireNotNull(leafEdge),
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
@@ -377,6 +386,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                             FoundationReferenceSpread(
                                 leftPage = documentPage,
                                 axis = axis,
+                                style = style,
                                 leafEdge = leafEdge,
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
@@ -420,11 +430,14 @@ internal fun FoundationPagerCurlReferenceImpl(
  *
  * The back face is pre-mirrored (`scaleX = -1f`) so that the fold's own reflection lands it right-reading;
  * without the pre-mirror the text on a turning leaf's back reads backwards.
+ *
+ * @param style Whether the leaf uses standard painting or the 3D lighting profile.
  */
 @Composable
 private fun FoundationReferenceSpread(
     leftPage: Int,
     axis: FoundationReferenceCurlAxis,
+    style: FoundationReferenceCurlStyle,
     leafEdge: FoundationReferenceCurlEdge?,
     gutter: Dp,
     leftWeight: Float,
@@ -440,7 +453,11 @@ private fun FoundationReferenceSpread(
             paneContent(
                 leftPage + 1,
                 Modifier.fillMaxSize().run {
-                    if (leafEdge == null) this else foundationReferenceDrawLeafFront(axis, leafEdge)
+                    if (leafEdge == null) {
+                        this
+                    } else {
+                        foundationReferenceDrawLeafFront(axis, leafEdge, style)
+                    }
                 },
             )
             if (leafEdge != null) {
@@ -448,7 +465,7 @@ private fun FoundationReferenceSpread(
                     leftPage + 2,
                     Modifier
                         .fillMaxSize()
-                        .foundationReferenceDrawLeafBack(axis, leafEdge)
+                        .foundationReferenceDrawLeafBack(axis, leafEdge, style)
                         .graphicsLayer { scaleX = -1f },
                 )
             }
@@ -474,6 +491,7 @@ private fun FoundationReferenceSpread(
  * @param previousLeftPage the page this backward turn is revealing.
  * @param currentLeftPage the page currently showing, whose leaf is folding away from it.
  * @param axis whether the fold runs horizontally or vertically.
+ * @param style Whether the leaf uses standard painting or the 3D lighting profile.
  * @param leafEdge the leaf's current fold edge, in canonical coordinates.
  * @param gutter the gap between the two panes.
  * @param leftWeight the fraction of the spread's width given to the left pane.
@@ -485,6 +503,7 @@ private fun FoundationReferenceBackwardSpread(
     previousLeftPage: Int,
     currentLeftPage: Int,
     axis: FoundationReferenceCurlAxis,
+    style: FoundationReferenceCurlStyle,
     leafEdge: FoundationReferenceCurlEdge,
     gutter: Dp,
     leftWeight: Float,
@@ -501,13 +520,23 @@ private fun FoundationReferenceBackwardSpread(
                 currentLeftPage,
                 Modifier
                     .fillMaxSize()
-                    .foundationReferenceDrawLeafFront(axis, leafEdge, mirrorHorizontally = true),
+                    .foundationReferenceDrawLeafFront(
+                        axis = axis,
+                        edge = leafEdge,
+                        style = style,
+                        mirrorHorizontally = true,
+                    ),
             )
             paneContent(
                 previousLeftPage + 1,
                 Modifier
                     .fillMaxSize()
-                    .foundationReferenceDrawLeafBack(axis, leafEdge, mirrorHorizontally = true),
+                    .foundationReferenceDrawLeafBack(
+                        axis = axis,
+                        edge = leafEdge,
+                        style = style,
+                        mirrorHorizontally = true,
+                    ),
             )
         }
         Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight())
@@ -1110,10 +1139,13 @@ private fun foundationReferenceTapSpec(
  * @param axis whether the fold runs horizontally or vertically.
  * @param edge the leaf's current fold edge; `left`/`right` are the two rest positions, anything else is
  *   mid-turn.
+ * @param style Whether to preserve standard curl painting or add the 3D lighting profile.
+ * @return The modifier drawing the selected curl appearance.
  */
 private fun Modifier.foundationReferenceDrawCurl(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
+    style: FoundationReferenceCurlStyle,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
@@ -1124,25 +1156,95 @@ private fun Modifier.foundationReferenceDrawCurl(
     }
     val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
         ?: return@drawWithCache onDrawWithContent { drawContent() }
+    val lighting = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
+        foundationReferenceThreeDCurlLightingSpec(fold.angle)
+    } else {
+        null
+    }
+    val crease = ((edge.top.x + edge.bottom.x) / 2f)
+        .coerceIn(0f, canonicalSize.width.toFloat())
+    val frontShade = lighting?.let {
+        if (axis == FoundationReferenceCurlAxis.Horizontal) {
+            Brush.horizontalGradient(
+                listOf(Color.Transparent, Color.Black.copy(alpha = it.frontShadeAlpha)),
+                startX = 0f,
+                endX = crease.coerceAtLeast(1f),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(Color.Transparent, Color.Black.copy(alpha = it.frontShadeAlpha)),
+                startY = 0f,
+                endY = crease.coerceAtLeast(1f),
+            )
+        }
+    }
+    val backShade = lighting?.let {
+        if (axis == FoundationReferenceCurlAxis.Horizontal) {
+            Brush.horizontalGradient(
+                listOf(
+                    Color.White.copy(alpha = it.backLightAlpha),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = it.backShadeAlpha),
+                ),
+                startX = crease,
+                endX = canonicalSize.width.toFloat().coerceAtLeast(crease + 1f),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = it.backLightAlpha),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = it.backShadeAlpha),
+                ),
+                startY = crease,
+                endY = canonicalSize.width.toFloat().coerceAtLeast(crease + 1f),
+            )
+        }
+    }
 
     onDrawWithContent {
         clipPath(fold.clippedPath) {
             this@onDrawWithContent.drawContent()
+            if (frontShade != null) drawRect(frontShade)
         }
         withTransform({ fold.applyTo(this, axis) }) {
-            fold.drawShadow(this, axis)
+            fold.drawShadow(
+                scope = this,
+                axis = axis,
+                alpha = lighting?.shadowAlpha ?: FoundationReferenceShadowAlpha,
+            )
             clipPath(fold.polygon.toPath(axis)) {
                 this@onDrawWithContent.drawContent()
-                drawRect(Color.White.copy(alpha = FoundationReferenceBackOverlayAlpha))
+                if (backShade == null) {
+                    drawRect(Color.White.copy(alpha = FoundationReferenceBackOverlayAlpha))
+                } else {
+                    drawRect(backShade)
+                    drawLine(
+                        color = Color.White.copy(alpha = lighting.rimAlpha),
+                        start = axis.fromCanonical(fold.polygon.vertices.first()),
+                        end = axis.fromCanonical(fold.polygon.vertices.last()),
+                        strokeWidth = FoundationReferenceThreeDRimWidthPx,
+                    )
+                }
             }
         }
     }
 }
 
-/** Leaf front face: everything on the spine side of the fold line stays flat. */
+/**
+ * Draws the leaf's flat front face, adding only the 3D profile's crease-directed diffuse shade.
+ *
+ * @receiver The page composable's modifier chain.
+ * @param axis Whether the fold runs horizontally or vertically.
+ * @param edge The leaf's current fold edge.
+ * @param style Whether to preserve standard painting or add 3D lighting.
+ * @param mirrorHorizontally Whether a backward spread mirrors this leaf about its spine.
+ * @return The modifier drawing the clipped and optionally lit front face.
+ */
 private fun Modifier.foundationReferenceDrawLeafFront(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
+    style: FoundationReferenceCurlStyle,
     mirrorHorizontally: Boolean = false,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1154,6 +1256,28 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     }
     val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
         ?: return@drawWithCache onDrawWithContent { drawContent() }
+    val lighting = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
+        foundationReferenceThreeDCurlLightingSpec(fold.angle)
+    } else {
+        null
+    }
+    val crease = ((edge.top.x + edge.bottom.x) / 2f)
+        .coerceIn(0f, canonicalSize.width.toFloat())
+    val frontShade = lighting?.let {
+        if (axis == FoundationReferenceCurlAxis.Horizontal) {
+            Brush.horizontalGradient(
+                listOf(Color.Transparent, Color.Black.copy(alpha = it.frontShadeAlpha)),
+                startX = 0f,
+                endX = crease.coerceAtLeast(1f),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(Color.Transparent, Color.Black.copy(alpha = it.frontShadeAlpha)),
+                startY = 0f,
+                endY = crease.coerceAtLeast(1f),
+            )
+        }
+    }
 
     onDrawWithContent {
         withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
@@ -1161,15 +1285,27 @@ private fun Modifier.foundationReferenceDrawLeafFront(
                 withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
                     this@onDrawWithContent.drawContent()
                 }
+                if (frontShade != null) drawRect(frontShade)
             }
         }
     }
 }
 
-/** Leaf back face: the folded-over part, reflected across the fold line onto the facing page. */
+/**
+ * Draws the folded back face reflected across the crease, including the 3D profile's paper light,
+ * independent back shade, rim highlight, and angle-driven cast shadow.
+ *
+ * @receiver The page composable's modifier chain.
+ * @param axis Whether the fold runs horizontally or vertically.
+ * @param edge The leaf's current fold edge.
+ * @param style Whether to preserve standard painting or add 3D lighting.
+ * @param mirrorHorizontally Whether a backward spread mirrors this leaf about its spine.
+ * @return The modifier drawing the transformed and optionally lit back face.
+ */
 private fun Modifier.foundationReferenceDrawLeafBack(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
+    style: FoundationReferenceCurlStyle,
     mirrorHorizontally: Boolean = false,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1178,13 +1314,56 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     }
     val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
         ?: return@drawWithCache onDrawWithContent { }
+    val lighting = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
+        foundationReferenceThreeDCurlLightingSpec(fold.angle)
+    } else {
+        null
+    }
+    val crease = ((edge.top.x + edge.bottom.x) / 2f)
+        .coerceIn(0f, canonicalSize.width.toFloat())
+    val backShade = lighting?.let {
+        if (axis == FoundationReferenceCurlAxis.Horizontal) {
+            Brush.horizontalGradient(
+                listOf(
+                    Color.White.copy(alpha = it.backLightAlpha),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = it.backShadeAlpha),
+                ),
+                startX = crease,
+                endX = canonicalSize.width.toFloat().coerceAtLeast(crease + 1f),
+            )
+        } else {
+            Brush.verticalGradient(
+                listOf(
+                    Color.White.copy(alpha = it.backLightAlpha),
+                    Color.Transparent,
+                    Color.Black.copy(alpha = it.backShadeAlpha),
+                ),
+                startY = crease,
+                endY = canonicalSize.width.toFloat().coerceAtLeast(crease + 1f),
+            )
+        }
+    }
 
     onDrawWithContent {
         withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
             withTransform({ fold.applyTo(this, axis) }) {
-                fold.drawShadow(this, axis)
+                fold.drawShadow(
+                    scope = this,
+                    axis = axis,
+                    alpha = lighting?.shadowAlpha ?: FoundationReferenceShadowAlpha,
+                )
                 clipPath(fold.polygon.toPath(axis)) {
                     this@onDrawWithContent.drawContent()
+                    if (backShade != null) {
+                        drawRect(backShade)
+                        drawLine(
+                            color = Color.White.copy(alpha = lighting.rimAlpha),
+                            start = axis.fromCanonical(fold.polygon.vertices.first()),
+                            end = axis.fromCanonical(fold.polygon.vertices.last()),
+                            strokeWidth = FoundationReferenceThreeDRimWidthPx,
+                        )
+                    }
                 }
             }
         }
@@ -1246,14 +1425,19 @@ private class FoundationReferenceCurlFold(
      * @param scope the draw scope to render the shadow into.
      * @param axis which screen axis the fold renders on, forwarded so the platform implementation can
      *   convert [polygon] back to screen coordinates.
+     * @param alpha The cast shadow's opacity for the selected visual style and fold angle.
      */
-    fun drawShadow(scope: DrawScope, axis: FoundationReferenceCurlAxis) {
+    fun drawShadow(
+        scope: DrawScope,
+        axis: FoundationReferenceCurlAxis,
+        alpha: Float,
+    ) {
         scope.drawFoundationPagerCurlShadow(
             polygon = polygon,
             axis = axis,
             radius = shadowRadius,
             shadowOffset = shadowOffset,
-            color = Color.Black.copy(alpha = FoundationReferenceShadowAlpha),
+            color = Color.Black.copy(alpha = alpha.coerceIn(0f, 1f)),
         )
     }
 }
@@ -1492,6 +1676,56 @@ internal data class FoundationReferenceCurlEdge(
 }
 
 /**
+ * Selects only the curl leaf's painting treatment; both values share the same gesture, geometry,
+ * settling, spread, and auto-scroll state machine.
+ *
+ * [Standard] preserves the existing curl exactly. [ThreeDimensional] adds angle-driven front and
+ * back shading, paper bounce light, a crease highlight, and a stronger dynamic cast shadow.
+ */
+internal enum class FoundationReferenceCurlStyle {
+    Standard,
+    ThreeDimensional,
+}
+
+/**
+ * Additional light intensities used by the 3D curl renderer for one fold angle.
+ *
+ * @property frontShadeAlpha Diffuse shade laid over the flat front face near the crease.
+ * @property backShadeAlpha Dark component applied to the folded back face.
+ * @property backLightAlpha Paper-colored bounce light applied to the folded back face.
+ * @property rimAlpha Narrow highlight drawn directly on the fold line.
+ * @property shadowAlpha Cast-shadow opacity underneath the raised leaf.
+ */
+internal data class FoundationReferenceThreeDCurlLightingSpec(
+    val frontShadeAlpha: Float,
+    val backShadeAlpha: Float,
+    val backLightAlpha: Float,
+    val rimAlpha: Float,
+    val shadowAlpha: Float,
+)
+
+/**
+ * Resolves the 3D curl's extra lighting from the reflected leaf angle. A sine makes every effect
+ * vanish when the sheet is flat at either orientation and peak while it is most visibly bent,
+ * avoiding stale dimming at the start or end of a turn.
+ *
+ * @param foldAngleRadians The fold reflection angle produced by the curl geometry, in radians.
+ * @return The front, back, rim, and cast-shadow intensities for this frame.
+ */
+internal fun foundationReferenceThreeDCurlLightingSpec(
+    foldAngleRadians: Float,
+): FoundationReferenceThreeDCurlLightingSpec {
+    val intensity = abs(sin(foldAngleRadians)).coerceIn(0f, 1f)
+    return FoundationReferenceThreeDCurlLightingSpec(
+        frontShadeAlpha = 0.16f * intensity,
+        backShadeAlpha = 0.12f * intensity,
+        backLightAlpha = 0.24f * intensity,
+        rimAlpha = 0.32f * intensity,
+        shadowAlpha = 0.34f * intensity,
+    )
+}
+
+/**
  * Which way a page turn moves through the document: [Forward] toward the next page, [Backward] toward
  * the previous one. This is the reader-facing direction; [foundationReferenceCurlGeometryDirection]
  * maps it to the direction the fold itself actually renders, which can differ in a spread.
@@ -1701,6 +1935,9 @@ private const val FoundationReferenceBackOverlayAlpha = 0.9f
  * as a soft cast shadow rather than a hard silhouette.
  */
 private const val FoundationReferenceShadowAlpha = 0.2f
+
+/** The 3D Curl crease highlight's screen-space width in pixels. */
+private const val FoundationReferenceThreeDRimWidthPx = 2f
 
 /** The fold's shadow blur radius ([FoundationReferenceCurlFold.shadowRadius]). */
 private val FoundationReferenceShadowRadius = 15.dp

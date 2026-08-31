@@ -66,6 +66,7 @@
     <string name="animation_fade">Fade</string>
     <string name="animation_scroll">Scroll</string>
     <string name="animation_curl_pager">Curl pager</string>
+    <string name="animation_three_d_curl">3D Curl</string>
     <string name="animation_fluid_pager">Fluid pager</string>
     <string name="animation_circle_reveal">Circle reveal</string>
     <string name="animation_movie_carousel">Movie carousel</string>
