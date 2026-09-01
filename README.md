@@ -16,9 +16,10 @@ with whatever you were last reading.
 unfolded foldable the reader lays out a two-page spread and puts the gutter on the hinge, so the
 text never falls into the fold.
 
-**Page turns.** Nine of them: none, slide, fade, scroll, fluid pager, curl, circle reveal, movie
-carousel and page flip. Curl and page flip follow your finger and settle where you release; in a
-spread they fold a single leaf on the spine rather than sliding the whole sheet.
+**Page turns.** Ten of them: none, slide, fade, scroll, fluid pager, curl, 3D curl, circle reveal,
+movie carousel and page flip. Curl, 3D curl and page flip follow your finger and settle where you
+release; in a spread they fold a single leaf on the spine rather than sliding the whole sheet. Page
+flip uses front/back leaf lighting with a cast shadow on the page underneath.
 
 **Type.** Font size, line height, family — the document's own, sans, serif or mono — and weight,
 from 300 to 600. Emphasis is set relative to the weight you choose, so a heading or a bold run keeps

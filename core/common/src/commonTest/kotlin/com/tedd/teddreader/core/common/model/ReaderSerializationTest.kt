@@ -103,6 +103,7 @@ class ReaderSerializationTest {
     fun pageAnimationIncludesFoundationPagerPresets() {
         assertEquals(PageAnimation.FLUID_PAGER, json.decodeFromString<PageAnimation>("\"FLUID_PAGER\""))
         assertEquals(PageAnimation.CURL_PAGER, json.decodeFromString<PageAnimation>("\"CURL_PAGER\""))
+        assertEquals(PageAnimation.THREE_D_CURL, json.decodeFromString<PageAnimation>("\"THREE_D_CURL\""))
         assertEquals(PageAnimation.CIRCLE_REVEAL, json.decodeFromString<PageAnimation>("\"CIRCLE_REVEAL\""))
         assertEquals(PageAnimation.MOVIE_CAROUSEL, json.decodeFromString<PageAnimation>("\"MOVIE_CAROUSEL\""))
         assertEquals(PageAnimation.PAGE_FLIP, json.decodeFromString<PageAnimation>("\"PAGE_FLIP\""))

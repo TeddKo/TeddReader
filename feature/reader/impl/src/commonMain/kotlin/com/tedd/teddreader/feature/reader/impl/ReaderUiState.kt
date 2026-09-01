@@ -139,8 +139,6 @@ data class ReaderPageUi(
  * @property isFavorite Whether the open document is bookmarked in the library.
  * @property isCurrentPageSaved Whether the current page/location has been explicitly saved as a
  *   place, distinct from the automatically persisted reading position.
- * @property isSavingSettings True while a style/settings change is being persisted, used to
- *   disable option-sheet controls so a second change cannot race the first.
  * @property isPaginationComplete False while a progressively-imported EPUB is still being parsed
  *   and measured in the background (see
  *   [ReaderViewModel.continueImportIfIncomplete][com.tedd.teddreader.feature.reader.impl.ReaderViewModel]),
@@ -201,7 +199,6 @@ data class ReaderUiState(
     val failedEmbeddedFontHrefs: ImmutableSet<String> = persistentSetOf(),
     val isFavorite: Boolean = false,
     val isCurrentPageSaved: Boolean = false,
-    val isSavingSettings: Boolean = false,
     val isPaginationComplete: Boolean = true,
 ) {
     /** True for PDF or any other document format that pages as whole images rather than text. */

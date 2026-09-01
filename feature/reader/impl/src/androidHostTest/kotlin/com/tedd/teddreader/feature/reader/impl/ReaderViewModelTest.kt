@@ -2,6 +2,7 @@ package com.tedd.teddreader.feature.reader.impl
 
 import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
+import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -130,6 +131,29 @@ class ReaderViewModelTest {
         assertEquals(PageIndex(current = 0, total = 2), viewModel.uiState.value.pageIndex)
         assertEquals(documentId, documentRepository.lastOpenedDocumentId)
         assertTrue(documentRepository.lastOpenedAtEpochMillis > 0L)
+    }
+
+    /** A failed or stalled same-document open must be restartable instead of staying terminally blank. */
+    @Test
+    fun failedOpenCanRetryTheSameDocument() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-retry")
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            throwOnGetPageWindowsCall = 0,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.errorMessage != null)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isLoading)
+        assertEquals(null, viewModel.uiState.value.errorMessage)
+        assertEquals("First stored page", viewModel.uiState.value.pageText)
+        assertEquals(2, documentRepository.pageWindowRequests)
     }
 
     /**
@@ -1104,13 +1128,52 @@ class ReaderViewModelTest {
         assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
     }
 
-    /**
-     * A theme change is not part of [ReaderStyle.layoutKey], so it must never trigger a repagination
-     * — including the second, symmetric case this test also covers: after the theme change, the
-     * pane still holds a breaker matching the (unchanged) layout key, so reporting the same
-     * measurement again must dedupe inside [ReaderViewModel.updatePageBreaker] and never reach
-     * `reloadPages`, unlike a real type change (see [changingTheFontSizeStillLaysTheBookOutAgain]).
-     */
+    /** A repository emission is the shared source of truth for an already-open reader. */
+    @Test
+    fun repositorySettingsChangesReachAnAlreadyOpenReader() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-settings-flow")
+        val documentRepository = FakeDocumentRepository(documentId, paginatedText = "a".repeat(300))
+        val settingsRepository = FakeReaderSettingsRepository()
+        val viewModel = createViewModel(
+            documentRepository = documentRepository,
+            readerSettingsRepository = settingsRepository,
+        )
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        val settings = ReaderSettings(
+            style = ReaderStyle(fontSizeSp = 22f, fontFamilyName = "serif"),
+            pageTurnMode = PageTurnMode.VERTICAL,
+            pageAnimation = PageAnimation.PAGE_FLIP,
+            autoScrollConfig = AutoScrollConfig(mode = AutoScrollMode.PAGE, speed = 0.7f),
+        )
+        settingsRepository.emit(settings)
+        advanceUntilIdle()
+
+        assertEquals(settings.style, viewModel.uiState.value.style)
+        assertEquals(settings.pageTurnMode, viewModel.uiState.value.pageTurnMode)
+        assertEquals(settings.pageAnimation, viewModel.uiState.value.pageAnimation)
+        assertEquals(settings.autoScrollConfig, viewModel.uiState.value.autoScrollConfig)
+    }
+
+    @Test
+    fun failedReaderSettingWriteKeepsTheRepositoryValueVisibleWithoutBlockingTheReader() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-settings-failure")
+        val settingsRepository = FakeReaderSettingsRepository().apply { failStyleWrites = true }
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(documentId),
+            readerSettingsRepository = settingsRepository,
+        )
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        viewModel.updateThemeMode(ReaderThemeMode.DARK)
+        advanceUntilIdle()
+
+        assertEquals(ReaderThemeMode.PUBLISHER, viewModel.uiState.value.style.themeMode)
+        assertEquals(null, viewModel.uiState.value.errorMessage)
+    }
+
     @Test
     fun changingOnlyTheThemeDoesNotLayTheBookOutAgain() = runTest(dispatcher) {
         val documentId = DocumentId("doc-1")
@@ -2944,6 +3007,7 @@ private class FakeDocumentRepository(
     private val embeddedImageGate: CompletableDeferred<Unit>? = null,
     private val readerDocument: ReaderDocument? = null,
     private val pageWindows: List<PageWindow>? = null,
+    private val throwOnGetPageWindowsCall: Int? = null,
     private val freezeGetPageWindowsAtCallIndex: Int? = null,
     private val secondDocumentId: DocumentId? = null,
     private val secondPageWindows: List<PageWindow>? = null,
@@ -3278,6 +3342,7 @@ private class FakeDocumentRepository(
         lastPageBreakerByDocumentId[documentId] = pageBreaker != null
         sectionBlocksCacheAlive = true
         val callIndex = getPageWindowsCallCount++
+        if (callIndex == throwOnGetPageWindowsCall) error("page windows failed")
         if (callIndex == freezeGetPageWindowsAtCallIndex) {
             suspendCoroutine<Unit> { continuation -> frozenGetPageWindowsContinuation = continuation }
         }
@@ -3565,44 +3630,45 @@ private class FakeReaderRepository : ReaderRepository {
 }
 
 /**
- * A test double for [ReaderSettingsRepository] that answers a fixed [ReaderSettings] and records
- * only the one write [ReaderViewModel]'s auto-scroll tests need to inspect; every other update is a
- * silent no-op, since no test in this suite reads a style/page-turn/page-animation/language write
- * back out of this fake.
+ * Mutable in-memory [ReaderSettingsRepository] used to drive both local writes and external
+ * settings-screen emissions into an already-open reader.
  *
- * @param initialSettings the fixed settings [settings] emits.
+ * @param initialSettings the first settings snapshot [settings] emits.
  */
 private class FakeReaderSettingsRepository(
     initialSettings: ReaderSettings = ReaderSettings(),
 ) : ReaderSettingsRepository {
-    /** A single-value flow of [initialSettings]; never emits again after that first value. */
-    override val settings: Flow<ReaderSettings> = flowOf(initialSettings)
+    private val state = MutableStateFlow(initialSettings)
+    override val settings: Flow<ReaderSettings> = state
 
-    /**
-     * The most recent [AutoScrollConfig] [updateAutoScrollConfig] recorded, read by a test
-     * asserting a clamp or a disable was persisted.
-     */
     var lastAutoScrollConfig: AutoScrollConfig? = null
+    var failStyleWrites: Boolean = false
 
-    /** No-op: no test in this suite reads a persisted style back out of this fake. */
-    override suspend fun updateStyle(style: ReaderStyle) = Unit
-
-    /** No-op: no test in this suite reads a persisted page-turn mode back out of this fake. */
-    override suspend fun updatePageTurnMode(pageTurnMode: com.tedd.teddreader.core.common.model.PageTurnMode) = Unit
-
-    /** No-op: no test in this suite reads a persisted page animation back out of this fake. */
-    override suspend fun updatePageAnimation(pageAnimation: com.tedd.teddreader.core.common.model.PageAnimation) = Unit
-
-    /**
-     * Records [autoScrollConfig] into [lastAutoScrollConfig] — what the auto-scroll clamp/disable
-     * tests assert against.
-     */
-    override suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
-        lastAutoScrollConfig = autoScrollConfig
+    fun emit(settings: ReaderSettings) {
+        state.value = settings
     }
 
-    /** No-op: no test in this suite exercises the app language setting. */
-    override suspend fun updateAppLanguage(appLanguage: AppLanguage) = Unit
+    override suspend fun updateStyle(style: ReaderStyle) {
+        if (failStyleWrites) error("settings write failed")
+        state.value = state.value.copy(style = style.copy(publisherFontKey = null))
+    }
+
+    override suspend fun updatePageTurnMode(pageTurnMode: com.tedd.teddreader.core.common.model.PageTurnMode) {
+        state.value = state.value.copy(pageTurnMode = pageTurnMode)
+    }
+
+    override suspend fun updatePageAnimation(pageAnimation: com.tedd.teddreader.core.common.model.PageAnimation) {
+        state.value = state.value.copy(pageAnimation = pageAnimation)
+    }
+
+    override suspend fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
+        lastAutoScrollConfig = autoScrollConfig
+        state.value = state.value.copy(autoScrollConfig = autoScrollConfig)
+    }
+
+    override suspend fun updateAppLanguage(appLanguage: AppLanguage) {
+        state.value = state.value.copy(appLanguage = appLanguage)
+    }
 }
 
 /**
