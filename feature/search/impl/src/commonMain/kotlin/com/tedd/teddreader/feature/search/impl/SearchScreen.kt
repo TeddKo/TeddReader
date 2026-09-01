@@ -53,22 +53,19 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Entry point that wires [SearchViewModel] into [SearchScreen] for one document's in-document
- * search. Like [SearchScreen] below it, this composable is a pure state-and-callback pass-through
- * to the view model: it collects [SearchUiState] and forwards every user action back as a view
- * model call, holding no search state of its own — not even a draft. Unlike the reader's or
- * saved-places' route screens, there is no in-progress value to hold here: every keystroke in the
- * search field commits straight through [SearchViewModel.updateQuery] to [SearchUiState.query],
- * since typing a query has no gesture-in-progress-versus-committed distinction the way a slider
- * drag or a note edit does.
+ * 한 문서의 문서 내 검색을 위해 [SearchViewModel]을 [SearchScreen]에 연결하는 진입점이다.
+ * 아래의 [SearchScreen]과 마찬가지로 이 컴포저블은 상태와 콜백을 뷰 모델에 그대로 전달한다.
+ * [SearchUiState]를 수집하고 모든 사용자 동작을 뷰 모델 호출로 돌려보내며, 임시 값조차 자체
+ * 검색 상태로 보관하지 않는다. 리더나 저장된 위치의 경로 화면과 달리 여기에는 진행 중인
+ * 값을 보관할 필요가 없다. 검색어 입력에는 슬라이더 드래그나 메모 편집처럼 진행 중인
+ * 제스처와 확정된 값을 구분할 필요가 없으므로, 검색 필드의 모든 키 입력을
+ * [SearchViewModel.updateQuery]를 통해 [SearchUiState.query]에 바로 반영한다.
  *
- * @param documentId The document to search within; changing it re-triggers
- * [SearchViewModel.setDocument].
- * @param onBack Invoked when the user asks to leave the search screen.
- * @param onResultClick Invoked with a search result's location when the user taps it to jump
- * there.
- * @param modifier Applied to the resulting [SearchScreen].
- * @param viewModel The search screen's view model; defaults to one resolved through Koin.
+ * @param documentId 검색할 문서로, 변경되면 [SearchViewModel.setDocument]를 다시 실행한다.
+ * @param onBack 사용자가 검색 화면에서 나가려 할 때 호출한다.
+ * @param onResultClick 사용자가 검색 결과를 탭해 해당 위치로 이동할 때 그 위치와 함께 호출한다.
+ * @param modifier 생성되는 [SearchScreen]에 적용할 수정자이다.
+ * @param viewModel 검색 화면의 뷰 모델로, 기본값은 Koin이 제공하는 인스턴스이다.
  */
 @Composable
 fun SearchRouteScreen(
@@ -97,41 +94,37 @@ fun SearchRouteScreen(
 }
 
 /**
- * The in-document search screen: a scaffold with the search form at the top of a scrolling list,
- * followed by whichever of the unsupported/error/loading/empty-query/no-results/results states
- * [uiState] currently describes. This composable is a pure state-and-callback pass-through to the
- * view model — every value it renders comes from [uiState] or one of its other parameters, and it
- * holds no search state of its own; `isFieldEnabled`, `canSearch`, and `resultContentPadding` are
- * all derived fresh from the parameters on every call, not stored state.
+ * 스크롤 목록 상단에 검색 폼을 배치하고, 현재 [uiState]가 나타내는 검색 미지원, 오류, 로딩,
+ * 빈 검색어, 결과 없음, 검색 결과 상태 중 하나를 그 뒤에 표시하는 문서 내 검색 화면이다. 이
+ * 컴포저블은 상태와 콜백을 뷰 모델에 그대로 전달한다. 표시하는 모든 값은 [uiState]나 다른
+ * 매개변수에서 가져오며 자체 검색 상태를 보관하지 않는다. `isFieldEnabled`, `canSearch`,
+ * `resultContentPadding`도 저장된 상태가 아니라 호출할 때마다 매개변수에서 새로 파생한다.
  *
- * Every block is one [TeddSection], which is what makes the states mutually exclusive by
- * construction: exactly one of the unsupported/error/loading/blank/no-results branches supplies a
- * [TeddSectionKind.Status] section, and the results branch supplies a [TeddSectionKind.Collection]
- * section instead. The results heading is rendered through an otherwise-empty
- * [TeddSectionKind.Collection] section — `fullBleed` on it costs nothing since it has no body —
- * immediately followed by the result rows as their own flat [LazyColumn] items rather than as that
- * section's body, so the results keep true row-level laziness and each row supplies the screen's
- * horizontal inset itself through `resultContentPadding`. That is what lets the divider and ripple
- * each row draws run the full bounded column width with no section gap breaking them apart, per the
- * search screen's contiguous-results contract.
+ * 각 블록은 하나의 [TeddSection]이므로 상태는 구조적으로 상호 배타적이다. 검색 미지원, 오류,
+ * 로딩, 빈 검색어, 결과 없음 분기 중 정확히 하나가 [TeddSectionKind.Status] 섹션을 제공하고,
+ * 검색 결과 분기는 그 대신 [TeddSectionKind.Collection] 섹션을 제공한다. 검색 결과 제목은
+ * 본문이 비어 있는 [TeddSectionKind.Collection] 섹션으로 표시하므로 본문이 없어 `fullBleed`에
+ * 따른 비용이 없다. 결과 행은 해당 섹션의 본문이 아니라 바로 뒤에 오는 독립적인 평면
+ * [LazyColumn] 항목으로 둔다. 따라서 결과는 실제 행 단위 지연 처리를 유지하고, 각 행은
+ * `resultContentPadding`을 통해 화면의 가로 여백을 직접 제공한다. 이 구조로 각 행이 그리는
+ * 구분선과 리플이 섹션 간격으로 끊기지 않고 제한된 열 너비 전체를 채워, 검색 화면의 연속
+ * 결과 계약을 지킨다.
  *
- * The content [Box] carries `clearFocusOnBackgroundTap` so a tap outside every result row's own
- * clickable bounds — the margin beside a width-capped list on a wide window, or the empty space
- * below the last result — drops focus and dismisses the soft keyboard the search field raised. A
- * tap that lands on the field or on a result row is consumed by that row's own click handling
- * first, so this never intercepts the taps a caller relies on.
+ * 콘텐츠 [Box]에는 `clearFocusOnBackgroundTap`을 적용한다. 너비가 제한된 목록을 넓은 창에서
+ * 표시할 때의 옆 여백이나 마지막 결과 아래 빈 공간처럼 각 결과 행의 클릭 가능 영역 밖을
+ * 탭하면 포커스를 해제하고 검색 필드가 띄운 소프트 키보드를 닫는다. 필드나 결과 행을 탭하면
+ * 해당 요소의 클릭 처리가 먼저 소비하므로 호출자가 의존하는 탭을 가로채지 않는다.
  *
- * @param uiState The search screen's current state, as published by the view model.
- * @param onQueryChange Invoked as the user types in the search field.
- * @param onSearchClick Invoked when the user asks to search, whether from the field's own action
- * or the search button.
- * @param onBack Invoked when the user asks to leave the screen.
- * @param onResultClick Invoked with a search result's location when the user taps it.
- * @param listState Scroll state for the search form and results list.
- * @param modifier Applied to the scaffold.
- * @param contentPadding Vertical padding applied above and below the list's content; any
- * horizontal component is ignored because horizontal inset is owned by each [TeddSection] and the
- * result rows themselves. Null resolves to the theme's screenPadding for both edges.
+ * @param uiState 뷰 모델이 발행한 검색 화면의 현재 상태이다.
+ * @param onQueryChange 사용자가 검색 필드에 입력할 때 호출한다.
+ * @param onSearchClick 필드 자체 동작이나 검색 버튼으로 사용자가 검색을 요청할 때 호출한다.
+ * @param onBack 사용자가 화면에서 나가려 할 때 호출한다.
+ * @param onResultClick 사용자가 검색 결과를 탭할 때 그 결과의 위치와 함께 호출한다.
+ * @param listState 검색 폼과 결과 목록의 스크롤 상태이다.
+ * @param modifier 스캐폴드에 적용할 수정자이다.
+ * @param contentPadding 목록 콘텐츠의 위아래에 적용할 세로 여백이다. 가로 여백은 각
+ * [TeddSection]과 결과 행 자체가 담당하므로 모든 가로 성분을 무시한다. null이면 양쪽 끝에
+ * 테마의 screenPadding을 사용한다.
  */
 @Composable
 fun SearchScreen(
@@ -253,20 +246,18 @@ fun SearchScreen(
 }
 
 /**
- * The search input: an explanatory line above a responsive layout that either stacks the search
- * field over a full-width button (narrow container) or places them side by side (wide container),
- * switching at
- * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth].
+ * 설명 문구 아래에 반응형 레이아웃을 배치한 검색 입력 영역이다. 좁은 컨테이너에서는 검색
+ * 필드 위아래로 전체 너비 버튼을 쌓고, 넓은 컨테이너에서는 둘을 나란히 배치한다.
+ * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth]를
+ * 기준으로 레이아웃을 전환한다.
  *
- * @param query The search field's current text.
- * @param isFieldEnabled Whether the field accepts input; false while search is unsupported for
- * the open document.
- * @param canSearch Whether a search can actually be run right now, which enables the search
- * button.
- * @param onQueryChange Invoked as the user types in the search field.
- * @param onSearchClick Invoked when the user taps the search button or the field's own search
- * action.
- * @param modifier Applied to the form's root column.
+ * @param query 검색 필드의 현재 텍스트이다.
+ * @param isFieldEnabled 필드가 입력을 받는지 여부이다. 열린 문서가 검색을 지원하지 않으면
+ * false이다.
+ * @param canSearch 지금 검색을 실제로 실행할 수 있는지 여부로, 검색 버튼의 활성화를 결정한다.
+ * @param onQueryChange 사용자가 검색 필드에 입력할 때 호출한다.
+ * @param onSearchClick 사용자가 검색 버튼이나 필드 자체의 검색 동작을 탭할 때 호출한다.
+ * @param modifier 폼의 루트 열에 적용할 수정자이다.
  */
 @Composable
 private fun SearchForm(
@@ -331,16 +322,15 @@ private fun SearchForm(
 }
 
 /**
- * The search text field itself: a [TeddSearchField] with a clear button shown only once there is
- * text to clear.
+ * 지울 텍스트가 있을 때만 지우기 버튼을 표시하는 [TeddSearchField] 기반 검색 텍스트 필드이다.
  *
- * @param query The field's current text.
- * @param isFieldEnabled Whether the field (and its clear button) accepts input.
- * @param canSearch Whether pressing enter/search should actually trigger a search.
- * @param onQueryChange Invoked as the user types, and with an empty string when the clear button
- * is tapped.
- * @param onSearchClick Invoked when the field's own search action fires and [canSearch] is true.
- * @param modifier Applied to the field.
+ * @param query 필드의 현재 텍스트이다.
+ * @param isFieldEnabled 필드와 지우기 버튼이 입력을 받는지 여부이다.
+ * @param canSearch Enter 또는 검색 동작이 실제로 검색을 실행해야 하는지 여부이다.
+ * @param onQueryChange 사용자가 입력할 때 호출하며, 지우기 버튼을 탭하면 빈 문자열과 함께
+ * 호출한다.
+ * @param onSearchClick 필드 자체의 검색 동작이 발생하고 [canSearch]가 true일 때 호출한다.
+ * @param modifier 필드에 적용할 수정자이다.
  */
 @Composable
 private fun SearchField(
@@ -364,13 +354,12 @@ private fun SearchField(
 }
 
 /**
- * The secondary text shown under a search result's snippet: the section it was found in, followed
- * by a localized description of its exact location (see [ReaderLocation.displayLabel]), on
- * separate lines. The section line is omitted when the result carries no section title, e.g. a
- * document with no chapter structure.
+ * 검색 결과의 스니펫 아래에 표시할 보조 텍스트를 만든다. 결과를 찾은 섹션과 정확한 위치를
+ * 현지화한 설명([ReaderLocation.displayLabel] 참고)을 각각 별도 줄에 배치한다. 장 구조가 없는
+ * 문서처럼 결과에 섹션 제목이 없으면 섹션 줄을 생략한다.
  *
- * @param result The search result to build supporting text for.
- * @return One or two lines: the section title (if any) and the location description.
+ * @param result 보조 텍스트를 만들 검색 결과이다.
+ * @return 섹션 제목이 있으면 해당 제목과 위치 설명을 담은 두 줄, 없으면 위치 설명 한 줄이다.
  */
 @Composable
 private fun buildSearchSupportingText(result: SearchResult): String = buildList {
@@ -379,14 +368,13 @@ private fun buildSearchSupportingText(result: SearchResult): String = buildList 
 }.joinToString(separator = "\n")
 
 /**
- * A localized, human-readable description of where this location points, shown as a search
- * result's supporting text. Each [ReaderLocation] variant is described in the terms that make
- * sense for it — a page number for a PDF, a raw text offset for plain text, a spine section for an
- * EPUB — rather than one generic label for all three. This mirrors the saved-places screen's own
- * `displayLabel`, kept as a separate copy here rather than a shared one because no feature module
- * in this project may depend on another feature's api or impl.
+ * 검색 결과의 보조 텍스트로 표시할, 이 위치가 가리키는 곳에 대한 현지화된 설명이다. 세 형식에
+ * 하나의 일반 레이블을 쓰지 않고 각 [ReaderLocation] 변형에 맞는 용어를 사용한다. PDF에는
+ * 페이지 번호, 일반 텍스트에는 원시 텍스트 오프셋, EPUB에는 spine 섹션을 사용한다. 저장된
+ * 위치 화면의 `displayLabel`과 같은 방식이지만, 이 프로젝트에서는 어떤 feature 모듈도 다른
+ * feature의 api나 impl에 의존할 수 없으므로 공유하지 않고 별도 사본으로 둔다.
  *
- * @receiver The location to describe.
+ * @receiver 설명할 위치이다.
  */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
@@ -396,8 +384,8 @@ private fun ReaderLocation.displayLabel(): String = when (this) {
 }
 
 /**
- * Preview of [SearchScreen] at three widths, with one sample search result, exercising the
- * compact, default, and wide layouts the screen's content can render at.
+ * 샘플 검색 결과 하나로 [SearchScreen]을 세 가지 너비에서 표시해 화면 콘텐츠가 그릴 수 있는
+ * 좁은, 기본, 넓은 레이아웃을 확인하는 미리보기이다.
  */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
