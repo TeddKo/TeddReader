@@ -163,11 +163,10 @@ class SearchViewModelTest {
     }
 
     /**
-     * Verifies that cancelling the search coroutine (via [SearchViewModel.setDocument] replacing
-     * the in-flight job) actually terminates the suspended search rather than swallowing
-     * [CancellationException]. If `suspendRunCatching` were reverted to plain `runCatching`, the
-     * cancellation would be caught inside `.getOrElse`, and the `return@launch` path would
-     * execute writing an error message — this assertion would fail.
+     * [SearchViewModel.setDocument]가 진행 중인 작업을 교체해 검색 코루틴을 취소할 때
+     * [CancellationException]을 삼키지 않고 일시 중단된 검색을 실제로 종료하는지 검증한다.
+     * `suspendRunCatching`을 일반 `runCatching`으로 되돌리면 `.getOrElse` 내부에서 취소를
+     * 포착하고 `return@launch` 경로가 오류 메시지를 기록하므로 이 단언은 실패한다.
      */
     @Test
     fun cancellationOfSearchDoesNotProduceErrorMessage() = runTest {
