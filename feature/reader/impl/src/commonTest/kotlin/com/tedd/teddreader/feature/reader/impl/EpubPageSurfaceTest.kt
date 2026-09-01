@@ -14,6 +14,7 @@ import kotlinx.collections.immutable.toPersistentSet
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class EpubPageSurfaceTest {
@@ -135,5 +136,35 @@ class EpubPageSurfaceTest {
     @Test
     fun userFontOverrideBypassesPublisherFontWait() {
         assertTrue(canMeasureEpubPage(page(), ReaderStyle(fontFamilyName = "serif")))
+    }
+
+    /** Verifies recomposition can address one embedded image with the same memory-cache entry. */
+    @Test
+    fun imageMemoryCacheKeyIsStableWithinDocumentAndHref() {
+        val documentUri = "file:///library/book.epub"
+        val imageHref = "OPS/images/plate.jpg"
+
+        assertEquals(
+            epubImageMemoryCacheKey(documentUri, imageHref),
+            epubImageMemoryCacheKey(documentUri, imageHref),
+        )
+    }
+
+    /** Verifies common EPUB hrefs cannot return a decoded bitmap from a different document. */
+    @Test
+    fun imageMemoryCacheKeySeparatesDocumentsSharingHref() {
+        val imageHref = "OPS/images/cover.jpg"
+
+        assertNotEquals(
+            epubImageMemoryCacheKey("file:///library/first.epub", imageHref),
+            epubImageMemoryCacheKey("file:///library/second.epub", imageHref),
+        )
+    }
+
+    /** Verifies requests without both stable identities stay outside Coil's memory cache. */
+    @Test
+    fun imageMemoryCacheKeyRequiresDocumentAndHref() {
+        assertEquals(null, epubImageMemoryCacheKey(null, "OPS/images/cover.jpg"))
+        assertEquals(null, epubImageMemoryCacheKey("file:///library/book.epub", null))
     }
 }

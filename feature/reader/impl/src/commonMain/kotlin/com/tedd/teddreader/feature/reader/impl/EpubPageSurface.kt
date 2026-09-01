@@ -30,10 +30,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
+import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
-import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.request.maxBitmapSize
+import coil3.size.Size
 import com.tedd.teddreader.core.common.model.ReaderBlock
 import com.tedd.teddreader.core.common.model.ReaderBlockKind
 import com.tedd.teddreader.core.common.model.ReaderBlockStyle
@@ -93,6 +95,7 @@ internal fun EpubPageSurface(
     if (plateBlock != null) {
         EpubImageBox(
             imageBytes = plateBlock.imageHref?.let(page.embeddedImages::get),
+            imageCacheKey = epubImageMemoryCacheKey(page.documentUri, plateBlock.imageHref),
             label = plateBlock.label,
             isFailed = plateBlock.imageHref != null && plateBlock.imageHref in page.failedEmbeddedImageHrefs,
             boxStyle = plateBlock.style?.boxStyle,
@@ -143,12 +146,13 @@ internal fun EpubPageSurface(
                 baseFontWeight = inputs.fontWeight,
             )
         }
-        val inlineContent = remember(semanticText.placeholders, page.embeddedImages, page.failedEmbeddedImageHrefs, readerTextStyle, baseTextColor, publisherColorsEnabled) {
+        val inlineContent = remember(semanticText.placeholders, page.documentUri, page.embeddedImages, page.failedEmbeddedImageHrefs, readerTextStyle, baseTextColor, publisherColorsEnabled) {
             semanticText.placeholders.associate { placeholder ->
                 placeholder.id to InlineTextContent(placeholder.placeholder) {
                     EpubInlinePlaceholder(
                         placeholder = placeholder,
                         imageBytes = placeholder.href?.let(page.embeddedImages::get),
+                        imageCacheKey = epubImageMemoryCacheKey(page.documentUri, placeholder.href),
                         isFailed = placeholder.href != null && placeholder.href in page.failedEmbeddedImageHrefs,
                         textStyle = readerTextStyle,
                         baseTextColor = baseTextColor,
@@ -240,7 +244,8 @@ internal fun canMeasureEpubPage(
  *
  * @param placeholder the placeholder's kind, label, float metadata, and inherited colors, as produced by
  * [buildReaderSemanticText].
- * @param imageBytes the decoded image bytes for this placeholder, when its kind is an image and the bytes are available.
+ * @param imageBytes the encoded image bytes for this placeholder, when its kind is an image and the bytes are available.
+ * @param imageCacheKey stable document-and-href identity Coil uses to reuse the decoded image.
  * @param isFailed whether this placeholder's image previously failed to decode.
  * @param textStyle the resolved text style the nested float text must draw with.
  * @param baseTextColor the reader theme's fallback text color when publisher colors are disabled.
@@ -250,6 +255,7 @@ internal fun canMeasureEpubPage(
 private fun EpubInlinePlaceholder(
     placeholder: ReaderPlaceholder,
     imageBytes: ByteArray?,
+    imageCacheKey: String?,
     isFailed: Boolean,
     textStyle: TextStyle,
     baseTextColor: Color,
@@ -260,6 +266,7 @@ private fun EpubInlinePlaceholder(
         floatContent != null -> EpubFloatPlaceholder(
             floatContent = floatContent,
             imageBytes = imageBytes,
+            imageCacheKey = imageCacheKey,
             label = placeholder.label,
             isFailed = isFailed,
             imageBoxStyle = placeholder.boxStyle,
@@ -270,6 +277,7 @@ private fun EpubInlinePlaceholder(
         placeholder.kind == ReaderBlockKind.SEPARATOR -> TeddDivider(modifier = Modifier.fillMaxSize())
         placeholder.kind == ReaderBlockKind.IMAGE || placeholder.kind == ReaderBlockKind.COVER_IMAGE -> EpubImageBox(
             imageBytes = imageBytes,
+            imageCacheKey = imageCacheKey,
             label = placeholder.label,
             isFailed = isFailed,
             boxStyle = placeholder.boxStyle,
@@ -283,11 +291,22 @@ private fun EpubInlinePlaceholder(
 /**
  * Lays out a floated image placeholder as an inline full-column box whose content is a row-like split:
  * image on the start/end edge and the fitted leading paragraph slice beside it.
+ *
+ * @param floatContent fitted text and image geometry for the floated block.
+ * @param imageBytes encoded image bytes to decode, or null while extraction is pending.
+ * @param imageCacheKey stable document-and-href identity Coil uses to reuse the decoded image.
+ * @param label alternative text used for accessibility and failures.
+ * @param isFailed whether extraction has already failed.
+ * @param imageBoxStyle publisher styling around the image half.
+ * @param textStyle resolved style for the fitted text half.
+ * @param currentColor fallback border color.
+ * @param usePublisherColors whether publisher colors are honored.
  */
 @Composable
 private fun EpubFloatPlaceholder(
     floatContent: ReaderFloatContent,
     imageBytes: ByteArray?,
+    imageCacheKey: String?,
     label: String?,
     isFailed: Boolean,
     imageBoxStyle: ReaderBoxStyle?,
@@ -299,6 +318,7 @@ private fun EpubFloatPlaceholder(
         content = {
             EpubImageBox(
                 imageBytes = imageBytes,
+                imageCacheKey = imageCacheKey,
                 label = label,
                 isFailed = isFailed,
                 boxStyle = imageBoxStyle,
@@ -341,13 +361,14 @@ private fun EpubFloatPlaceholder(
  *
  * A picture arrives in two steps — its bytes are read out of the book, then decoded — and showing something
  * during each step made the page change three times before settling: alt text or a spinner, then a second
- * spinner, then the picture. Since the space is already reserved at the right size, `SubcomposeAsyncImage`'s
- * `loading` slot is left blank and only the decoded image (crossfaded in over [ImageFadeMillis] so the page
- * settles once instead of snapping as each picture finishes) or, once decoding has actually failed, the
- * [label] text is ever shown — nothing flickers while an image that will still arrive is only slow.
+ * spinner, then the picture. Since the space is already reserved at the right size, [AsyncImage] draws
+ * no loading painter; only the decoded image (crossfaded in over [ImageFadeMillis] so the page settles once
+ * instead of snapping as each picture finishes) or, once decoding has actually failed, the [label] text is
+ * ever shown. Regular composition avoids the extra subcomposition cost for every mounted inline image.
  *
- * @param imageBytes the image's decoded bytes, when available; null renders nothing unless [isFailed] is
+ * @param imageBytes the image's encoded bytes, when available; null renders nothing unless [isFailed] is
  * also true, in which case [label] is shown.
+ * @param imageCacheKey stable document-and-href identity that makes ByteArray requests memory-cacheable.
  * @param label alt text shown when the image is missing or failed to decode, and used as the content
  * description while it renders successfully.
  * @param isFailed whether this image previously failed to decode, so a missing [imageBytes] here is shown as
@@ -361,6 +382,7 @@ private fun EpubFloatPlaceholder(
 @Composable
 private fun EpubImageBox(
     imageBytes: ByteArray?,
+    imageCacheKey: String?,
     label: String?,
     isFailed: Boolean,
     boxStyle: ReaderBoxStyle?,
@@ -371,15 +393,19 @@ private fun EpubImageBox(
     val colors = teddReaderColors()
     val typography = teddReaderTypography()
     val platformContext = LocalPlatformContext.current
-    val request = remember(imageBytes, platformContext) {
+    val request = remember(imageBytes, imageCacheKey, platformContext) {
         imageBytes?.let { bytes ->
             ImageRequest.Builder(platformContext)
                 .data(bytes)
-                .size(MaxInlineImageDimensionPx, MaxInlineImageDimensionPx)
+                .apply {
+                    if (imageCacheKey != null) memoryCacheKey(imageCacheKey)
+                }
+                .maxBitmapSize(Size(MaxInlineImageDimensionPx, MaxInlineImageDimensionPx))
                 .crossfade(ImageFadeMillis)
                 .build()
         }
     }
+    var decodeFailed by remember(request) { mutableStateOf(false) }
     val radiusPercent = boxStyle?.borderRadiusPercent?.toInt()?.coerceIn(0, 100)
     val decoratedModifier = modifier
         .fillMaxSize()
@@ -392,28 +418,41 @@ private fun EpubImageBox(
         }
 
     Box(modifier = decoratedModifier, contentAlignment = Alignment.Center) {
-        when {
-            request != null -> SubcomposeAsyncImage(
+        if (request != null) {
+            AsyncImage(
                 model = request,
                 contentDescription = label,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
-                loading = {},
-                error = {
-                    TeddText(
-                        text = label ?: stringResource(Res.string.visual_page_unavailable),
-                        style = typography.bodySmall,
-                        color = colors.onSurfaceVariant,
-                    )
-                },
+                onError = { decodeFailed = true },
             )
-            isFailed -> TeddText(
+        }
+        if (decodeFailed || request == null && isFailed) {
+            TeddText(
                 text = label ?: stringResource(Res.string.visual_page_unavailable),
                 style = typography.bodySmall,
                 color = colors.onSurfaceVariant,
             )
         }
     }
+}
+
+/**
+ * Builds the stable memory-cache identity for one image inside one EPUB.
+ *
+ * Coil 3.5.0 can fetch [ByteArray] data but has no `Keyer<ByteArray>`, so an explicit key is the
+ * only way duplicate page-effect compositions can share the decoded bitmap. The document URI is
+ * length-prefixed before the href to keep identical container paths isolated across books. A
+ * missing identity returns null so Coil cannot accidentally cache the image under a partial key.
+ *
+ * @param documentUri stable source URI of the EPUB that owns the image.
+ * @param imageHref container-relative image path inside that EPUB.
+ * @return a document-scoped Coil memory-cache key, or null when either identity is unavailable.
+ */
+internal fun epubImageMemoryCacheKey(documentUri: String?, imageHref: String?): String? {
+    val document = documentUri?.takeIf(String::isNotBlank) ?: return null
+    val href = imageHref?.takeIf(String::isNotBlank) ?: return null
+    return "epub:${document.length}:$document$href"
 }
 
 private fun DrawScope.drawContainerDecorations(
