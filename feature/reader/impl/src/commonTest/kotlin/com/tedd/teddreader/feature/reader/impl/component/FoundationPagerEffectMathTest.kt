@@ -8,14 +8,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for the pure geometry/animation math behind [FoundationEffectPager]'s page-turn
- * styles (fluid pager, circle reveal, movie carousel, page flip): axis conversion, the fluid
- * edge's point-spring physics, shadow shapes, and z-index/rotation ordering. All of it is plain
- * math with no Compose dependency, so it is tested directly rather than through a composable
- * harness.
+ * [FoundationEffectPager]의 페이지 넘김 스타일(fluid pager, circle reveal, movie carousel, page flip)을
+ * 뒷받침하는 순수 기하/애니메이션 계산에 대한 단위 테스트다: axis 변환, fluid edge의 point-spring
+ * 물리, 그림자 모양, z-index/회전 순서. 전부 Compose 의존성이 없는 순수 수학이므로, composable 하네스를
+ * 거치지 않고 직접 테스트한다.
  */
 class FoundationPagerEffectMathTest {
-    /** Verifies [FoundationPagerAxis] only swaps x/y when the axis is vertical. */
+    /** [FoundationPagerAxis]가 axis가 vertical일 때만 x/y를 맞바꾸는지 검증한다. */
     @Test
     fun `axis swaps coordinates only in vertical mode`() {
         assertEquals(FoundationPagerPoint(3f, 7f), FoundationPagerAxis.Horizontal.toCanonical(FoundationPagerPoint(3f, 7f)))
@@ -23,7 +22,7 @@ class FoundationPagerEffectMathTest {
         assertEquals(FoundationPagerPoint(3f, 7f), FoundationPagerAxis.Vertical.fromCanonical(FoundationPagerPoint(7f, 3f)))
     }
 
-    /** Verifies [foundationPagerLerp] clamps its progress argument to `[0, 1]` before interpolating. */
+    /** [foundationPagerLerp]가 보간하기 전에 progress 인자를 `[0, 1]`로 clamp하는지 검증한다. */
     @Test
     fun `linear interpolation clamps progress`() {
         assertEquals(10f, foundationPagerLerp(10f, 20f, -1f))
@@ -32,9 +31,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationTouchCrossAxis] reads the touch's y coordinate for a horizontal pager
-     * and its x coordinate for a vertical one, since the cross axis is whichever axis is not the
-     * turn direction.
+     * [foundationTouchCrossAxis]가 horizontal pager에서는 터치의 y 좌표를, vertical pager에서는 x
+     * 좌표를 읽는지 검증한다 — cross axis는 넘김 방향이 아닌 나머지 축이기 때문이다.
      */
     @Test
     fun `touch cross axis uses y for horizontal and x for vertical`() {
@@ -50,7 +48,7 @@ class FoundationPagerEffectMathTest {
         )
     }
 
-    /** Verifies [foundationTouchCrossAxis] returns the midpoint when there is no recorded touch. */
+    /** [foundationTouchCrossAxis]가 기록된 터치가 없을 때 중간점을 반환하는지 검증한다. */
     @Test
     fun `touch cross axis falls back to center without touch`() {
         assertEquals(
@@ -64,8 +62,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [buildFoundationFluidPolygon] anchors the fluid edge's straight side at x=0 for
-     * [FoundationFluidSide.Start] and at the far edge for [FoundationFluidSide.End].
+     * [buildFoundationFluidPolygon]이 fluid edge의 직선 변을 [FoundationFluidSide.Start]에서는 x=0에,
+     * [FoundationFluidSide.End]에서는 먼 쪽 edge에 고정하는지 검증한다.
      */
     @Test
     fun `fluid edge grows from requested side`() {
@@ -89,8 +87,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies the fluid edge deforms furthest at the touch point's cross-axis position: a touch
-     * nearer the bottom pushes the point of maximum deformation lower than a touch nearer the top.
+     * fluid edge가 터치 지점의 cross-axis 위치에서 가장 크게 변형되는지 검증한다: 아래쪽에 더 가까운
+     * 터치는 최대 변형 지점을 위쪽에 더 가까운 터치보다 더 아래로 밀어낸다.
      */
     @Test
     fun `fluid touch point moves maximum deformation`() {
@@ -113,9 +111,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [FoundationFluidEdge]'s spring physics: after ticking toward a touch-centred
-     * target, the point nearest the touch position leads both of its neighbours rather than the
-     * whole edge moving as a rigid line.
+     * [FoundationFluidEdge]의 spring 물리를 검증한다: 터치 중심 target을 향해 tick한 뒤, edge 전체가
+     * 강체 직선처럼 움직이는 대신 터치 위치에 가장 가까운 점이 양쪽 이웃보다 앞서 나가야 한다.
      */
     @Test
     fun `fluid edge physics pulls touch-near point ahead of far point`() {
@@ -132,7 +129,7 @@ class FoundationPagerEffectMathTest {
         assertTrue(edge.points[2].x > edge.points[4].x)
     }
 
-    /** Verifies [FoundationFluidEdge.reset] zeroes every point's position and velocity. */
+    /** [FoundationFluidEdge.reset]이 모든 점의 위치와 속도를 0으로 되돌리는지 검증한다. */
     @Test
     fun `fluid edge reset clears stale swipe state`() {
         val edge = FoundationFluidEdge(pointCount = 5)
@@ -150,9 +147,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationActivePageTurn] reports zero progress with no committed side while a
-     * gesture is active but has not yet moved enough to reveal its direction, rather than
-     * guessing from whichever neighbour's progress happens to be larger.
+     * [foundationActivePageTurn]이, 제스처가 활성 상태이지만 방향을 드러낼 만큼 충분히 움직이지 않은
+     * 동안에는, 우연히 더 큰 쪽 이웃의 progress로 추측하는 대신 확정된 side 없이 progress 0을 보고하는지
+     * 검증한다.
      */
     @Test
     fun `active turn hides stale progress until drag direction is known`() {
@@ -168,8 +165,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationActivePageTurn] reports the gesture's own committed side and that
-     * side's progress once a drag direction is known.
+     * [foundationActivePageTurn]이 drag 방향이 확인되면 제스처 자신의 확정된 side와 그 side의
+     * progress를 보고하는지 검증한다.
      */
     @Test
     fun `active turn uses gesture side once drag direction is known`() {
@@ -185,10 +182,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies that once a touch releases, [FoundationFluidEdge]'s point closest to where the
-     * touch pulled ahead settles back toward the rest of the edge rather than staying spiked —
-     * ticking with `touchActive = false` should collapse most of the lead the active touch built
-     * up.
+     * 터치가 놓이고 나면, 터치가 앞서 끌어당겼던 [FoundationFluidEdge]의 점이 뾰족하게 튀어나온 채로
+     * 남는 대신 edge 나머지 쪽으로 다시 가라앉는지 검증한다 — `touchActive = false`로 tick하면 활성
+     * 터치가 만들어낸 앞선 정도의 대부분이 무너져야 한다.
      */
     @Test
     fun `fluid edge release settles touch spike into the whole edge`() {
@@ -215,9 +211,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies that releasing the touch never lets the touch-near point's lead over its
-     * neighbours grow beyond what it already was at release — a spring settling back should
-     * not overshoot into a stronger rebound than the touch itself produced.
+     * 터치를 놓았을 때 이웃들에 대한 터치 근접 점의 앞선 정도가 놓은 시점보다 더 커지지 않는지
+     * 검증한다 — 가라앉는 spring이 터치 자체가 만들어낸 것보다 더 강한 반동으로 오버슈트해서는
+     * 안 된다.
      */
     @Test
     fun `fluid edge release avoids strong rebound`() {
@@ -247,10 +243,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies that once released, every point on [FoundationFluidEdge] moves monotonically
-     * toward the resting [progress] target — its distance to the target only shrinks (within
-     * [tolerance]) tick over tick and never changes sign, i.e. it settles without oscillating
-     * past the target and back.
+     * 놓인 뒤 [FoundationFluidEdge]의 모든 점이 정지 [progress] target을 향해 단조롭게 이동하는지
+     * 검증한다 — target까지의 거리는 tick마다([tolerance] 이내로) 줄어들기만 하고 부호가 절대
+     * 바뀌지 않는다. 즉 target을 지나쳤다 되돌아오는 진동 없이 가라앉는다.
      */
     @Test
     fun `fluid edge release moves monotonically toward target without crossing`() {
@@ -283,8 +278,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [buildFoundationFluidShadowPolygon] traces the same curved shape the fluid edge
-     * itself settled into, rather than a straight offset line.
+     * [buildFoundationFluidShadowPolygon]이 직선 offset이 아니라 fluid edge 자신이 가라앉은 것과 같은
+     * 곡선 모양을 그리는지 검증한다.
      */
     @Test
     fun `fluid shadow follows curved fluid edge`() {
@@ -309,8 +304,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [buildFoundationFluidPolygon] swaps which edge (y=0 vs. the far edge) is anchored
-     * when the axis is vertical, mirroring the horizontal-axis start/end swap onto the other axis.
+     * [buildFoundationFluidPolygon]이 axis가 vertical일 때 고정되는 edge(y=0 대 먼 쪽 edge)를 바꿔서,
+     * horizontal axis의 start/end 교환을 다른 축에도 그대로 반영하는지 검증한다.
      */
     @Test
     fun `vertical fluid edge swaps side axis`() {
@@ -334,8 +329,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationCircleRevealSpec] anchors the reveal circle's origin at the touch's
-     * cross-axis position on whichever edge matches [FoundationFluidSide], for both axes.
+     * [foundationCircleRevealSpec]이 두 axis 모두에서, reveal 원의 origin을 [FoundationFluidSide]에
+     * 대응하는 edge 위 터치의 cross-axis 위치에 고정하는지 검증한다.
      */
     @Test
     fun `circle reveal origin keeps touch cross axis`() {
@@ -361,9 +356,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationCircleRevealShadowSpec] shares its reveal circle's center and radius
-     * with [foundationCircleRevealSpec], and produces an inner radius strictly smaller than the
-     * outer one with a positive alpha, so the shadow reads as a ring rather than a filled disc.
+     * [foundationCircleRevealShadowSpec]이 reveal 원의 중심과 반지름을 [foundationCircleRevealSpec]과
+     * 공유하고, 내부 반지름이 외부 반지름보다 확실히 작으면서 alpha가 양수여서, 그림자가 꽉 찬 원판이
+     * 아니라 고리처럼 보이는지 검증한다.
      */
     @Test
     fun `circle reveal shadow uses circle boundary`() {
@@ -389,9 +384,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationMovieCarouselSpec] only ever offsets the current page when it is the
-     * one leaving (via its own [pageOffset]), never the neighbour arriving, and that the arriving
-     * neighbour is drawn larger and more opaque than the departing current page mid-transition.
+     * [foundationMovieCarouselSpec]이 현재 페이지가 떠나는 쪽일 때만(자신의 [pageOffset]을 통해)
+     * offset되고, 도착하는 이웃은 절대 offset되지 않으며, 전환 도중 도착하는 이웃이 떠나는 현재
+     * 페이지보다 더 크고 더 불투명하게 그려지는지 검증한다.
      */
     @Test
     fun `movie carousel only offsets outgoing current page`() {
@@ -405,9 +400,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationMovieCarouselShadowSide] casts the incoming shadow from whichever edge
-     * the arriving neighbour leads with — the previous page arrives from the end, the next page
-     * from the start — and casts none for the current page, which has no leading edge of its own.
+     * [foundationMovieCarouselShadowSide]가 도착하는 이웃이 앞세우는 edge에서 들어오는 그림자를
+     * 드리우는지 — 이전 페이지는 end에서, 다음 페이지는 start에서 도착한다 — 그리고 자신의 선두
+     * edge가 없는 현재 페이지에는 그림자를 드리우지 않는지 검증한다.
      */
     @Test
     fun `movie carousel shadow follows incoming page leading edge`() {
@@ -417,9 +412,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationMovieCarouselDimAlpha] is zero at both transition extremes (0 and 1,
-     * plus out-of-range inputs clamped to them) and positive partway through, so the dimming
-     * overlay peaks mid-transition rather than at rest.
+     * [foundationMovieCarouselDimAlpha]가 전환의 양쪽 극단(0과 1, 그리고 그 범위 밖 입력이 clamp된
+     * 값들)에서는 0이고 중간 지점에서는 양수여서, dimming 오버레이가 정지 상태가 아니라 전환 중간에서
+     * 정점을 찍는지 검증한다.
      */
     @Test
     fun `movie carousel dim alpha is clamped and peaks mid transition`() {
@@ -431,8 +426,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies the reference shadow stays on the turning leaf's free edge while forward and
-     * backward turns retain identical dimensions and opacity.
+     * 기준 그림자가 넘어가는 leaf의 자유 edge 위에 머무르면서, forward와 backward 넘김이 같은 크기와
+     * opacity를 유지하는지 검증한다.
      */
     @Test
     fun `page flip shadow follows swipe free edge`() {
@@ -447,9 +442,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies a whole-page flip casts from the raised leaf's moving free edge onto the exposed
-     * incoming page. A forward/left swipe exposes the end side beyond that edge; a backward/right
-     * swipe mirrors the edge and cast around the page center.
+     * 전체 페이지 flip이 들어 올려진 leaf의 움직이는 자유 edge에서 드러난 도착 페이지 위로 그림자를
+     * 드리우는지 검증한다. forward/left 스와이프는 그 edge 너머 end 쪽을 드러내며, backward/right
+     * 스와이프는 edge와 그림자를 페이지 중심을 기준으로 대칭시킨다.
      */
     @Test
     fun `whole page flip shadow follows moving edge onto incoming page`() {
@@ -473,8 +468,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies a split-half leaf's shadow follows its moving edge and extends onto the uncovered
-     * receiver side instead of underneath the opaque leaf toward the spine.
+     * 반으로 나뉜 leaf의 그림자가 자신의 움직이는 edge를 따라가며, spine 쪽 불투명한 leaf 아래가
+     * 아니라 드러난 receiver 쪽으로 뻗어 나가는지 검증한다.
      */
     @Test
     fun `spread page flip shadow crosses the spine onto uncovered side`() {
@@ -506,8 +501,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies projected PAGE_FLIP shadows are absent at every settled endpoint, matching the
-     * reference shadow contract and preventing a stale band after cancel or completion.
+     * 투영된 PAGE_FLIP 그림자가 정지된 모든 끝점에서 존재하지 않아, 기준 그림자 계약과 일치하고
+     * 취소나 완료 이후 낡은 띠가 남지 않도록 하는지 검증한다.
      */
     @Test
     fun `page flip projection vanishes at settled endpoints`() {
@@ -519,11 +514,11 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationPageFlipZIndex]'s single-pane stacking order for the whole drag: the
-     * current page always ranks above both neighbours; turning back, the arriving previous page
-     * must outrank the next page (or it would show through the half the folding page leaves
-     * transparent); turning forward the ranking flips the same way; and in neither direction does
-     * a neighbour ever reach the current page's own rank.
+     * [foundationPageFlipZIndex]의 single-pane 쌓임 순서를 drag 전체에 걸쳐 검증한다: 현재 페이지는
+     * 항상 양쪽 이웃보다 위에 있어야 하고, 뒤로 넘길 때는 도착하는 이전 페이지가 다음 페이지보다
+     * 순위가 높아야 한다(그렇지 않으면 접히는 페이지가 투명하게 남긴 부분으로 비쳐 보인다). 앞으로
+     * 넘길 때는 순위가 같은 방식으로 뒤집히며, 어느 방향에서도 이웃이 현재 페이지 자신의 순위에
+     * 도달하지는 않는다.
      */
     @Test
     fun `single pane page flip keeps current sheet above neighbors for whole drag`() {
@@ -543,8 +538,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies the StPageFlip reference progression: outer width grows to 75% of one leaf while
-     * opacity falls linearly from Harism's 0.5 inner-shadow alpha to zero.
+     * StPageFlip 기준 진행을 검증한다: 외부 너비는 leaf 하나의 75%까지 커지고, opacity는 Harism의
+     * 내부 그림자 alpha 0.5에서 0까지 선형으로 떨어진다.
      */
     @Test
     fun `page flip shadow follows reference width and opacity progression`() {
@@ -561,7 +556,7 @@ class FoundationPagerEffectMathTest {
         assertEquals(middle.outerWidthFraction * 0.75f, middle.innerWidthFraction, tolerance)
     }
 
-    /** A spread leaf is half a viewport, so both reference shadow bands must be half as wide. */
+    /** spread leaf는 viewport의 절반이므로, 두 기준 그림자 띠도 절반 너비여야 한다. */
     @Test
     fun `spread page flip shadow uses half viewport leaf width`() {
         val whole = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
@@ -572,7 +567,7 @@ class FoundationPagerEffectMathTest {
         assertEquals(whole.opacity, spread.opacity, tolerance)
     }
 
-    /** The inner band must touch each clipped half's outer free edge, not land outside its clip. */
+    /** 내부 띠는 clip 밖으로 벗어나지 않고, 잘려진 각 half의 바깥 자유 edge에 닿아야 한다. */
     @Test
     fun `spread page flip inner shadow follows clipped half free edge`() {
         assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Left))
@@ -582,9 +577,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationPageFlipHalfSpec] only rotates the half on the side the swipe is
-     * folding — a next-turn swipe rotates the left/top half and leaves the right/bottom half flat,
-     * and a previous-turn swipe does the opposite.
+     * [foundationPageFlipHalfSpec]이 스와이프가 접는 쪽의 half만 회전시키는지 검증한다 — 다음으로
+     * 넘기는 스와이프는 left/top half를 회전시키고 right/bottom half는 평평하게 두며, 이전으로
+     * 넘기는 스와이프는 그 반대다.
      */
     @Test
     fun `page flip folds only one half in swipe direction`() {
@@ -608,9 +603,9 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationSpreadPageFlipSpec] hands off from the outgoing half to the incoming
-     * half exactly at the fold's halfway point and continues rotating smoothly through to a full
-     * turn, in both the forward and backward directions.
+     * [foundationSpreadPageFlipSpec]이 정확히 접힘의 절반 지점에서 떠나는 half에서 들어오는 half로
+     * 넘겨주고, forward와 backward 양방향 모두에서 완전한 넘김까지 매끄럽게 회전을 이어가는지
+     * 검증한다.
      */
     @Test
     fun `spread page flip continues beyond edge on to a complete turn`() {
@@ -635,8 +630,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationPageFlipLayout] picks the whole-page fold for a single pane and the
-     * split-half fold for a two-page spread.
+     * [foundationPageFlipLayout]이 single pane에는 전체 페이지 fold를, 두 페이지 spread에는 split-half
+     * fold를 선택하는지 검증한다.
      */
     @Test
     fun `page flip chooses whole page for single pane and split fold for spreads`() {
@@ -651,9 +646,8 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationWholePageFlipSpec] keeps the same rotation sign for a given axis while
-     * swapping which corner it pivots around depending on swipe direction, for both the
-     * horizontal and vertical axes.
+     * [foundationWholePageFlipSpec]이 horizontal과 vertical axis 모두에서, 주어진 axis에 대해 같은
+     * 회전 부호를 유지하면서 스와이프 방향에 따라 회전 중심 모서리만 바꾸는지 검증한다.
      */
     @Test
     fun `whole page flip keeps rotation sign while swapping pivot by swipe direction`() {
@@ -696,29 +690,29 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * The point with the greatest x among [points] — used to locate a fluid polygon's furthest
-     * bulge without assuming which index it lands on.
+     * [points] 중 x가 가장 큰 점 — fluid 다각형에서 가장 크게 부푼 지점을, 그것이 어느 인덱스에
+     * 놓이는지 가정하지 않고 찾는 데 쓰인다.
      *
-     * @param points The polygon points to search.
-     * @return The point with the maximum x value.
+     * @param points 탐색할 다각형 점들.
+     * @return x 값이 최대인 점.
      */
     private fun maxXPoint(points: List<FoundationPagerPoint>): FoundationPagerPoint =
         points.maxBy { it.x }
 
     /**
-     * A float equality assertion with an explicit tolerance, since the spring/trig math under
-     * test rarely lands on an exact value.
+     * 명시적인 허용 오차를 두는 float 동등성 단언이다 — 테스트 대상인 spring/삼각함수 계산은 정확한
+     * 값에 좀처럼 들어맞지 않기 때문이다.
      *
-     * @param expected The expected value.
-     * @param actual The value produced by the code under test.
-     * @param tolerance The maximum allowed absolute difference between [expected] and [actual].
+     * @param expected 기대하는 값.
+     * @param actual 테스트 대상 코드가 만들어낸 값.
+     * @param tolerance [expected]와 [actual] 사이에 허용되는 최대 절대 차이.
      */
     private fun assertEquals(expected: Float, actual: Float, tolerance: Float) {
         assertTrue(abs(expected - actual) <= tolerance, "Expected <$expected>, actual <$actual>.")
     }
 
     private companion object {
-        /** The absolute tolerance used by float comparisons throughout this test class. */
+        /** 이 테스트 클래스 전체의 float 비교에서 쓰이는 절대 허용 오차. */
         const val tolerance = 0.0001f
     }
 }

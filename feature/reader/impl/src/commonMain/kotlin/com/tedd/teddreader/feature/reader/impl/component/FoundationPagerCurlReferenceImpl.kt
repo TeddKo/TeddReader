@@ -77,45 +77,43 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Compose Foundation pager host with the pagecurl 1.5.1 interaction and rendering state machine.
+ * pagecurl 1.5.1의 인터랙션·렌더링 상태 머신을 갖춘 Compose Foundation pager 호스트.
  *
- * On a two-pane spread the curl runs on the outer leaf only: the leaf folds about the spine and
- * lands on the facing page, the way a real book turns. Single pane keeps the reference behavior.
+ * 두 페이지 spread에서는 바깥쪽 leaf에서만 curl이 동작한다: leaf가 spine을 중심으로 접혀 마주보는
+ * 페이지 위에 내려앉으며, 실제 책이 넘어가는 방식과 같다. 단일 pane은 참조 동작을 그대로 유지한다.
  *
- * In a two-page spread the leaf is narrower than the viewport, so pointer travel is scaled into leaf space
- * rather than translated — that keeps the fold progress per unit of swipe identical to the single-pane curl
- * at every pointer position and in both directions.
+ * 두 페이지 spread에서는 leaf가 viewport보다 좁으므로, 포인터 이동량은 이동시키는 대신 leaf 공간으로
+ * 스케일된다 — 그래야 스와이프 한 단위당 fold 진행률이 모든 포인터 위치와 양쪽 방향 모두에서 단일
+ * pane curl과 동일하게 유지된다.
  *
- * Also in a spread, the previous leaf paints its back face over the facing page, so it may only be composed
- * while it is actually being turned back; otherwise it would cover the page the reader is looking at.
+ * 또한 spread에서는 이전 leaf가 자신의 back face를 마주보는 페이지 위에 그리므로, 실제로 다시
+ * 넘어가는 중일 때만 compose되어야 한다; 그렇지 않으면 독자가 보고 있는 페이지를 덮어버리게 된다.
  *
- * @param pageKey The current page index.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one turn advances.
- * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
- * @param style Whether to use the original pointer-tracked curl or the horizontal-only 3D rolling
- *   profile.
- * @param canRequestNextPage Whether a text document at its known end should still forward a next
- *   request while pagination remains incomplete.
- * @param pageMoveRequest A pending programmatic page-move request, or null when none is
- *   outstanding.
- * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been animated
- *   or found to have nowhere to go.
- * @param onPreviousPage Called once a backward curl completes.
- * @param onNextPage Called once a forward curl completes.
- * @param onToggleControls Called when a tap lands outside both turn zones, or during auto-scroll.
- * @param onDoubleTap Called with the tap position on a double-tap; null disables it.
- * @param isAutoScrollEnabled Whether auto-scroll is currently driving turns.
- * @param autoScrollMode The auto-scroll mode to honor.
- * @param autoScrollSpeed The configured auto-scroll speed.
- * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
- * @param modifier The modifier applied to the pager's root.
- * @param paneCount How many page panes are shown side by side (2 for a spread, 1 otherwise).
- * @param spreadGutter The gap drawn between panes in a spread.
- * @param spreadLeftWeight The fraction of a spread's width given to its left pane.
- * @param spreadModifier The modifier applied to a spread's row.
- * @param paneContent Renders one pane of a spread with its own modifier; null for a single pane.
- * @param content Renders the page at the given index for the single-pane case.
+ * @param pageKey 현재 페이지 인덱스.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지.
+ * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
+ * @param style 원래의 포인터 추적 curl을 쓸지, 가로 전용 3D 롤링 프로필을 쓸지.
+ * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은 동안에도
+ *   다음 요청을 계속 전달해야 하는지 여부.
+ * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
+ * @param onPageMoveRequestConsumed [pageMoveRequest]의 id와 함께, 그것이 애니메이션되었거나 갈 곳이
+ *   없다고 확인된 뒤 호출된다.
+ * @param onPreviousPage 뒤로 가는 curl이 완료되면 호출된다.
+ * @param onNextPage 앞으로 가는 curl이 완료되면 호출된다.
+ * @param onToggleControls 탭이 두 turn 영역 바깥에 떨어지거나 자동 스크롤 도중이면 호출된다.
+ * @param onDoubleTap 더블 탭 시 탭 위치와 함께 호출된다; null이면 이를 비활성화한다.
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 turn을 구동하고 있는지 여부.
+ * @param autoScrollMode 따를 자동 스크롤 모드.
+ * @param autoScrollSpeed 설정된 자동 스크롤 속도.
+ * @param onAutoScrollStop 자동 스크롤이 문서 끝에 닿아 멈춰야 할 때 호출된다.
+ * @param modifier pager의 루트에 적용되는 modifier.
+ * @param paneCount 몇 개의 페이지 pane이 나란히 보이는지(spread면 2, 그 외엔 1).
+ * @param spreadGutter spread에서 pane 사이에 그려지는 간격.
+ * @param spreadLeftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param spreadModifier spread의 row에 적용되는 modifier.
+ * @param paneContent spread의 한 pane을 자신만의 modifier로 렌더링한다; 단일 pane이면 null.
+ * @param content 단일 pane 케이스에서 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 internal fun FoundationPagerCurlReferenceImpl(
@@ -457,16 +455,16 @@ internal fun FoundationPagerCurlReferenceImpl(
 }
 
 /**
- * Two-pane spread: the static facing page plus the outer leaf that folds about the spine.
+ * 두 페이지 spread: 고정된 마주보는 페이지와, spine을 중심으로 접히는 바깥쪽 leaf.
  *
- * The leaf carries both of its faces. [leftPage] + 1 is printed on the front, [leftPage] + 2 on the
- * back, so a forward fold lands the next page on the facing side exactly where the pager will place
- * it once the turn completes.
+ * leaf는 양면을 모두 갖는다. [leftPage] + 1은 앞면에, [leftPage] + 2는 뒷면에 인쇄되어 있어서,
+ * 앞으로 접히는 fold는 다음 페이지를 turn이 끝난 뒤 pager가 배치할 바로 그 위치, 즉 마주보는 면에
+ * 내려놓는다.
  *
- * The back face is pre-mirrored (`scaleX = -1f`) so that the fold's own reflection lands it right-reading;
- * without the pre-mirror the text on a turning leaf's back reads backwards.
+ * 뒷면은 미리 미러링되어 있다(`scaleX = -1f`), 그래야 fold 자체의 반사가 이를 바르게 읽히도록
+ * 만든다; 미리 미러링해 두지 않으면 넘어가는 leaf의 뒷면 텍스트가 거꾸로 읽힌다.
  *
- * @param style Whether the leaf uses standard painting or the 3D lighting profile.
+ * @param style leaf가 표준 페인팅을 쓰는지 3D 조명 프로필을 쓰는지.
  */
 @Composable
 private fun FoundationReferenceSpread(
@@ -517,29 +515,30 @@ private fun FoundationReferenceSpread(
 }
 
 /**
- * Two-pane spread while a backward turn folds the current leaf away, back toward the previous page it
- * covers.
+ * 뒤로 가는 turn이 현재 leaf를 그것이 덮고 있던 이전 페이지 쪽으로 접어 넘기는 동안의 두 페이지
+ * spread.
  *
- * Both pages this composable draws sit in the left pane, stacked in the order needed to reveal the one
- * underneath as the fold opens: [previousLeftPage] flat on the bottom (what the turn is uncovering),
- * then [currentLeftPage] drawn with [foundationReferenceDrawLeafFront] (the leaf's still-flat part),
- * then [previousLeftPage] + 1 drawn with [foundationReferenceDrawLeafBack] (the part folding open). That
- * is the same leaf a forward turn starting at [previousLeftPage] would draw — see
- * [FoundationReferenceSpread] — played in reverse, with front and back swapped because this animation
- * approaches the flat state instead of leaving it. Both leaf-face calls pass `mirrorHorizontally = true`
- * because this fold hinges on the left edge, the mirror image of the forward fold's right-edge hinge, so
- * the same front/back pre-mirror trick still lands the text right-reading. The right pane is left empty
- * here; the pager's own offset-0 slot renders it separately.
+ * 이 composable이 그리는 두 페이지는 모두 왼쪽 pane에 놓이며, fold가 열리면서 아래에 있는 페이지를
+ * 드러내는 데 필요한 순서로 쌓인다: 맨 아래에는 [previousLeftPage]가 평평하게(turn이 드러내고 있는
+ * 페이지), 그 위에 leaf의 아직 평평한 부분을 나타내는 [foundationReferenceDrawLeafFront]로 그려진
+ * [currentLeftPage], 그리고 그 위에 접혀 열리는 부분을 나타내는 [foundationReferenceDrawLeafBack]으로
+ * 그려진 [previousLeftPage] + 1. 이는 [previousLeftPage]에서 시작하는 앞으로 가는 turn이 그리는 것과
+ * 같은 leaf를 — [FoundationReferenceSpread] 참고 — 역순으로 재생하면서, 이 애니메이션이 평평한
+ * 상태에서 벗어나는 대신 그 상태로 다가가기 때문에 앞면과 뒷면을 맞바꾼 것이다. 두 leaf-face 호출
+ * 모두 `mirrorHorizontally = true`를 넘기는데, 이 fold는 앞으로 가는 fold의 오른쪽 가장자리 힌지를
+ * 거울에 비춘 모습인 왼쪽 가장자리에서 경첩처럼 움직이기 때문이며, 그래서 같은 앞/뒤 사전 미러링
+ * 트릭이 여전히 텍스트를 바르게 읽히도록 만든다. 오른쪽 pane은 여기서는 비워 둔다; pager 자신의
+ * offset-0 슬롯이 이를 따로 렌더링한다.
  *
- * @param previousLeftPage the page this backward turn is revealing.
- * @param currentLeftPage the page currently showing, whose leaf is folding away from it.
- * @param axis whether the fold runs horizontally or vertically.
- * @param style Whether the leaf uses standard painting or the 3D lighting profile.
- * @param leafEdge the leaf's current fold edge, in canonical coordinates.
- * @param gutter the gap between the two panes.
- * @param leftWeight the fraction of the spread's width given to the left pane.
- * @param spreadModifier the modifier applied to the row.
- * @param paneContent renders one page into a pane with the given modifier.
+ * @param previousLeftPage 이 뒤로 가는 turn이 드러내고 있는 페이지.
+ * @param currentLeftPage 현재 보이고 있는, leaf가 그로부터 접혀 나가는 중인 페이지.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
+ * @param style leaf가 표준 페인팅을 쓰는지 3D 조명 프로필을 쓰는지.
+ * @param leafEdge leaf의 현재 fold edge, canonical 좌표계 기준.
+ * @param gutter 두 pane 사이의 간격.
+ * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param spreadModifier row에 적용되는 modifier.
+ * @param paneContent 주어진 modifier로 한 페이지를 pane 안에 렌더링한다.
  */
 @Composable
 private fun FoundationReferenceBackwardSpread(
@@ -591,20 +590,20 @@ private fun FoundationReferenceBackwardSpread(
 }
 
 /**
- * The size the curl geometry treats as one page, given the viewport already reduced to one axis'
- * canonical orientation.
+ * curl 기하 계산이 페이지 한 장으로 취급하는 크기로, viewport가 이미 한 축의 canonical(가로 우선)
+ * 방향으로 축소된 것을 전제로 한다.
  *
- * Outside a spread the leaf is the whole pane, so [canonicalSize] passes through unchanged. Inside a
- * spread only the non-left pane actually turns, so the leaf is narrower: it gets whatever width is left
- * after the gutter and the left pane's share ([leftWeight]) are taken out, floored at 1px so a zero or
- * negative split never produces a degenerate size the fold math cannot invert.
+ * spread 밖에서는 leaf가 pane 전체이므로 [canonicalSize]가 그대로 통과한다. spread 안에서는 왼쪽이
+ * 아닌 pane만 실제로 넘어가므로 leaf가 더 좁다: gutter와 왼쪽 pane의 몫([leftWeight])을 뺀 나머지
+ * 너비를 가지며, 0 또는 음수 분할이 fold 계산이 뒤집을 수 없는 퇴화된 크기를 만들지 않도록 1px로
+ * 하한이 걸려 있다.
  *
- * @param canonicalSize the viewport size in the axis' canonical (horizontal-first) orientation.
- * @param isSpread whether the pager is showing two panes side by side.
- * @param gutterPx the gap between panes, in pixels.
- * @param leftWeight the fraction of the spread's width given to the left pane; clamped to 0..1 before
- *   the leaf gets the remainder.
- * @return the size the curl edge, fold, and hit-testing math should use as one page.
+ * @param canonicalSize 축의 canonical(가로 우선) 방향으로 나타낸 viewport 크기.
+ * @param isSpread pager가 두 pane을 나란히 보여주고 있는지 여부.
+ * @param gutterPx pane 사이의 간격, 픽셀 단위.
+ * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율; leaf가 나머지를 갖기 전에 0..1로
+ *   clamp된다.
+ * @return curl edge, fold, hit-testing 계산이 페이지 한 장으로 사용해야 할 크기.
  */
 internal fun foundationReferenceLeafSize(
     canonicalSize: IntSize,
@@ -619,17 +618,18 @@ internal fun foundationReferenceLeafSize(
 }
 
 /**
- * Undoes the pager's own per-page placement so every page in the three-page window lands on the exact
- * same screen rect instead of side by side.
+ * pager 자체의 페이지별 배치를 되돌려, 세 페이지짜리 window 안의 모든 페이지가 나란히가 아니라 정확히
+ * 같은 화면 사각형에 놓이도록 한다.
  *
- * [HorizontalPager]/[VerticalPager] place page N at N page-sizes along the scroll axis even though
- * this pager's current page never actually moves — the curl needs all three pages (previous, current,
- * next) stacked at the same position so [foundationReferenceCurlZIndex] can composite them by depth
- * instead of by scroll offset.
+ * 이 pager의 현재 페이지는 실제로는 전혀 움직이지 않는데도, [HorizontalPager]/[VerticalPager]는
+ * 스크롤 축을 따라 N번째 페이지를 N 페이지-크기만큼 떨어진 곳에 배치한다 — curl은 세 페이지(이전,
+ * 현재, 다음) 모두 같은 위치에 겹쳐 있어야, [foundationReferenceCurlZIndex]가 스크롤 오프셋이 아니라
+ * 깊이로 이들을 합성할 수 있다.
  *
- * @receiver the page's own modifier chain, before [foundationReferenceCurlZIndex] and any curl drawing.
- * @param axis which screen axis the pager scrolls along, so the right translation gets cancelled.
- * @param pageOffset this page's offset from the pager's fixed center page (-1, 0, or +1).
+ * @receiver [foundationReferenceCurlZIndex]와 curl 그리기가 적용되기 전, 페이지 자신의 modifier
+ *   체인.
+ * @param axis pager가 어느 화면 축을 따라 스크롤하는지, 그래야 알맞은 translation이 상쇄된다.
+ * @param pageOffset pager의 고정된 가운데 페이지로부터 이 페이지의 오프셋(-1, 0, 또는 +1).
  */
 private fun Modifier.foundationCancelPagerPlacement(
     axis: FoundationReferenceCurlAxis,
@@ -643,33 +643,34 @@ private fun Modifier.foundationCancelPagerPlacement(
 }
 
 /**
- * Stacking order for the pager's fixed three-slot window: previous page highest, current page in the
- * middle, next page lowest.
+ * pager의 고정된 세 슬롯 window에 대한 쌓임 순서: 이전 페이지가 가장 위, 현재 페이지가 가운데, 다음
+ * 페이지가 가장 아래.
  *
- * Only the previous and current slots ever draw a curl fold — the next slot's `leafEdge` is always null
- * in [FoundationPagerCurlReferenceImpl]'s page content — so whichever of the other two is actively
- * folding needs to sit above the page it is revealing, in both directions; that only holds if this
- * ordering is fixed regardless of which turn is in progress.
+ * curl fold는 이전과 현재 슬롯에서만 그려진다 — [FoundationPagerCurlReferenceImpl]의 페이지
+ * 콘텐츠에서 다음 슬롯의 `leafEdge`는 항상 null이다 — 그래서 둘 중 실제로 접히고 있는 쪽이 자신이
+ * 드러내는 페이지 위에 놓여야 하며, 이는 양쪽 방향 모두에서 그렇다; 이는 어떤 turn이 진행 중이든
+ * 이 순서가 고정되어 있을 때만 성립한다.
  *
- * @param pageOffset the slot's offset from the pager's fixed center page (-1, 0, or +1).
- * @return a z-index where -1 sorts highest and +1 sorts lowest.
+ * @param pageOffset pager의 고정된 가운데 페이지로부터 이 슬롯의 오프셋(-1, 0, 또는 +1).
+ * @return -1이 가장 위로, +1이 가장 아래로 정렬되는 z-index.
  */
 internal fun foundationReferenceCurlZIndex(pageOffset: Int): Float =
     (1 - pageOffset).toFloat()
 
 /**
- * What one in-progress drag gesture is doing, decided once at drag start and read for the rest of it.
+ * 진행 중인 하나의 드래그 제스처가 무엇을 하고 있는지로, 드래그가 시작될 때 한 번 결정되어 나머지
+ * 기간 동안 그대로 읽힌다.
  *
- * [detectFoundationReferenceCurlGestures] resolves [direction] and, from it, which of the pager's two
- * curl animatables applies ([edge]) before the first pointer move; bundling that choice here means the
- * rest of the gesture — drag, fling, cancel — never has to re-derive it or risk disagreeing about which
- * animatable is live mid-gesture.
+ * [detectFoundationReferenceCurlGestures]는 첫 포인터 이동이 있기 전에 [direction]을, 그리고 그로부터
+ * pager의 두 curl animatable 중 어느 쪽이 적용되는지([edge])를 해석한다; 이 선택을 여기 묶어 두면
+ * 나머지 제스처 — 드래그, fling, 취소 — 는 이를 다시 도출하거나 제스처 도중 어느 animatable이
+ * 살아있는지에 대해 서로 다르게 판단할 위험을 질 필요가 없다.
  *
- * @property direction which way this drag is turning the page.
- * @property edge the animatable this gesture drives — [FoundationPagerCurlReferenceImpl]'s forward or
- *   backward edge, depending on [direction].
- * @property start the edge a cancelled drag animates back to.
- * @property end the edge a successful drag animates to, completing the turn.
+ * @property direction 이 드래그가 페이지를 어느 방향으로 넘기고 있는지.
+ * @property edge 이 제스처가 구동하는 animatable — [direction]에 따라
+ *   [FoundationPagerCurlReferenceImpl]의 forward 또는 backward edge.
+ * @property start 취소된 드래그가 되돌아가며 애니메이션할 edge.
+ * @property end 성공한 드래그가 애니메이션해 도달하는, turn을 완료시키는 edge.
  */
 private data class FoundationReferenceDragConfig(
     val direction: FoundationReferenceCurlDirection,
@@ -683,47 +684,45 @@ internal data class FoundationReferenceActiveDrag(
     val edge: FoundationReferenceCurlEdge,
 )
 
-/** Pointer events replace this value synchronously; no drag-frame coroutine or spring is created. */
+/** 포인터 이벤트가 이 값을 동기적으로 교체한다; 드래그-프레임 코루틴이나 spring이 만들어지지 않는다. */
 internal fun foundationReferenceUpdateDragEdge(
     direction: FoundationReferenceCurlDirection,
     target: FoundationReferenceCurlEdge,
 ) = FoundationReferenceActiveDrag(direction, target)
 
 /**
- * Drives one page-turn drag from first touch to its resolved outcome: fling-completed, dragged past the
- * threshold, or snapped back.
+ * 첫 터치부터 해석된 결과 — fling으로 완료, 임계값을 넘겨 드래그, 또는 되돌아가기 — 까지 하나의
+ * 페이지 turn 드래그를 구동한다.
  *
- * Direction and the edge to animate are fixed in a [FoundationReferenceDragConfig] the moment a drag
- * starts, from the touch-slop displacement alone; nothing about the gesture after that can change which
- * animatable is driven. Every pointer position seen after that first decision is converted through
- * [foundationReferenceCurlLeafOffset] into the leaf's own coordinate space — the only space the fold
- * geometry understands — so a spread's narrower leaf still tracks the same normalized travel a single
- * pane would for the same finger movement.
+ * 방향과 애니메이션할 edge는 드래그가 시작되는 순간, 터치 슬롭 변위만으로 [FoundationReferenceDragConfig]에
+ * 고정된다; 그 이후로는 제스처의 어떤 것도 어느 animatable이 구동되는지를 바꿀 수 없다. 그 첫 결정 이후에
+ * 관측되는 모든 포인터 위치는 [foundationReferenceCurlLeafOffset]을 통해 leaf 자신의 좌표계로 —
+ * fold 기하 계산이 이해하는 유일한 좌표계로 — 변환되며, 그래서 spread의 더 좁은 leaf도 같은 손가락
+ * 움직임에 대해 단일 pane과 동일하게 정규화된 이동량을 따라간다.
  *
- * On lift, the recorded velocity is projected forward with a spline decay to find where the finger's
- * fling would have landed, and [foundationReferenceCurlDragSucceeds] judges that projected point against
- * the page-turn threshold — so a fast short flick can complete a turn a slow drag of the same distance
- * would not, matching how a real page flip responds to a flick versus a slow push.
+ * 손을 뗄 때, 기록된 속도는 spline decay로 앞쪽으로 투영되어 손가락의 fling이 어디에 도달했을지를
+ * 찾아내고, [foundationReferenceCurlDragSucceeds]는 그 투영된 지점을 페이지 turn 임계값에 대고
+ * 판단한다 — 그래서 같은 거리를 이동한 느린 드래그는 완료하지 못하는 turn을, 빠르고 짧은 flick은
+ * 완료할 수 있으며, 이는 실제 페이지 넘김이 flick과 느린 밀기에 다르게 반응하는 것과 일치한다.
  *
- * @receiver the pointer input scope providing gesture detection and the coroutine context
- *   [splineBasedDecay] needs.
- * @param axis whether the pager turns horizontally or vertically.
- * @param canonicalSize the leaf's size in the axis' canonical orientation.
- * @param isSpread whether the pager is showing two panes side by side.
- * @param leafScale the fraction of full-viewport pointer travel that maps to one leaf-width of fold
- *   progress in a spread; unused outside a spread.
- * @param leafWidth the leaf's width, used to mirror travel for a backward drag in a spread.
- * @param scope the coroutine scope the fold animations are launched on.
- * @param forwardEdge the animatable driving a forward turn.
- * @param backwardEdge the animatable driving a backward turn.
- * @param canGoForward whether a next page exists to turn to.
- * @param canGoBackward whether a previous page exists to turn to.
- * @param onDragStart called once a drag is recognized as a valid turn gesture, before the first frame
- *   of fold animation.
- * @param onComplete called with the resolved direction once the fold animation finishes a completed
- *   turn.
- * @param style the curl profile in effect; the 3D style locks the drag to horizontal-dominant motion
- *   and drives its crease from pointer x alone, while the standard style keeps the corner-peel curl.
+ * @receiver 제스처 감지와 [splineBasedDecay]가 필요로 하는 코루틴 컨텍스트를 제공하는 pointer input
+ *   scope.
+ * @param axis pager가 가로로 넘어가는지 세로로 넘어가는지.
+ * @param canonicalSize 축의 canonical 방향으로 나타낸 leaf의 크기.
+ * @param isSpread pager가 두 pane을 나란히 보여주고 있는지 여부.
+ * @param leafScale spread에서 전체 viewport 포인터 이동량 중 leaf 너비 하나만큼의 fold 진행률에
+ *   대응하는 비율; spread 밖에서는 쓰이지 않는다.
+ * @param leafWidth leaf의 너비로, spread에서 뒤로 가는 드래그의 이동량을 미러링하는 데 쓰인다.
+ * @param scope fold 애니메이션이 실행되는 코루틴 scope.
+ * @param forwardEdge 앞으로 가는 turn을 구동하는 animatable.
+ * @param backwardEdge 뒤로 가는 turn을 구동하는 animatable.
+ * @param canGoForward 넘어갈 다음 페이지가 존재하는지 여부.
+ * @param canGoBackward 넘어갈 이전 페이지가 존재하는지 여부.
+ * @param onDragStart 드래그가 유효한 turn 제스처로 인식되면, fold 애니메이션의 첫 프레임 전에 한 번
+ *   호출된다.
+ * @param onComplete fold 애니메이션이 완료된 turn을 끝내면, 해석된 방향과 함께 호출된다.
+ * @param style 적용 중인 curl 프로필; 3D style은 드래그를 가로 우세 움직임으로 고정하고 crease를
+ *   포인터 x만으로 구동하며, 표준 style은 corner-peel curl을 유지한다.
  */
 private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
     axis: FoundationReferenceCurlAxis,
@@ -875,21 +874,20 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlGestures(
 }
 
 /**
- * A press-drag-release loop shaped like Compose Foundation's own drag-gesture detector, except
- * [onDragStart] can veto the gesture.
+ * Compose Foundation 자체의 드래그 제스처 감지기와 같은 모양의 press-drag-release 루프이지만,
+ * [onDragStart]가 제스처를 거부할 수 있다.
  *
- * The stock detector always accepts a drag once touch slop is passed and returns nothing from its start
- * callback; this one needs [onDragStart] to look at the touch-slop displacement and answer whether it is
- * even a valid page-turn attempt (there may be no page to turn to in that direction) before committing
- * to drive an animatable or fire its side effects. A rejected start exits without calling [onDrag] or
- * [onDragEnd] at all.
+ * 표준 감지기는 터치 슬롭을 넘기면 언제나 드래그를 받아들이고 시작 콜백에서 아무것도 반환하지
+ * 않는다; 이것은 animatable을 구동하거나 부수 효과를 일으키기로 확정하기 전에 [onDragStart]가
+ * 터치 슬롭 변위를 살펴보고 그것이 유효한 페이지 turn 시도이기라도 한지(그 방향에 넘어갈 페이지가
+ * 없을 수도 있다) 답해야 한다. 거부된 시작은 [onDrag]나 [onDragEnd]를 전혀 호출하지 않고 빠져나간다.
  *
- * @receiver the pointer input scope this gesture loop is detected within.
- * @param onDragStart given the down position and the position once touch slop is passed; returns
- *   whether the drag should proceed.
- * @param onDragEnd called once per accepted gesture with the last known position and whether it ended
- *   in a normal pointer-up (`true`) versus a cancellation (`false`).
- * @param onDrag called for every drag position after the start, including the touch-slop offset itself.
+ * @receiver 이 제스처 루프가 감지되는 pointer input scope.
+ * @param onDragStart 눌린 위치와 터치 슬롭을 넘긴 뒤의 위치를 받는다; 드래그를 진행해야 하는지
+ *   여부를 반환한다.
+ * @param onDragEnd 받아들여진 제스처 하나마다 한 번, 마지막으로 알려진 위치와 정상적인
+ *   pointer-up(`true`)으로 끝났는지 취소(`false`)로 끝났는지와 함께 호출된다.
+ * @param onDrag 시작 이후의 모든 드래그 위치마다, 터치 슬롭 오프셋 자체를 포함해 호출된다.
  */
 private suspend fun PointerInputScope.detectFoundationReferenceCustomDragGestures(
     onDragStart: (Offset, Offset) -> Boolean,
@@ -920,21 +918,21 @@ private suspend fun PointerInputScope.detectFoundationReferenceCustomDragGesture
 }
 
 /**
- * Wires Compose's tap/double-tap detection to [foundationReferenceCurlTapAction]'s zone decision.
+ * Compose의 탭/더블 탭 감지를 [foundationReferenceCurlTapAction]의 영역 판단에 연결한다.
  *
- * Kept separate from [detectFoundationReferenceCurlGestures] because taps and drags are recognized by
- * two independent `pointerInput` blocks on the pager modifier (see [FoundationPagerCurlReferenceImpl]),
- * so a tap that never moves past touch slop still reaches this detector.
+ * [detectFoundationReferenceCurlGestures]와 분리되어 있는 이유는 탭과 드래그가 pager modifier
+ * 위의 서로 독립된 두 `pointerInput` 블록으로 인식되기 때문이며([FoundationPagerCurlReferenceImpl]
+ * 참고), 그래서 터치 슬롭을 전혀 넘지 않은 탭도 이 감지기까지 도달한다.
  *
- * @receiver the pointer input scope this gesture is detected within.
- * @param axis whether the pager turns horizontally or vertically.
- * @param canGoForward whether a next page exists to turn to.
- * @param canGoBackward whether a previous page exists to turn to.
- * @param isAutoScrollEnabled whether auto-scroll is running, in which case any tap toggles the controls.
- * @param onPageTap called with the direction to animate a tap-triggered page turn.
- * @param onToggleControls called when the tap should show or hide the reader's controls instead of
- *   turning a page.
- * @param onDoubleTap forwarded to Compose's tap detector; null disables double-tap handling.
+ * @receiver 이 제스처가 감지되는 pointer input scope.
+ * @param axis pager가 가로로 넘어가는지 세로로 넘어가는지.
+ * @param canGoForward 넘어갈 다음 페이지가 존재하는지 여부.
+ * @param canGoBackward 넘어갈 이전 페이지가 존재하는지 여부.
+ * @param isAutoScrollEnabled 자동 스크롤이 실행 중인지 여부로, 실행 중이면 어떤 탭이든 컨트롤을
+ *   토글한다.
+ * @param onPageTap 탭으로 촉발된 페이지 turn을 애니메이션할 방향과 함께 호출된다.
+ * @param onToggleControls 탭이 페이지를 넘기는 대신 리더의 컨트롤을 보이거나 숨겨야 할 때 호출된다.
+ * @param onDoubleTap Compose의 탭 감지기로 그대로 전달된다; null이면 더블 탭 처리를 비활성화한다.
  */
 private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
     axis: FoundationReferenceCurlAxis,
@@ -967,21 +965,22 @@ private suspend fun PointerInputScope.detectFoundationReferenceCurlTaps(
 }
 
 /**
- * What a tap on the curl pager should do, decided from the tap's position alone.
+ * curl pager 위의 탭이 무엇을 해야 하는지로, 오직 탭 위치만으로 결정된다.
  *
- * A tap in an edge zone with no page to go to — the first or last page of the book — falls through to
- * toggling the controls, exactly like a tap in the middle zone. That rule is here because its absence was a
- * shipped bug (F16): a tap on the last page used to do nothing at all, so a reader could not tell the end of
- * the book from a swallowed tap. Auto-scroll short-circuits to the same toggle, since a page turn during
- * auto-scroll would fight the scroll.
+ * 넘어갈 페이지가 없는 가장자리 영역 — 책의 첫 페이지나 마지막 페이지 — 에서의 탭은 가운데 영역의
+ * 탭과 똑같이 컨트롤 토글로 넘어간다. 이 규칙이 존재하는 이유는 이것이 없으면 출시된 버그였기
+ * 때문이다: 예전에는 마지막 페이지에서의 탭이 아무 일도 하지 않아서, 독자가 책의 끝인지 삼켜진
+ * 탭인지 구분할 수 없었다. 자동 스크롤 도중의 페이지 turn은 스크롤과 충돌하므로, 자동 스크롤은
+ * 같은 토글로 곧바로 넘어간다.
  *
- * @param position the tap position in the pane's own coordinates.
- * @param size the pane's size, used with [axis] to reduce both to one canonical axis.
- * @param axis which way this pager turns.
- * @param canGoBackward whether a page exists behind the current one.
- * @param canGoForward whether a page exists ahead of it.
- * @param isAutoScrollEnabled whether auto-scroll is running, in which case any tap toggles the controls.
- * @return the action to take; never "nothing".
+ * @param position pane 자신의 좌표계 기준 탭 위치.
+ * @param size [axis]와 함께 하나의 canonical 축으로 축소하는 데 쓰이는 pane의 크기.
+ * @param axis 이 pager가 어느 방향으로 넘어가는지.
+ * @param canGoBackward 현재 페이지 뒤에 페이지가 존재하는지 여부.
+ * @param canGoForward 현재 페이지 앞에 페이지가 존재하는지 여부.
+ * @param isAutoScrollEnabled 자동 스크롤이 실행 중인지 여부로, 실행 중이면 어떤 탭이든 컨트롤을
+ *   토글한다.
+ * @return 취해야 할 동작; "아무 것도 하지 않음"은 절대 없다.
  */
 internal fun foundationReferenceCurlTapAction(
     position: Offset,
@@ -1004,22 +1003,21 @@ internal fun foundationReferenceCurlTapAction(
 }
 
 /**
- * Which way a drag's initial displacement means to turn the page, or null when that direction has
- * nowhere to go.
+ * 드래그의 초기 변위가 페이지를 어느 방향으로 넘기려는 것인지, 또는 그 방향에 갈 곳이 없으면 null.
  *
- * Comparing [current] against [start] in canonical (horizontal-first) coordinates lets one comparison
- * serve both axes: dragging toward the start of the axis is a forward turn, dragging toward its end is
- * backward, regardless of whether the pager is laid out horizontally or vertically. Returning null when
- * [canGoForward]/[canGoBackward] rules the direction out is what lets
- * [detectFoundationReferenceCustomDragGestures]'s `onDragStart` veto a drag at the first or last page
- * instead of animating a turn to nowhere.
+ * canonical(가로 우선) 좌표계에서 [current]를 [start]와 비교하면 하나의 비교로 두 축 모두를
+ * 처리할 수 있다: pager가 가로로 배치되었는지 세로로 배치되었는지와 무관하게, 축의 시작 쪽으로
+ * 드래그하면 앞으로 가는 turn이고 끝 쪽으로 드래그하면 뒤로 가는 turn이다.
+ * [canGoForward]/[canGoBackward]가 그 방향을 배제할 때 null을 반환하는 것은
+ * [detectFoundationReferenceCustomDragGestures]의 `onDragStart`가 갈 곳 없는 turn을
+ * 애니메이션하는 대신 첫 페이지나 마지막 페이지에서의 드래그를 거부할 수 있게 해준다.
  *
- * @param start the drag's starting position, in canonical coordinates.
- * @param current the drag's position once touch slop is passed, in canonical coordinates.
- * @param canGoBackward whether a previous page exists.
- * @param canGoForward whether a next page exists.
- * @return [FoundationReferenceCurlDirection.Forward] or [FoundationReferenceCurlDirection.Backward], or
- *   null if the indicated direction has no page to turn to.
+ * @param start 드래그의 시작 위치, canonical 좌표계 기준.
+ * @param current 터치 슬롭을 넘긴 뒤의 드래그 위치, canonical 좌표계 기준.
+ * @param canGoBackward 이전 페이지가 존재하는지 여부.
+ * @param canGoForward 다음 페이지가 존재하는지 여부.
+ * @return [FoundationReferenceCurlDirection.Forward] 또는
+ *   [FoundationReferenceCurlDirection.Backward], 또는 지시된 방향에 넘어갈 페이지가 없으면 null.
  */
 internal fun foundationReferenceCurlDirection(
     start: Offset,
@@ -1033,20 +1031,19 @@ internal fun foundationReferenceCurlDirection(
 }
 
 /**
- * The swipe axis the curl actually turns along, given the reader's configured [pageTurnMode] and the
- * selected [style].
+ * 리더에 설정된 [pageTurnMode]와 선택된 [style]이 주어졌을 때, curl이 실제로 넘어가는 스와이프 축.
  *
- * The Play Books-style [FoundationReferenceCurlStyle.ThreeDimensional] rolls a single leaf about a
- * near-vertical spine, a motion that only reads correctly as a left/right page turn; forcing it onto a
- * vertical swipe would fold the leaf against its own rolling direction, so this style is pinned to
- * [FoundationReferenceCurlAxis.Horizontal] regardless of [pageTurnMode]. The
- * [FoundationReferenceCurlStyle.Standard] curl has no such constraint and keeps honoring the reader's
- * chosen direction.
+ * Play Books 스타일 [FoundationReferenceCurlStyle.ThreeDimensional]은 거의 수직에 가까운 spine을
+ * 중심으로 leaf 하나를 굴리는데, 이는 좌우 페이지 turn으로만 올바르게 읽히는 움직임이다; 이를
+ * 세로 스와이프에 강제로 맞추면 leaf가 자신이 굴러가는 방향에 반대로 접히게 되므로, 이 style은
+ * [pageTurnMode]와 무관하게 [FoundationReferenceCurlAxis.Horizontal]에 고정된다.
+ * [FoundationReferenceCurlStyle.Standard] curl에는 그런 제약이 없어 리더가 선택한 방향을 계속
+ * 따른다.
  *
- * @param pageTurnMode the reader's configured turn direction.
- * @param style the curl painting/interaction profile in effect.
- * @return [FoundationReferenceCurlAxis.Horizontal] for the 3D style or a horizontal [pageTurnMode],
- *   [FoundationReferenceCurlAxis.Vertical] only for the standard style on a vertical [pageTurnMode].
+ * @param pageTurnMode 리더에 설정된 turn 방향.
+ * @param style 적용 중인 curl 페인팅/인터랙션 프로필.
+ * @return 3D style이거나 가로 [pageTurnMode]면 [FoundationReferenceCurlAxis.Horizontal], 세로
+ *   [pageTurnMode]에서 표준 style일 때만 [FoundationReferenceCurlAxis.Vertical].
  */
 internal fun foundationReferenceCurlAxis(
     pageTurnMode: PageTurnMode,
@@ -1058,22 +1055,21 @@ internal fun foundationReferenceCurlAxis(
 }
 
 /**
- * Which way a 3D-curl drag means to turn the page, accepting the gesture only when it is clearly a
- * left/right swipe rather than an incidental vertical drift.
+ * 3D curl 드래그가 페이지를 어느 방향으로 넘기려는 것인지로, 우발적인 세로 흔들림이 아니라 명확한
+ * 좌우 스와이프일 때만 제스처를 받아들인다.
  *
- * The Play Books-style roll is horizontal by construction (see [foundationReferenceCurlAxis]), so a
- * mostly-vertical drag is not a page turn at all and must not start one — this rejects any gesture whose
- * vertical travel dominates its horizontal travel (`abs(dy) >= abs(dx)`, which also rejects a pure
- * vertical or a no-movement drag). Once the drag is horizontal-dominant it defers to the same
- * availability semantics as [foundationReferenceCurlDirection]: leftward is a forward turn, rightward a
- * backward one, and either resolves to null when that direction has no page to turn to.
+ * Play Books 스타일 롤은 구조상 가로 방향이므로([foundationReferenceCurlAxis] 참고), 대부분 세로로
+ * 움직인 드래그는 애초에 페이지 turn이 아니며 시작되어서도 안 된다 — 이는 세로 이동량이 가로
+ * 이동량을 압도하는 모든 제스처를 거부한다(`abs(dy) >= abs(dx)`이며, 이는 순수한 세로 드래그나
+ * 움직임이 없는 드래그도 함께 거부한다). 드래그가 가로 우세로 판명되면
+ * [foundationReferenceCurlDirection]과 같은 가용성 의미론을 따른다: 왼쪽은 앞으로 가는 turn,
+ * 오른쪽은 뒤로 가는 turn이며, 어느 쪽이든 그 방향에 넘어갈 페이지가 없으면 null로 해석된다.
  *
- * @param start the drag's starting position, in canonical coordinates.
- * @param current the drag's position once touch slop is passed, in canonical coordinates.
- * @param canGoBackward whether a previous page exists.
- * @param canGoForward whether a next page exists.
- * @return the resolved turn direction, or null when the drag is not horizontal-dominant or the implied
- *   direction has nowhere to go.
+ * @param start 드래그의 시작 위치, canonical 좌표계 기준.
+ * @param current 터치 슬롭을 넘긴 뒤의 드래그 위치, canonical 좌표계 기준.
+ * @param canGoBackward 이전 페이지가 존재하는지 여부.
+ * @param canGoForward 다음 페이지가 존재하는지 여부.
+ * @return 해석된 turn 방향, 또는 드래그가 가로 우세가 아니거나 암시된 방향에 갈 곳이 없으면 null.
  */
 internal fun foundationReferenceThreeDCurlDirection(
     start: Offset,
@@ -1088,28 +1084,27 @@ internal fun foundationReferenceThreeDCurlDirection(
 }
 
 /**
- * The 3D curl's rolling-crease edge for a pointer at [current], driven entirely by its x position.
+ * [current]에 있는 포인터에 대한 3D curl의 롤링 crease edge로, 오직 x 위치만으로 구동된다.
  *
- * The Play Books-style roll keeps the crease near-vertical and sweeping across the page as the finger
- * moves horizontally, so this ignores [current]'s y completely — the same pointer x produces the same
- * crease at the top of the page as at the bottom, unlike [foundationReferenceCurlEdge]'s corner-peel
- * construction which pivots about the drag's starting height. The two exact endpoints coincide with the
- * renderer's flat rest edges so a fully-swept crease hands the draw path the very
- * [FoundationReferenceCurlEdge.left]/[FoundationReferenceCurlEdge.right] values its early returns already
- * short-circuit on: x at or past the left edge is [FoundationReferenceCurlEdge.left] (fully rolled), x at
- * or past the right edge is [FoundationReferenceCurlEdge.right] (at rest).
+ * Play Books 스타일 롤은 손가락이 가로로 움직이는 동안 crease를 거의 수직으로 유지하며 페이지를
+ * 가로질러 쓸어가므로, 이는 [current]의 y를 완전히 무시한다 — 드래그의 시작 높이를 중심으로
+ * 피벗하는 [foundationReferenceCurlEdge]의 corner-peel 구성과 달리, 같은 포인터 x는 페이지
+ * 위쪽에서도 아래쪽에서도 같은 crease를 만들어낸다. 두 정확한 끝점은 렌더러의 평평한 정지 edge와
+ * 일치하므로, 완전히 쓸린 crease는 그리기 경로에 조기 반환이 이미 단락시켜 놓은 바로 그
+ * [FoundationReferenceCurlEdge.left]/[FoundationReferenceCurlEdge.right] 값을 넘겨준다: 왼쪽
+ * edge에 닿거나 지난 x는 [FoundationReferenceCurlEdge.left](완전히 말림), 오른쪽 edge에 닿거나
+ * 지난 x는 [FoundationReferenceCurlEdge.right](정지 상태)이다.
  *
- * Between those extremes the crease is a single near-vertical line centered on [current]'s x, tilted by
- * [FoundationReferenceThreeDCurlTiltRatio] of the shorter leaf side, scaled by a sine that peaks
- * mid-sweep and returns to zero at both edges. The tilt keeps the interior crease non-degenerate
- * (its top and bottom x differ), giving
- * the roll a visible lean instead of a flat vertical band, while its vanishing at the endpoints keeps
- * them exactly equal to the flat rest edges.
+ * 그 양극단 사이에서 crease는 [current]의 x를 중심으로 한 하나의 거의 수직인 선이며, 더 짧은 leaf
+ * 변의 [FoundationReferenceThreeDCurlTiltRatio]만큼 기울어져 있고, 스윕 중간에서 정점을 찍고 양쪽
+ * edge에서 0으로 돌아오는 사인 곡선으로 스케일된다. 이 기울기는 내부 crease가 퇴화되지 않도록
+ * 유지하며(위/아래 x가 서로 다르다), 평평한 수직 띠 대신 눈에 보이는 기울어짐을 롤에 부여하는 한편,
+ * 끝점에서 사라지는 성질은 그것들을 평평한 정지 edge와 정확히 같게 유지한다.
  *
- * @param size the leaf's size, in canonical coordinates; its width bounds the sweep and its height spans
- *   the crease.
- * @param current the pointer position; only its x is read.
- * @return the crease edge for this pointer x, or the exact flat rest edge at either endpoint.
+ * @param size 축의 canonical 좌표계 기준 leaf의 크기; 너비는 스윕을 제한하고 높이는 crease가
+ *   걸치는 범위다.
+ * @param current 포인터 위치; x만 읽힌다.
+ * @return 이 포인터 x에 대한 crease edge, 또는 양 끝점에서는 정확히 평평한 정지 edge.
  */
 internal fun foundationReferenceThreeDCurlEdge(
     size: IntSize,
@@ -1129,20 +1124,21 @@ internal fun foundationReferenceThreeDCurlEdge(
 }
 
 /**
- * Converts horizontal drag travel into the 3D roll edge without letting the pointer's absolute touch
- * position choose the initial deformation.
+ * 포인터의 절대 터치 위치가 초기 변형을 결정하지 않도록, 가로 드래그 이동량을 3D 롤 edge로
+ * 변환한다.
  *
- * A Play Books-style swipe begins with a flat leaf wherever the finger touched. Forward travel moves
- * the crease left from the right rest edge; backward travel moves it right from the left rest edge.
- * Reversing past the touch point stays at that direction's rest edge through
- * [foundationReferenceThreeDCurlEdge]'s endpoint clamping. Spread callers pass their resolved geometry
- * direction, so a backward spread still folds the outer leaf with forward geometry.
+ * Play Books 스타일 스와이프는 손가락이 닿은 곳이 어디든 평평한 leaf에서 시작한다. 앞으로 가는
+ * 이동은 crease를 오른쪽 정지 edge에서 왼쪽으로 옮기고; 뒤로 가는 이동은 왼쪽 정지 edge에서
+ * 오른쪽으로 옮긴다. 터치 지점을 지나쳐 되돌아가면
+ * [foundationReferenceThreeDCurlEdge]의 끝점 clamp를 통해 그 방향의 정지 edge에 머무른다.
+ * spread 호출자는 자신이 해석한 기하 방향을 넘기므로, 뒤로 가는 spread도 여전히 앞으로 가는
+ * 기하로 바깥쪽 leaf를 접는다.
  *
- * @param size the leaf's size in canonical coordinates.
- * @param start the pointer position mapped into leaf coordinates when the drag began.
- * @param current the current pointer position in the same leaf coordinates; its y is ignored.
- * @param direction the fold geometry direction to render.
- * @return the rolling crease reached by the drag's horizontal displacement.
+ * @param size canonical 좌표계 기준 leaf의 크기.
+ * @param start 드래그가 시작될 때 leaf 좌표계로 매핑된 포인터 위치.
+ * @param current 같은 leaf 좌표계 기준 현재 포인터 위치; y는 무시된다.
+ * @param direction 렌더링할 fold 기하 방향.
+ * @return 드래그의 가로 변위가 도달한 롤링 crease.
  */
 internal fun foundationReferenceThreeDCurlDragEdge(
     size: IntSize,
@@ -1158,12 +1154,12 @@ internal fun foundationReferenceThreeDCurlDragEdge(
 }
 
 /**
- * Maps a pointer position into the coordinate space of the leaf that actually folds.
+ * 포인터 위치를 실제로 접히는 leaf의 좌표 공간으로 매핑한다.
  *
- * A spread scales the full viewport travel onto the narrower leaf rather than translating it, so a
- * pointer at the viewport start edge always means "fully folded" and the viewport end edge always
- * means "at rest" — the same normalized progress the single pane curl produces. Translating instead
- * would pin the whole facing pane to the folded extreme and make the fold jump on drag start.
+ * spread는 전체 viewport 이동량을 이동시키는 대신 더 좁은 leaf로 스케일하므로, viewport 시작
+ * edge에 있는 포인터는 항상 "완전히 접힘"을, viewport 끝 edge는 항상 "정지 상태"를 의미한다 —
+ * 단일 pane curl이 만들어내는 것과 같은 정규화된 진행률이다. 대신 이동시켰다면 마주보는 pane
+ * 전체가 접힌 극단에 고정되어 드래그 시작 시 fold가 튀어 보였을 것이다.
  */
 internal fun foundationReferenceCurlLeafOffset(
     offset: Offset,
@@ -1183,19 +1179,19 @@ internal fun foundationReferenceCurlLeafOffset(
 }
 
 /**
- * Maps a page-turn direction to the fold shape that should render it, collapsing backward into forward
- * whenever the pager is a spread.
+ * 페이지 turn 방향을 그것을 렌더링해야 할 fold 모양으로 매핑하며, pager가 spread일 때는 항상 뒤로
+ * 가는 방향을 앞으로 가는 방향으로 접어 넣는다.
  *
- * Outside a spread the two directions fold from opposite edges — a forward turn peels from the right,
- * a backward one from the left — so the geometry direction matches [direction] one-to-one. Inside a
- * spread only the outer (right-hand) leaf ever folds; a backward turn there is rendered as that same
- * leaf folding forward (see [FoundationPagerCurlReferenceImpl]'s rest and end edges, both pinned to the
- * leaf's right/left sides in that case), so its fold shape, shadow, and tap-animation spec must all use
- * the forward geometry even though the page navigation itself is backward.
+ * spread 밖에서는 두 방향이 서로 반대쪽 edge에서 접힌다 — 앞으로 가는 turn은 오른쪽에서 벗겨지고,
+ * 뒤로 가는 turn은 왼쪽에서 벗겨진다 — 그래서 기하 방향은 [direction]과 일대일로 일치한다. spread
+ * 안에서는 바깥쪽(오른쪽) leaf만 접히므로, 거기서의 뒤로 가는 turn은 같은 leaf가 앞으로 접히는
+ * 것으로 렌더링된다([FoundationPagerCurlReferenceImpl]의 정지·종료 edge를 참고, 이 경우 둘 다
+ * leaf의 오른쪽/왼쪽에 고정되어 있다), 그래서 페이지 내비게이션 자체는 뒤로 가는 것이더라도 그
+ * fold 모양, 그림자, 탭-애니메이션 spec은 모두 앞으로 가는 기하를 써야 한다.
  *
- * @param direction the page-turn direction as the reader experiences it.
- * @param isSpread whether the pager is showing two panes side by side.
- * @return the direction whose fold geometry should actually be drawn for this turn.
+ * @param direction 독자가 경험하는 대로의 페이지 turn 방향.
+ * @param isSpread pager가 두 pane을 나란히 보여주고 있는지 여부.
+ * @return 이 turn에 대해 실제로 그려야 할 fold 기하의 방향.
  */
 internal fun foundationReferenceCurlGeometryDirection(
     direction: FoundationReferenceCurlDirection,
@@ -1208,20 +1204,20 @@ internal fun foundationReferenceCurlGeometryDirection(
     }
 
 /**
- * The fold edge to actually draw for this page slot, discarding a stale animation instead of letting it
- * bleed onto content it was never turning.
+ * 이 페이지 슬롯을 위해 실제로 그릴 fold edge로, 낡은 애니메이션이 자신이 넘긴 적도 없는 콘텐츠
+ * 위로 번지게 두는 대신 그것을 버린다.
  *
- * [pageKey] can change before [FoundationPagerCurlReferenceImpl]'s page-key `LaunchedEffect` has had a
- * chance to reset the animatables and catch [renderedPageKey] up — a programmatic jump is the clearest
- * case. In that gap [animatedEdge] still holds whatever fold state the previous page's turn left it in;
- * drawing that here would flash a leftover fold across the new page's content instead of the flat rest
- * state it should start from.
+ * [pageKey]는 [FoundationPagerCurlReferenceImpl]의 page-key `LaunchedEffect`가 animatable을
+ * 재설정하고 [renderedPageKey]를 따라잡을 기회를 갖기 전에 바뀔 수 있다 — 프로그래밍적 점프가
+ * 가장 명확한 경우다. 그 틈에서 [animatedEdge]는 여전히 이전 페이지의 turn이 남겨 놓은 fold
+ * 상태를 그대로 갖고 있다; 이를 여기서 그리면 새 페이지의 콘텐츠 위로, 시작했어야 할 평평한 정지
+ * 상태 대신 남아 있던 fold가 잠깐 스쳐 지나가게 된다.
  *
- * @param pageKey the page currently requested.
- * @param renderedPageKey the page the fold animatables were last reset for.
- * @param animatedEdge the animatable's live value.
- * @param restingEdge the flat edge to fall back to when the animation cannot be trusted.
- * @return [animatedEdge] while it is known to belong to the current page, [restingEdge] otherwise.
+ * @param pageKey 현재 요청된 페이지.
+ * @param renderedPageKey fold animatable이 마지막으로 재설정되었던 페이지.
+ * @param animatedEdge animatable의 실시간 값.
+ * @param restingEdge 애니메이션을 신뢰할 수 없을 때 대신 쓸 평평한 edge.
+ * @return 현재 페이지에 속한다고 알려져 있는 동안은 [animatedEdge], 그렇지 않으면 [restingEdge].
  */
 internal fun foundationReferenceVisibleCurlEdge(
     pageKey: Int,
@@ -1232,24 +1228,23 @@ internal fun foundationReferenceVisibleCurlEdge(
     if (pageKey == renderedPageKey) animatedEdge else restingEdge
 
 /**
- * Whether a completed or flung drag travelled far enough, in [direction], to count as a finished page
- * turn rather than a cancelled one.
+ * 완료되었거나 flung된 드래그가 [direction] 방향으로 충분히 멀리 이동해, 취소된 turn이 아니라
+ * 완료된 페이지 turn으로 칠 수 있는지 여부.
  *
- * The travel and the threshold are both computed from [start]/[end]/[size] in canonical coordinates, so
- * the same ratio ([FoundationReferenceDragThresholdRatio]) applies to horizontal and vertical pagers
- * alike. For [FoundationReferenceCurlAxis.Vertical] the threshold is measured against the smaller of
- * [size]'s two dimensions rather than its canonical width — the canonical width for a vertical pager is
- * the screen's height, and requiring that much travel on a tall portrait screen would make a vertical
- * turn far harder to complete than a horizontal one.
+ * 이동량과 임계값 모두 canonical 좌표계의 [start]/[end]/[size]로부터 계산되므로, 같은
+ * 비율([FoundationReferenceDragThresholdRatio])이 가로 pager와 세로 pager 모두에 똑같이
+ * 적용된다. [FoundationReferenceCurlAxis.Vertical]의 경우 임계값은 canonical 너비가 아니라
+ * [size]의 두 치수 중 더 작은 쪽에 대해 측정된다 — 세로 pager의 canonical 너비는 화면의 높이인데,
+ * 세로로 긴 화면에서 그만큼의 이동을 요구하면 세로 turn이 가로 turn보다 훨씬 완료하기 어려워질
+ * 것이다.
  *
- * @param direction which way the drag was turning; determines which sign of travel counts as forward
- *   progress.
- * @param start the drag's starting position, in canonical coordinates.
- * @param end the drag's final (or projected fling) position, in canonical coordinates.
- * @param size the leaf size the drag happened over, in canonical coordinates.
- * @param axis whether the pager turns horizontally or vertically.
- * @return true once the directional travel reaches [FoundationReferenceDragThresholdRatio] of the
- *   required distance.
+ * @param direction 드래그가 어느 방향으로 넘기고 있었는지; 어느 부호의 이동이 전진으로 치는지를
+ *   결정한다.
+ * @param start 드래그의 시작 위치, canonical 좌표계 기준.
+ * @param end 드래그의 최종(또는 투영된 fling) 위치, canonical 좌표계 기준.
+ * @param size 드래그가 일어난 leaf의 크기, canonical 좌표계 기준.
+ * @param axis pager가 가로로 넘어가는지 세로로 넘어가는지.
+ * @return 방향성 이동량이 필요 거리의 [FoundationReferenceDragThresholdRatio]에 도달하면 true.
  */
 internal fun foundationReferenceCurlDragSucceeds(
     direction: FoundationReferenceCurlDirection,
@@ -1270,21 +1265,21 @@ internal fun foundationReferenceCurlDragSucceeds(
 }
 
 /**
- * The fold's crease line for a finger at [currentOffset], built as the classic paper-fold construction:
- * the perpendicular bisector between the page corner being pulled and the finger's current position.
+ * [currentOffset]에 있는 손가락에 대한 fold의 crease 선으로, 고전적인 종이접기 구성으로 만들어진다:
+ * 당겨지는 페이지 모서리와 손가락의 현재 위치 사이의 수직이등분선.
  *
- * The pulled corner is fixed at `(size.width, startOffset.y)` — the top/right edge at the height the
- * drag began — for the whole gesture; only [currentOffset] moves. Reflecting that corner across the
- * returned edge always lands it exactly on [currentOffset], which is what makes the fold track the
- * finger the way a real sheet of paper being peeled back would. [foundationReferenceCurlFold] extends
- * this line out to the page's own top and bottom edges to get the crease's actual endpoints.
+ * 당겨지는 모서리는 제스처 내내 `(size.width, startOffset.y)` — 드래그가 시작된 높이의 위/오른쪽
+ * edge — 에 고정된다; [currentOffset]만 움직인다. 그 모서리를 반환된 edge에 대해 반사하면 항상
+ * 정확히 [currentOffset] 위에 떨어지는데, 이것이 바로 fold가 실제 종이가 벗겨지는 방식처럼
+ * 손가락을 따라가게 만드는 원리다. [foundationReferenceCurlFold]는 crease의 실제 끝점을 얻기 위해
+ * 이 선을 페이지 자신의 위/아래 edge까지 연장한다.
  *
- * @param size the leaf's size, in canonical coordinates; only its width (the pulled corner's x) is used.
- * @param startOffset the drag's starting position, in canonical coordinates; only its y (the pulled
- *   corner's height) is used.
- * @param currentOffset the finger's current position, in canonical coordinates.
- * @return an edge whose `top`/`bottom` lie on the crease line through [currentOffset], perpendicular to
- *   the segment from the pulled corner to [currentOffset].
+ * @param size 축의 canonical 좌표계 기준 leaf의 크기; 너비(당겨지는 모서리의 x)만 쓰인다.
+ * @param startOffset 드래그의 시작 위치, canonical 좌표계 기준; y(당겨지는 모서리의 높이)만
+ *   쓰인다.
+ * @param currentOffset 손가락의 현재 위치, canonical 좌표계 기준.
+ * @return `top`/`bottom`이 [currentOffset]을 지나는 crease 선 위에 있고, 당겨지는 모서리에서
+ *   [currentOffset]까지 이어진 선분에 수직인 edge.
  */
 internal fun foundationReferenceCurlEdge(
     size: IntSize,
@@ -1300,22 +1295,22 @@ internal fun foundationReferenceCurlEdge(
 }
 
 /**
- * The keyframe animation spec for a tap- or auto-scroll-triggered page turn, shaped to pass through a
- * believable curl instead of the linear edge morph a two-point animateTo would produce.
+ * 탭 또는 자동 스크롤로 촉발된 페이지 turn을 위한 keyframe 애니메이션 spec으로, 두 점짜리
+ * animateTo가 만들어낼 선형 edge 변형 대신 그럴듯한 curl을 거쳐 지나가도록 만들어져 있다.
  *
- * Interpolating the leaf's right/left edge straight to its opposite end would move the crease in a
- * straight line and look like the page sliding rather than curling. Routing through `middle` — a
- * diagonal crease from the mid-right/mid-bottom points — at a third of the way through a forward turn
- * (or, symmetrically, a third before the finish of a backward one) gives the fold an actual arc,
- * matching what a real drag-driven curl looks like partway through.
+ * leaf의 오른쪽/왼쪽 edge를 반대쪽 끝까지 곧장 보간하면 crease가 직선으로 움직여 curl이 아니라
+ * 페이지가 미끄러지는 것처럼 보일 것이다. `middle` — 중간-오른쪽/중간-아래 점에서 나온 대각선
+ * crease — 을 앞으로 가는 turn 진행의 1/3 지점에서(또는 대칭적으로, 뒤로 가는 turn이 끝나기 1/3
+ * 전에) 거쳐 가게 하면 fold에 실제 호 모양이 생겨, 실제 드래그로 구동되는 curl이 중간 지점에서
+ * 어떻게 보이는지와 일치한다.
  *
- * @param direction which way the tap-triggered turn is animating; determines which end state the crease
- *   moves to and which side of the timeline the `middle` keyframe sits on.
- * @param size the leaf size the crease keyframes are computed against.
- * @param durationMillisOverride the total animation duration; also reused for auto-scroll's per-page
- *   delay, so it is coerced to at least 1ms rather than assumed positive.
- * @return a keyframes animation spec driving [FoundationReferenceCurlEdge]'s `top`/`bottom` through the
- *   shapes described above.
+ * @param direction 탭으로 촉발된 turn이 어느 방향으로 애니메이션되는지; crease가 어느 끝 상태로
+ *   움직이는지, `middle` keyframe이 타임라인의 어느 쪽에 놓이는지를 결정한다.
+ * @param size crease keyframe이 계산되는 기준이 되는 leaf 크기.
+ * @param durationMillisOverride 전체 애니메이션 지속 시간; 자동 스크롤의 페이지당 지연에도
+ *   재사용되므로, 양수라고 가정하는 대신 최소 1ms로 강제된다.
+ * @return 위에서 설명한 모양들을 거쳐 [FoundationReferenceCurlEdge]의 `top`/`bottom`을 구동하는
+ *   keyframes 애니메이션 spec.
  */
 private fun foundationReferenceTapSpec(
     direction: FoundationReferenceCurlDirection,
@@ -1341,24 +1336,23 @@ private fun foundationReferenceTapSpec(
 }
 
 /**
- * The keyframe spec for a tap- or auto-scroll-triggered 3D curl turn, routing the edge through the same
- * rolling crease [foundationReferenceThreeDCurlEdge] produces mid-drag so a tapped turn reads as the
- * Play Books-style roll rather than the standard curl's diagonal peel.
+ * 탭 또는 자동 스크롤로 촉발된 3D curl turn을 위한 keyframe spec으로, 탭으로 이루어진 turn이
+ * 표준 curl의 대각선 벗겨짐이 아니라 Play Books 스타일 롤로 읽히도록, 드래그 도중
+ * [foundationReferenceThreeDCurlEdge]가 만들어내는 것과 같은 롤링 crease를 거쳐 edge를 진행시킨다.
  *
- * A forward turn sweeps the crease from the right rest edge to the left, and a backward turn sweeps it
- * back the other way, ending at the right edge — the 3D roll has no distinct collapsed corner state, so
- * both directions settle on one of the two flat rest edges the renderer already short-circuits on. The
- * mid-sweep keyframe is sampled from [foundationReferenceThreeDCurlEdge] at the page's horizontal center,
- * placed a third into a forward turn and a third before the finish of a backward one so the crease passes
- * through its most-tilted state at the same point in the timeline the standard spec arcs through its
- * diagonal middle.
+ * 앞으로 가는 turn은 crease를 오른쪽 정지 edge에서 왼쪽으로 쓸어가고, 뒤로 가는 turn은 반대
+ * 방향으로 쓸어가 오른쪽 edge에서 끝난다 — 3D 롤에는 별개의 접힌 모서리 상태가 없으므로, 두
+ * 방향 모두 렌더러가 이미 단락시켜 놓은 두 평평한 정지 edge 중 하나로 안착한다. 스윕 중간의
+ * keyframe은 페이지의 가로 중심에서 [foundationReferenceThreeDCurlEdge]로부터 샘플링되며, 앞으로
+ * 가는 turn 진행의 1/3 지점에, 뒤로 가는 turn이 끝나기 1/3 전에 배치되어, 표준 spec이 대각선
+ * 중간을 호로 지나가는 것과 같은 타임라인 지점에서 crease가 가장 기울어진 상태를 지나가게 한다.
  *
- * @param direction which way the tap-triggered turn is animating; forward settles at the left rest edge,
- *   backward at the right.
- * @param size the leaf size the crease keyframes are computed against.
- * @param durationMillisOverride the total animation duration, reused for auto-scroll's per-page delay and
- *   so coerced to at least 1ms.
- * @return a keyframes spec driving [FoundationReferenceCurlEdge] through the 3D rolling crease.
+ * @param direction 탭으로 촉발된 turn이 어느 방향으로 애니메이션되는지; forward는 왼쪽 정지 edge에,
+ *   backward는 오른쪽에 안착한다.
+ * @param size crease keyframe이 계산되는 기준이 되는 leaf 크기.
+ * @param durationMillisOverride 전체 애니메이션 지속 시간으로, 자동 스크롤의 페이지당 지연에
+ *   재사용되므로 최소 1ms로 강제된다.
+ * @return 3D 롤링 crease를 거쳐 [FoundationReferenceCurlEdge]를 구동하는 keyframes spec.
  */
 private fun foundationReferenceThreeDCurlTapSpec(
     direction: FoundationReferenceCurlDirection,
@@ -1381,31 +1375,31 @@ private fun foundationReferenceThreeDCurlTapSpec(
 }
 
 /**
- * Draws one non-spread page with a page-curl fold applied at [edge].
+ * [edge]에 적용된 page-curl fold로 spread가 아닌 페이지 한 장을 그린다.
  *
- * At [edge]'s two rest positions (`left`/`right`) nothing is computed at all — the page is either fully
- * hidden or drawn exactly as-is — so the fold math in [foundationReferenceCurlFold] only ever runs while
- * a turn is actually mid-flight. Otherwise the flat remaining part of the page is clipped to
- * [FoundationReferenceCurlFold.clippedPath] and drawn normally, then the folded-over part is drawn a
- * second time inside the fold's own rotated, mirrored transform, clipped to its polygon and dimmed with
- * a white overlay. There is no separate back-face artwork in single-pane mode, so redrawing the same
- * content and fogging it is what stands in for "the back of the sheet" — [FoundationReferenceSpread]'s
- * two-pane curl instead has real back-face content and uses [foundationReferenceDrawLeafFront]/
- * [foundationReferenceDrawLeafBack] for the same split.
+ * [edge]의 두 정지 위치(`left`/`right`)에서는 아무것도 계산되지 않는다 — 페이지는 완전히
+ * 숨겨지거나 있는 그대로 그려진다 — 그래서 [foundationReferenceCurlFold]의 fold 계산은 turn이
+ * 실제로 진행 중일 때만 실행된다. 그 외에는 페이지의 평평한 나머지 부분이
+ * [FoundationReferenceCurlFold.clippedPath]로 클립되어 정상적으로 그려진 다음, 접힌 부분이 fold
+ * 자신의 회전·미러링 변환 안에서 두 번째로 그려지며, 그 polygon으로 클립되고 흰색 오버레이로
+ * 어두워진다. 단일 pane 모드에는 별도의 back-face 아트워크가 없으므로, 같은 콘텐츠를 다시 그려
+ * 뿌옇게 만드는 것이 "종이의 뒷면"을 대신한다 — [FoundationReferenceSpread]의 두 pane curl은
+ * 대신 진짜 back-face 콘텐츠를 갖고 있으며 같은 구분을 위해 [foundationReferenceDrawLeafFront]/
+ * [foundationReferenceDrawLeafBack]을 사용한다.
  *
- * The PlayLikeCurl-style [FoundationReferenceCurlStyle.ThreeDimensional] roll takes a different mid-turn
- * path entirely: instead of one planar reflected flap it renders the leaf through
- * [foundationReferenceDrawThreeDCurlMesh]'s platform-profiled sinusoidal texture mesh,
- * so the leading edge bows toward the viewer while the trailing part stays flat. Its two rest positions
- * still short-circuit on the same `left`/`right` early returns.
+ * PlayLikeCurl 스타일의 [FoundationReferenceCurlStyle.ThreeDimensional] 롤은 turn 중간에 완전히
+ * 다른 경로를 밟는다: 하나의 평면 반사된 플랩 대신, 앞쪽 가장자리가 보는 사람 쪽으로 휘어지고 뒤쪽
+ * 부분은 평평하게 남도록, [foundationReferenceDrawThreeDCurlMesh]의 플랫폼별로 프로파일링된
+ * 사인 곡선 텍스처 mesh를 통해 leaf를 렌더링한다. 그 두 정지 위치는 여전히 같은 `left`/`right`
+ * 조기 반환으로 단락된다.
  *
- * @receiver the page composable's own modifier chain.
- * @param axis whether the fold runs horizontally or vertically.
- * @param edge the leaf's current fold edge; `left`/`right` are the two rest positions, anything else is
- *   mid-turn.
- * @param style Whether to preserve standard curl painting or render the 3D sinusoidal texture mesh.
- * @param graphicsLayer the offscreen page texture reused by all 3D mesh intervals.
- * @return The modifier drawing the selected curl appearance.
+ * @receiver 페이지 composable 자신의 modifier 체인.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
+ * @param edge leaf의 현재 fold edge; `left`/`right`는 두 정지 위치이고, 그 외에는 모두 turn 중간
+ *   상태다.
+ * @param style 표준 curl 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
+ * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
+ * @return 선택된 curl 모양을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawCurl(
     axis: FoundationReferenceCurlAxis,
@@ -1518,20 +1512,20 @@ private fun Modifier.foundationReferenceDrawCurl(
 }
 
 /**
- * Draws the leaf's flat front face, adding only the 3D profile's crease-directed diffuse shade.
+ * leaf의 평평한 앞면을 그리며, 3D 프로필의 crease 방향 diffuse shade만 추가한다.
  *
- * For the PlayLikeCurl-style [FoundationReferenceCurlStyle.ThreeDimensional] roll mid-turn this instead
- * renders the leaf through [foundationReferenceDrawThreeDCurlMesh]'s sinusoidal texture mesh, honoring
- * [mirrorHorizontally] by mirroring the whole projection so a backward spread's left-hinged fold matches
- * its forward counterpart.
+ * PlayLikeCurl 스타일 [FoundationReferenceCurlStyle.ThreeDimensional] 롤의 turn 중간에는 대신
+ * [foundationReferenceDrawThreeDCurlMesh]의 사인 곡선 텍스처 mesh를 통해 leaf를 렌더링하며,
+ * 전체 투영을 미러링해 [mirrorHorizontally]를 반영함으로써 뒤로 가는 spread의 왼쪽 경첩 fold가
+ * 앞으로 가는 짝과 일치하도록 한다.
  *
- * @receiver The page composable's modifier chain.
- * @param axis Whether the fold runs horizontally or vertically.
- * @param edge The leaf's current fold edge.
- * @param style Whether to preserve standard painting or render the 3D sinusoidal texture mesh.
- * @param mirrorHorizontally Whether a backward spread mirrors this leaf about its spine.
- * @param graphicsLayer the offscreen page texture reused by all 3D mesh intervals.
- * @return The modifier drawing the clipped and optionally lit front face.
+ * @receiver 페이지 composable의 modifier 체인.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
+ * @param edge leaf의 현재 fold edge.
+ * @param style 표준 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
+ * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
+ * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
+ * @return 클립되고 선택적으로 조명이 적용된 앞면을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawLeafFront(
     axis: FoundationReferenceCurlAxis,
@@ -1605,23 +1599,23 @@ private fun Modifier.foundationReferenceDrawLeafFront(
 }
 
 /**
- * Draws the standard curl's folded back face reflected across the crease, including its paper light,
- * independent back shade, rim highlight, and angle-driven cast shadow.
+ * 표준 curl의, crease를 기준으로 반사된 접힌 뒷면을 그리며, 종이 조명, 독립적인 뒷면 shade, rim
+ * highlight, 각도에 따른 cast shadow를 포함한다.
  *
- * The PlayLikeCurl-style [FoundationReferenceCurlStyle.ThreeDimensional] roll has no folded back
- * texture to draw: the reference renders Left/Center/Right pages and reveals the underlying next or
- * previous pager page through the turning leaf's projected mesh
- * ([foundationReferenceDrawThreeDCurlMesh], drawn by [foundationReferenceDrawLeafFront]) rather than
- * folding a back face over it. A back face here would cover that mesh, so this modifier draws nothing at
- * all while a 3D leaf is mid-turn; the standard back path is unchanged.
+ * PlayLikeCurl 스타일 [FoundationReferenceCurlStyle.ThreeDimensional] 롤에는 그릴 접힌 뒷면
+ * 텍스처가 없다: 참조 구현은 Left/Center/Right 페이지를 렌더링하고, 그 위에 뒷면을 접어 덮는 대신
+ * 넘어가는 leaf의 투영된 mesh([foundationReferenceDrawLeafFront]가 그리는
+ * [foundationReferenceDrawThreeDCurlMesh])를 통해 아래에 있는 다음 또는 이전 pager 페이지를
+ * 드러낸다. 여기서 뒷면을 그리면 그 mesh를 덮게 되므로, 이 modifier는 3D leaf가 turn 중간일
+ * 때는 아무것도 그리지 않는다; 표준 뒷면 경로는 그대로 유지된다.
  *
- * @receiver The page composable's modifier chain.
- * @param axis Whether the fold runs horizontally or vertically.
- * @param edge The leaf's current fold edge.
- * @param style Whether to preserve standard painting or, for the 3D roll, draw nothing so the mesh front
- *   reveals the underlying page.
- * @param mirrorHorizontally Whether a backward spread mirrors this leaf about its spine.
- * @return The modifier drawing the transformed and optionally lit back face.
+ * @receiver 페이지 composable의 modifier 체인.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
+ * @param edge leaf의 현재 fold edge.
+ * @param style 표준 페인팅을 유지할지, 또는 3D 롤이라면 mesh 앞면이 아래 페이지를 드러내도록
+ *   아무것도 그리지 않을지.
+ * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
+ * @return 변환되고 선택적으로 조명이 적용된 뒷면을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawLeafBack(
     axis: FoundationReferenceCurlAxis,
@@ -1697,21 +1691,23 @@ private fun Modifier.foundationReferenceDrawLeafBack(
 }
 
 /**
- * The fold geometry computed for one crease position: everything [foundationReferenceDrawCurl] and the
- * leaf-face modifiers need to draw the flat remainder, the folded-over part, and its shadow.
+ * 하나의 crease 위치에 대해 계산된 fold 기하: [foundationReferenceDrawCurl]과 leaf-face modifier가
+ * 평평한 나머지 부분, 접힌 부분, 그리고 그 그림자를 그리는 데 필요한 모든 것.
  *
- * [polygon]/[angle]/[pivot] describe the folded-over part in its own drawing frame, not the page's:
- * [applyTo] must run first, inside the enclosing `withTransform` block, mirroring and rotating the draw
- * scope about [pivot] so that [polygon], used as a clip right after, and the page's own upright content
- * drawn inside that clip, both land where the folded-over paper actually sits while the transform is
- * active; `withTransform` then restores the untransformed scope once the block ends.
+ * [polygon]/[angle]/[pivot]은 페이지의 좌표계가 아니라 접힌 부분 자신의 그리기 프레임으로 이를
+ * 설명한다: [applyTo]는 감싸는 `withTransform` 블록 안에서 먼저 실행되어, [pivot]을 중심으로
+ * 그리기 scope를 미러링하고 회전시켜야 한다, 그래야 변환이 적용되어 있는 동안 곧바로 클립으로
+ * 쓰이는 [polygon]과 그 클립 안에 그려지는 페이지 자신의 똑바로 선 콘텐츠가 둘 다 접힌 종이가
+ * 실제로 놓이는 위치에 떨어진다; 그런 다음 블록이 끝나면 `withTransform`이 변환되지 않은 scope를
+ * 복원한다.
  *
- * @property clippedPath the page's flat, not-yet-folded region, ready to use as a clip path directly.
- * @property polygon the folded-over region's outline, in the fold's own (pre-[applyTo]) frame.
- * @property angle how far the fold has rotated open, in radians.
- * @property pivot the point the fold hinges about, in canonical coordinates.
- * @property shadowOffset the shadow's offset from the fold, already rotated to match [angle].
- * @property shadowRadius the shadow's blur radius, in pixels.
+ * @property clippedPath 페이지의 평평한, 아직 접히지 않은 영역으로, 곧바로 클립 경로로 쓸 준비가
+ *   되어 있다.
+ * @property polygon fold 자신의(사전-[applyTo]) 프레임 기준, 접힌 영역의 윤곽.
+ * @property angle fold가 얼마나 열리도록 회전했는지, 라디안 단위.
+ * @property pivot fold가 경첩처럼 움직이는 중심점, canonical 좌표계 기준.
+ * @property shadowOffset fold로부터의 그림자 오프셋으로, 이미 [angle]에 맞춰 회전되어 있다.
+ * @property shadowRadius 그림자의 블러 반경, 픽셀 단위.
  */
 private class FoundationReferenceCurlFold(
     val clippedPath: Path,
@@ -1722,17 +1718,17 @@ private class FoundationReferenceCurlFold(
     val shadowRadius: Float,
 ) {
     /**
-     * Puts [scope] into the folded-over part's own drawing frame: mirrored and rotated by [angle]
-     * about [pivot], so [polygon] and the page's own content, drawn after this call, land where the
-     * folded-over paper actually sits instead of where the flat page would put them.
+     * [scope]를 접힌 부분 자신의 그리기 프레임으로 옮긴다: [pivot]을 중심으로 [angle]만큼
+     * 미러링·회전시켜서, 이 호출 뒤에 그려지는 [polygon]과 페이지 자신의 콘텐츠가 평평한 페이지가
+     * 놓을 위치가 아니라 접힌 종이가 실제로 놓이는 위치에 떨어지게 한다.
      *
-     * The mirror axis and rotation sign flip between axes because [FoundationReferenceCurlAxis]'s
-     * vertical case reuses the same horizontal-axis fold math by swapping x/y rather than deriving a
-     * second set of formulas — mirroring the other axis and negating the angle is what keeps a vertical
-     * fold turning the same visual direction a horizontal one does for the same edge motion.
+     * 미러 축과 회전 부호는 축마다 뒤바뀐다. [FoundationReferenceCurlAxis]의 세로 케이스가 별도의
+     * 공식 집합을 도출하는 대신 x/y를 맞바꿔 같은 가로-축 fold 계산을 재사용하기 때문이다 — 다른
+     * 축을 미러링하고 각도의 부호를 뒤집는 것이, 같은 edge 움직임에 대해 세로 fold가 가로 fold와
+     * 같은 시각적 방향으로 넘어가도록 유지해 준다.
      *
-     * @param scope the draw transform to apply the fold's mirror and rotation to.
-     * @param axis which screen axis the fold actually renders on.
+     * @param scope fold의 미러링·회전을 적용할 그리기 변환.
+     * @param axis fold가 실제로 렌더링되는 화면 축.
      */
     fun applyTo(scope: DrawTransform, axis: FoundationReferenceCurlAxis) {
         if (axis == FoundationReferenceCurlAxis.Horizontal) {
@@ -1745,13 +1741,13 @@ private class FoundationReferenceCurlFold(
     }
 
     /**
-     * Draws the folded-over part's drop shadow, delegating to the platform-specific
-     * [drawFoundationPagerCurlShadow] since only the platform canvas can blur a shadow layer.
+     * 접힌 부분의 드롭 섀도를 그리며, 플랫폼 캔버스만이 shadow layer를 블러 처리할 수 있으므로
+     * 플랫폼별 [drawFoundationPagerCurlShadow]로 위임한다.
      *
-     * @param scope the draw scope to render the shadow into.
-     * @param axis which screen axis the fold renders on, forwarded so the platform implementation can
-     *   convert [polygon] back to screen coordinates.
-     * @param alpha The cast shadow's opacity for the selected visual style and fold angle.
+     * @param scope 그림자를 렌더링할 draw scope.
+     * @param axis fold가 렌더링되는 화면 축으로, 플랫폼 구현이 [polygon]을 화면 좌표로 다시
+     *   변환할 수 있도록 전달된다.
+     * @param alpha 선택된 시각적 style과 fold 각도에 대한 cast shadow의 불투명도.
      */
     fun drawShadow(
         scope: DrawScope,
@@ -1769,38 +1765,38 @@ private class FoundationReferenceCurlFold(
 }
 
 /**
- * Turns the raw, unbounded fold line in [edge] into the actual fold geometry for one page: where the
- * crease crosses this page's own bounds, how far the folded-over part has rotated open, and where its
- * shadow falls. This is the single computation every curl draw path — [foundationReferenceDrawCurl],
- * [foundationReferenceDrawLeafFront], [foundationReferenceDrawLeafBack] — builds its rendering from.
+ * [edge]에 담긴 원시적이고 경계 없는 fold 선을 페이지 한 장에 대한 실제 fold 기하로 바꾼다: crease가
+ * 이 페이지 자신의 경계를 어디서 가로지르는지, 접힌 부분이 얼마나 회전해 열렸는지, 그 그림자가
+ * 어디로 떨어지는지. 이는 모든 curl 그리기 경로 —
+ * [foundationReferenceDrawCurl], [foundationReferenceDrawLeafFront],
+ * [foundationReferenceDrawLeafBack] — 가 자신의 렌더링을 만들어내는 근거가 되는 단 하나의 계산이다.
  *
- * [edge] only carries a direction and a point the crease passes through (see
- * [foundationReferenceCurlEdge]), not where it meets the page — that has to be solved for by
- * intersecting it against the page's top and bottom edges. A null result there means the fold line is
- * exactly horizontal, parallel to both edges and therefore has no single crossing point; every caller
- * treats that as "no fold" and draws the page flat instead of clipping to a degenerate path.
+ * [edge]는 방향과 crease가 지나가는 한 점만 지니고 있을 뿐([foundationReferenceCurlEdge] 참고),
+ * crease가 페이지와 만나는 지점은 담고 있지 않다 — 이는 페이지의 위/아래 edge와 교차시켜 풀어야
+ * 한다. 거기서 null 결과가 나온다는 것은 fold 선이 정확히 수평이어서 두 edge 모두와 평행하고,
+ * 따라서 단일 교차점이 없다는 뜻이다; 모든 호출자는 이를 "fold 없음"으로 취급해, 퇴화된 경로로
+ * 클립하는 대신 페이지를 평평하게 그린다.
  *
- * The intersections' x is clamped to at least 0 (`topCurlOffset`/`bottomCurlOffset`) because a drag that
- * has travelled past the page's own left edge — an overscrolled or fast-flung gesture — would otherwise
- * project the crease off the left side of the page; clamping pins it to the edge instead of handing
- * [foundationReferenceCurlPolygon] and the clip path a crease outside the region they clip.
+ * 교차점의 x는 최소 0으로 clamp된다(`topCurlOffset`/`bottomCurlOffset`), 페이지 자신의 왼쪽 edge를
+ * 지나쳐 이동한 드래그 — overscroll되었거나 빠르게 flung된 제스처 — 는 그렇지 않으면 crease를
+ * 페이지 왼쪽 바깥으로 투영시켰을 것이기 때문이다; clamp는 이를 [foundationReferenceCurlPolygon]과
+ * 클립 경로에 그것들이 클립하는 영역 바깥의 crease를 넘기는 대신 edge에 고정한다.
  *
- * `angle` is twice the crease line's own tilt, because reflecting the pulled corner across a line at
- * angle θ rotates the folded-over paper by 2θ — the same relationship that makes
- * [foundationReferenceCurlEdge]'s perpendicular-bisector construction work in the first place. `pivot`
- * anchors that rotation ([FoundationReferenceCurlFold.applyTo]) at the crease's bottom endpoint.
- * `shadowOffset` is rotated by the same angle so the shadow keeps falling in a consistent direction
- * relative to the fold as it opens, rather than a fixed screen-space offset that would look wrong once
- * the page has rotated.
+ * `angle`은 crease 선 자체 기울기의 두 배인데, 당겨지는 모서리를 각도 θ인 선에 대해 반사하면 접힌
+ * 종이가 2θ만큼 회전하기 때문이다 — 이는 애초에 [foundationReferenceCurlEdge]의 수직이등분선 구성이
+ * 작동하게 만드는 것과 같은 관계다. `pivot`은 그 회전([FoundationReferenceCurlFold.applyTo])을
+ * crease의 아래쪽 끝점에 고정한다. `shadowOffset`은 같은 각도만큼 회전되어, 페이지가 회전한 뒤에는
+ * 이상해 보였을 고정된 화면-공간 오프셋 대신, 그림자가 fold가 열리는 동안에도 그것에 대해 일관된
+ * 방향으로 계속 떨어지도록 한다.
  *
- * @receiver the modifier's draw-cache scope, needed to resolve [FoundationReferenceShadowOffsetX] and
- *   [FoundationReferenceShadowRadius] from dp to pixels.
- * @param axis whether the fold runs horizontally or vertically; used to convert the pivot and shadow
- *   offset back from canonical coordinates to screen coordinates.
- * @param edge the (unbounded) fold line to solve against this page, in canonical coordinates.
- * @param canonicalSize the page's size in the axis' canonical orientation.
- * @return the fold's full geometry, or null if [edge] is exactly horizontal and has no defined crossing
- *   with the page's top and bottom edges.
+ * @receiver [FoundationReferenceShadowOffsetX]와 [FoundationReferenceShadowRadius]를 dp에서
+ *   픽셀로 해석하는 데 필요한, modifier의 draw-cache scope.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지; pivot과 shadow offset을 canonical
+ *   좌표계에서 화면 좌표계로 다시 변환하는 데 쓰인다.
+ * @param edge 이 페이지에 대해 풀어야 할, canonical 좌표계 기준의 (경계 없는) fold 선.
+ * @param canonicalSize 축의 canonical 방향 기준 페이지의 크기.
+ * @return fold의 전체 기하, 또는 [edge]가 정확히 수평이어서 페이지의 위/아래 edge와의 교차가
+ *   정의되지 않으면 null.
  */
 private fun CacheDrawScope.foundationReferenceCurlFold(
     axis: FoundationReferenceCurlAxis,
@@ -1845,32 +1841,33 @@ private fun CacheDrawScope.foundationReferenceCurlFold(
 }
 
 /**
- * The outline of the page's folded-over region: the part between the crease
- * ([topCurlOffset]-[bottomCurlOffset]) and the page's own right edge, as a closed polygon in canonical
- * coordinates. [foundationReferenceCurlFold] uses this both as the clip shape for the folded-over
- * drawing pass and as the shape [drawFoundationPagerCurlShadow] casts a shadow from.
+ * 페이지의 접힌 영역의 윤곽: crease([topCurlOffset]-[bottomCurlOffset])와 페이지 자신의 오른쪽
+ * edge 사이의 부분을, canonical 좌표계에서의 닫힌 polygon으로 나타낸 것.
+ * [foundationReferenceCurlFold]는 이를 접힌 부분을 그리는 패스의 클립 모양으로도,
+ * [drawFoundationPagerCurlShadow]가 그림자를 드리우는 모양으로도 사용한다.
  *
- * The ordinary case treats the crease's top and bottom points as already inside the page
- * ([topCurlOffset]/[bottomCurlOffset].x < [width]) and closes the polygon by projecting each one
- * straight across to the right edge at the same height, giving a simple quadrilateral: crease-top,
- * right-edge-at-crease-top-height, page's bottom-right corner, crease-bottom (or the top/bottom
- * equivalent, built symmetrically).
+ * 일반적인 경우는 crease의 위/아래 점이 이미 페이지 안쪽에 있다고 취급하고
+ * ([topCurlOffset]/[bottomCurlOffset].x < [width]), 각각을 같은 높이의 오른쪽 edge로 곧장
+ * 투영해 polygon을 닫는다, 그래서 crease-top, crease-top 높이의 오른쪽-edge, 페이지의
+ * 오른쪽-아래 모서리, crease-bottom(또는 대칭적으로 만들어진 위/아래 동등물)로 이루어진 단순한
+ * 사각형이 된다.
  *
- * Once a crease point has been driven past the right edge — which happens as the fold approaches
- * completion, since [foundationReferenceCurlFold] only clamps the crease's x to a minimum of 0, not a
- * maximum of [width] — that corner no longer has a meaningful position inside the page to add directly.
- * `endSideIntersection` instead finds where the crease line (extended, not the possibly out-of-bounds
- * point) actually crosses the right edge, and contributes that same point twice so the branch still adds
- * its usual two vertices; the result is a degenerate, zero-length edge at that corner rather than a
- * malformed polygon, which is a small enough drawing artifact right at the fold's most extreme state to
- * leave uncorrected.
+ * crease 점이 오른쪽 edge를 지나쳐 밀려나면 — [foundationReferenceCurlFold]는 crease의 x를 최소
+ * 0으로만 clamp할 뿐 [width]로 최대 clamp하지는 않으므로, 이는 fold가 완료에 가까워질수록
+ * 일어난다 — 그 모서리는 더 이상 직접 추가할 수 있는, 페이지 안의 의미 있는 위치를 갖지 않는다.
+ * `endSideIntersection`은 대신 (경계를 벗어났을 수 있는 점이 아니라 연장된) crease 선이 실제로
+ * 오른쪽 edge를 어디서 가로지르는지 찾아, 그 분기가 여전히 평소의 정점 두 개를 추가하도록 같은
+ * 점을 두 번 기여한다; 그 결과는 잘못 만들어진 polygon이 아니라 그 모서리에서 퇴화된, 길이가
+ * 0인 edge이며, 이는 fold가 가장 극단적인 상태에 있을 때만 나타나는 그리기 아티팩트로 충분히
+ * 작아서 고치지 않고 둘 만하다.
  *
- * @param width the page's width in canonical coordinates; also the x of its right edge.
- * @param height the page's height in canonical coordinates.
- * @param topCurlOffset where the crease crosses the page's top edge (or beyond it, past the right edge).
- * @param bottomCurlOffset where the crease crosses the page's bottom edge (or beyond it, past the right
- *   edge).
- * @return the folded-over region's outline, always as a closed 4-point polygon.
+ * @param width canonical 좌표계 기준 페이지의 너비; 오른쪽 edge의 x이기도 하다.
+ * @param height canonical 좌표계 기준 페이지의 높이.
+ * @param topCurlOffset crease가 페이지의 위쪽 edge를 가로지르는 지점(또는 그 너머, 오른쪽 edge를
+ *   지난 지점).
+ * @param bottomCurlOffset crease가 페이지의 아래쪽 edge를 가로지르는 지점(또는 그 너머, 오른쪽
+ *   edge를 지난 지점).
+ * @return 접힌 영역의 윤곽으로, 항상 닫힌 4점 polygon.
  */
 private fun foundationReferenceCurlPolygon(
     width: Float,
@@ -1879,8 +1876,8 @@ private fun foundationReferenceCurlPolygon(
     bottomCurlOffset: Offset,
 ): FoundationPagerCurlPolygon {
     /**
-     * Where the crease line actually crosses the page's right edge, doubled so the calling branch
-     * still contributes its usual two vertices; empty if the crease is exactly parallel to that edge.
+     * crease 선이 실제로 페이지의 오른쪽 edge를 가로지르는 지점을, 호출한 분기가 여전히 평소의
+     * 정점 두 개를 기여하도록 두 배로 만든 것; crease가 그 edge와 정확히 평행하면 비어 있다.
      */
     fun endSideIntersection(): List<Offset> {
         val offset = foundationReferenceLineIntersection(
@@ -1908,16 +1905,15 @@ private fun foundationReferenceCurlPolygon(
 }
 
 /**
- * Where two infinite lines cross, treating each pair of points as defining a line rather than a bounded
- * segment — the fold crease this file works with is conceptually infinite until intersected against the
- * page's own edges, so every caller here needs the line-line form rather than a segment-clipped one.
+ * 각 점 쌍을 경계가 있는 선분이 아니라 선을 정의하는 것으로 취급했을 때, 두 무한한 선이 교차하는
+ * 지점 — 이 파일이 다루는 fold crease는 페이지 자신의 edge와 교차되기 전까지는 개념적으로
+ * 무한하므로, 여기 있는 모든 호출자는 선분-클립 형태가 아니라 선-선 형태가 필요하다.
  *
- * @param line1a a point on the first line.
- * @param line1b a second, distinct point on the first line.
- * @param line2a a point on the second line.
- * @param line2b a second, distinct point on the second line.
- * @return the crossing point, or null when the two lines are parallel (or identical) and have no single
- *   crossing point.
+ * @param line1a 첫 번째 선 위의 한 점.
+ * @param line1b 첫 번째 선 위의, 구별되는 두 번째 점.
+ * @param line2a 두 번째 선 위의 한 점.
+ * @param line2b 두 번째 선 위의, 구별되는 두 번째 점.
+ * @return 교차점, 또는 두 선이 평행하거나(또는 동일하거나) 단일 교차점이 없으면 null.
  */
 internal fun foundationReferenceLineIntersection(
     line1a: Offset,
@@ -1936,34 +1932,34 @@ internal fun foundationReferenceLineIntersection(
 }
 
 /**
- * The fold's crease line, as the two points where it crosses a page's top and bottom edges — the value
- * the animatables in [FoundationPagerCurlReferenceImpl] drive to animate a page turn, and what
- * [foundationReferenceCurlFold] solves the rest of the fold geometry from.
+ * fold의 crease 선을, 그것이 페이지의 위/아래 edge를 가로지르는 두 점으로 나타낸 것 —
+ * [FoundationPagerCurlReferenceImpl]의 animatable들이 페이지 turn을 애니메이션하기 위해 구동하는
+ * 값이며, [foundationReferenceCurlFold]가 나머지 fold 기하를 풀어내는 근거.
  *
- * @property top where the crease meets the page's top edge, in canonical coordinates.
- * @property bottom where the crease meets the page's bottom edge, in canonical coordinates.
+ * @property top crease가 페이지의 위쪽 edge와 만나는 지점, canonical 좌표계 기준.
+ * @property bottom crease가 페이지의 아래쪽 edge와 만나는 지점, canonical 좌표계 기준.
  */
 internal data class FoundationReferenceCurlEdge(
     val top: Offset,
     val bottom: Offset,
 ) {
     /**
-     * [Animatable]'s conversion for this type, the fixed edge positions a page turn animates
-     * between, and the [VisibilityThreshold] that tells [Animatable] when it has arrived.
+     * 이 타입에 대한 [Animatable]의 변환, 페이지 turn이 그 사이를 애니메이션하는 고정된 edge
+     * 위치들, 그리고 [Animatable]에게 도착했음을 알려주는 [VisibilityThreshold].
      */
     companion object {
         /**
-         * Lets [Animatable] interpolate a [FoundationReferenceCurlEdge] by treating its two offsets as
-         * one four-component vector, so [top] and [bottom] each move independently and linearly
-         * between animated values.
+         * [FoundationReferenceCurlEdge]의 두 offset을 하나의 4-요소 벡터로 취급함으로써
+         * [Animatable]이 이를 보간할 수 있게 하며, 그래서 [top]과 [bottom]은 각각 독립적으로
+         * 애니메이션 값들 사이를 선형으로 움직인다.
          */
         val VectorConverter: TwoWayConverter<FoundationReferenceCurlEdge, AnimationVector4D> = TwoWayConverter(
             convertToVector = { AnimationVector4D(it.top.x, it.top.y, it.bottom.x, it.bottom.y) },
             convertFromVector = { FoundationReferenceCurlEdge(Offset(it.v1, it.v2), Offset(it.v3, it.v4)) },
         )
         /**
-         * The smallest per-component change [Animatable] treats as visible motion for a curl edge;
-         * reused from [Offset]'s own default rather than picked separately for this type.
+         * [Animatable]이 curl edge에 대해 눈에 보이는 움직임으로 취급하는, 요소별 최소 변화량;
+         * 이 타입만을 위해 따로 고른 것이 아니라 [Offset] 자신의 기본값을 재사용한다.
          */
         val VisibilityThreshold = FoundationReferenceCurlEdge(
             Offset.VisibilityThreshold,
@@ -1971,8 +1967,8 @@ internal data class FoundationReferenceCurlEdge(
         )
 
         /**
-         * The edge at the page's left side (`top`/`bottom` both at x = 0) — a forward turn's completed
-         * position, and, outside a spread, a backward turn's rest position.
+         * 페이지 왼쪽에 있는 edge(`top`/`bottom` 모두 x = 0) — 앞으로 가는 turn의 완료 위치이며,
+         * spread 밖에서는 뒤로 가는 turn의 정지 위치이기도 하다.
          */
         fun left(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset.Zero,
@@ -1980,9 +1976,9 @@ internal data class FoundationReferenceCurlEdge(
         )
 
         /**
-         * The edge at the page's right side (`top`/`bottom` both at x = [size]'s width) — a forward
-         * turn's rest position, and, in a spread, a backward turn's rest position too (see
-         * [foundationReferenceCurlGeometryDirection]).
+         * 페이지 오른쪽에 있는 edge(`top`/`bottom` 모두 x = [size]의 너비) — 앞으로 가는 turn의
+         * 정지 위치이며, spread에서는 뒤로 가는 turn의 정지 위치이기도 하다
+         * ([foundationReferenceCurlGeometryDirection] 참고).
          */
         fun right(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset(size.width.toFloat(), 0f),
@@ -1990,9 +1986,9 @@ internal data class FoundationReferenceCurlEdge(
         )
 
         /**
-         * The edge collapsed to a single point at the page's bottom-right corner — the target a
-         * tap-triggered backward turn animates to outside a spread, distinct from the plain [left]/
-         * [right] rest positions a drag-driven turn uses.
+         * 페이지 오른쪽-아래 모서리의 한 점으로 접힌 edge — spread 밖에서 탭으로 촉발된 뒤로 가는
+         * turn이 애니메이션해 도달하는 목표로, 드래그로 구동되는 turn이 쓰는 단순한 [left]/[right]
+         * 정지 위치와는 다르다.
          */
         fun end(size: IntSize): FoundationReferenceCurlEdge = FoundationReferenceCurlEdge(
             Offset(size.width.toFloat(), size.height.toFloat()),
@@ -2002,11 +1998,11 @@ internal data class FoundationReferenceCurlEdge(
 }
 
 /**
- * Selects the curl interaction and rendering profile.
+ * curl 인터랙션·렌더링 프로필을 고른다.
  *
- * [Standard] preserves the existing pointer-tracked corner peel. [ThreeDimensional] fixes the turn
- * to horizontal swipes, drives a near-vertical rolling crease from pointer x alone, and adds
- * front/back shading, paper bounce light, a crease highlight, and dynamic cast shadow.
+ * [Standard]는 기존의 포인터 추적 corner peel을 그대로 유지한다. [ThreeDimensional]은 turn을
+ * 가로 스와이프로 고정하고, 포인터 x만으로 거의 수직인 롤링 crease를 구동하며, 앞/뒤 shading,
+ * 종이 bounce light, crease highlight, 동적 cast shadow를 추가한다.
  */
 internal enum class FoundationReferenceCurlStyle {
     Standard,
@@ -2014,13 +2010,13 @@ internal enum class FoundationReferenceCurlStyle {
 }
 
 /**
- * Additional light intensities used by the 3D curl renderer for one fold angle.
+ * 하나의 fold 각도에 대해 3D curl 렌더러가 사용하는 추가 조명 강도.
  *
- * @property frontShadeAlpha Diffuse shade laid over the flat front face near the crease.
- * @property backShadeAlpha Dark component applied to the folded back face.
- * @property backLightAlpha Paper-colored bounce light applied to the folded back face.
- * @property rimAlpha Narrow highlight drawn directly on the fold line.
- * @property shadowAlpha Cast-shadow opacity underneath the raised leaf.
+ * @property frontShadeAlpha crease 근처의 평평한 앞면 위에 얹히는 diffuse shade.
+ * @property backShadeAlpha 접힌 뒷면에 적용되는 어두운 성분.
+ * @property backLightAlpha 접힌 뒷면에 적용되는 종이색 bounce light.
+ * @property rimAlpha fold 선 위에 직접 그려지는 좁은 highlight.
+ * @property shadowAlpha 들려 올라간 leaf 아래에 드리우는 cast-shadow 불투명도.
  */
 internal data class FoundationReferenceThreeDCurlLightingSpec(
     val frontShadeAlpha: Float,
@@ -2031,12 +2027,12 @@ internal data class FoundationReferenceThreeDCurlLightingSpec(
 )
 
 /**
- * Resolves the 3D curl's extra lighting from the reflected leaf angle. A sine makes every effect
- * vanish when the sheet is flat at either orientation and peak while it is most visibly bent,
- * avoiding stale dimming at the start or end of a turn.
+ * 반사된 leaf 각도로부터 3D curl의 추가 조명을 해석한다. 사인 곡선은 시트가 어느 쪽 방향으로든
+ * 평평할 때는 모든 효과가 사라지고 가장 눈에 띄게 휘어져 있을 때 정점을 찍게 만들어, turn의
+ * 시작이나 끝에서 낡은 어둡기가 남아 있지 않도록 한다.
  *
- * @param foldAngleRadians The fold reflection angle produced by the curl geometry, in radians.
- * @return The front, back, rim, and cast-shadow intensities for this frame.
+ * @param foldAngleRadians curl 기하가 만들어내는 fold 반사 각도, 라디안 단위.
+ * @return 이 프레임에 대한 앞면, 뒷면, rim, cast-shadow 강도.
  */
 internal fun foundationReferenceThreeDCurlLightingSpec(
     foldAngleRadians: Float,
@@ -2052,21 +2048,22 @@ internal fun foundationReferenceThreeDCurlLightingSpec(
 }
 
 /**
- * One vertical source interval in the PlayLikeCurl sinusoidal texture mesh and its projected screen span.
+ * PlayLikeCurl 사인 곡선 텍스처 mesh 안의 세로 소스 구간 하나와, 그것이 투영된 화면 범위.
  *
- * The reference keeps all columns front-facing and ordered while a sine wave changes their depth. Shared
- * destination boundaries make adjacent intervals continuous; negative destinations simply mean that part
- * of the page has translated beyond the viewport start. The renderer samples every interval from one
- * offscreen page texture so clipping never splits independently rasterized glyphs.
+ * 참조 구현은 사인파가 깊이를 바꾸는 동안 모든 컬럼을 전면을 향한 채 순서대로 유지한다. 공유되는
+ * 목적지 경계는 인접한 구간들을 연속되게 만든다; 음수인 목적지는 단순히 페이지의 그 부분이
+ * viewport 시작점을 넘어 이동했다는 뜻이다. 렌더러는 클리핑이 독립적으로 래스터화된 글리프를
+ * 절대 쪼개지 않도록 모든 구간을 하나의 오프스크린 페이지 텍스처에서 샘플링한다.
  *
- * @property sourceStartFraction the leaf-width fraction where this interval begins in the flat texture.
- * @property sourceEndFraction the next source boundary, exactly one grid step after [sourceStartFraction].
- * @property destinationStartFraction the perspective projection of [sourceStartFraction].
- * @property destinationEndFraction the perspective projection of [sourceEndFraction], shared with the
- *   following interval's start.
- * @property verticalScale the perspective scale at this interval, retained for one page-wide vertical
- *   scale so neighboring columns cannot shear text independently.
- * @property depthFraction the interval's maximum sine-wave depth toward the camera, in leaf-width units.
+ * @property sourceStartFraction 평평한 텍스처에서 이 구간이 시작되는 leaf-너비 비율.
+ * @property sourceEndFraction 다음 소스 경계로, [sourceStartFraction]에서 정확히 grid 한 칸
+ *   뒤다.
+ * @property destinationStartFraction [sourceStartFraction]의 원근 투영.
+ * @property destinationEndFraction [sourceEndFraction]의 원근 투영으로, 다음 구간의 시작과
+ *   공유된다.
+ * @property verticalScale 이 구간에서의 원근 스케일로, 이웃한 컬럼이 텍스트를 독립적으로 전단
+ *   변형하지 못하도록 페이지 전체에 걸친 하나의 세로 스케일로 유지된다.
+ * @property depthFraction 카메라 쪽으로의, 이 구간의 최대 사인파 깊이, leaf-너비 단위.
  */
 internal data class FoundationReferenceThreeDCurlStripSpec(
     val sourceStartFraction: Float,
@@ -2078,22 +2075,21 @@ internal data class FoundationReferenceThreeDCurlStripSpec(
 )
 
 /**
- * Projects a flat leaf with PlayLikeCurl's original 25-column sinusoidal depth formula.
+ * PlayLikeCurl의 원래 25-컬럼 사인 곡선 깊이 공식으로 평평한 leaf를 투영한다.
  *
- * At each source boundary the reference first compresses x by `1 - radius`, delays horizontal movement
- * until [FoundationReferenceThreeDCurlMoveStart], then raises z with
- * `radius * (sin(PI / wavelength * (source - progress)) + 1.1)`. A camera-distance perspective divide
- * converts that depth into the final x boundary and scale. This is a single ordered front-facing sheet,
- * not a half-cylinder: every active interval remains monotonic while the broad sine wave travels across
- * the page, matching `PageFront.calculateVerticesCoords()` in the reference implementation.
+ * 각 소스 경계에서 참조 구현은 먼저 x를 `1 - radius`만큼 압축하고, [FoundationReferenceThreeDCurlMoveStart]까지
+ * 가로 이동을 지연시킨 다음, `radius * (sin(PI / wavelength * (source - progress)) + 1.1)`로 z를
+ * 끌어올린다. camera-distance 원근 나눗셈이 그 깊이를 최종 x 경계와 스케일로 변환한다. 이는
+ * 반원통이 아니라 하나의 순서 있는 전면을 향한 시트다: 넓은 사인파가 페이지를 가로질러 이동하는
+ * 동안 모든 활성 구간은 단조성을 유지하며, 이는 참조 구현의 `PageFront.calculateVerticesCoords()`와
+ * 일치한다.
  *
- * Every boundary is computed once and shared by its adjacent intervals. At rest the zero radius produces
- * the identity mapping; at completion compression, translation, and perspective place the entire page
- * beyond the viewport start.
+ * 모든 경계는 한 번씩만 계산되어 인접 구간들이 공유한다. 정지 상태에서는 0인 radius가 항등 매핑을
+ * 만들어내고; 완료 시점에는 압축, 이동, 원근이 전체 페이지를 viewport 시작점 너머에 놓는다.
  *
- * @param progress turn progress from 0 at the flat current page to 1 after it leaves the viewport; values
- *   outside this range are clamped.
- * @return the platform profile's ordered intervals with bit-identical shared boundaries.
+ * @param progress 평평한 현재 페이지에서의 0부터 viewport를 떠난 뒤의 1까지의 turn 진행률; 이
+ *   범위 밖의 값은 clamp된다.
+ * @return 비트 단위로 동일한 공유 경계를 가진, 플랫폼 프로필의 순서 있는 구간들.
  */
 internal fun foundationReferenceThreeDCurlStripSpecs(
     progress: Float,
@@ -2141,17 +2137,17 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
 }
 
 /**
- * How far a rolling 3D crease has advanced, from its [FoundationReferenceCurlEdge] value, as the
- * [foundationReferenceThreeDCurlStripSpecs] progress input.
+ * 롤링 3D crease가 그 [FoundationReferenceCurlEdge] 값으로부터, 얼마나 진행했는지를
+ * [foundationReferenceThreeDCurlStripSpecs]의 progress 입력값으로 나타낸 것.
  *
- * The 3D crease sweeps its average x from the leaf's right edge at rest to its left edge at completion.
- * Converting that position to `1 - x / width` gives the same 0..1 phase used by the reference sine wave,
- * horizontal translation, drag, tap, and auto-scroll paths.
+ * 3D crease는 평균 x를 정지 상태의 leaf 오른쪽 edge에서 완료 시점의 왼쪽 edge까지 쓸어간다. 그
+ * 위치를 `1 - x / width`로 변환하면 참조 사인파, 가로 이동, 드래그, 탭, 자동 스크롤 경로가 쓰는
+ * 것과 같은 0..1 위상이 나온다.
  *
- * @param edge the leaf's current crease, in canonical coordinates.
- * @param width the leaf's width, in canonical pixels; a non-positive width yields 0 progress rather than
- *   dividing by zero.
- * @return the roll progress in 0..1 for [edge].
+ * @param edge leaf의 현재 crease, canonical 좌표계 기준.
+ * @param width leaf의 너비, canonical 픽셀 단위; 0 이하의 너비는 0으로 나누는 대신 0인 progress를
+ *   낳는다.
+ * @return [edge]에 대한 0..1 범위의 롤 진행률.
  */
 private fun foundationReferenceThreeDCurlProgress(
     edge: FoundationReferenceCurlEdge,
@@ -2163,22 +2159,23 @@ private fun foundationReferenceThreeDCurlProgress(
 }
 
 /**
- * Draws the PlayLikeCurl projection from one offscreen page texture without re-rasterizing text per strip.
+ * strip마다 텍스트를 다시 래스터화하지 않고, 하나의 오프스크린 페이지 텍스처로부터 PlayLikeCurl
+ * 투영을 그린다.
  *
- * [graphicsLayer] records the complete page once. Ordered source intervals then apply only horizontal
- * texture transforms into their shared destination spans; a half-pixel clip overlap hides raster rounding.
- * One page-wide vertical perspective scale replaces per-strip y scaling, which previously shifted adjacent
- * glyph fragments by different amounts and produced the reported vertical cuts. Lighting is one smooth
- * gradient over the visible sheet, while the cast shadow starts at its moving outer edge. A backward
- * spread mirrors the completed draw through [mirrorHorizontally].
+ * [graphicsLayer]는 전체 페이지를 한 번만 기록한다. 그런 다음 순서 있는 소스 구간들은 공유된
+ * 목적지 범위로 오직 가로 텍스처 변환만 적용한다; 반 픽셀의 클립 겹침이 래스터 반올림을 감춘다.
+ * 페이지 전체에 걸친 하나의 세로 원근 스케일이, 이전에는 인접한 글리프 조각을 서로 다른 양만큼
+ * 옮겨 보고된 세로 절단을 만들어냈던 strip별 y 스케일링을 대체한다. 조명은 보이는 시트 전체에
+ * 걸친 하나의 매끄러운 그라데이션이며, cast shadow는 움직이는 바깥쪽 edge에서 시작한다. 뒤로
+ * 가는 spread는 [mirrorHorizontally]를 통해 완성된 그리기를 미러링한다.
  *
- * @receiver the draw scope replaying the recorded page texture.
- * @param strips ordered source and destination intervals from [foundationReferenceThreeDCurlStripSpecs].
- * @param lighting smooth sheet-light and cast-shadow intensities for this frame.
- * @param graphicsLayer the offscreen page texture shared by every interval.
- * @param width the leaf width in pixels.
- * @param height the leaf height in pixels.
- * @param mirrorHorizontally whether to mirror the result for a backward spread.
+ * @receiver 기록된 페이지 텍스처를 재생하는 draw scope.
+ * @param strips [foundationReferenceThreeDCurlStripSpecs]가 만든 순서 있는 소스·목적지 구간들.
+ * @param lighting 이 프레임에 대한 매끄러운 시트 조명과 cast-shadow 강도.
+ * @param graphicsLayer 모든 구간이 공유하는 오프스크린 페이지 텍스처.
+ * @param width leaf의 너비, 픽셀 단위.
+ * @param height leaf의 높이, 픽셀 단위.
+ * @param mirrorHorizontally 뒤로 가는 spread를 위해 결과를 미러링할지 여부.
  */
 private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     strips: List<FoundationReferenceThreeDCurlStripSpec>,
@@ -2260,27 +2257,27 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
 }
 
 /**
- * Which way a page turn moves through the document: [Forward] toward the next page, [Backward] toward
- * the previous one. This is the reader-facing direction; [foundationReferenceCurlGeometryDirection]
- * maps it to the direction the fold itself actually renders, which can differ in a spread.
+ * 페이지 turn이 문서를 어느 방향으로 이동하는지: [Forward]는 다음 페이지 쪽으로, [Backward]는
+ * 이전 페이지 쪽으로. 이는 독자에게 보이는 방향이다; [foundationReferenceCurlGeometryDirection]은
+ * 이를 fold 자신이 실제로 렌더링하는 방향으로 매핑하며, 이는 spread에서는 다를 수 있다.
  */
 internal enum class FoundationReferenceCurlDirection { Forward, Backward }
 
 /**
- * What a single tap on the curl pager should do, as decided by [foundationReferenceCurlTapAction]: turn
- * to the previous page ([Backward]), turn to the next one ([Forward]), or show/hide the reader's
- * controls ([ToggleControls]) when the tap lands in neither turn zone, or has nowhere to turn to.
+ * [foundationReferenceCurlTapAction]이 결정하는, curl pager 위의 탭 하나가 해야 할 일: 이전
+ * 페이지로 turn([Backward]), 다음 페이지로 turn([Forward]), 또는 탭이 어느 turn 영역에도
+ * 떨어지지 않거나 갈 곳이 없을 때 리더의 컨트롤을 보이거나 숨기기([ToggleControls]).
  */
 internal enum class FoundationReferenceCurlTapAction { Backward, ToggleControls, Forward }
 
 /**
- * Which screen axis a page turn runs along, and the conversion between real screen coordinates and this
- * file's fold math, which is written once for a horizontal turn and reused for [Vertical] by swapping
- * width/height and x/y rather than duplicating every formula.
+ * 페이지 turn이 어느 화면 축을 따라 움직이는지, 그리고 실제 화면 좌표와 이 파일의 fold 계산
+ * 사이의 변환. 이 계산은 가로 turn에 대해 한 번만 작성되고, 모든 공식을 중복시키는 대신
+ * 너비/높이와 x/y를 맞바꿔 [Vertical]에 재사용된다.
  *
- * [canonicalSize]/[toCanonical] convert into that shared frame; [fromCanonical] converts back. For
- * [Horizontal] both directions are the identity; for [Vertical] each swaps its two components, so a
- * vertical turn's "width" is the screen's height and its "x" is the screen's y.
+ * [canonicalSize]/[toCanonical]은 그 공유 프레임으로 변환한다; [fromCanonical]은 그 반대로
+ * 변환한다. [Horizontal]에서는 양쪽 방향 모두 항등 변환이다; [Vertical]에서는 각각 두 성분을
+ * 맞바꾸므로, 세로 turn의 "너비"는 화면의 높이이고 그 "x"는 화면의 y다.
  */
 internal enum class FoundationReferenceCurlAxis {
     Horizontal,
@@ -2288,24 +2285,23 @@ internal enum class FoundationReferenceCurlAxis {
     ;
 
     /**
-     * [size] as the fold math sees it: width/height swapped for [Vertical] so the turn axis is always
-     * "width" regardless of screen orientation.
+     * fold 계산이 바라보는 그대로의 [size]: [Vertical]에서는 너비/높이가 맞바뀌어, 화면 방향과
+     * 무관하게 turn 축은 항상 "너비"가 된다.
      */
     fun canonicalSize(size: IntSize): IntSize = when (this) {
         Horizontal -> size
         Vertical -> IntSize(size.height, size.width)
     }
 
-    /** [offset] as the fold math sees it: x/y swapped for [Vertical], for the same reason as [canonicalSize]. */
+    /** fold 계산이 바라보는 그대로의 [offset]: [canonicalSize]와 같은 이유로 [Vertical]에서는 x/y가 맞바뀐다. */
     fun toCanonical(offset: Offset): Offset = when (this) {
         Horizontal -> offset
         Vertical -> Offset(offset.y, offset.x)
     }
 
     /**
-     * The inverse of [toCanonical]: a canonical-space [offset] converted back to real screen
-     * coordinates. Happens to be the same swap as [toCanonical] because swapping x/y twice is the
-     * identity.
+     * [toCanonical]의 역함수: canonical 공간의 [offset]을 실제 화면 좌표로 다시 변환한다. x/y를
+     * 두 번 맞바꾸면 항등 변환이 되므로, 마침 [toCanonical]과 같은 맞바꾸기가 된다.
      */
     fun fromCanonical(offset: Offset): Offset = when (this) {
         Horizontal -> offset
@@ -2314,33 +2310,31 @@ internal enum class FoundationReferenceCurlAxis {
 }
 
 /**
- * The folded-over region's outline as a closed loop of points, in canonical coordinates — what
- * [foundationReferenceCurlPolygon] builds and what [FoundationReferenceCurlFold.polygon] clips and
- * shadows the fold with.
+ * canonical 좌표계 기준, 점들의 닫힌 루프로 나타낸 접힌 영역의 윤곽 — [foundationReferenceCurlPolygon]이
+ * 만들어내고 [FoundationReferenceCurlFold.polygon]이 fold를 클립하고 그림자를 드리우는 데 쓰는 것.
  *
- * @property vertices the polygon's corners, in order around the loop.
+ * @property vertices 루프를 따라 순서대로 나열된 polygon의 모서리들.
  */
 internal data class FoundationPagerCurlPolygon(val vertices: List<Offset>) {
     /**
-     * [vertices] shifted by [offset], used by the pre-API-28 Android shadow path to draw into an inset
-     * bitmap large enough to hold the blur without clipping it.
+     * [offset]만큼 옮겨진 [vertices]로, API-28 이전 Android의 shadow 경로가 블러를 잘라내지 않고
+     * 담을 수 있을 만큼 큰, 안쪽으로 들어간 bitmap에 그릴 때 쓰인다.
      */
     fun translate(offset: Offset): FoundationPagerCurlPolygon =
         FoundationPagerCurlPolygon(vertices.map { it + offset })
 
     /**
-     * A copy of this polygon expanded outward by [value] along each vertex's own normal, used to grow
-     * the silhouette a shadow is drawn from so its blur has room to bleed past the fold's own edge
-     * instead of being clipped at it.
+     * 각 정점 자신의 법선을 따라 [value]만큼 바깥쪽으로 확장된 이 polygon의 복사본으로, 그림자가
+     * 그려지는 실루엣을 키워, 그것이 fold 자신의 edge에서 잘리는 대신 그 너머로 블러가 번질 여지를
+     * 갖도록 하는 데 쓰인다.
      *
-     * Each vertex normal is the average of its two adjacent edge normals (computed via [wrap] so the
-     * loop's first and last vertices are treated as neighbors), which is what keeps a beveled corner's
-     * expansion pointing outward correctly instead of just offsetting each edge independently and
-     * leaving gaps or overlaps at the corners.
+     * 각 정점 법선은 인접한 두 edge 법선의 평균이다(루프의 첫 정점과 마지막 정점이 이웃으로
+     * 취급되도록 [wrap]을 통해 계산된다), 이것이 각 edge를 독립적으로 오프셋해 모서리에 틈이나
+     * 겹침을 남기는 대신, 모깎인 모서리의 확장이 올바르게 바깥쪽을 가리키도록 유지해 준다.
      *
-     * @param value how far to expand outward, in pixels; [drawFoundationPagerCurlShadow] passes the
-     *   shadow's blur radius.
-     * @return the expanded polygon, with the same vertex count and order as the original.
+     * @param value 바깥쪽으로 얼마나 확장할지, 픽셀 단위; [drawFoundationPagerCurlShadow]가
+     *   그림자의 블러 반경을 넘긴다.
+     * @return 원본과 같은 정점 수와 순서를 가진, 확장된 polygon.
      */
     fun offset(value: Float): FoundationPagerCurlPolygon {
         val edgeNormals = List(vertices.size) { index ->
@@ -2355,10 +2349,10 @@ internal data class FoundationPagerCurlPolygon(val vertices: List<Offset>) {
         )
     }
 
-    /** This polygon as a drawable [Path], converted from canonical back to screen coordinates via [axis]. */
+    /** [axis]를 통해 canonical 좌표계에서 화면 좌표계로 다시 변환된, 그릴 수 있는 [Path]로서의 이 polygon. */
     fun toPath(axis: FoundationReferenceCurlAxis): Path = vertices.foundationReferencePath(axis)
 
-    /** Wraps [index] into `0 until vertices.size`, so the first and last vertices count as neighbors. */
+    /** [index]를 `0 until vertices.size`로 감싸서, 첫 정점과 마지막 정점이 이웃으로 취급되게 한다. */
     private fun wrap(index: Int): Int = ((index % vertices.size) + vertices.size) % vertices.size
 }
 
@@ -2370,19 +2364,19 @@ internal data class FoundationPagerRenderProfile(
 internal expect val foundationPagerRenderProfile: FoundationPagerRenderProfile
 
 /**
- * Draws the folded-over part's drop shadow, expected once per platform because Compose Multiplatform's
- * common [DrawScope] has no shared way to blur a shape into a shadow — each platform's actual reaches
- * for its own native canvas API (the Android actual, for example, sets a shadow layer on an
- * `android.graphics.Paint`).
+ * 접힌 부분의 드롭 섀도를 그리며, 플랫폼마다 하나씩 `expect`되어 있다. Compose Multiplatform의
+ * 공통 [DrawScope]에는 모양을 블러 처리해 그림자로 만드는 공유된 방법이 없기 때문이다 — 각
+ * 플랫폼의 actual은 자신만의 네이티브 캔버스 API에 의존한다(예를 들어 Android actual은
+ * `android.graphics.Paint`에 shadow layer를 설정한다).
  *
- * @receiver the draw scope to render the shadow into, in screen coordinates.
- * @param polygon the folded-over region's outline, in canonical coordinates; an actual implementation is
- *   expected to expand it by [radius] itself (see [FoundationPagerCurlPolygon.offset]) so the blur has
- *   room to bleed past the fold's edge.
- * @param axis needed to convert [polygon] from canonical to screen coordinates.
- * @param radius the shadow's blur radius, in pixels.
- * @param shadowOffset how far the shadow is displaced from the fold, in pixels.
- * @param color the shadow's color, including its alpha.
+ * @receiver 그림자를 렌더링할, 화면 좌표계 기준 draw scope.
+ * @param polygon canonical 좌표계 기준, 접힌 영역의 윤곽; actual 구현은 블러가 fold의 edge 너머로
+ *   번질 여지를 갖도록 이를 [radius]만큼 스스로 확장할 것으로 기대된다
+ *   ([FoundationPagerCurlPolygon.offset] 참고).
+ * @param axis [polygon]을 canonical 좌표계에서 화면 좌표계로 변환하는 데 필요하다.
+ * @param radius 그림자의 블러 반경, 픽셀 단위.
+ * @param shadowOffset 그림자가 fold로부터 얼마나 떨어져 있는지, 픽셀 단위.
+ * @param color 알파를 포함한 그림자의 색상.
  */
 internal expect fun DrawScope.drawFoundationPagerCurlShadow(
     polygon: FoundationPagerCurlPolygon,
@@ -2393,12 +2387,12 @@ internal expect fun DrawScope.drawFoundationPagerCurlShadow(
 )
 
 /**
- * Connects these points into a [Path] in order, converting each one from canonical to screen coordinates
- * via [axis] first. Does not explicitly close the path back to the first point — every caller here only
- * ever uses the result as a clip shape, which treats an open contour the same as a closed one.
+ * 이 점들을 순서대로 [Path]로 연결하며, 먼저 [axis]를 통해 각각을 canonical 좌표계에서 화면
+ * 좌표계로 변환한다. 경로를 첫 점으로 명시적으로 닫지는 않는다 — 여기 있는 모든 호출자는 결과를
+ * 오직 클립 모양으로만 쓰는데, 클립은 열린 윤곽과 닫힌 윤곽을 똑같이 취급한다.
  *
- * @receiver the polygon's points, in canonical coordinates, in the order they should connect.
- * @param axis needed to convert each point back to screen coordinates.
+ * @receiver 연결되어야 할 순서대로, canonical 좌표계 기준의 polygon 점들.
+ * @param axis 각 점을 화면 좌표계로 다시 변환하는 데 필요하다.
  */
 private fun List<Offset>.foundationReferencePath(axis: FoundationReferenceCurlAxis): Path = Path().apply {
     this@foundationReferencePath.forEachIndexed { index, point ->
@@ -2408,10 +2402,10 @@ private fun List<Offset>.foundationReferencePath(axis: FoundationReferenceCurlAx
 }
 
 /**
- * This vector rotated by [angle] radians about the origin, using the standard 2D rotation matrix.
+ * 표준 2D 회전 행렬을 사용해, 원점을 중심으로 [angle] 라디안만큼 회전된 이 벡터.
  *
- * @receiver the vector to rotate, treated as relative to the origin rather than a screen position.
- * @param angle the rotation, in radians.
+ * @receiver 회전시킬 벡터로, 화면 위치가 아니라 원점에 대한 상대값으로 취급된다.
+ * @param angle 회전량, 라디안 단위.
  */
 private fun Offset.foundationReferenceRotate(angle: Float): Offset {
     val sin = sin(angle)
@@ -2420,8 +2414,7 @@ private fun Offset.foundationReferenceRotate(angle: Float): Offset {
 }
 
 /**
- * This vector scaled to unit length, or left as-is — rather than dividing by zero — when it already has
- * zero length.
+ * 단위 길이로 스케일된 이 벡터, 또는 이미 길이가 0이면 0으로 나누는 대신 그대로 둔 것.
  */
 private fun Offset.foundationReferenceNormalized(): Offset {
     val distance = getDistance()
@@ -2429,128 +2422,125 @@ private fun Offset.foundationReferenceNormalized(): Offset {
 }
 
 /**
- * The pager always has exactly this many virtual pages — previous, current, next — since
- * [FoundationPagerCurlReferenceImpl] never scrolls the underlying pager and instead stacks and folds
- * those three slots itself.
+ * pager는 항상 정확히 이만큼의 가상 페이지 — 이전, 현재, 다음 — 를 갖는다.
+ * [FoundationPagerCurlReferenceImpl]은 내부 pager를 절대 스크롤하지 않고, 대신 그 세 슬롯을 직접
+ * 쌓고 접기 때문이다.
  */
 private const val FoundationReferencePagerPageCount = 3
 
 /**
- * The pager's index is pinned here for the whole gesture lifecycle; this file drives page turns through
- * the fold animatables instead of through pager scroll position.
+ * pager의 인덱스는 제스처 생명주기 내내 여기에 고정된다; 이 파일은 pager 스크롤 위치 대신 fold
+ * animatable을 통해 페이지 turn을 구동한다.
  */
 private const val FoundationReferenceCenterPage = 1
 
-/** How long a tap-triggered page turn animates by default, in milliseconds. */
+/** 탭으로 촉발된 페이지 turn이 기본적으로 애니메이션되는 시간, 밀리초 단위. */
 private const val FoundationReferenceTapDurationMillis = 450
 
 /**
- * A tap in the left/top quarter of the pane ([foundationReferenceCurlTapAction]) turns to the previous
- * page.
+ * pane의 왼쪽/위쪽 1/4 지점에서의 탭([foundationReferenceCurlTapAction])은 이전 페이지로 넘어간다.
  */
 private const val FoundationReferencePreviousTapZoneRatio = 0.25f
 
 /**
- * A tap in the right/bottom quarter of the pane ([foundationReferenceCurlTapAction]) turns to the next
- * page; the middle half between this and [FoundationReferencePreviousTapZoneRatio] toggles controls
- * instead.
+ * pane의 오른쪽/아래쪽 1/4 지점에서의 탭([foundationReferenceCurlTapAction])은 다음 페이지로
+ * 넘어간다; 이것과 [FoundationReferencePreviousTapZoneRatio] 사이의 가운데 절반은 대신 컨트롤을
+ * 토글한다.
  */
 private const val FoundationReferenceNextTapZoneRatio = 0.75f
 
 /**
- * A drag or fling must cover this fraction of the required distance
- * ([foundationReferenceCurlDragSucceeds]) before it counts as a completed turn rather than a cancelled
- * one.
+ * 드래그나 fling이 취소가 아니라 완료된 turn으로 치기 전에 필요한 거리
+ * ([foundationReferenceCurlDragSucceeds])의 이 비율만큼은 이동해야 한다.
  */
 private const val FoundationReferenceDragThresholdRatio = 0.2f
 
 /**
- * How opaque the white overlay drawn over a single-pane fold's redrawn content is
- * ([foundationReferenceDrawCurl]) — high enough to read as the back of a sheet of paper rather than the
- * front page showing through unchanged.
+ * 단일 pane fold가 다시 그린 콘텐츠 위에 그려지는 흰색 오버레이가 얼마나 불투명한지
+ * ([foundationReferenceDrawCurl]) — 앞 페이지가 변화 없이 그대로 비쳐 보이는 대신 종이 한 장의
+ * 뒷면으로 읽힐 만큼 충분히 높다.
  */
 private const val FoundationReferenceBackOverlayAlpha = 0.9f
 
 /**
- * The fold's drop shadow color's alpha ([FoundationReferenceCurlFold.drawShadow]) — low enough to read
- * as a soft cast shadow rather than a hard silhouette.
+ * fold의 드롭 섀도 색상의 알파([FoundationReferenceCurlFold.drawShadow]) — 딱딱한 실루엣이 아니라
+ * 부드러운 cast shadow로 읽힐 만큼 충분히 낮다.
  */
 private const val FoundationReferenceShadowAlpha = 0.2f
 
-/** The 3D Curl crease highlight's screen-space width in pixels. */
+/** 3D Curl crease highlight의 화면-공간 너비, 픽셀 단위. */
 private const val FoundationReferenceThreeDRimWidthPx = 2f
 
 /**
- * Fraction of the shorter leaf side used as the maximum 3D rolling-crease lean. The reference
- * PlayLikeCurl mesh uses a `0.18` curl radius; applying the same normalized amount keeps the
- * approximation consistent across phones, tablets, and spread leaves instead of over-tilting a
- * narrow page with a fixed pixel distance.
+ * 최대 3D 롤링-crease 기울기로 쓰이는, 더 짧은 leaf 변의 비율. 참조 PlayLikeCurl mesh는 `0.18`
+ * curl radius를 사용한다; 같은 정규화된 양을 적용하면 고정된 픽셀 거리로 좁은 페이지를 과도하게
+ * 기울이는 대신, 휴대폰·태블릿·spread leaf 전반에 걸쳐 근사치가 일관되게 유지된다.
  */
 private const val FoundationReferenceThreeDCurlTiltRatio = 0.18f
 
 /**
- * Maximum sine-wave depth amplitude as a fraction of leaf width, copied from PlayLikeCurl's `RADIUS`.
- * Normalization preserves the same wave proportion across single pages and spread leaves.
+ * leaf 너비에 대한 비율로 나타낸 최대 사인파 깊이 진폭으로, PlayLikeCurl의 `RADIUS`에서 그대로
+ * 가져왔다. 정규화는 단일 페이지와 spread leaf 전반에 걸쳐 같은 파동 비율을 유지시킨다.
  */
 private const val FoundationReferenceThreeDCurlRadius = 0.18f
 
 /**
- * Initial progress interval that ramps the sine amplitude from zero to
- * [FoundationReferenceThreeDCurlRadius], matching the reference's first-fifth easing.
+ * 사인 진폭을 0에서 [FoundationReferenceThreeDCurlRadius]까지 끌어올리는 초기 progress 구간으로,
+ * 참조 구현의 처음 1/5 easing과 일치한다.
  */
 private const val FoundationReferenceThreeDCurlRadiusRampEnd = 0.20f
 
 /**
- * Progress delay before the globally compressed page starts translating toward the viewport start,
- * matching the reference's `perc - 0.05` movement.
+ * 전체적으로 압축된 페이지가 viewport 시작점 쪽으로 이동하기 시작하기까지의 progress 지연으로,
+ * 참조 구현의 `perc - 0.05` 이동과 일치한다.
  */
 private const val FoundationReferenceThreeDCurlMoveStart = 0.05f
 
 /**
- * Denominator in the reference sine phase `PI / 0.60 * (source - progress)`, controlling the width of
- * the depth wave that travels across the page.
+ * 참조 사인 위상 `PI / 0.60 * (source - progress)`의 분모로, 페이지를 가로질러 이동하는 깊이
+ * 파동의 너비를 조절한다.
  */
 private const val FoundationReferenceThreeDCurlWavelengthRatio = 0.60f
 
 /**
- * Raises PlayLikeCurl's sine wave above the page plane by `1.1` radii, matching the reference vertex
- * formula. The extra tenth-radius keeps every active column in front of the flat page even where the
- * sine reaches its trough, so the texture remains one continuous front-facing sheet.
+ * PlayLikeCurl의 사인파를 페이지 평면 위로 `1.1` radius만큼 끌어올리며, 참조 구현의 정점 공식과
+ * 일치한다. 추가된 1/10 radius는 사인이 골에 도달한 지점에서도 모든 활성 컬럼이 평평한 페이지
+ * 앞에 있도록 유지시켜, 텍스처가 하나의 연속된 전면을 향한 시트로 남게 한다.
  */
 private const val FoundationReferenceThreeDCurlDepthOffset = 1.1f
 
 /**
- * The perspective camera's distance from the page plane, in leaf-width units, used to foreshorten the
- * sinusoidal mesh in [foundationReferenceThreeDCurlStripSpecs]. A raised column this far from the camera
- * is projected wider than a column near the page plane, producing the reference's broad horizontal wave.
+ * [foundationReferenceThreeDCurlStripSpecs]에서 사인 곡선 mesh를 원근 단축시키는 데 쓰이는,
+ * leaf-너비 단위의 원근 카메라와 페이지 평면 사이 거리. 카메라로부터 이만큼 떨어진 들려 올라간
+ * 컬럼은 페이지 평면 근처의 컬럼보다 더 넓게 투영되어, 참조 구현의 넓은 가로 파동을 만들어낸다.
  */
 private const val FoundationReferenceThreeDCurlCameraDistance = 2.0f
 
 /**
- * The smallest curl radius, column width, or source span [foundationReferenceThreeDCurlStripSpecs] and
- * [foundationReferenceDrawThreeDCurlMesh] treat as non-zero, below which a column is drawn flat or skipped
- * rather than dividing by a vanishing span.
+ * [foundationReferenceThreeDCurlStripSpecs]와 [foundationReferenceDrawThreeDCurlMesh]가 0이
+ * 아니라고 취급하는 가장 작은 curl radius, 컬럼 너비, 또는 소스 span으로, 이보다 작으면 사라지는
+ * span으로 나누는 대신 컬럼을 평평하게 그리거나 건너뛴다.
  */
 private const val FoundationReferenceThreeDCurlFlatEpsilon = 1e-4f
 
 /**
- * Subpixel overlap between adjacent destination clips. Both strips sample the same captured page layer,
- * so this half-pixel guard covers raster rounding without redrawing or independently clipping glyphs.
+ * 인접한 목적지 클립 사이의 서브픽셀 겹침. 두 strip 모두 같은 캡처된 페이지 layer를 샘플링하므로,
+ * 이 반 픽셀 여유는 글리프를 다시 그리거나 독립적으로 클립하지 않고도 래스터 반올림을 감싼다.
  */
 private const val FoundationReferenceThreeDCurlSeamOverlapPx = 0.5f
 
 /**
- * How far past the mesh's projected leading edge, as a fraction of leaf width, the cast-shadow gradient in
- * [foundationReferenceDrawThreeDCurlMesh] fades out — the soft penumbra the raised paper throws onto the
- * page it is uncovering.
+ * mesh의 투영된 앞쪽 edge를 지나쳐, leaf 너비에 대한 비율로, [foundationReferenceDrawThreeDCurlMesh]의
+ * cast-shadow 그라데이션이 얼마나 멀리까지 옅어지는지 — 들려 올라간 종이가 드러내고 있는 페이지 위에
+ * 드리우는 부드러운 반음영.
  */
 private const val FoundationReferenceThreeDCurlShadowSpread = 0.12f
 
-/** The fold's shadow blur radius ([FoundationReferenceCurlFold.shadowRadius]). */
+/** fold 그림자의 블러 반경([FoundationReferenceCurlFold.shadowRadius]). */
 private val FoundationReferenceShadowRadius = 15.dp
 
 /**
- * The fold's shadow displacement, in dp, before [foundationReferenceCurlFold] negates and rotates it to
- * match the fold's own angle; only its magnitude matters, since the call site flips its sign.
+ * [foundationReferenceCurlFold]가 이를 부호를 뒤집고 fold 자신의 각도에 맞춰 회전시키기 전, dp
+ * 단위의 fold 그림자 변위; 호출부가 그 부호를 뒤집으므로 크기만 중요하다.
  */
 private val FoundationReferenceShadowOffsetX = (-5).dp

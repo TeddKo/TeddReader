@@ -18,12 +18,11 @@ internal actual val foundationPagerRenderProfile = FoundationPagerRenderProfile(
     curlShadowLayers = 1,
 )
 /**
- * Android's answer: a real, native blurred shadow via `android.graphics.Paint.setShadowLayer`,
- * drawn along [polygon]'s own path. `Canvas.drawPath` only actually renders a shadow layer on a
- * hardware-accelerated canvas from API 28 (`Build.VERSION_CODES.P`) onward; below that, the shadow
- * layer is invisible if drawn straight into the real canvas, so this falls back to rendering into
- * an offscreen software [Bitmap] — padded by twice [radius] on every side so the blur has room to
- * bleed — and blitting that bitmap back into the real canvas afterward.
+ * Android의 해법은 `android.graphics.Paint.setShadowLayer`를 통한 실제 네이티브 블러 그림자를 [polygon] 자체의
+ * path를 따라 그리는 것이다. `Canvas.drawPath`는 API 28(`Build.VERSION_CODES.P`) 이상의 하드웨어 가속 캔버스에서만
+ * 실제로 그림자 레이어를 렌더링한다. 그 미만에서는 실제 캔버스에 바로 그리면 그림자 레이어가 보이지 않으므로,
+ * 블러가 번질 여백을 두기 위해 사방으로 [radius]의 두 배만큼 패딩을 준 오프스크린 소프트웨어 [Bitmap]에 렌더링한
+ * 뒤 그 비트맵을 실제 캔버스에 다시 그려 넣는 방식으로 대체한다.
  */
 internal actual fun DrawScope.drawFoundationPagerCurlShadow(
     polygon: FoundationPagerCurlPolygon,

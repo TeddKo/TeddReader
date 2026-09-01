@@ -12,24 +12,25 @@ import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
 
 /**
- * The iOS actual of `PlatformPdfPageSurface`: a `UIKitView` hosting PDFKit's own `PDFView`, which
- * loads [documentUri] as a `PDFDocument` and jumps to [pageIndex] itself. Unlike the Android
- * actual's [android.graphics.pdf.PdfRenderer] page, there is no separate loading state to render
- * here, since `PDFView` owns its own document decode and paging and this composable never sees an
- * intermediate "not yet rendered" state to show a spinner for.
+ * `PlatformPdfPageSurface`의 iOS actual이다 — PDFKit 자체의 `PDFView`를 호스팅하는 `UIKitView`로,
+ * [documentUri]를 `PDFDocument`로 로드하고 스스로 [pageIndex]로 이동한다. Android actual의
+ * [android.graphics.pdf.PdfRenderer] 페이지와 달리 여기서는 따로 그려야 할 로딩 상태가 없다. `PDFView`가
+ * 문서 디코드와 페이지 넘김을 스스로 소유하고 있어서, 이 composable은 스피너를 보여줘야 할 "아직 렌더링되지
+ * 않음" 중간 상태를 전혀 보지 못하기 때문이다.
  *
- * The native document is remembered by resolved file path: controls and page-index recompositions
- * therefore retain PDFKit's parsed document, while opening another URI replaces it. `UIKitView.update`
- * only reconnects the view when that remembered identity changes and otherwise performs page navigation.
+ * 네이티브 문서는 해석된 파일 경로를 기준으로 remember된다: 그래서 controls나 페이지 인덱스로 인한
+ * recomposition은 PDFKit이 파싱해 둔 문서를 그대로 유지하고, 다른 URI를 열 때만 그 문서를 교체한다.
+ * `UIKitView.update`는 그 remember된 identity가 바뀔 때만 view를 다시 연결하며, 그 외에는 페이지 이동만
+ * 수행한다.
  *
- * @param documentUri the source `file://` URI of the PDF to render, or null/blank to show the
- *   unavailable placeholder without creating a `PDFView` at all.
- * @param pageIndex the page to jump `PDFView` to (`pageIndex.current`).
- * @param modifier applied to the `UIKitView`/placeholder container.
- * @param message the fallback text shown on the unavailable placeholder.
- * @param contentPadding padding applied around the `UIKitView` hosting `PDFView`.
- * @param placeholderContentPadding padding around the unavailable-state placeholder, forwarded to
- *   `PdfPlaceholderSurface` unchanged.
+ * @param documentUri 렌더링할 PDF의 소스 `file://` URI. null/공백이면 `PDFView`를 아예 만들지 않고 사용 불가
+ *   플레이스홀더를 보여준다.
+ * @param pageIndex `PDFView`가 이동할 페이지(`pageIndex.current`).
+ * @param modifier `UIKitView`/플레이스홀더 컨테이너에 적용된다.
+ * @param message 사용 불가 플레이스홀더에 표시되는 대체 텍스트.
+ * @param contentPadding `PDFView`를 호스팅하는 `UIKitView` 주변에 적용되는 패딩.
+ * @param placeholderContentPadding 사용 불가 상태 플레이스홀더 주변 패딩으로, 그대로 `PdfPlaceholderSurface`로
+ *   전달된다.
  */
 @Composable
 internal actual fun PlatformPdfPageSurface(

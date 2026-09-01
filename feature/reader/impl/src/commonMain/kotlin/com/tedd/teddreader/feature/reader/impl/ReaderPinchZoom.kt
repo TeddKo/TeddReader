@@ -16,31 +16,32 @@ import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
 
 /**
- * The allowed range for the reader's text font size, in sp, that a pinch gesture on a text page can
- * reach. [readerPinchFontSize] clamps every pinch result into this range, and it doubles as the
- * slider bounds the font-size option sheet offers, so a pinch and the settings sheet can never
- * disagree about how large or small text is allowed to get.
+ * 텍스트 페이지에서의 핀치 제스처가 도달할 수 있는, 리더 텍스트 활자 크기의 허용 범위(sp 단위).
+ * [readerPinchFontSize]는 모든 핀치 결과를 이 범위 안으로 clamp하며, 활자 크기 옵션 시트가 제공하는
+ * 슬라이더 범위로도 겸용되어, 핀치와 설정 시트가 텍스트를 얼마나 크게 또는 작게 만들 수 있는지에 대해
+ * 절대 어긋나지 않도록 한다.
  */
 internal val ReaderPinchFontSizeRange = 8f..80f
 
 /**
- * The allowed zoom-factor range for a visual page (PDF, image, CBZ): `1f` is the page shown at its
- * natural fit-to-viewport size, and every zoom this file computes — pinch, double-tap, or a directly
- * set slider value — is clamped into this range before it reaches the screen.
+ * visual 페이지(PDF, 이미지, CBZ)의 허용 확대 배율 범위: `1f`는 페이지가 자연스러운 fit-to-viewport
+ * 크기로 표시된 상태이며, 이 파일이 계산하는 모든 확대(핀치, 더블탭, 또는 슬라이더로 직접 설정한 값)는
+ * 화면에 도달하기 전에 이 범위로 clamp된다.
  */
 internal val ReaderPdfZoomRange = 1f..4f
 
-/** The fixed zoom factor a double-tap jumps a visual page to, when it is not already zoomed past [ReaderPdfZoomRange]'s minimum. */
+/** visual 페이지가 [ReaderPdfZoomRange]의 최솟값을 넘어 이미 확대된 상태가 아닐 때, 더블탭이 그 페이지를 도약시키는 고정 확대 배율. */
 private const val ReaderDoubleTapZoom = 2.5f
 
 /**
- * The current zoom and pan applied to a visual page (PDF, image, CBZ), held as one value so the two
- * always change together and a caller can never apply a new zoom against a stale pan or vice versa.
+ * visual 페이지(PDF, 이미지, CBZ)에 적용된 현재 확대 배율과 이동량을, 둘이 항상 함께 바뀌도록 하나의
+ * 값으로 보유한다. 이렇게 하면 호출자가 오래된 이동량에 대해 새 확대 배율을 적용하거나 그 반대로 적용하는
+ * 일이 절대 생기지 않는다.
  *
- * @property zoom The zoom factor, where `1f` is the page at its natural fit-to-viewport size. Always
- *   within [ReaderPdfZoomRange].
- * @property pan The page's translation, in px, in the viewport's own coordinate space — how far the
- *   zoomed content has been dragged away from being centered.
+ * @property zoom 확대 배율로, `1f`는 페이지가 자연스러운 fit-to-viewport 크기인 상태다. 항상
+ *   [ReaderPdfZoomRange] 안에 있다.
+ * @property pan 페이지의 이동량(px), viewport 자체 좌표계 기준 — 확대된 콘텐츠가 중앙에서 얼마나
+ *   드래그되어 벗어났는지.
  */
 internal data class ReaderPdfTransform(
     val zoom: Float,
@@ -48,16 +49,14 @@ internal data class ReaderPdfTransform(
 )
 
 /**
- * The committed font size, in sp, once a pinch gesture on a text page ends. [gestureScale] is the
- * unitless multiplier the gesture accumulated since it started (not since the previous frame),
- * applied to the font size the gesture started from and then clamped into
- * [ReaderPinchFontSizeRange] and rounded — the same clamp-and-round a caller would otherwise have to
- * remember to apply before persisting a font size.
+ * 텍스트 페이지에서의 핀치 제스처가 끝났을 때 확정되는 활자 크기(sp 단위). [gestureScale]은 제스처가
+ * (이전 프레임이 아니라) 시작된 이후로 누적한, 단위 없는 배율이며, 제스처가 시작된 시점의 활자 크기에
+ * 적용된 뒤 [ReaderPinchFontSizeRange]로 clamp되고 반올림된다 — 그렇지 않으면 호출자가 활자 크기를
+ * 영속화하기 전에 직접 기억해서 적용해야 했을 clamp-and-round와 동일하다.
  *
- * @param startFontSizeSp The font size, in sp, in effect when the pinch gesture began.
- * @param gestureScale The cumulative pinch scale factor since the gesture started; `1f` means no
- *   change.
- * @return The new font size, in sp, as an integer within [ReaderPinchFontSizeRange].
+ * @param startFontSizeSp 핀치 제스처가 시작될 때 적용 중이던 활자 크기(sp).
+ * @param gestureScale 제스처가 시작된 이후 누적된 핀치 배율; `1f`는 변화 없음을 뜻한다.
+ * @return [ReaderPinchFontSizeRange] 안의 정수인, 새 활자 크기(sp).
  */
 internal fun readerPinchFontSize(startFontSizeSp: Int, gestureScale: Float): Int {
     val scaled = startFontSizeSp * gestureScale
@@ -67,31 +66,28 @@ internal fun readerPinchFontSize(startFontSizeSp: Int, gestureScale: Float): Int
 }
 
 /**
- * Applies one increment of zoom and pan to a visual page's transform, keeping the point under the
- * gesture's focal point fixed on screen as the content scales — the "zoom toward the fingers"
- * behavior a pinch gesture is expected to have, rather than always zooming from the viewport's
- * center. [zoomChange] and [panChange] are deltas since the previous call, not absolute values,
- * matching what a pointer gesture's `calculateZoom()`/`calculatePan()` report per event.
+ * visual 페이지의 transform에 확대와 이동 한 증분을 적용하며, 콘텐츠가 스케일되는 동안 제스처의 초점
+ * 아래 있는 지점을 화면에서 고정시켜 유지한다 — 항상 viewport 중앙에서 확대하는 대신, 핀치 제스처가 갖출
+ * 것으로 기대되는 "손가락 쪽으로 확대" 동작이다. [zoomChange]와 [panChange]는 절대값이 아니라 이전 호출
+ * 이후의 델타이며, 이는 포인터 제스처의 `calculateZoom()`/`calculatePan()`이 이벤트마다 보고하는 것과
+ * 일치한다.
  *
- * Snaps back to an untranslated [ReaderPdfTransform] the moment the resulting zoom would land at
- * exactly `1f`, so zooming all the way back out always leaves the page centered rather than at
- * whatever pan offset the gesture happened to leave behind. Otherwise the resulting pan is clamped
- * so the page can never be dragged far enough to show blank space past its own edge — the maximum
- * pan in each axis is half the viewport times how far past `1f` the new zoom is.
+ * 결과 확대 배율이 정확히 `1f`에 도달하는 순간 이동이 없는 [ReaderPdfTransform]으로 되돌아가므로, 끝까지
+ * 축소하면 제스처가 남겨둔 어떤 이동 오프셋이든 상관없이 항상 페이지가 중앙에 놓인다. 그 외의 경우에는
+ * 결과 이동량이 clamp되어 페이지가 자기 가장자리 너머로 빈 공간을 보일 만큼 드래그될 수 없다 — 각 축의
+ * 최대 이동량은 viewport 절반에 새 확대 배율이 `1f`를 넘은 정도를 곱한 값이다.
  *
- * A non-finite [centroid] or [panChange] — which a gesture detector can report transiently, for
- * example between the last two-finger frame and the first one-finger frame of a pinch — falls back
- * to the viewport's center and to no pan change respectively, rather than letting `NaN` propagate
- * into the transform.
+ * 유한하지 않은 [centroid]나 [panChange] — 예를 들어 핀치의 마지막 두 손가락 프레임과 첫 한 손가락
+ * 프레임 사이처럼, 제스처 감지기가 일시적으로 보고할 수 있는 상태 — 는 각각 viewport 중앙과 이동 없음으로
+ * 대체되며, `NaN`이 transform으로 전파되도록 두지 않는다.
  *
- * @param current The transform before this increment.
- * @param zoomChange The zoom multiplier since the previous call; `1f` for a pan-only update.
- * @param panChange The pan delta, in px, since the previous call.
- * @param centroid The gesture's focal point, in px, in the viewport's own coordinate space — the
- *   point the zoom is applied around.
- * @param viewportSize The size of the area the page renders into, in px, used both to find the
- *   viewport's center and to compute the pan-clamping bounds.
- * @return The updated, bounds-clamped transform.
+ * @param current 이 증분이 적용되기 전의 transform.
+ * @param zoomChange 이전 호출 이후의 확대 배율; 이동만 있는 갱신이면 `1f`.
+ * @param panChange 이전 호출 이후의 이동 델타(px).
+ * @param centroid 제스처의 초점(px), viewport 자체 좌표계 기준 — 확대가 그 지점을 중심으로 적용된다.
+ * @param viewportSize 페이지가 렌더링되는 영역의 크기(px). viewport 중앙을 찾는 데도, 이동 clamp 경계를
+ *   계산하는 데도 쓰인다.
+ * @return 갱신되고 경계로 clamp된 transform.
  */
 internal fun readerPdfTransform(
     current: ReaderPdfTransform,
@@ -129,16 +125,15 @@ internal fun readerPdfTransform(
 }
 
 /**
- * Re-derives a valid, in-bounds [ReaderPdfTransform] for a [zoom]/[pan] pair that was not produced by
- * a live gesture — for example, a value the visual-zoom slider in the view options sheet set
- * directly. Delegates to [readerPdfTransform] with no zoom or pan delta and the viewport's own
- * center as the focal point, so a directly set zoom gets exactly the same edge-clamping a pinch
- * gesture would have applied to it.
+ * 실시간 제스처가 만들어낸 것이 아닌 [zoom]/[pan] 쌍 — 예를 들어 view 옵션 시트의 visual-zoom
+ * 슬라이더가 직접 설정한 값 — 에 대해 유효하고 경계 안에 있는 [ReaderPdfTransform]을 다시 유도한다.
+ * 확대·이동 델타 없이, viewport 자체 중앙을 초점으로 삼아 [readerPdfTransform]에 위임하므로, 직접
+ * 설정된 확대 배율도 핀치 제스처가 적용했을 것과 정확히 같은 가장자리 clamp를 적용받는다.
  *
- * @param zoom The zoom factor to apply, clamped into [ReaderPdfZoomRange] before use.
- * @param pan The pan to reconcile against [zoom], in px, in the viewport's own coordinate space.
- * @param viewportSize The size of the area the page renders into, in px.
- * @return A transform whose pan is guaranteed in-bounds for [zoom].
+ * @param zoom 적용할 확대 배율로, 사용 전에 [ReaderPdfZoomRange]로 clamp된다.
+ * @param pan [zoom]에 맞춰 조정할 이동량(px), viewport 자체 좌표계 기준.
+ * @param viewportSize 페이지가 렌더링되는 영역의 크기(px).
+ * @return [zoom]에 대해 이동량이 경계 안에 있음이 보장되는 transform.
  */
 internal fun readerClampedPdfTransform(
     zoom: Float,
@@ -159,17 +154,16 @@ internal fun readerClampedPdfTransform(
 )
 
 /**
- * The transform a double-tap on a visual page should jump to. Acts as a toggle: if the page is
- * already zoomed in past [ReaderPdfZoomRange]'s minimum, resets straight back to the untransformed
- * `1f`/no-pan state; otherwise zooms in to [ReaderDoubleTapZoom] centered on the tapped point, via
- * the same [readerPdfTransform] path a pinch gesture uses, so the tapped point stays fixed under the
- * finger as the page scales up.
+ * visual 페이지에서 더블탭이 도약해야 할 transform. 토글처럼 동작한다: 페이지가 이미
+ * [ReaderPdfZoomRange]의 최솟값을 넘어 확대되어 있다면 곧바로 transform 없는 `1f`/이동 없음 상태로
+ * 되돌리고, 그렇지 않으면 탭한 지점을 중심으로 [ReaderDoubleTapZoom]까지 확대한다. 이는 핀치 제스처가
+ * 쓰는 것과 같은 [readerPdfTransform] 경로를 통해 이루어지므로, 페이지가 커지는 동안 탭한 지점이 손가락
+ * 아래 고정된 채로 유지된다.
  *
- * @param current The transform in effect when the double-tap happened.
- * @param tapPosition The tap location, in px, in the viewport's own coordinate space — the point the
- *   zoom-in case zooms around.
- * @param viewportSize The size of the area the page renders into, in px.
- * @return The reset or zoomed-in transform, depending on whether [current] was already zoomed in.
+ * @param current 더블탭이 일어났을 때 적용 중이던 transform.
+ * @param tapPosition 탭 위치(px), viewport 자체 좌표계 기준 — 확대 케이스가 그 지점을 중심으로 확대한다.
+ * @param viewportSize 페이지가 렌더링되는 영역의 크기(px).
+ * @return [current]가 이미 확대되어 있었는지에 따라, 리셋되거나 확대된 transform.
  */
 internal fun readerDoubleTapVisualTransform(
     current: ReaderPdfTransform,
@@ -188,55 +182,54 @@ internal fun readerDoubleTapVisualTransform(
 }
 
 /**
- * Installs the reader's combined pinch/pan gesture on the page content: a two-finger pinch resizes
- * text font size on a text page or zooms a visual page, and, once a visual page is zoomed in, a
- * single finger pans it. The two modes ([isVisualMode] selects which) share one gesture loop rather
- * than two separate `pointerInput` blocks because they are mutually exclusive on any given page and
- * a caller only ever wants one of them live at a time.
+ * 리더의 결합된 핀치/이동 제스처를 페이지 콘텐츠에 설치한다: 두 손가락 핀치는 텍스트 페이지에서는 텍스트
+ * 활자 크기를 조절하고 visual 페이지에서는 확대하며, visual 페이지가 확대된 뒤에는 한 손가락으로 그것을
+ * 이동시킬 수 있다. 두 모드([isVisualMode]가 어느 쪽인지 정한다)는 별개의 `pointerInput` 블록 두 개가
+ * 아니라 하나의 제스처 루프를 공유하는데, 어떤 페이지에서든 두 모드는 상호 배타적이며 호출자는 항상 둘 중
+ * 하나만 활성화되길 원하기 때문이다.
  *
- * Every parameter is captured through [rememberUpdatedState] rather than read directly, because the
- * `pointerInput(Unit)` gesture-detection coroutine below is keyed on the constant `Unit` and
- * therefore never restarts across recomposition — without that indirection it would keep observing
- * the values captured on its first launch for as long as the composable stays on screen.
+ * 모든 파라미터는 직접 읽는 대신 [rememberUpdatedState]를 통해 캡처된다. 아래의 `pointerInput(Unit)`
+ * 제스처 감지 코루틴은 상수 `Unit`을 키로 삼기 때문에 recomposition을 거쳐도 절대 재시작되지 않으며 —
+ * 이런 간접 참조가 없으면 composable이 화면에 남아 있는 동안 첫 실행 시 캡처된 값들을 계속 관찰하게 될
+ * 것이다.
  *
- * This is a `@Composable` modifier factory rather than a `Modifier.composed { }` block: `composed`
- * hides its contents from modifier comparison, so the whole segment was re-materialized on every
- * recomposition of the page content instead of participating in node reuse. The captures above are
- * the only reason composition access is needed at all, and a plain composable function gives that
- * without the opaque wrapper. Note the captures are established before the [enabled] check, because a
- * composable must not make its `remember` calls conditional — flipping [enabled] would otherwise
- * shift every later slot in the composition.
+ * 이것이 `Modifier.composed { }` 블록이 아니라 `@Composable` modifier factory인 이유: `composed`는
+ * 자신의 내용을 modifier 비교에서 숨기므로, 노드 재사용에 참여하는 대신 페이지 콘텐츠가
+ * recomposition될 때마다 전체 구간이 다시 구체화됐을 것이다. 위의 캡처들이 composition 접근이 필요한
+ * 유일한 이유이며, 평범한 composable 함수는 불투명한 래퍼 없이 그것을 제공한다. 캡처들이 [enabled] 검사
+ * 이전에 확립되어 있음에 주의한다. composable은 `remember` 호출을 조건부로 만들면 안 되기 때문이며,
+ * 그렇지 않으면 [enabled]가 바뀔 때마다 그 이후의 모든 composition 슬롯이 밀리게 된다.
  *
- * A pinch starting always turns auto-scroll off first ([onAutoScrollEnabledChange]), since scrolling
- * out from under a page the reader is actively resizing or zooming is not useful, and a text pinch's
- * font-size change is only ever committed ([onTextFontSizeCommit]) once the gesture ends — while it
- * is in progress the caller only sees a live preview scale ([onTextGestureScaleChange]) so the text
- * layout is not re-measured on every frame.
+ * 핀치가 시작되면 항상 자동 스크롤을 먼저 끈다([onAutoScrollEnabledChange]). 리더가 활발히 크기를
+ * 조절하거나 확대하고 있는 페이지 아래에서 스크롤이 진행되는 것은 쓸모가 없기 때문이다. 그리고 텍스트
+ * 핀치의 활자 크기 변경은 제스처가 끝나야만 확정되며([onTextFontSizeCommit]), 진행 중일 때는 호출자에게
+ * 실시간 미리보기 배율만 보여서([onTextGestureScaleChange]) 텍스트 레이아웃이 매 프레임 재측정되지
+ * 않도록 한다.
  *
- * @receiver The page-content modifier this gesture attaches to.
- * @param enabled Whether the gesture participates at all; the reader turns it off while no page has
- *   been paginated yet, since there is nothing on screen to zoom or pan.
- * @param viewportSize The size of the page-content area, in px, used to compute pan bounds and zoom
- *   focal points exactly like [readerPdfTransform] does.
- * @param isVisualMode True to zoom/pan a visual page (PDF, image, CBZ); false to resize text font
- *   size instead.
- * @param textStartFontSizeSp The font size, in sp, in effect when a text pinch gesture starts — the
- *   base [readerPinchFontSize] scales from.
- * @param pdfTransform The visual page's current zoom/pan, read at the start of each gesture as the
- *   base a pinch or pan increment is applied on top of.
- * @param isAutoScrollEnabled Whether auto-scroll is currently on, checked once a pinch starts so it
- *   is only turned off ([onAutoScrollEnabledChange]) when it actually needs to be.
- * @param onAutoScrollEnabledChange Turns auto-scroll off; called with `false` the moment a
- *   two-finger pinch begins while [isAutoScrollEnabled] is true.
- * @param onGestureActiveChange Reports whether this gesture currently owns the pointer input, so the
- *   caller can suppress other gestures (like a page-turn tap) for the duration.
- * @param onTextGestureScaleChange The live, uncommitted text scale factor during a text pinch, for a
- *   caller to preview without re-measuring the page.
- * @param onTextFontSizeCommit The final font size, in sp, once a text pinch ends with a size
- *   different from [textStartFontSizeSp].
- * @param onPdfTransformChange The updated zoom/pan for a visual page, called on every frame the
- *   gesture changes it.
- * @return This modifier with the gesture attached, or itself unchanged when [enabled] is false.
+ * @receiver 이 제스처가 붙는 페이지 콘텐츠 modifier.
+ * @param enabled 이 제스처가 아예 참여할지 여부. 아직 어떤 페이지도 페이지 나누기가 되지 않아 화면에
+ *   확대하거나 이동할 것이 없는 동안에는 리더가 이를 끈다.
+ * @param viewportSize 페이지 콘텐츠 영역의 크기(px). [readerPdfTransform]과 정확히 같은 방식으로 이동
+ *   경계와 확대 초점을 계산하는 데 쓰인다.
+ * @param isVisualMode visual 페이지(PDF, 이미지, CBZ)를 확대/이동하려면 true; 대신 텍스트 활자 크기를
+ *   조절하려면 false.
+ * @param textStartFontSizeSp 텍스트 핀치 제스처가 시작될 때 적용 중인 활자 크기(sp) — 기준이 되는 값에서
+ *   [readerPinchFontSize]가 배율을 적용한다.
+ * @param pdfTransform visual 페이지의 현재 확대/이동 상태로, 각 제스처가 시작될 때 읽혀 핀치나 이동
+ *   증분이 그 위에 적용되는 기준이 된다.
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 켜져 있는지 여부. 핀치가 시작되는 순간에 확인되어, 실제로
+ *   꺼야 할 때만([onAutoScrollEnabledChange]) 꺼진다.
+ * @param onAutoScrollEnabledChange 자동 스크롤을 끈다; [isAutoScrollEnabled]가 true인 상태에서 두 손가락
+ *   핀치가 시작되는 순간 `false`로 호출된다.
+ * @param onGestureActiveChange 이 제스처가 현재 포인터 입력을 소유하고 있는지 보고하여, 호출자가 그동안
+ *   다른 제스처(예: 페이지 넘김 탭)를 억제할 수 있도록 한다.
+ * @param onTextGestureScaleChange 텍스트 핀치 도중의, 실시간이며 아직 확정되지 않은 텍스트 배율. 호출자가
+ *   페이지를 재측정하지 않고 미리 볼 수 있도록 한다.
+ * @param onTextFontSizeCommit 텍스트 핀치가 [textStartFontSizeSp]와 다른 크기로 끝났을 때의 최종 활자
+ *   크기(sp).
+ * @param onPdfTransformChange visual 페이지의 갱신된 확대/이동 상태로, 제스처가 그것을 바꾸는 매 프레임
+ *   호출된다.
+ * @return 제스처가 붙은 이 modifier, 또는 [enabled]가 false이면 변경되지 않은 그대로.
  */
 @Composable
 internal fun Modifier.readerPinchZoomGesture(
