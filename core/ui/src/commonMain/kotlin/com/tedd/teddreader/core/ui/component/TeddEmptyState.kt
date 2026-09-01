@@ -16,17 +16,16 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
- * The app's placeholder for a screen or list with nothing in it (an empty library, no search
- * results), centering a title, an optional description, and an optional action button so every such
- * screen shares the same layout instead of each hand-centering its own [Column].
+ * 화면이나 목록에 아무것도 없을 때(빈 서재, 검색 결과 없음)를 위한 앱의 플레이스홀더로, 제목과
+ * 선택적 설명, 선택적 액션 버튼을 가운데 정렬한다. 이렇게 해서 이런 모든 화면이 각자 [Column]을 직접
+ * 가운데 정렬하는 대신 같은 레이아웃을 공유한다.
  *
- * @param title The primary message, shown in [teddReaderTypography]'s `documentTitle` style.
- * @param modifier Modifier applied to the state's root.
- * @param description Supporting text shown under [title] in a muted color; omitted when null.
- * @param contentPadding Padding around the whole state; null means the theme's large (all sides)
- * value is used.
- * @param action Content shown below the description, typically a [TeddButton] prompting the next
- * step; omitted when null.
+ * @param title [teddReaderTypography]의 `documentTitle` 스타일로 표시되는 주요 메시지.
+ * @param modifier 상태 루트에 적용되는 modifier.
+ * @param description [title] 아래 흐린 색상으로 표시되는 보조 텍스트. null이면 생략된다.
+ * @param contentPadding 전체 상태 주위의 패딩. null이면 테마의 large(모든 방향) 값을 사용한다.
+ * @param action 설명 아래에 표시되는 콘텐츠로, 보통은 다음 단계를 안내하는 [TeddButton]이다. null이면
+ * 생략된다.
  */
 @Composable
 fun TeddEmptyState(
@@ -63,7 +62,7 @@ fun TeddEmptyState(
     }
 }
 
-/** Compose preview rendering [TeddEmptyState] with a title, description, and action button. */
+/** 제목, 설명, 액션 버튼을 갖춘 [TeddEmptyState]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddEmptyStatePreview() {

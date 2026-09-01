@@ -14,23 +14,23 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
- * An overflow menu anchored to whatever it is composed inside, holding [TeddDropdownMenuItem] rows.
+ * [TeddDropdownMenuItem] 행들을 담으며, 그것이 컴포즈된 위치 어디든 앵커링되는 오버플로우 메뉴.
  *
- * Wraps Material's menu rather than rebuilding it, for the same reason [TeddAlertDialog] does: a menu
- * opens in a platform popup, positions itself so it stays on screen near its anchor, traps and then
- * restores focus, and dismisses on back or outside tap. Reimplementing that correctly buys nothing.
- * What this wrapper adds is the app's surface and shape in place of Material's, and it keeps the
- * Material import inside this module so a screen showing an overflow menu needs no `material3` import.
+ * [TeddAlertDialog]와 같은 이유로 Material의 메뉴를 새로 만드는 대신 감싼다: 메뉴는 플랫폼 팝업에서
+ * 열리고, 앵커 근처 화면 안에 머물도록 스스로 위치를 잡고, 포커스를 가두었다가 복원하며, 뒤로 가기나
+ * 바깥 탭에 닫힌다. 이를 올바르게 재구현해도 얻는 것이 없다. 이 래퍼가 더하는 것은 Material 대신
+ * 앱의 서피스와 모양이며, Material import를 이 모듈 안에 가두어 오버플로우 메뉴를 보여주는 화면이
+ * `material3` import를 필요로 하지 않게 한다.
  *
- * The menu positions itself relative to its parent, so it belongs inside the same container as the
- * control that opens it — typically a `Box` that also holds the icon button.
+ * 메뉴는 부모를 기준으로 스스로 위치를 잡으므로, 이를 여는 컨트롤과 같은 컨테이너 안에 두어야
+ * 한다 — 보통은 아이콘 버튼도 함께 담고 있는 `Box`다.
  *
- * @param expanded Whether the menu is showing. The caller owns this state, because the control that
- * opens the menu lives outside the menu's own composition.
- * @param onDismissRequest Invoked when the user dismisses the menu without choosing — outside tap or
- * back gesture. Must clear whatever state [expanded] reads, or the menu cannot be reopened.
- * @param modifier Modifier applied to the menu's surface.
- * @param content The menu's rows, normally [TeddDropdownMenuItem] calls.
+ * @param expanded 메뉴가 표시 중인지 여부. 메뉴를 여는 컨트롤이 메뉴 자체의 컴포지션 바깥에 있으므로
+ * 이 상태는 호출자가 소유한다.
+ * @param onDismissRequest 사용자가 선택 없이 메뉴를 닫을 때 — 바깥 탭이나 뒤로 가기 제스처 —
+ * 호출된다. [expanded]가 읽는 상태를 반드시 초기화해야 하며, 그렇지 않으면 메뉴를 다시 열 수 없다.
+ * @param modifier 메뉴 서피스에 적용되는 modifier.
+ * @param content 메뉴의 행들로, 보통은 [TeddDropdownMenuItem] 호출들이다.
  */
 @Composable
 fun TeddDropdownMenu(
@@ -50,17 +50,17 @@ fun TeddDropdownMenu(
 }
 
 /**
- * A single row inside a [TeddDropdownMenu], wrapping [DropdownMenuItem] only to fix its label
- * to [teddReaderTypography]'s `settingTitle` style — otherwise a plain forward of Material's own
- * [DropdownMenuItem] parameters.
+ * [TeddDropdownMenu] 안의 한 행. [DropdownMenuItem]을 감싸지만 그 라벨을 [teddReaderTypography]의
+ * `settingTitle` 스타일로 고정하는 것 외에는 Material 자체의 [DropdownMenuItem] 파라미터를 그대로
+ * 전달할 뿐이다.
  *
- * @param text The item's label.
- * @param onClick Invoked when the item is tapped; the caller is responsible for dismissing the
- * enclosing [TeddDropdownMenu] itself.
- * @param modifier Modifier applied to the underlying [DropdownMenuItem].
- * @param enabled Whether the item responds to taps.
- * @param leadingIcon Content shown before the label; omitted when null.
- * @param trailingIcon Content shown after the label; omitted when null.
+ * @param text 항목의 라벨.
+ * @param onClick 항목이 탭될 때 호출된다. 감싸고 있는 [TeddDropdownMenu] 자체를 닫는 것은 호출자의
+ * 책임이다.
+ * @param modifier 내부 [DropdownMenuItem]에 적용되는 modifier.
+ * @param enabled 항목이 탭에 반응할지 여부.
+ * @param leadingIcon 라벨 앞에 표시되는 콘텐츠. null이면 생략된다.
+ * @param trailingIcon 라벨 뒤에 표시되는 콘텐츠. null이면 생략된다.
  */
 @Composable
 fun TeddDropdownMenuItem(
@@ -82,7 +82,7 @@ fun TeddDropdownMenuItem(
     )
 }
 
-/** Compose preview rendering an expanded [TeddDropdownMenu] with two [TeddDropdownMenuItem]s. */
+/** 두 개의 [TeddDropdownMenuItem]과 함께 펼쳐진 [TeddDropdownMenu]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddDropdownMenuPreview() {

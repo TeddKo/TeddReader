@@ -19,18 +19,18 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
- * How far through the book the reader is: a bar, optionally with the page count and the percentage.
+ * 책에서 사용자가 얼마나 진행했는지: 바 하나, 선택적으로 페이지 수와 퍼센트를 함께 보여준다.
  *
- * The figures come from [PageIndex], whose total is "pages known so far" rather than the whole book — so
- * while a progressive import is still running this bar honestly shows progress through what has been
- * measured, and both it and the label move as the total grows.
+ * 수치는 [PageIndex]에서 오는데, 그 total은 책 전체가 아니라 "지금까지 알려진 페이지 수"다 — 그래서
+ * 점진적 임포트가 아직 진행 중인 동안 이 바는 지금까지 측정된 범위에 대한 진행률을 정직하게 보여주고,
+ * 바와 라벨 모두 total이 늘어남에 따라 함께 움직인다.
  *
- * @param pageIndex the current page and the total known so far.
- * @param modifier applied to the bar.
- * @param showPageLabel whether to show "current / total" beside the bar.
- * @param showPercentLabel whether to show the percentage.
- * @param compact true lays the label, bar and percentage out in one row for a bottom bar; false stacks them,
- * which is what a sheet or a wide layout uses.
+ * @param pageIndex 현재 페이지와 지금까지 알려진 total.
+ * @param modifier 바에 적용된다.
+ * @param showPageLabel 바 옆에 "current / total"을 표시할지 여부.
+ * @param showPercentLabel 퍼센트를 표시할지 여부.
+ * @param compact true이면 하단 바를 위해 라벨, 바, 퍼센트를 한 행에 배치한다; false이면 시트나 넓은
+ * 레이아웃이 사용하는 방식대로 쌓는다.
  */
 @Composable
 fun ReaderProgressBar(
@@ -98,10 +98,10 @@ fun ReaderProgressBar(
 }
 
 /**
- * The page counter on its own, for a bar that shows the number without the progress track.
+ * 진행률 트랙 없이 숫자만 보여주는 바를 위한, 페이지 카운터 단독.
  *
- * @param pageIndex the current page and the total known so far.
- * @param modifier applied to the label.
+ * @param pageIndex 현재 페이지와 지금까지 알려진 total.
+ * @param modifier 라벨에 적용된다.
  */
 @Composable
 fun ReaderPageLabel(
@@ -122,21 +122,21 @@ fun ReaderPageLabel(
 
 
 /**
- * @receiver the page index to render.
- * @param current the already one-based page number to show; a total of zero shows 0 rather than 1, so a book
- * with nothing measured yet does not claim to be on its first page.
- * @return the `"current / total"` text.
+ * @receiver 렌더링할 page index.
+ * @param current 표시할, 이미 1부터 시작하는 페이지 번호. total이 0이면 1이 아니라 0을 표시하여,
+ * 아직 아무것도 측정되지 않은 책이 첫 페이지에 있다고 주장하지 않게 한다.
+ * @return `"current / total"` 형식의 텍스트.
  */
 private fun PageIndex.pageLabel(current: Int = if (total == 0) 0 else this.current.toOneBasedPageNumber()): String = "$current / $total"
 
 /**
- * @receiver the page index to render.
- * @return the progress as a whole-percent string, truncated rather than rounded so it never shows 100%
- * before the last page.
+ * @receiver 렌더링할 page index.
+ * @return 정수 퍼센트 문자열로 표현된 진행률. 마지막 페이지 전에 100%를 표시하지 않도록 반올림이
+ * 아니라 버림 처리된다.
  */
 private fun PageIndex.percentLabel(): String = "${(progress * 100).toInt()}%"
 
-/** The stacked layout, with both labels shown. */
+/** 두 라벨을 모두 보여주는, 쌓인 레이아웃. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderProgressPreview() {
@@ -153,7 +153,7 @@ private fun ReaderProgressPreview() {
     }
 }
 
-/** The one-row layout on night paper, as the reader's bottom bar shows it. */
+/** 리더의 하단 바가 보여주는 대로, 밤 종이 위의 한 줄 레이아웃. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderProgressCompactDarkPreview() {

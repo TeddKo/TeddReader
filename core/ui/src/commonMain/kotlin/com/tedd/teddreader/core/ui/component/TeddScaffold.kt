@@ -9,16 +9,16 @@ import androidx.compose.ui.Modifier
 import com.tedd.teddreader.core.designsystem.teddReaderColors
 
 /**
- * The app's screen frame: a Material `Scaffold` with the app's own background already applied.
+ * 앱의 화면 프레임: 앱 자체 배경이 이미 적용된 Material `Scaffold`.
  *
- * It exists so no screen has to remember to set `containerColor` — a screen that forgets renders on
- * Material's default surface, which is close enough to the app's background to pass review and wrong enough
- * to see beside another screen.
+ * 어떤 화면도 `containerColor`를 설정해야 한다는 것을 기억할 필요가 없도록 존재한다 — 이를 잊은
+ * 화면은 Material의 기본 서피스로 렌더링되는데, 이는 리뷰를 통과할 만큼 앱 배경과 비슷하면서도 다른
+ * 화면 옆에 놓이면 눈에 띄게 틀린 색이다.
  *
- * @param modifier applied to the scaffold.
- * @param topBar the screen's top bar, empty by default.
- * @param bottomBar the screen's bottom bar, empty by default.
- * @param content the screen body; receives the insets the bars leave behind and must apply them.
+ * @param modifier scaffold에 적용된다.
+ * @param topBar 화면의 상단 바로, 기본값은 비어 있다.
+ * @param bottomBar 화면의 하단 바로, 기본값은 비어 있다.
+ * @param content 화면 본문. 바들이 남긴 인셋을 전달받으며 반드시 이를 적용해야 한다.
  */
 @Composable
 fun TeddScaffold(

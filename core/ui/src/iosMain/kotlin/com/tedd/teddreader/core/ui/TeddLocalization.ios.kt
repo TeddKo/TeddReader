@@ -8,36 +8,35 @@ import platform.Foundation.NSLocale
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.preferredLanguages
 
-/** The key iOS's `AppleLanguages` user-defaults preference is stored under. */
+/** iOS `AppleLanguages` user-defaults 설정이 저장되는 키. */
 private const val LANG_KEY = "AppleLanguages"
 
-/** The device's own preferred language, captured the first time [LocalAppLocale.provides] runs. */
+/** [LocalAppLocale.provides]가 처음 실행될 때 캡처한 기기 자체의 선호 언어. */
 private var default: String? = null
 
 /**
- * Backing `CompositionLocal` for [LocalAppLocale.current]. Unlike Android, iOS has no single mutable
- * "current locale" a Compose read can observe, so the override value is threaded through this
- * `CompositionLocal` instead of being read back from the system.
+ * [LocalAppLocale.current]를 뒷받침하는 `CompositionLocal`. Android와 달리 iOS에는 Compose 읽기가
+ * 관찰할 수 있는 단일한 변경 가능 "현재 로케일"이 없으므로, 재정의 값은 시스템에서 다시 읽어오는
+ * 대신 이 `CompositionLocal`을 통해 전달된다.
  */
 private val LocalAppLocaleValue = staticCompositionLocalOf { "en" }
 
 /**
- * iOS's [LocalAppLocale]: since Kotlin/Native's Foundation interop only exposes reading
- * `NSLocale.preferredLanguages`, not a scoped way to override it for Compose resource resolution
- * alone, this both writes the override into `NSUserDefaults`'s `AppleLanguages` key (mirroring what
- * changing the language in iOS Settings would do, so native code that also reads that key stays in
- * sync) and provides it through [LocalAppLocaleValue] for [current] to read back.
+ * [LocalAppLocale]의 iOS 구현체. Kotlin/Native의 Foundation interop은 `NSLocale.preferredLanguages`를
+ * 읽는 것만 노출할 뿐 Compose 리소스 해석만을 위해 범위가 한정된 재정의 방법을 제공하지 않으므로,
+ * 이 구현은 재정의 값을 `NSUserDefaults`의 `AppleLanguages` 키에 기록하고(iOS 설정에서 언어를 바꾸는
+ * 것과 같은 효과를 내어, 같은 키를 읽는 네이티브 코드도 동기화 상태를 유지한다) [current]가 다시
+ * 읽을 수 있도록 [LocalAppLocaleValue]를 통해서도 제공한다.
  */
 @OptIn(InternalComposeUiApi::class)
 actual object LocalAppLocale {
-    /** The locale tag most recently provided through [provides], read from [LocalAppLocaleValue]. */
+    /** [LocalAppLocaleValue]에서 읽은, [provides]를 통해 가장 최근에 제공된 로케일 태그. */
     actual val current: String
         @Composable get() = LocalAppLocaleValue.current
 
     /**
-     * Persists [value] into `NSUserDefaults` under [LANG_KEY] (or removes the key when [value] is
-     * null, reverting to the device's own [default] preferred language) and provides it through
-     * [LocalAppLocaleValue].
+     * [value]를 [LANG_KEY] 아래 `NSUserDefaults`에 영속화하고([value]가 null이면 그 키를 제거하여
+     * 기기 자체의 [default] 선호 언어로 되돌린다), [LocalAppLocaleValue]를 통해 이를 제공한다.
      */
     @Composable
     actual infix fun provides(value: String?): ProvidedValue<*> {
