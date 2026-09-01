@@ -5,9 +5,9 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** Verifies document deletion accepts only direct children of the platform's materialized directory. */
+/** 문서 삭제가 플랫폼의 실체화 디렉터리의 직계 자식만 허용하는지 검증한다. */
 class DocumentFileSourceTest {
-    /** A direct child is the app-owned materialized file production sources may delete. */
+    /** 직계 자식은 프로덕션 소스가 삭제해도 되는, 앱이 소유한 실체화 파일이다. */
     @Test
     fun directChildBelongsToMaterializedDirectory() {
         assertTrue(
@@ -18,7 +18,7 @@ class DocumentFileSourceTest {
         )
     }
 
-    /** An external source beside the app directory must never be deleted with its shelf row. */
+    /** 앱 디렉터리 옆에 있는 외부 소스는 그 서가(shelf) 행과 함께 결코 삭제되어서는 안 된다. */
     @Test
     fun siblingDirectoryDoesNotBelongToMaterializedDirectory() {
         assertFalse(
@@ -29,7 +29,7 @@ class DocumentFileSourceTest {
         )
     }
 
-    /** Nested files are outside the one-level materialization layout and must remain untouched. */
+    /** 중첩된 파일은 한 단계짜리 실체화 레이아웃 밖에 있으며 건드려지지 않아야 한다. */
     @Test
     fun nestedFileDoesNotBelongToMaterializedDirectory() {
         assertFalse(
@@ -40,7 +40,7 @@ class DocumentFileSourceTest {
         )
     }
 
-    /** Normalization must prevent a traversal segment from escaping the owned directory check. */
+    /** 정규화는 트래버설 세그먼트가 소유 디렉터리 검사를 벗어나지 못하도록 막아야 한다. */
     @Test
     fun traversalPathDoesNotBelongToMaterializedDirectory() {
         assertFalse(
@@ -51,7 +51,7 @@ class DocumentFileSourceTest {
         )
     }
 
-    /** A previous app-container UUID still identifies the same app-owned Documents directory. */
+    /** 이전 앱 컨테이너 UUID도 여전히 같은, 앱이 소유한 Documents 디렉터리를 식별한다. */
     @Test
     fun relocatedContainerDirectChildBelongsToMaterializedDirectory() {
         assertTrue(
@@ -62,7 +62,7 @@ class DocumentFileSourceTest {
         )
     }
 
-    /** A same-named external directory outside the app-container root must remain untouched. */
+    /** 앱 컨테이너 루트 밖에 있는, 이름이 같은 외부 디렉터리는 건드려지지 않아야 한다. */
     @Test
     fun unrelatedDocumentsDirectoryDoesNotBelongToRelocatedContainer() {
         assertFalse(

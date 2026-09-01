@@ -16,31 +16,29 @@ import platform.UIKit.UIImagePNGRepresentation
 import platform.posix.memcpy
 import kotlin.random.Random
 
-/** iOS's implementation of the [defaultPdfMetadataReader] contract. */
+/** [defaultPdfMetadataReader] 계약의 iOS 구현. */
 internal actual fun defaultPdfMetadataReader(): PdfMetadataReader = IosPdfMetadataReader()
 
 /**
- * iOS's [PdfMetadataReader], built on PDFKit. Both [pageCount] and [coverImageBytes] resolve the
- * document **location-first**: they open a `PDFDocument` directly from the file path encoded in
- * [DocumentLocation.sourceUri], avoiding any temporary-file write when the path is reachable. Only
- * when the path cannot be opened and [bytes] is non-null does this implementation fall back to
- * writing [bytes] to a temporary file — the legacy path for callers that have not yet materialized
- * the document into the sandbox.
+ * PDFKit 위에 만들어진 iOS의 [PdfMetadataReader]. [pageCount]와 [coverImageBytes] 모두
+ * **위치 우선** 방식으로 문서를 해석한다: 경로에 도달 가능하면 임시 파일 쓰기 없이,
+ * [DocumentLocation.sourceUri]에 인코딩된 파일 경로에서 곧바로 `PDFDocument`를 연다. 경로를 열 수
+ * 없고 [bytes]가 null이 아닐 때만 이 구현은 [bytes]를 임시 파일에 쓰는 방식으로 폴백한다 — 아직
+ * 문서를 샌드박스로 materialize하지 않은 호출자를 위한 레거시 경로다.
  *
- * Before this change, [pageCount] already used the location directly while [coverImageBytes]
- * unconditionally wrote bytes to a temp file — a redundant copy for every cover extraction of a
- * PDF already sitting in the app's sandbox. Both methods now share the same location-first
- * resolution strategy.
+ * 이 변경 전에는 [pageCount]는 이미 위치를 직접 사용했지만 [coverImageBytes]는 무조건 바이트를
+ * 임시 파일에 썼다 — 이미 앱 샌드박스에 있는 PDF의 표지를 추출할 때마다 불필요한 복사를 만들었다.
+ * 이제 두 메서드 모두 같은 위치 우선 해석 전략을 공유한다.
  */
 @OptIn(ExperimentalForeignApi::class)
 class IosPdfMetadataReader : PdfMetadataReader {
     /**
-     * @param location The document's location; the page count is read from the file at
-     *   [DocumentLocation.sourceUri] directly.
-     * @param bytes Fallback bytes used only when [location]'s path cannot be opened as a
-     *   `PDFDocument`. Null when the caller guarantees [location] is a reachable local file.
-     * @return The page count, or `1` if no file exists at `location`'s path and no bytes fallback
-     *   is available, or the file cannot be opened as a PDF — this never throws.
+     * @param location 문서의 위치; 페이지 수는 [DocumentLocation.sourceUri]에 있는 파일에서 직접
+     *   읽힌다.
+     * @param bytes [location]의 경로가 `PDFDocument`로 열릴 수 없을 때만 쓰이는 폴백 바이트.
+     *   호출자가 [location]이 도달 가능한 로컬 파일임을 보장하면 null.
+     * @return 페이지 수. `location`의 경로에 파일이 없고 바이트 폴백도 없거나, 파일이 PDF로 열릴
+     *   수 없으면 `1` — 이 함수는 절대 던지지 않는다.
      */
     override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int =
         withPdfDocument(location, bytes) { document ->
@@ -48,13 +46,12 @@ class IosPdfMetadataReader : PdfMetadataReader {
         } ?: 1
 
     /**
-     * @param location The document's location; the cover is rendered from the file at
-     *   [DocumentLocation.sourceUri] directly when reachable.
-     * @param bytes Fallback bytes used only when [location]'s path cannot be opened as a
-     *   `PDFDocument`. Null when the caller guarantees [location] is a reachable local file.
-     * @return A PNG-encoded thumbnail of the first page, sized to fit a 360×480 box by PDFKit's own
-     *   `thumbnailOfSize`, or `null` if the document has no first page or rendering fails for any
-     *   reason.
+     * @param location 문서의 위치; 도달 가능하면 표지는 [DocumentLocation.sourceUri]에 있는 파일에서
+     *   직접 렌더링된다.
+     * @param bytes [location]의 경로가 `PDFDocument`로 열릴 수 없을 때만 쓰이는 폴백 바이트.
+     *   호출자가 [location]이 도달 가능한 로컬 파일임을 보장하면 null.
+     * @return PDFKit 자체의 `thumbnailOfSize`로 360×480 영역에 맞게 크기 조정된 첫 페이지의
+     *   PNG 인코딩 썸네일, 또는 문서에 첫 페이지가 없거나 렌더링이 어떤 이유로든 실패하면 `null`.
      */
     override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? =
         withPdfDocument(location, bytes) { document ->
@@ -67,14 +64,14 @@ class IosPdfMetadataReader : PdfMetadataReader {
         }
 
     /**
-     * Opens a [PDFDocument] using the location-first strategy: tries the local file path from
-     * [location] first, then falls back to writing [bytes] to a temporary file. Executes [block]
-     * against whichever document was successfully opened, cleaning up any temporary file afterward.
+     * 위치 우선 전략으로 [PDFDocument]를 연다: 먼저 [location]의 로컬 파일 경로를 시도하고, 그다음
+     * [bytes]를 임시 파일에 쓰는 것으로 폴백한다. 성공적으로 열린 문서에 대해 [block]을 실행하고,
+     * 이후 임시 파일이 있으면 정리한다.
      *
-     * @param location The document's location to try opening first.
-     * @param bytes Fallback bytes to materialize into a temp file when [location] cannot be opened.
-     * @param block The work to do with the opened [PDFDocument].
-     * @return The result of [block], or null if no document could be opened.
+     * @param location 먼저 열기를 시도할 문서의 위치.
+     * @param bytes [location]을 열 수 없을 때 임시 파일로 materialize할 폴백 바이트.
+     * @param block 열린 [PDFDocument]로 수행할 작업.
+     * @return [block]의 결과, 또는 어떤 문서도 열 수 없었으면 null.
      */
     private fun <T> withPdfDocument(
         location: DocumentLocation,
@@ -107,11 +104,11 @@ class IosPdfMetadataReader : PdfMetadataReader {
     }
 
     /**
-     * Attempts to open a [PDFDocument] from [location]'s file path. Returns null when the URI is
-     * not a `file://` path or the file at that path cannot be opened as a valid PDF.
+     * [location]의 파일 경로에서 [PDFDocument]를 열려고 시도한다. URI가 `file://` 경로가 아니거나
+     * 그 경로의 파일이 유효한 PDF로 열릴 수 없으면 null을 반환한다.
      *
-     * @param location The document location to resolve.
-     * @return An opened [PDFDocument], or null when direct access is not possible.
+     * @param location 해석할 문서 위치.
+     * @return 열린 [PDFDocument], 또는 직접 접근이 불가능하면 null.
      */
     private fun openFromLocation(location: DocumentLocation): PDFDocument? = runCatching {
         val path = location.sourceUri.removePrefix("file://")
@@ -121,12 +118,12 @@ class IosPdfMetadataReader : PdfMetadataReader {
 }
 
 /**
- * Copies this `NSData`'s bytes into a Kotlin [ByteArray].
+ * 이 `NSData`의 바이트를 Kotlin [ByteArray]로 복사한다.
  *
- * @receiver The data to copy.
- * @return An equal-length [ByteArray]. Empty input is special-cased to an empty array without
- *   touching native memory, since pinning a zero-length [ByteArray] and taking its address is
- *   undefined behavior on Kotlin/Native.
+ * @receiver 복사할 데이터.
+ * @return 같은 길이의 [ByteArray]. 빈 입력은 네이티브 메모리를 건드리지 않고 빈 배열로 특수 처리된다.
+ *   길이 0인 [ByteArray]를 pin하고 그 주소를 얻는 것은 Kotlin/Native에서 정의되지 않은 동작이기
+ *   때문이다.
  */
 @OptIn(ExperimentalForeignApi::class)
 private fun NSData.toByteArray(): ByteArray {

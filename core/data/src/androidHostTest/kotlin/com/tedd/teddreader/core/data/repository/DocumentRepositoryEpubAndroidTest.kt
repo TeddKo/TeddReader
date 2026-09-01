@@ -42,21 +42,20 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * EPUB behaviour of [DocumentRepositoryImpl] and [EpubDocumentParser] that needs a real JVM zip
- * implementation to exercise: navigation entries that land on the exact character offset an EPUB3 nav
- * fragment names, a malformed NCX's cover target retargeting to the book's first real body section
- * instead of pointing back at the cover a second time, and — for storage itself — that a stored EPUB's
- * blocks and embedded images round-trip through [DocumentRepositoryImpl.getReaderDocument] unchanged
- * and that a legacy row with no blocks at all self-repairs through the same phased import a freshly
- * picked EPUB takes.
+ * 실제 JVM zip 구현이 있어야 확인할 수 있는 [DocumentRepositoryImpl]과 [EpubDocumentParser]의 EPUB 동작을
+ * 검증한다: EPUB3 nav 프래그먼트가 명시한 정확한 문자 오프셋에 목차 항목이 도달하는지, 손상된 NCX의 표지
+ * 대상이 표지를 두 번 가리키는 대신 책의 첫 실제 본문 섹션으로 재지정되는지, 그리고 — 저장소 자체에 대해서는
+ * — 저장된 EPUB의 블록과 임베드 이미지가 [DocumentRepositoryImpl.getReaderDocument]를 거쳐 변형 없이
+ * 왕복하는지, 블록이 전혀 없는 레거시 행이 새로 고른 EPUB가 거치는 것과 같은 단계적 임포트로 스스로
+ * 복구되는지를 확인한다.
  */
 class DocumentRepositoryEpubAndroidTest {
     /**
-     * An EPUB3 nav document's table of contents can point at a fragment inside a spine item, not just
-     * the item's start — `chapter-1.xhtml#start` and, nested under it,
-     * `chapter-1.xhtml#scene1` here. This pins that [EpubDocumentParser] resolves that entry to the
-     * exact character offset the fragment's anchor sits at within its section (0 and 14, matching
-     * "Chapter One" and, nested one level under it, "Scene One"), not just the section's own start.
+     * EPUB3 nav 문서의 목차는 spine 항목의 시작뿐 아니라 그 안의 프래그먼트도 가리킬 수 있다 — 여기서는
+     * `chapter-1.xhtml#start`와, 그 아래 중첩된 `chapter-1.xhtml#scene1`이 그렇다. 이 테스트는
+     * [EpubDocumentParser]가 그 항목을 섹션의 시작이 아니라, 프래그먼트의 앵커가 실제로 위치한 섹션 내
+     * 정확한 문자 오프셋(0과 14, 각각 "Chapter One"과 그 한 단계 아래 중첩된 "Scene One"에 대응)으로
+     * 해석하는지 고정한다.
      */
     @Test
     fun parserEpub3NavFragmentMapsToExactSectionOffset() = runTest {
@@ -76,11 +75,10 @@ class DocumentRepositoryEpubAndroidTest {
     }
 
     /**
-     * A malformed NCX can point more than one `navPoint` at the cover page — here "Start" and "Cover"
-     * both target `cover.xhtml`. [EpubDocumentParser] retargets the malformed one ("Start") to the
-     * book's first real body section rather than leaving it to reopen the cover a second time, while
-     * the honestly cover-titled entry ("Cover") is left pointing at the cover, and an entry that
-     * already names a real chapter ("Chapter Two") is left untouched.
+     * 손상된 NCX는 하나 이상의 `navPoint`가 표지 페이지를 가리키게 할 수 있다 — 여기서는 "Start"와 "Cover"
+     * 둘 다 `cover.xhtml`을 대상으로 한다. [EpubDocumentParser]는 손상된 쪽("Start")을 책의 첫 실제 본문
+     * 섹션으로 재지정하며, 표지를 두 번째로 다시 열게 두지 않는다. 정직하게 표지라는 제목이 붙은 항목("Cover")은
+     * 그대로 표지를 가리키게 두고, 이미 실제 챕터를 명시한 항목("Chapter Two")도 손대지 않는다.
      */
     @Test
     fun parserMalformedNcxCoverTargetRetargetsToFirstBodySection() = runTest {
@@ -99,23 +97,20 @@ class DocumentRepositoryEpubAndroidTest {
     }
 
     /**
-     * A document reloaded through [DocumentRepositoryImpl.getReaderDocument] must reproduce the exact
-     * [ReaderDocument] a fresh parse produced — same title, same blocks (including the embedded image
-     * the cover and the chapter both reference), same navigation — and the embedded image bytes must
-     * still be extractable by href afterward.
+     * [DocumentRepositoryImpl.getReaderDocument]로 다시 불러온 문서는 새로 파싱했을 때와 정확히 같은
+     * [ReaderDocument]를 재현해야 한다 — 같은 제목, 같은 블록(표지와 챕터가 함께 참조하는 임베드 이미지
+     * 포함), 같은 목차 — 그리고 임베드된 이미지 바이트는 그 후에도 href로 여전히 추출 가능해야 한다.
      *
-     * The fixture's search-index rows store each section's blocks section-relative, the same shift
-     * `DocumentRepositoryImpl.persistParsedDocument` applies before writing `blocksJson` for real —
-     * this fixture stands in for "already in storage", so it has to agree with what the real writer
-     * stores, not the absolute offsets [ReaderDocument.blocks] itself still carries on the freshly
-     * parsed `document`, or this test would pass by comparing against data no real row ever holds.
+     * 이 픽스처의 검색 인덱스 행들은 각 섹션의 블록을 섹션 상대로 저장한다. 이는
+     * `DocumentRepositoryImpl.persistParsedDocument`가 `blocksJson`을 실제로 기록하기 전에 적용하는 것과
+     * 같은 이동이다 — 이 픽스처는 "이미 저장소에 있는 상태"를 대신하므로, 실제 기록자가 저장하는 것과 맞아야
+     * 하며, 새로 파싱된 `document`가 여전히 갖고 있는 [ReaderDocument.blocks] 자체의 절대 오프셋과 비교하면
+     * 안 된다. 그렇게 하면 이 테스트는 실제 어떤 행도 갖고 있지 않은 데이터와 비교해 통과해 버릴 것이다.
      *
-     * [ReaderDocument.blocks] decodes lazily per section once loaded from storage (see
-     * `DocumentRepositoryImpl.SectionBlocksCache`), so the explicit
-     * [DocumentRepositoryImpl.warmSectionBlocks] call below, before the block comparison, is what
-     * stands in for "every block was already loaded" — the condition the `restored?.blocks` assertion
-     * is actually checking; without it, a section the reader has not yet asked for would still read
-     * back with no blocks at all.
+     * [ReaderDocument.blocks]는 저장소에서 로드된 뒤 섹션 단위로 지연 디코딩된다(`DocumentRepositoryImpl.SectionBlocksCache`
+     * 참고). 그래서 블록 비교 앞에 명시적으로 넣은 [DocumentRepositoryImpl.warmSectionBlocks] 호출이 "모든
+     * 블록이 이미 로드됨" — `restored?.blocks` 단언이 실제로 확인하는 조건 — 을 대신한다. 이게 없으면
+     * 리더가 아직 요청한 적 없는 섹션은 블록이 전혀 없이 읽혀 돌아올 것이다.
      */
     @Test
     fun getReaderDocumentPreservesStoredEpubBlocks() = runTest {
@@ -168,15 +163,13 @@ class DocumentRepositoryEpubAndroidTest {
     }
 
     /**
-     * A book whose stored EPUB rows were written by an old parser version with no blocks at all (every
-     * `blocksJson` is `"[]"`) self-repairs on the next [DocumentRepositoryImpl.getReaderDocument] call
-     * by taking the same phased import route a freshly picked EPUB takes (see
-     * `DocumentRepositoryImpl.repairEpubDocument`). What that repair gives the reader straight away is
-     * the first chapter, with real blocks, under the book's own title. The table of contents is not
-     * part of it — the repair takes the phased import route, and that fills navigation only once the
-     * whole spine has been read (see [DocumentRepositoryImpl.finishEpubImport]), the same as a freshly
-     * picked EPUB. Driving [DocumentRepositoryImpl.importNextSections] to completion afterward is what
-     * finally produces a non-empty navigation and leaves every section's blocks non-empty too.
+     * 예전 파서 버전이 기록한, 블록이 전혀 없는(모든 `blocksJson`이 `"[]"`) 저장된 EPUB 행들을 가진 책은
+     * 다음 [DocumentRepositoryImpl.getReaderDocument] 호출에서, 새로 고른 EPUB가 거치는 것과 같은 단계적
+     * 임포트 경로를 밟아 스스로 복구된다(`DocumentRepositoryImpl.repairEpubDocument` 참고). 그 복구가 리더에게
+     * 즉시 주는 것은 책 자신의 제목 아래, 실제 블록을 가진 첫 챕터다. 목차는 여기 포함되지 않는다 — 복구가
+     * 밟는 단계적 임포트 경로는, 새로 고른 EPUB와 마찬가지로 전체 spine을 다 읽어야 목차를 채우기 때문이다
+     * ([DocumentRepositoryImpl.finishEpubImport] 참고). 그 뒤 [DocumentRepositoryImpl.importNextSections]를
+     * 완료까지 진행시키는 것이 마침내 비어있지 않은 목차를 만들어내고 모든 섹션의 블록도 비어있지 않게 만든다.
      */
     @Test
     fun getReaderDocumentRepairsLegacyEmptyEpubBlocksFromSourceBytes() = runTest {
@@ -317,14 +310,14 @@ class DocumentRepositoryEpubAndroidTest {
 }
 
 /**
- * Wires a [DocumentRepositoryImpl] against the given fakes, with every real parser and the real
- * [TextPageLayoutEngine] behind it — only the storage and file-access seams are faked, so a test
- * exercises the actual EPUB parsing/pagination path end to end.
+ * 주어진 페이크들과, 그 뒤의 실제 파서 전부 및 실제 [TextPageLayoutEngine]으로 [DocumentRepositoryImpl]을
+ * 연결한다 — 저장소와 파일 접근 경계만 페이크로 대체하므로, 테스트는 실제 EPUB 파싱/페이지네이션 경로를
+ * 처음부터 끝까지 실행한다.
  *
- * @param documentDao The shelf-metadata fake to use.
- * @param searchIndexDao The per-section storage fake to use.
- * @param fileSource Where the repository reads/copies the original file bytes from.
- * @return The wired repository.
+ * @param documentDao 사용할 서가 메타데이터 페이크.
+ * @param searchIndexDao 사용할 섹션별 저장소 페이크.
+ * @param fileSource 저장소가 원본 파일 바이트를 읽거나 복사해 오는 곳.
+ * @return 연결이 완료된 저장소.
  */
 private fun repository(
     documentDao: AndroidFakeDocumentDao,
@@ -345,12 +338,11 @@ private fun repository(
 )
 
 /**
- * A minimal but structurally real EPUB: a cover page, one chapter carrying a heading, a bold span and
- * an inline image, a nav document listing that chapter, and one embedded image referenced from both
- * the cover and the chapter — enough real structure to exercise stored blocks, navigation, and
- * embedded-image extraction together.
+ * 최소한이지만 구조적으로는 진짜인 EPUB: 표지 페이지, 제목·볼드 스팬·인라인 이미지를 담은 챕터 하나, 그
+ * 챕터를 나열하는 nav 문서, 표지와 챕터 둘 다에서 참조하는 임베드 이미지 하나 — 저장된 블록, 목차, 임베드
+ * 이미지 추출을 함께 검증하기에 충분한 실제 구조다.
  *
- * @return The encoded EPUB's bytes.
+ * @return 인코딩된 EPUB의 바이트.
  */
 private fun sampleEpubBytes(): ByteArray {
     val output = ByteArrayOutputStream()
@@ -470,17 +462,17 @@ private fun sampleEpubBytesWithFonts(): ByteArray {
 }
 
 /**
- * A [DocumentFileSource] that always hands back [bytes] for [location], asserting every call is made
- * with that exact location rather than answering wrong data silently.
+ * [location]에 대해 항상 [bytes]를 돌려주는 [DocumentFileSource]. 모든 호출이 잘못된 데이터를 조용히
+ * 답하는 대신 정확히 그 위치로 이뤄지는지 단언한다.
  *
- * @property location The location every call must be made with.
- * @property bytes The bytes to hand back from [readBytes] and to write in [copyTo].
+ * @property location 모든 호출이 지켜야 하는 위치.
+ * @property bytes [readBytes]에서 돌려주고 [copyTo]에서 기록할 바이트.
  */
 private class AndroidFakeDocumentFileSource(
     private val location: DocumentLocation,
     private val bytes: ByteArray,
 ) : DocumentFileSource {
-    /** Unique per fake instance so one test's cached cover file can never be left over for the next. */
+    /** 페이크 인스턴스마다 고유하므로, 한 테스트가 캐시한 표지 파일이 다음 테스트에 절대 남지 않는다. */
     private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
         "tedd-reader-android-test-${kotlin.random.Random.nextLong().toString(16)}"
 
@@ -500,12 +492,10 @@ private class AndroidFakeDocumentFileSource(
 }
 
 /**
- * A [DocumentDao] that models a single shelf slot, optionally pre-seeded by the constructor and
- * replaced wholesale by every [upsertDocument] call — the right shape for a test that only ever has
- * one document on the shelf at a time.
+ * 단일 서가 슬롯을 모델링하는 [DocumentDao]. 생성자로 미리 씨딩할 수 있고, [upsertDocument] 호출마다
+ * 전체가 교체된다 — 한 번에 한 문서만 서가에 있는 테스트에 딱 맞는 형태다.
  *
- * @property document The one document currently "stored", pre-seeded by the constructor or null once
- *   [deleteDocument] removes it.
+ * @property document 현재 "저장된" 문서 하나. 생성자로 미리 씨딩되거나, [deleteDocument]가 제거하면 null.
  */
 private class AndroidFakeDocumentDao(
     private var document: DocumentEntity? = null,
@@ -560,13 +550,13 @@ private class AndroidFakeDocumentDao(
 }
 
 /**
- * An in-memory [SearchIndexDao] backed by a plain list of [entries], with the same split between
- * section metadata and block JSON the real DAO exposes through [getDocumentSectionsWithoutBlocks] /
- * [getSectionBlocksJson] — so a test can seed rows either already carrying real blocks or with none at
- * all (see the legacy-repair test above).
+ * 단순 [entries] 목록으로 뒷받침되는, 메모리 내 [SearchIndexDao]. 실제 DAO가
+ * [getDocumentSectionsWithoutBlocks] / [getSectionBlocksJson]으로 노출하는 것과 같은, 섹션 메타데이터와
+ * 블록 JSON의 분리를 그대로 유지한다 — 그래서 테스트는 이미 실제 블록을 가진 행이든 전혀 없는 행이든(위의
+ * 레거시 복구 테스트 참고) 씨딩할 수 있다.
  */
 private class AndroidFakeSearchIndexDao : SearchIndexDao {
-    /** Every section upserted so far, across every document — filtered by `documentId` per call. */
+    /** 지금까지 업서트된 모든 문서에 걸친 모든 섹션 — 호출마다 `documentId`로 필터링된다. */
     val entries = mutableListOf<SearchIndexEntity>()
 
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) {
@@ -635,8 +625,9 @@ private class AndroidFakeSearchIndexDao : SearchIndexDao {
 }
 
 /**
- * A no-op [PageLayoutDao]: nothing is ever stored or returned. None of the tests in this file exercise
- * stored page layouts, so this only exists to satisfy [DocumentRepositoryImpl]'s constructor.
+ * 아무 동작도 하지 않는 [PageLayoutDao]: 아무것도 저장되거나 반환되지 않는다. 이 파일의 어떤 테스트도
+ * 저장된 페이지 레이아웃을 검증하지 않으므로, 이는 오직 [DocumentRepositoryImpl]의 생성자를 만족시키기
+ * 위해서만 존재한다.
  */
 private class AndroidFakePageLayoutDao : PageLayoutDao {
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit
@@ -667,12 +658,12 @@ private class AndroidFakePageLayoutDao : PageLayoutDao {
 }
 
 /**
- * An EPUB3 nav document whose table of contents points into the middle of a chapter, not just its
- * start — "Chapter One" targets `chapter-1.xhtml#start` and, nested under it, "Scene One" targets
- * `chapter-1.xhtml#scene1` — the fixture [parserEpub3NavFragmentMapsToExactSectionOffset] needs to
- * prove a fragment resolves to its anchor's real character offset, not the section's own start.
+ * 목차가 챕터 시작뿐 아니라 그 중간을 가리키는 EPUB3 nav 문서 — "Chapter One"은
+ * `chapter-1.xhtml#start`를, 그 아래 중첩된 "Scene One"은 `chapter-1.xhtml#scene1`을 대상으로 한다 — 이는
+ * [parserEpub3NavFragmentMapsToExactSectionOffset]이 프래그먼트가 섹션 자신의 시작이 아니라 앵커의 실제
+ * 문자 오프셋으로 해석됨을 증명하는 데 필요한 픽스처다.
  *
- * @return The encoded EPUB's bytes.
+ * @return 인코딩된 EPUB의 바이트.
  */
 private fun sampleNavFragmentEpubBytes(): ByteArray {
     val output = ByteArrayOutputStream()
@@ -729,13 +720,13 @@ private fun sampleNavFragmentEpubBytes(): ByteArray {
 }
 
 /**
- * An EPUB using the legacy NCX for navigation, deliberately malformed the way a real book was found to
- * be: three chapters where the first (`ch1.xhtml`) is blank, and an NCX whose `navPoint`s point
- * "Start" and "Cover" at the same cover page while "Chapter Two" points past the blank chapter straight
- * at `ch3.xhtml` — the fixture [parserMalformedNcxCoverTargetRetargetsToFirstBodySection] needs to
- * prove only the malformed, non-cover-titled entry gets retargeted.
+ * 레거시 NCX를 내비게이션에 사용하는 EPUB. 실제로 발견됐던 것과 같은 방식으로 일부러 손상시켰다: 세 챕터 중
+ * 첫 번째(`ch1.xhtml`)가 비어 있고, NCX의 `navPoint`들은 "Start"와 "Cover"를 같은 표지 페이지로 향하게
+ * 하면서 "Chapter Two"는 빈 챕터를 건너뛰어 바로 `ch3.xhtml`을 가리키게 했다 — 이는
+ * [parserMalformedNcxCoverTargetRetargetsToFirstBodySection]이 손상되었으면서 표지라는 제목이 아닌 항목만
+ * 재지정됨을 증명하는 데 필요한 픽스처다.
  *
- * @return The encoded EPUB's bytes.
+ * @return 인코딩된 EPUB의 바이트.
  */
 private fun sampleMalformedNcxEpubBytes(): ByteArray {
     val output = ByteArrayOutputStream()

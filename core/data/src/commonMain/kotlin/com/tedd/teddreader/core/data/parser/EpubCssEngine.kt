@@ -1,79 +1,78 @@
 package com.tedd.teddreader.core.data.parser
 
 /**
- * The slice of CSS an EPUB can actually be drawn with here.
+ * 여기서 EPUB이 실제로 그릴 수 있는 CSS의 부분집합.
  *
- * The reader lays a book out as one styled string, so a declaration only means something if a span or
- * a paragraph can carry it. Most box-model properties (`display`, `position`, true float layout, …)
- * still do not reach the page here; what is here is the subset the parser can preserve in reader-owned
- * model types, including publisher colors, simple borders, hidden-subtree suppression, and embedded
- * font-face references. Because the cascade below is general, adding another supported property is still
- * one entry in this list plus one line where it is read.
+ * 리더는 책 한 권을 하나의 스타일 문자열로 배치하므로, 선언은 span이나 문단이 그것을 담을 수 있을 때만
+ * 의미가 있다. 대부분의 박스 모델 속성(`display`, `position`, 실제 float 레이아웃 등)은 여전히 이 페이지까지
+ * 도달하지 못한다. 여기 있는 것은 파서가 리더 소유 모델 타입으로 보존할 수 있는 부분집합으로, 퍼블리셔 색상,
+ * 단순 테두리, 숨김 서브트리 억제, 임베디드 font-face 참조를 포함한다. 아래 캐스케이드가 범용적이기 때문에,
+ * 지원 속성을 하나 더 추가하는 것은 여전히 이 목록에 항목 하나, 그리고 그것을 읽는 곳에 한 줄만 추가하면 된다.
  */
 internal data class CssDeclarations(
-    /** Raw `text-align` value (`"center"`, `"right"`, …), resolved to a reader alignment later. */
+    /** `text-align`의 원시 값(`"center"`, `"right"` 등)으로, 나중에 리더 정렬 값으로 변환된다. */
     val textAlign: String? = null,
-    /** `font-size`, relative to whatever the surrounding text's own size already is. */
+    /** `font-size`. 이미 주변 텍스트 자신의 크기를 기준으로 상대적이다. */
     val fontSize: CssLength? = null,
     /**
-     * Raw `font-weight` value — a keyword like `"bold"` or a numeric weight as text — resolved to a
-     * bold flag later.
+     * `font-weight`의 원시 값 — `"bold"` 같은 키워드이거나 텍스트로 된 숫자 굵기값 — 이며, 나중에
+     * bold 플래그로 변환된다.
      */
     val fontWeight: String? = null,
-    /** Raw `font-style` value (`"italic"`, `"oblique"`, `"normal"`); anything else reads as not italic. */
+    /** `font-style`의 원시 값(`"italic"`, `"oblique"`, `"normal"`); 그 외의 값은 이탤릭이 아닌 것으로 읽힌다. */
     val fontStyle: String? = null,
     /**
-     * Raw `font-family` value; matched against the reader's own generic families where possible, and
-     * also used to look up a linked `@font-face` href when the book bundled one.
+     * `font-family`의 원시 값. 가능하면 리더 자체의 제네릭 패밀리와 매칭되며, 책이 하나를 번들했을 때
+     * 연결된 `@font-face` href를 조회하는 데도 사용된다.
      */
     val fontFamily: String? = null,
-    /** `line-height`; a unitless value stays a factor of the element's own font size, see [parseLineHeight]. */
+    /** `line-height`. 단위 없는 값은 요소 자신의 폰트 크기의 배수로 유지된다. [parseLineHeight] 참고. */
     val lineHeight: CssLineHeight? = null,
-    /** Raw `color` value, carried through as text for later CSS color resolution. */
+    /** `color`의 원시 값. 나중의 CSS 색상 해석을 위해 텍스트로 그대로 전달된다. */
     val color: String? = null,
-    /** Raw `background-color` value, likewise carried through for later resolution. */
+    /** `background-color`의 원시 값. 마찬가지로 나중의 해석을 위해 그대로 전달된다. */
     val backgroundColor: String? = null,
-    /** `text-indent` of the first line. */
+    /** 첫 줄의 `text-indent`. */
     val textIndent: CssLength? = null,
-    /** `margin-top`; not inherited — see [inheritable]. */
+    /** `margin-top`; 상속되지 않는다 — [inheritable] 참고. */
     val marginTop: CssLength? = null,
-    /** `margin-bottom`; also what decides the gap between two paragraphs. */
+    /** `margin-bottom`; 또한 두 문단 사이의 간격을 결정하는 값이기도 하다. */
     val marginBottom: CssLength? = null,
     /**
-     * Raw `text-decoration` value (`"none"`, `"underline"`, `"line-through"`, …). A book that turns its
-     * link underlines off says so here, and a reader that ignores it draws underlines the book removed.
+     * `text-decoration`의 원시 값(`"none"`, `"underline"`, `"line-through"` 등). 책이 링크 밑줄을 끈다고
+     * 여기서 명시하면, 그것을 무시하는 리더는 책이 없앤 밑줄을 다시 그리게 된다.
      */
     val textDecoration: String? = null,
-    /** `padding-top`, which spaces a box's content off its own top edge. */
+    /** `padding-top`. 박스의 콘텐츠를 자신의 위쪽 가장자리로부터 띄운다. */
     val paddingTop: CssLength? = null,
-    /** `padding-right`, the inline-end counterpart of [paddingLeft]. */
+    /** `padding-right`. [paddingLeft]의 인라인 끝 쪽 대응값. */
     val paddingRight: CssLength? = null,
-    /** `padding-bottom`, the vertical counterpart of [paddingTop]. */
+    /** `padding-bottom`. [paddingTop]의 수직 대응값. */
     val paddingBottom: CssLength? = null,
-    /** `padding-left`, which is what indents a quotation away from the text around it. */
+    /** `padding-left`. 인용문을 주변 텍스트로부터 들여쓰게 만드는 값이다. */
     val paddingLeft: CssLength? = null,
-    /** `margin-left`; not inherited, and read as the inline-start space of a block. */
+    /** `margin-left`; 상속되지 않으며, 블록의 인라인 시작 쪽 여백으로 읽힌다. */
     val marginLeft: CssLength? = null,
-    /** `margin-right`; the inline-end counterpart of [marginLeft]. */
+    /** `margin-right`; [marginLeft]의 인라인 끝 쪽 대응값. */
     val marginRight: CssLength? = null,
-    /** Raw `float` value (`"left"`, `"right"`, `"none"`); image styling reads it as a publisher hint. */
+    /** `float`의 원시 값(`"left"`, `"right"`, `"none"`); 이미지 스타일링에서는 퍼블리셔 힌트로 읽힌다. */
     val float: String? = null,
-    /** `width`, for an image whose ancestor this rule matches. */
+    /** `width`. 이 규칙이 매칭하는 조상을 가진 이미지에 적용된다. */
     val width: CssLength? = null,
-    /** Raw `display` value; `display:none` is what the XHTML parser actually consumes. */
+    /** `display`의 원시 값; `display:none`이 실제로 XHTML 파서가 소비하는 값이다. */
     val display: String? = null,
-    /** Top border declaration, whether from the shorthand or the explicit side property. */
+    /** 위쪽 테두리 선언. 축약형에서 왔든 명시적인 방향별 속성에서 왔든 상관없다. */
     val borderTop: CssBorder? = null,
-    /** Right border declaration, whether from the shorthand or the explicit side property. */
+    /** 오른쪽 테두리 선언. 축약형에서 왔든 명시적인 방향별 속성에서 왔든 상관없다. */
     val borderRight: CssBorder? = null,
-    /** Bottom border declaration, whether from the shorthand or the explicit side property. */
+    /** 아래쪽 테두리 선언. 축약형에서 왔든 명시적인 방향별 속성에서 왔든 상관없다. */
     val borderBottom: CssBorder? = null,
-    /** Left border declaration, whether from the shorthand or the explicit side property. */
+    /** 왼쪽 테두리 선언. 축약형에서 왔든 명시적인 방향별 속성에서 왔든 상관없다. */
     val borderLeft: CssBorder? = null,
-    /** `border-radius`; only the percent form is preserved all the way to the reader model. */
+    /** `border-radius`; 퍼센트 형태만 리더 모델까지 온전히 보존된다. */
     val borderRadius: CssLength? = null,
 ) {
-    /** [other] layered on top of this, as a later or more specific rule would be. */
+    /** [other]를 이 값 위에 층층이 쌓은 결과 — 나중 규칙이나 더 구체적인 규칙이 하듯이. */
     fun mergedWith(other: CssDeclarations): CssDeclarations = CssDeclarations(
         textAlign = other.textAlign ?: textAlign,
         fontSize = other.fontSize ?: fontSize,
@@ -104,14 +103,14 @@ internal data class CssDeclarations(
     )
 
     /**
-     * What a child starts from: the raw-text properties CSS defines as inherited, and only those.
+     * 자식이 시작점으로 삼는 값: CSS가 상속되는 것으로 정의한 원시 텍스트 속성들, 오직 그것들뿐이다.
      *
-     * `font-size`, `line-height` and `text-indent` are inherited too, but not here — they inherit as
-     * *numbers* the style resolver computes (an `em` compounds through its ancestors, a unitless
-     * `line-height` re-multiplies each element's own size), and carrying the raw declaration down
-     * instead made every descendant re-resolve it against the wrong base. `text-decoration` is not
-     * inherited at all: CSS paints an ancestor's decoration across its descendants, which the resolver
-     * models separately — inheriting it re-drew each child's underline at the child's own thickness.
+     * `font-size`, `line-height`, `text-indent`도 상속되긴 하지만 여기서는 아니다 — 이들은 스타일
+     * 리졸버가 계산하는 *숫자*로서 상속된다(`em`은 조상을 거치며 누적되고, 단위 없는 `line-height`는
+     * 각 요소 자신의 크기를 다시 곱한다). 원시 선언을 그대로 내려보내면 모든 자손이 잘못된 기준으로
+     * 다시 해석하게 됐다. `text-decoration`은 전혀 상속되지 않는다: CSS는 조상의 장식을 자손 전체에
+     * 걸쳐 그리는데, 이는 리졸버가 별도로 모델링한다 — 이를 상속시키면 각 자식의 밑줄을 그 자식 자신의
+     * 두께로 다시 그리게 됐다.
      */
     fun inheritable(): CssDeclarations = CssDeclarations(
         textAlign = textAlign,
@@ -121,7 +120,7 @@ internal data class CssDeclarations(
         color = color,
     )
 
-    /** Any raw `inherit` keyword here resolved back to the already-inherited [parent] value. */
+    /** 여기 있는 원시 `inherit` 키워드를 이미 상속된 [parent] 값으로 되돌려 해석한 결과. */
     fun resolvedInheritedKeywords(parent: CssDeclarations): CssDeclarations = copy(
         textAlign = textAlign.resolveInheritedKeyword(parent.textAlign),
         fontWeight = fontWeight.resolveInheritedKeyword(parent.fontWeight),
@@ -131,16 +130,16 @@ internal data class CssDeclarations(
     )
 
     /**
-     * True when every property here is unset — a rule (or lack of one) that changes nothing about how an
-     * element looks.
+     * 여기 있는 모든 속성이 설정되지 않았을 때 true — 즉 요소가 보이는 방식을 전혀 바꾸지 않는
+     * 규칙(또는 규칙 없음)이다.
      */
     fun isEmpty(): Boolean = this == Empty
 
-    /** Holds [Empty], the shared no-op instance returned wherever nothing in the cascade applies. */
+    /** 캐스케이드에서 아무것도 적용되지 않을 때 반환되는 공유 무동작 인스턴스 [Empty]를 보관한다. */
     companion object {
         /**
-         * The no-op set of declarations: every property unset, returned wherever nothing in the cascade
-         * applies.
+         * 무동작 선언 집합: 모든 속성이 설정되지 않았으며, 캐스케이드에서 아무것도 적용되지 않을 때
+         * 반환된다.
          */
         val Empty = CssDeclarations()
     }
@@ -149,9 +148,9 @@ internal data class CssDeclarations(
 private fun String?.resolveInheritedKeyword(parent: String?): String? =
     if (this?.equals("inherit", ignoreCase = true) == true) parent else this
 
-/** A CSS width, in the units EPUB stylesheets actually use to size a picture. */
+/** CSS 너비. EPUB 스타일시트가 실제로 그림 크기를 지정할 때 쓰는 단위들로 표현된다. */
 internal sealed interface CssWidth {
-    /** `width: 75%`, as a fraction of the containing block. */
+    /** `width: 75%`. 포함 블록에 대한 비율로 표현된다. */
     data class Percent(val fraction: Float) : CssWidth
 
     /** `width: 6.5em`. */
@@ -159,76 +158,74 @@ internal sealed interface CssWidth {
 }
 
 /**
- * A CSS length as this engine can resolve it — relative to a container, to the current font size, or
- * absolute.
+ * 이 엔진이 해석할 수 있는 형태의 CSS 길이 — 컨테이너 기준, 현재 폰트 크기 기준, 또는 절대값.
  */
 internal sealed interface CssLength {
-    /** `n%`, as a fraction of whatever base the property being sized defines. */
+    /** `n%`. 크기가 정해지는 속성이 정의한 기준에 대한 비율이다. */
     data class Percent(val fraction: Float) : CssLength
-    /** `n em`/`n rem`, or an already-unitless `line-height` normalized to the same multiple. */
+    /** `n em`/`n rem`, 또는 이미 단위 없는 `line-height`를 같은 배수로 정규화한 값. */
     data class Em(val value: Float) : CssLength
-    /** `n px` or `n pt`, read against the reader's own default font size wherever needed. */
+    /** `n px` 또는 `n pt`. 필요한 곳에서는 리더 자체의 기본 폰트 크기를 기준으로 읽힌다. */
     data class Px(val value: Float) : CssLength
 }
 
 /**
- * A `line-height` value with the distinction CSS inheritance depends on kept intact.
+ * CSS 상속이 의존하는 구분을 그대로 유지한 `line-height` 값.
  *
- * A unitless `line-height: 1.6` is a *factor* of whichever element it ends up applying to — a heading
- * inheriting it from `body` gets `1.6 × its own type size`, not `1.6 × the body text`. A length
- * (`1.6em`, `24px`) computes once against the declaring element and inherits as that fixed size.
- * Collapsing the two into one length is what set every large-type block's lines too tight.
+ * 단위 없는 `line-height: 1.6`은 그것이 최종적으로 적용되는 요소에 대한 *배수*다 — `body`로부터
+ * 이를 상속받는 제목 요소는 `1.6 × 자신의 활자 크기`를 얻지, `1.6 × 본문 텍스트 크기`를 얻지 않는다.
+ * 길이(`1.6em`, `24px`)는 선언한 요소에 대해 한 번 계산되고, 그 고정된 크기로 상속된다. 이 둘을
+ * 하나의 길이로 뭉뚱그리면 모든 큰 글자 블록의 줄 간격이 너무 좁아졌다.
  */
 internal sealed interface CssLineHeight {
-    /** Unitless factor, re-multiplied against each inheriting element's own font size. */
+    /** 단위 없는 배수. 상속받는 각 요소 자신의 폰트 크기로 다시 곱해진다. */
     data class Factor(val value: Float) : CssLineHeight
-    /** An explicit length, computed once at the declaring element. */
+    /** 명시적 길이. 선언한 요소에서 한 번 계산된다. */
     data class Length(val length: CssLength) : CssLineHeight
 }
 
-/** One border side the parser can still preserve: width plus color, with style reduced to “present”. */
+/** 파서가 여전히 보존할 수 있는 테두리 한 변: 너비와 색상, 스타일은 "존재함"으로만 축약된다. */
 internal data class CssBorder(
     val width: CssLength? = null,
     val color: String? = null,
 )
 
-/** One parsed `@font-face`: the family name it defines and the resolved embedded-font href, if any. */
+/** 파싱된 `@font-face` 하나: 정의된 패밀리 이름과, 있다면 해석된 임베디드 폰트 href. */
 internal data class CssFontFace(
     val familyName: String,
     val srcHref: String?,
 )
 
-/** One linked stylesheet together with the container path it was loaded from, for relative `url(...)`. */
+/** 연결된 스타일시트 하나와, 상대 `url(...)`을 위해 그것이 로드된 컨테이너 경로. */
 internal data class CssStyleSheetSource(
     val path: String? = null,
     val css: String,
 )
 
-/** One element as the matcher sees it: its tag, its classes and its id. */
+/** 매처가 보는 요소 하나: 태그, 클래스, id. */
 internal data class CssElement(
-    /** HTML tag name, e.g. `"p"` or `"h1"`. */
+    /** HTML 태그 이름, 예: `"p"` 또는 `"h1"`. */
     val tag: String,
     /**
-     * Every class the element carries; a selector matches when its own required classes are a subset of
-     * these.
+     * 요소가 갖고 있는 모든 클래스; 선택자는 자신이 요구하는 클래스들이 이 집합의 부분집합일 때
+     * 매칭된다.
      */
     val classes: Set<String> = emptySet(),
-    /** The element's `id` attribute, or null if it has none. */
+    /** 요소의 `id` 속성. 없으면 null. */
     val id: String? = null,
 )
 
-/** One compound selector — `h1`, `.note`, `h1.note#id` — as the pieces it has to match. */
+/** 복합 선택자 하나 — `h1`, `.note`, `h1.note#id` — 매칭해야 할 조각들로 표현된다. */
 private data class CompoundSelector(
-    /** Required tag name, or null if the compound has no tag part (e.g. `.note` alone). */
+    /** 필수 태그 이름. 복합 선택자에 태그 부분이 없으면(예: `.note` 단독) null. */
     val tag: String?,
-    /** Every class the compound requires; a matching element must carry all of these. */
+    /** 이 복합 선택자가 요구하는 모든 클래스; 매칭되는 요소는 이것들 전부를 가져야 한다. */
     val classes: Set<String>,
-    /** Required id, or null if the compound has no `#id` part. */
+    /** 필수 id. 복합 선택자에 `#id` 부분이 없으면 null. */
     val id: String?,
 ) {
     /**
-     * Whether [element] satisfies this compound: its tag if any, its id if any, and every one of its
-     * classes.
+     * [element]가 이 복합 선택자를 만족하는지 여부: 있다면 태그, 있다면 id, 그리고 모든 클래스.
      */
     fun matches(element: CssElement): Boolean {
         if (tag != null && !tag.equals(element.tag, ignoreCase = true)) return false
@@ -236,35 +233,35 @@ private data class CompoundSelector(
         return element.classes.containsAll(classes)
     }
 
-    /** CSS specificity, ordered id > class > tag, as the spec defines it. */
+    /** CSS 명시도. 스펙이 정의한 대로 id > class > tag 순으로 정렬된다. */
     val specificity: Int get() = (if (id != null) 10_000 else 0) + classes.size * 100 + (if (tag != null) 1 else 0)
 }
 
-/** A selector as its compound parts, innermost last; only the descendant combinator is honoured. */
+/** 선택자를 복합 부분들로 표현한 것. 가장 안쪽이 마지막; 자손 결합자만 인정된다. */
 private data class CssSelector(
-    /** The selector's compounds, outermost ancestor first and the selected element itself last. */
+    /** 선택자의 복합 부분들. 가장 바깥 조상이 먼저, 선택된 요소 자신이 마지막. */
     val compounds: List<CompoundSelector>,
 ) {
-    /** Sum of every compound's own specificity — how CSS ranks one whole selector against another. */
+    /** 모든 복합 부분 자체 명시도의 합 — CSS가 한 선택자 전체를 다른 것과 비교해 순위를 매기는 방식. */
     val specificity: Int get() = compounds.sumOf(CompoundSelector::specificity)
 
     /**
-     * The lowercased tag the selector's terminal compound requires, or null when that compound has no
-     * tag part (`.note`, `#lead`).
+     * 선택자의 말단 복합 부분이 요구하는 소문자 태그. 그 복합 부분에 태그 부분이 없으면(`.note`,
+     * `#lead`) null.
      *
-     * This is the key [EpubCss] indexes a rule under: only an element whose own tag equals this can ever
-     * satisfy the selector, so a rule with a terminal tag is stored in that one tag's bucket and never
-     * looked at for any other tag. A tagless terminal compound matches any element's tag and so cannot be
-     * bucketed — those rules go to the fallback list [EpubCss] always consults.
+     * 이것이 [EpubCss]가 규칙을 인덱싱하는 키다: 자신의 태그가 이 값과 같은 요소만 이 선택자를
+     * 만족시킬 수 있으므로, 말단 태그가 있는 규칙은 그 태그 하나의 버킷에만 저장되고 다른 태그에는
+     * 절대 검토되지 않는다. 태그가 없는 말단 복합 부분은 어떤 요소의 태그와도 매칭될 수 있으므로
+     * 버킷으로 나눌 수 없다 — 이런 규칙들은 [EpubCss]가 항상 참조하는 폴백 목록으로 간다.
      */
     val terminalTag: String? get() = compounds.lastOrNull()?.tag?.lowercase()
 
     /**
-     * True when [ancestors] (outermost first, the element itself last) satisfies this selector.
+     * [ancestors](가장 바깥이 먼저, 요소 자신이 마지막)가 이 선택자를 만족하는지 여부.
      *
-     * `>`, `+` and `~` are read as plain descendants: treating them as stricter would drop styling a
-     * book meant to apply, and treating a descendant as a child never changes which of two rules for
-     * the same element wins here.
+     * `>`, `+`, `~`는 그냥 자손 결합자로 읽힌다: 더 엄격하게 처리하면 책이 의도한 스타일이
+     * 적용되지 않게 되고, 자손을 자식으로 처리해도 같은 요소에 대한 두 규칙 중 어느 쪽이 이기는지는
+     * 절대 바뀌지 않는다.
      */
     fun matches(ancestors: List<CssElement>): Boolean {
         if (compounds.isEmpty() || ancestors.isEmpty()) return false
@@ -280,32 +277,32 @@ private data class CssSelector(
     }
 }
 
-/** One parsed `selector { declarations }` rule, plus its position in the sheet for specificity ties. */
+/** 파싱된 `selector { declarations }` 규칙 하나. 명시도 동점 처리를 위해 시트 내 위치도 함께 가진다. */
 private data class CssRule(
-    /** What an element must match for [declarations] to apply. */
+    /** [declarations]가 적용되려면 요소가 매칭해야 하는 것. */
     val selector: CssSelector,
-    /** What the rule declares, already narrowed to the properties [CssDeclarations] can represent. */
+    /** 규칙이 선언한 내용. 이미 [CssDeclarations]가 표현할 수 있는 속성으로 좁혀져 있다. */
     val declarations: CssDeclarations,
     /**
-     * Index in the order rules were parsed, across every sheet in [EpubCss.parse]'s list — a later rule
-     * wins a specificity tie.
+     * [EpubCss.parse]의 목록에 있는 모든 시트를 통틀어, 규칙이 파싱된 순서상의 인덱스 — 명시도가
+     * 같으면 더 나중 규칙이 이긴다.
      */
     val order: Int,
 )
 
 /**
- * One rule paired with its rank in the whole sheet's cascade order, so two index buckets can be merged
- * back into that one order without re-sorting.
+ * 규칙 하나와 시트 전체 캐스케이드 순서에서의 순위를 짝지은 것. 두 인덱스 버킷을 재정렬 없이 그
+ * 순서로 다시 병합할 수 있게 해준다.
  *
- * [EpubCss] sorts every rule once by `(specificity, order)` and hands each the position it landed at.
- * The tag bucket and the tagless fallback list are then each already in ascending [rank]; merging the
- * two candidate lists for one element is a linear pass that keeps the lower [rank] first, which is
- * exactly the weakest-first cascade order [EpubCss.declarationsFor] promises — no per-query sort, and no
- * O(all rules) scan.
+ * [EpubCss]는 모든 규칙을 `(specificity, order)` 기준으로 한 번 정렬하고, 각 규칙에 그 위치를
+ * 부여한다. 태그 버킷과 태그 없는 폴백 목록은 이미 각각 오름차순 [rank]로 정렬되어 있으므로, 한
+ * 요소에 대한 두 후보 목록을 병합하는 것은 더 낮은 [rank]를 먼저 유지하는 선형 패스로 끝난다.
+ * 이것이 바로 [EpubCss.declarationsFor]가 약속하는, 가장 약한 것부터 시작하는 캐스케이드 순서다 —
+ * 쿼리마다 정렬할 필요도 없고, 전체 규칙 O(n) 스캔도 없다.
  *
- * @property rule the rule this rank belongs to.
- * @property rank the rule's zero-based position in the sheet-wide `(specificity, order)` sort; lower
- *   ranks are weaker and merge ahead of higher ones.
+ * @property rule 이 순위가 속한 규칙.
+ * @property rank 시트 전체 `(specificity, order)` 정렬에서 규칙의 0부터 시작하는 위치; 낮은 순위일수록
+ *   더 약하며 더 높은 순위보다 먼저 병합된다.
  */
 private data class RankedRule(
     val rule: CssRule,
@@ -313,13 +310,14 @@ private data class RankedRule(
 )
 
 /**
- * A book's stylesheets, indexed by the selected element's terminal tag so the XHTML parser evaluates
- * only rules that can match that element while preserving the original CSS cascade order.
+ * 책의 스타일시트를, 선택된 요소의 말단 태그로 인덱싱하여 XHTML 파서가 그 요소와 매칭될 수 있는
+ * 규칙만 평가하도록 하면서도 원래 CSS 캐스케이드 순서를 그대로 보존한다.
  *
- * @property rulesByTag Cascade-ranked rules whose terminal selector names a tag, grouped by that
- *   lowercased tag.
- * @property taglessRules Cascade-ranked class/id rules whose terminal selector can match any tag.
- * @property fontFaces Embedded font files keyed by normalized publisher family name.
+ * @property rulesByTag 말단 선택자가 태그를 지정하는, 캐스케이드 순위가 매겨진 규칙들을 그 소문자
+ *   태그로 그룹화한 것.
+ * @property taglessRules 말단 선택자가 어떤 태그와도 매칭될 수 있는, 캐스케이드 순위가 매겨진
+ *   클래스/id 규칙들.
+ * @property fontFaces 정규화된 퍼블리셔 패밀리 이름을 키로 하는 임베디드 폰트 파일들.
  */
 internal class EpubCss private constructor(
     private val rulesByTag: Map<String, List<RankedRule>>,
@@ -327,21 +325,20 @@ internal class EpubCss private constructor(
     private val fontFaces: Map<String, String>,
 ) {
     /**
-     * Declarations that apply to the last element of [ancestors], weakest first so a caller can layer
-     * them. Ties on specificity fall back to declaration order, which is what a browser does.
+     * [ancestors]의 마지막 요소에 적용되는 선언들. 가장 약한 것부터 시작하므로 호출자가 이들을 층층이
+     * 쌓을 수 있다. 명시도가 같으면 선언 순서로 판가름하는데, 이는 브라우저가 하는 방식과 같다.
      *
-     * Only two candidate lists are ever consulted: the bucket of rules whose terminal compound names
-     * this element's own tag, and the tagless fallback rules that can match any tag. A tag rule for a
-     * different element is never even offered to [CssSelector.matches] — that is the whole point of the
-     * index, and what a many-tag sheet's per-element cost now scales with instead of its full rule
-     * count. Both lists arrive already in ascending cascade rank, so [mergeByRank] interleaves them into
-     * one weakest-first stream without re-sorting, and only the survivors of that stream are match-tested
-     * and folded.
+     * 오직 두 후보 목록만 참조된다: 이 요소 자신의 태그를 이름으로 하는 말단 복합 부분을 가진 규칙들의
+     * 버킷, 그리고 어떤 태그와도 매칭될 수 있는 태그 없는 폴백 규칙들. 다른 요소를 위한 태그 규칙은
+     * [CssSelector.matches]에 아예 제공되지도 않는다 — 그것이 이 인덱스의 존재 이유이며, 이제 태그가
+     * 많은 시트에서 요소당 비용이 전체 규칙 수 대신 그것을 기준으로 커지는 이유다. 두 목록 모두 이미
+     * 오름차순 캐스케이드 순위로 도착하므로, [mergeByRank]는 재정렬 없이 하나의 가장 약한 것부터
+     * 시작하는 스트림으로 그것들을 인터리브한다. 그리고 그 스트림에서 살아남은 것만 매칭 테스트되고
+     * 접힌다.
      *
-     * @param ancestors the element to style and its ancestor chain, outermost first and the element
-     *   itself last; an empty list resolves to [CssDeclarations.Empty].
-     * @return the merged declarations that apply, weakest first, or [CssDeclarations.Empty] when nothing
-     *   matches.
+     * @param ancestors 스타일을 적용할 요소와 그 조상 체인. 가장 바깥이 먼저, 요소 자신이 마지막;
+     *   빈 목록은 [CssDeclarations.Empty]로 해석된다.
+     * @return 적용되는 병합된 선언들, 가장 약한 것부터. 아무것도 매칭되지 않으면 [CssDeclarations.Empty].
      */
     fun declarationsFor(ancestors: List<CssElement>): CssDeclarations {
         val element = ancestors.lastOrNull() ?: return CssDeclarations.Empty
@@ -356,7 +353,7 @@ internal class EpubCss private constructor(
         return result
     }
 
-    /** The embedded-font href for the first named family in [fontFamily] this sheet actually defines. */
+    /** [fontFamily]에 나열된 이름 중 이 시트가 실제로 정의한 첫 패밀리의 임베디드 폰트 href. */
     fun resolvedFontHref(fontFamily: String?): String? {
         if (fontFamily.isNullOrBlank()) return null
         return splitFontFamilies(fontFamily).firstNotNullOfOrNull { family ->
@@ -364,31 +361,34 @@ internal class EpubCss private constructor(
         }
     }
 
-    /** True when this book declared no usable rule or `@font-face` at all. */
+    /** 이 책이 사용 가능한 규칙이나 `@font-face`를 전혀 선언하지 않았을 때 true. */
     fun isEmpty(): Boolean = rulesByTag.isEmpty() && taglessRules.isEmpty() && fontFaces.isEmpty()
 
     companion object {
-        /** The no-op stylesheet: no rules and no font faces. */
+        /** 무동작 스타일시트: 규칙도 없고 font-face도 없다. */
         val Empty = EpubCss(emptyMap(), emptyList(), emptyMap())
 
         /**
-         * Parse raw stylesheet texts with no base paths, so relative `url(...)` cannot be resolved.
+         * base 경로 없이 원시 스타일시트 텍스트를 파싱한다. 그래서 상대 `url(...)`은 해석될 수 없다.
          *
-         * The list order is still the linked order, so a later sheet wins a tie.
+         * 목록 순서는 여전히 링크된 순서이므로 나중 시트가 동점을 이긴다.
          */
         fun parse(sheets: List<String>): EpubCss = parseSources(sheets.map { CssStyleSheetSource(css = it) })
 
         /**
-         * Parse [sheets] in linked order so a later sheet wins ties and keeps its own relative base path.
+         * [sheets]를 링크된 순서로 파싱하여 나중 시트가 동점을 이기고 자기 자신의 상대 base 경로를
+         * 유지하도록 한다.
          *
-         * Every rule across every sheet is sorted once here by `(specificity, order)` — the exact order
-         * [EpubCss.declarationsFor] must fold in — and each is handed its rank in that order. Rules are
-         * then split into a per-terminal-tag index and a tagless fallback list, each preserving that
-         * rank order, so a per-element query never sorts and never scans a tag it cannot match. Sorting
-         * once at parse time replaces the previous per-query filter-and-sort over the whole rule list.
+         * 모든 시트에 걸친 모든 규칙이 여기서 `(specificity, order)` 기준으로 한 번 정렬된다 —
+         * [EpubCss.declarationsFor]가 접어 넣어야 하는 바로 그 순서다 — 그리고 각각에 그 순서 내
+         * 순위가 부여된다. 규칙들은 그런 다음 그 순위 순서를 보존한 채 태그별 인덱스와 태그 없는
+         * 폴백 목록으로 나뉘므로, 요소별 쿼리는 절대 정렬하지 않고 매칭될 수 없는 태그를 절대 스캔하지
+         * 않는다. 파싱 시점에 한 번 정렬하는 것이 이전의 전체 규칙 목록에 대한 쿼리별 필터-정렬을
+         * 대체한다.
          *
-         * @param sheets the linked stylesheets, in link order; a later sheet's rule wins a tie.
-         * @return the built [EpubCss], or [Empty] when no sheet declared a usable rule or `@font-face`.
+         * @param sheets 링크된 스타일시트들, 링크 순서대로; 동점이면 나중 시트의 규칙이 이긴다.
+         * @return 만들어진 [EpubCss]. 어떤 시트도 사용 가능한 규칙이나 `@font-face`를 선언하지 않았으면
+         *   [Empty].
          */
         fun parseSources(sheets: List<CssStyleSheetSource>): EpubCss {
             val rules = mutableListOf<CssRule>()
@@ -433,18 +433,18 @@ internal class EpubCss private constructor(
 }
 
 /**
- * Walks the two already-rank-sorted candidate lists [first] and [second] as one ascending-rank stream,
- * calling [onRule] for each rule exactly once in cascade order.
+ * 이미 순위대로 정렬된 두 후보 목록 [first]와 [second]를 하나의 오름차순 순위 스트림으로 걸으며,
+ * 캐스케이드 순서대로 각 규칙에 대해 정확히 한 번씩 [onRule]을 호출한다.
  *
- * Both lists come out of [EpubCss.parseSources] sorted by their sheet-wide `(specificity, order)` rank,
- * and the two lists are disjoint by construction (a rule is either in a tag bucket or in the tagless
- * fallback, never both), so a standard two-pointer merge on [RankedRule.rank] reproduces the single
- * weakest-first cascade order with no duplicate and no re-sort. When either list is empty the other is
- * simply walked in place.
+ * 두 목록 모두 [EpubCss.parseSources]에서 시트 전체 `(specificity, order)` 순위로 정렬되어 나오고,
+ * 둘은 구성상 서로소다(규칙은 태그 버킷에 있거나 태그 없는 폴백에 있거나 둘 중 하나이지 결코 둘 다는
+ * 아니다). 그래서 [RankedRule.rank]에 대한 표준 투 포인터 병합이 중복도 없고 재정렬도 없이 단일한
+ * 가장 약한 것부터 시작하는 캐스케이드 순서를 재현한다. 둘 중 하나가 비어 있으면 나머지 하나만
+ * 그대로 순회한다.
  *
- * @param first one rank-ascending candidate list, e.g. an element's tag bucket.
- * @param second the other rank-ascending candidate list, e.g. the tagless fallback rules.
- * @param onRule invoked once per rule, in ascending [RankedRule.rank] across both lists.
+ * @param first 오름차순 순위의 후보 목록 하나, 예: 요소의 태그 버킷.
+ * @param second 오름차순 순위의 다른 후보 목록, 예: 태그 없는 폴백 규칙들.
+ * @param onRule 두 목록에 걸쳐 오름차순 [RankedRule.rank]대로 규칙마다 한 번씩 호출된다.
  */
 private inline fun mergeByRank(
     first: List<RankedRule>,
@@ -473,29 +473,29 @@ private inline fun mergeByRank(
 }
 
 /**
- * Walks one stylesheet's rules with real brace matching, so an at-rule's body is a *block* rather than
- * text a flat regex tears rules out of.
+ * 하나의 스타일시트의 규칙들을 실제 중괄호 매칭으로 걷는다. 그래서 at-rule의 본문은 평면 정규식이
+ * 규칙을 뜯어내는 텍스트가 아니라 진짜 *블록*이 된다.
  *
- * This is the boundary that keeps conditional styling conditional. The previous regex extraction had no
- * notion of nesting, so `@media print { p { display:none } }` matched the inner `p { … }` as an ordinary
- * rule and hid those paragraphs on screen — styling the book stated for a medium this reader is not.
- * Here every `{` finds its matching `}` (quote-aware, so a brace inside a string never miscounts), and
- * what happens to the block depends on its prelude:
+ * 이것이 조건부 스타일링을 조건부로 유지하는 경계선이다. 이전의 정규식 추출은 중첩 개념이 전혀
+ * 없었기 때문에, `@media print { p { display:none } }`가 안쪽의 `p { … }`를 일반 규칙으로 매칭시켜
+ * 화면에서 그 문단들을 숨겼다 — 이 리더에는 해당하지 않는 매체를 위해 책이 명시한 스타일링이었다.
+ * 여기서는 모든 `{`가 자신에 매칭되는 `}`를 찾고(따옴표를 인식하므로 문자열 안의 중괄호는 결코
+ * 깊이를 잘못 세지 않는다), 블록에 어떤 일이 일어나는지는 그 프렐류드에 달려 있다:
  *
- * - an ordinary selector: handed to [onRule] with its own body;
- * - `@media`: descended into only when [mediaQueryApplies] says the query names this medium, and the
- *   body is then scanned recursively, so rules and `@font-face`s nested in an applying query still count;
- * - `@font-face`: handed to [onFontFace];
- * - any other at-rule block (`@supports`, `@keyframes`, `@page`, vendor rules): skipped whole, body and
- *   all — the same "cannot judge → drop" policy the selector matcher applies to pseudo-classes;
- * - a statement at-rule (`@import`, `@charset`, `@namespace`): skipped to its `;`.
+ * - 일반 선택자: 자신의 본문과 함께 [onRule]에 전달된다;
+ * - `@media`: [mediaQueryApplies]가 그 쿼리가 이 매체를 지칭한다고 판단할 때만 내려가며, 그 본문은
+ *   재귀적으로 스캔되므로 적용되는 쿼리 안에 중첩된 규칙과 `@font-face`도 여전히 포함된다;
+ * - `@font-face`: [onFontFace]에 전달된다;
+ * - 그 외의 at-rule 블록(`@supports`, `@keyframes`, `@page`, 벤더 규칙): 본문까지 통째로
+ *   건너뛴다 — 선택자 매처가 의사 클래스에 적용하는 것과 같은 "판단할 수 없으면 → 버린다" 정책이다;
+ * - 문(statement) at-rule(`@import`, `@charset`, `@namespace`): 자신의 `;`까지 건너뛴다.
  *
- * Malformed input fails soft: an unclosed block consumes the rest of the sheet as its own body, and a
- * stray `}` is ignored, so one broken rule cannot shift every rule after it.
+ * 잘못된 형식의 입력은 소프트하게 실패한다: 닫히지 않은 블록은 시트의 나머지 전체를 자신의 본문으로
+ * 소비하고, 낯선 `}`는 무시된다. 그래서 규칙 하나가 깨져도 그 뒤의 모든 규칙을 밀리게 하지 않는다.
  *
- * @param css the stylesheet text, comments already stripped.
- * @param onFontFace called with each `@font-face` body found in an applying context.
- * @param onRule called with each ordinary rule's selector list text and declaration body.
+ * @param css 스타일시트 텍스트, 주석은 이미 제거된 상태.
+ * @param onFontFace 적용되는 컨텍스트에서 발견된 각 `@font-face` 본문과 함께 호출된다.
+ * @param onRule 각 일반 규칙의 선택자 목록 텍스트와 선언 본문과 함께 호출된다.
  */
 private fun scanCssRules(
     css: String,
@@ -508,12 +508,12 @@ private fun scanCssRules(
         when (css[index]) {
             '"', '\'' -> index = css.skipQuoted(index)
             ';' -> {
-                // Ends a statement at-rule (`@import …;`) or stray junk between rules.
+                // 문 at-rule(`@import …;`)을 끝내거나, 규칙 사이의 낯선 찌꺼기를 끝낸다.
                 preludeStart = index + 1
                 index += 1
             }
             '}' -> {
-                // A stray closer with no open block of its own; drop it and whatever led up to it.
+                // 자기 자신의 열린 블록이 없는 낯선 닫는 괄호; 이것과 그 앞에 있던 것을 버린다.
                 preludeStart = index + 1
                 index += 1
             }
@@ -541,9 +541,9 @@ private fun scanCssRules(
 }
 
 /**
- * Index of the `}` closing the block opened at [openIndex], or [String.length] when the sheet ends with
- * the block still open — the unclosed block then swallows the rest of the sheet rather than looping.
- * Quoted strings are skipped so a brace inside one never changes the depth.
+ * [openIndex]에서 열린 블록을 닫는 `}`의 인덱스, 또는 시트가 블록이 열린 채로 끝나면 [String.length] —
+ * 그러면 닫히지 않은 블록이 루프를 도는 대신 시트의 나머지를 통째로 삼킨다. 인용된 문자열은
+ * 건너뛰므로 그 안의 중괄호는 결코 깊이를 바꾸지 않는다.
  */
 private fun String.matchingBraceEnd(openIndex: Int): Int {
     var depth = 1
@@ -565,7 +565,7 @@ private fun String.matchingBraceEnd(openIndex: Int): Int {
     return length
 }
 
-/** Index just past the quoted string starting at [quoteIndex]; an unterminated one runs to the end. */
+/** [quoteIndex]에서 시작하는 인용된 문자열 바로 다음 인덱스; 종료되지 않은 것은 끝까지 이어진다. */
 private fun String.skipQuoted(quoteIndex: Int): Int {
     val quote = this[quoteIndex]
     var index = quoteIndex + 1
@@ -580,17 +580,17 @@ private fun String.skipQuoted(quoteIndex: Int): Int {
 }
 
 /**
- * Whether a `@media` query names a medium this reader is: `all`, `screen`, or nothing (which CSS reads
- * as `all`). Any branch of the comma-separated list that does — optionally `only`-prefixed — applies the
- * whole block.
+ * `@media` 쿼리가 이 리더가 해당하는 매체를 지칭하는지 여부: `all`, `screen`, 또는 아무것도 없음(CSS는
+ * 이를 `all`로 읽는다). 쉼표로 구분된 목록의 어느 한 브랜치라도 그렇다면 — 선택적으로 `only`가 붙어도 —
+ * 블록 전체가 적용된다.
  *
- * A branch carrying a feature condition (`(min-width: 60em)`, `(orientation: …)`) is *skipped*, not
- * guessed at: this engine resolves styles once at parse time and has no viewport to evaluate a feature
- * against, and applying a wide-screen override to every phone is exactly the kind of styling leak the
- * scan exists to stop. A `print`/`speech`/other-medium branch never applies. This is the same
- * cannot-judge → drop policy [parseCompound] applies to pseudo-classes.
+ * 특성 조건(`(min-width: 60em)`, `(orientation: …)`)을 가진 브랜치는 짐작하지 않고 *건너뛴다*: 이
+ * 엔진은 스타일을 파싱 시점에 한 번 해석하고 특성을 평가할 뷰포트가 없으므로, 넓은 화면용 오버라이드를
+ * 모든 폰에 적용하는 것은 정확히 이 스캔이 막으려는 종류의 스타일링 누수다. `print`/`speech`/기타
+ * 매체 브랜치는 결코 적용되지 않는다. 이는 [parseCompound]가 의사 클래스에 적용하는 것과 같은
+ * "판단할 수 없으면 → 버린다" 정책이다.
  *
- * @param query the raw text between `@media` and the block's `{`.
+ * @param query `@media`와 블록의 `{` 사이의 원시 텍스트.
  */
 private fun mediaQueryApplies(query: String): Boolean = query.split(',').any { branch ->
     val cleaned = branch.trim().lowercase().removePrefix("only").trim()
@@ -598,13 +598,13 @@ private fun mediaQueryApplies(query: String): Boolean = query.split(',').any { b
 }
 
 /**
- * Parses [raw] (one comma-separated branch of a rule's selector list) into a [CssSelector], or null
- * for anything this matcher cannot safely judge: an at-rule body, a pseudo-element, or an attribute
- * selector. Guessing at any of those would risk applying a book's print-only or state-only styling to
- * every page, so the whole selector — and the rule it belongs to — is dropped instead.
+ * [raw](규칙의 선택자 목록 중 쉼표로 구분된 한 브랜치)를 [CssSelector]로 파싱한다. 이 매처가
+ * 안전하게 판단할 수 없는 것 — at-rule 본문, 의사 요소, 속성 선택자 — 이면 null을 반환한다. 이 중
+ * 하나라도 짐작하면 책의 print 전용 또는 상태 전용 스타일링을 모든 페이지에 적용할 위험이 있으므로,
+ * 그 선택자 전체 — 그리고 그것이 속한 규칙 — 를 대신 버린다.
  *
- * @param raw one selector, e.g. `"h1.title"` or `".quote p"`.
- * @return the parsed selector, or null if [raw] is empty or judged unsafe to match.
+ * @param raw 선택자 하나, 예: `"h1.title"` 또는 `".quote p"`.
+ * @return 파싱된 선택자, 또는 [raw]가 비어 있거나 매칭하기에 안전하지 않다고 판단되면 null.
  */
 private fun parseSelector(raw: String): CssSelector? {
     val cleaned = raw.trim()
@@ -615,14 +615,14 @@ private fun parseSelector(raw: String): CssSelector? {
 }
 
 /**
- * Parses one compound (`h1`, `.note`, `h1.note#id`) into a [CompoundSelector], or null when it cannot
- * be judged: a pseudo-class narrows a rule by a state this matcher cannot observe (`a:hover` is not the
- * same thing as `a`), and a universal selector (`*`) is not one this parser resolves either. Dropping
- * the compound — and so the whole selector — keeps hover- and print-only styling off a page that is
- * neither being hovered nor printed.
+ * 복합 선택자 하나(`h1`, `.note`, `h1.note#id`)를 [CompoundSelector]로 파싱한다. 판단할 수 없으면
+ * null을 반환한다: 의사 클래스는 이 매처가 관찰할 수 없는 상태로 규칙을 좁히고(`a:hover`는 `a`와
+ * 같은 것이 아니다), 전체 선택자(`*`) 역시 이 파서가 해석하는 것이 아니다. 복합 선택자를 버리는 것 —
+ * 그러면 선택자 전체가 버려진다 — 은 hover 전용과 print 전용 스타일링을, 호버되지도 인쇄되지도 않는
+ * 페이지에서 배제해준다.
  *
- * @param raw one compound out of a selector, with no combinator.
- * @return the parsed compound, or null if [raw] is empty, or carries a pseudo-class or `*`.
+ * @param raw 결합자가 없는, 선택자 안의 복합 부분 하나.
+ * @return 파싱된 복합 부분, 또는 [raw]가 비어 있거나 의사 클래스나 `*`를 가지면 null.
  */
 private fun parseCompound(rawCompound: String): CompoundSelector? {
     val raw = StatelessPseudoClassRegex.replace(rawCompound, "")
@@ -635,13 +635,13 @@ private fun parseCompound(rawCompound: String): CompoundSelector? {
 }
 
 /**
- * Parses a rule's declaration block into the subset of properties [CssDeclarations] can represent,
- * silently dropping anything else — the same policy [CssDeclarations]'s own class doc describes, applied
- * property by property as the block is walked.
+ * 규칙의 선언 블록을 [CssDeclarations]가 표현할 수 있는 속성의 부분집합으로 파싱하며, 그 외의
+ * 것은 조용히 버린다 — [CssDeclarations] 자신의 클래스 문서가 설명하는 것과 같은 정책을, 블록을
+ * 걷는 동안 속성별로 적용한다.
  *
- * @param body raw text between a rule's braces, e.g. `"text-align:center;float:left"`.
- * @return the recognized declarations found in [body]; a property this cannot draw, or a malformed
- *   `name:value` pair, contributes nothing rather than failing the whole rule.
+ * @param body 규칙의 중괄호 사이 원시 텍스트, 예: `"text-align:center;float:left"`.
+ * @return [body]에서 발견된 인식 가능한 선언들; 그릴 수 없는 속성이나 형식이 잘못된 `name:value`
+ *   쌍은 규칙 전체를 실패시키는 대신 아무것도 기여하지 않는다.
  */
 internal fun parseCssDeclarations(body: String): CssDeclarations {
     var result = CssDeclarations.Empty
@@ -707,7 +707,7 @@ internal fun parseCssDeclarations(body: String): CssDeclarations {
     return result
 }
 
-/** The `border` shorthand copied onto every side this engine preserves. */
+/** `border` 축약형을 이 엔진이 보존하는 모든 변에 그대로 복사한 값. */
 private fun CssDeclarations.withBorder(border: CssBorder?): CssDeclarations = copy(
     borderTop = border ?: borderTop,
     borderRight = border ?: borderRight,
@@ -715,27 +715,27 @@ private fun CssDeclarations.withBorder(border: CssBorder?): CssDeclarations = co
     borderLeft = border ?: borderLeft,
 )
 
-/** This border with [width] layered over its current width, if either exists. */
+/** 이 테두리의 현재 너비 위에 [width]를 층층이 쌓은 것. 둘 중 하나라도 있으면 결과가 존재한다. */
 private fun CssBorder?.mergeWidth(width: CssLength?): CssBorder? = if (width == null && this == null) null else CssBorder(
     width = width ?: this?.width,
     color = this?.color,
 )
 
-/** This border with [color] layered over its current color, if either exists. */
+/** 이 테두리의 현재 색상 위에 [color]를 층층이 쌓은 것. 둘 중 하나라도 있으면 결과가 존재한다. */
 private fun CssBorder?.mergeColor(color: String?): CssBorder? = if (color == null && this == null) null else CssBorder(
     width = this?.width,
     color = color ?: this?.color,
 )
 
 /**
- * Parses a single CSS length value into a [CssLength], or null if [value] has no number or carries an
- * unrecognized unit.
+ * 하나의 CSS 길이 값을 [CssLength]로 파싱한다. [value]에 숫자가 없거나 인식할 수 없는 단위를
+ * 가지면 null.
  *
- * A bare `0` is a length in CSS whatever the property — it is how nearly every EPUB writes its reset
- * (`margin: 0`) — so it resolves to zero rather than to "unstated". Any other unitless number is not a
- * length this engine can size anything from and is dropped.
+ * 맨 `0`은 속성이 무엇이든 CSS에서 길이다 — 거의 모든 EPUB이 리셋(`margin: 0`)을 쓰는 방식이다 —
+ * 그래서 "설정되지 않음"이 아니라 0으로 해석된다. 단위 없는 다른 숫자는 이 엔진이 어떤 것도 크기
+ * 지정할 수 있는 길이가 아니므로 버려진다.
  *
- * @param value raw declaration value, e.g. `"90%"`, `"1.5em"` or `"0"`.
+ * @param value 원시 선언 값, 예: `"90%"`, `"1.5em"`, `"0"`.
  */
 private fun parseLength(value: String): CssLength? {
     val trimmed = value.trim()
@@ -751,15 +751,15 @@ private fun parseLength(value: String): CssLength? {
     }
 }
 
-/** CSS pixels one point is worth: `1pt = 1/72in` against the reference `96dpi` pixel. */
+/** 1포인트에 해당하는 CSS 픽셀 값: `1pt = 1/72in`을 기준 `96dpi` 픽셀에 대해 계산. */
 private const val PxPerPoint = 96f / 72f
 
-/** `line-height: 1.6` has no unit and means a factor of the element's own font size. */
+/** `line-height: 1.6`은 단위가 없으며 요소 자신의 폰트 크기에 대한 배수를 의미한다. */
 private fun parseLineHeight(value: String): CssLineHeight? =
     value.trim().toFloatOrNull()?.let { CssLineHeight.Factor(it) }
         ?: parseLength(value)?.let { CssLineHeight.Length(it) }
 
-/** The four sides the `margin` shorthand resolves to, in its 1..4 value forms. */
+/** `margin` 축약형이 1~4개 값 형태로 해석되는 네 변. */
 internal data class CssMarginSides(
     val top: CssLength? = null,
     val right: CssLength? = null,
@@ -767,7 +767,7 @@ internal data class CssMarginSides(
     val left: CssLength? = null,
 )
 
-/** Every side of the `margin` shorthand, expanded the way CSS defines its 1..4 value forms. */
+/** `margin` 축약형의 모든 변을, CSS가 정의하는 1~4개 값 형태대로 펼친 것. */
 private fun parseMarginShorthand(value: String): CssMarginSides? {
     val parts = value.trim().split(CssWhitespaceRegex).filter(String::isNotEmpty).map(::parseLength)
     return when (parts.size) {
@@ -779,7 +779,7 @@ private fun parseMarginShorthand(value: String): CssMarginSides? {
     }
 }
 
-/** Width/color preserved from the `border` shorthand, ignoring style except for its presence. */
+/** `border` 축약형에서 보존된 너비/색상. 존재 여부만 빼고 스타일은 무시한다. */
 private fun parseBorderShorthand(value: String): CssBorder? {
     val parts = value.trim().split(CssWhitespaceRegex).filter(String::isNotEmpty)
     if (parts.isEmpty()) return null
@@ -798,13 +798,13 @@ private fun parseBorderShorthand(value: String): CssBorder? {
     return if (width == null && color == null) null else CssBorder(width = width, color = color)
 }
 
-/** One border width value, including the border-only special case of a unitless zero. */
+/** 테두리 너비 값 하나. 단위 없는 0이라는 border 전용 특수 케이스도 포함한다. */
 private fun parseBorderWidthValue(value: String): CssLength? =
     parseBorderWidthKeyword(value)
         ?: value.trim().takeIf { it == "0" || it == "+0" || it == "-0" || it == "0.0" }?.let { CssLength.Px(0f) }
         ?: parseLength(value)
 
-/** Keyword border widths as the pixel values reading systems traditionally map them to. */
+/** 독서 시스템이 전통적으로 매핑하는 픽셀 값으로서의 키워드 테두리 너비. */
 private fun parseBorderWidthKeyword(value: String): CssLength? = when (value.lowercase()) {
     "thin" -> CssLength.Px(1f)
     "medium" -> CssLength.Px(3f)
@@ -812,19 +812,19 @@ private fun parseBorderWidthKeyword(value: String): CssLength? = when (value.low
     else -> null
 }
 
-/** Border styles this parser recognizes only so they are not misread as colors. */
+/** 이 파서가 색상으로 오독하지 않기 위해서만 인식하는 테두리 스타일들. */
 private fun parseBorderStyleKeyword(value: String): String? = when (value.lowercase()) {
     "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset" -> value.lowercase()
     else -> null
 }
 
-/** The first radius component of `border-radius`; slash-separated elliptical radii are collapsed to one. */
+/** `border-radius`의 첫 번째 반경 구성요소; 슬래시로 구분된 타원형 반경은 하나로 접힌다. */
 private fun parseBorderRadius(value: String): CssLength? =
     value.substringBefore('/').trim().split(CssWhitespaceRegex).firstOrNull()?.let(::parseLength)
 
 /**
- * Parses one `@font-face` body into the family it defines and the first relative/embedded `url(...)`
- * source this reader could later open.
+ * 하나의 `@font-face` 본문을, 그것이 정의하는 패밀리와 이 리더가 나중에 열 수 있는 첫 번째
+ * 상대/임베디드 `url(...)` 소스로 파싱한다.
  */
 private fun parseFontFace(body: String, cssPath: String?): CssFontFace? {
     val declarations = parseCssDeclarations(body)
@@ -833,51 +833,50 @@ private fun parseFontFace(body: String, cssPath: String?): CssFontFace? {
     return CssFontFace(familyName = family, srcHref = srcHref)
 }
 
-/** One `font-family` value split on commas and trimmed down to individual family names. */
+/** 하나의 `font-family` 값을 쉼표로 나누어 개별 패밀리 이름으로 다듬은 것. */
 private fun splitFontFamilies(value: String): List<String> =
     value.split(',').map(String::trim).map(String::trimQuotes).filter(String::isNotEmpty)
 
-/** This possibly quoted CSS string token with one matching pair of wrapping quotes removed. */
+/** 감싸는 따옴표 한 쌍이 제거된, 인용되었을 수도 있는 이 CSS 문자열 토큰. */
 private fun String.trimQuotes(): String = trim().removeSurrounding("\"").removeSurrounding("'")
 
-/** Lowercased key form [EpubCss.resolvedFontHref] uses to match a family name against `@font-face`. */
+/** [EpubCss.resolvedFontHref]가 패밀리 이름을 `@font-face`와 매칭할 때 쓰는 소문자 키 형태. */
 private fun String.normalizeFontFamilyKey(): String = trimQuotes().lowercase()
 
-/** A declaration value with one trailing `!important` stripped off, preserving the rest verbatim. */
+/** 끝의 `!important` 하나가 제거되고 나머지는 그대로 보존된 선언 값. */
 private fun String.stripImportant(): String = replace(ImportantSuffixRegex, "").trim()
 
-/** [css] with every CSS block comment blanked out, so a commented-out rule is never parsed as real. */
+/** 모든 CSS 블록 주석이 지워진 [css]. 주석 처리된 규칙이 실제 규칙으로 파싱되는 일이 없도록 한다. */
 private fun stripCssComments(css: String): String = css.replace(CssCommentRegex, " ")
 
-/** Matches a CSS block comment, spanning newlines, for [stripCssComments] to blank out. */
+/** [stripCssComments]가 지워버릴 CSS 블록 주석을 매칭한다. 줄바꿈에 걸쳐서도 매칭된다. */
 private val CssCommentRegex = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
 /**
- * Splits a selector on whichever combinator separates its compounds; every combinator is read as a plain
- * descendant — see [CssSelector.matches].
+ * 선택자를 그 복합 부분들을 구분하는 결합자 어느 것이든 기준으로 나눈다; 모든 결합자는 일반 자손
+ * 결합자로 읽힌다 — [CssSelector.matches] 참고.
  */
 private val CssCombinatorRegex = Regex("""[\s>+~]+""")
 /**
- * The pseudo-classes that describe how an element ordinarily looks rather than a state this matcher can
- * observe, and so are dropped from a compound instead of costing the whole rule.
+ * 이 매처가 관찰할 수 있는 상태라기보다 요소가 평소 어떻게 보이는지를 설명하는 의사 클래스들이며,
+ * 그래서 규칙 전체를 희생시키는 대신 복합 부분에서만 제거된다.
  *
- * `a:link` and `a:visited` between them cover every link on a page, so a book writing
- * `a:link { text-decoration: none }` is saying its links carry no underline. Dropping that rule — which is
- * what happens to any selector this cannot judge — underlines every link the book has.
+ * `a:link`와 `a:visited`는 합쳐서 페이지의 모든 링크를 커버하므로, `a:link { text-decoration: none }`을
+ * 쓰는 책은 자신의 링크가 밑줄이 없다고 말하는 것이다. 그 규칙을 버리는 것은 — 이는 이것을 판단할 수
+ * 없는 어떤 선택자에도 일어나는 일인데 — 책이 가진 모든 링크에 밑줄을 긋게 된다.
  */
 private val StatelessPseudoClassRegex = Regex(":(link|visited)", RegexOption.IGNORE_CASE)
 
-/** Captures one class name out of a compound, e.g. the `note` in `.note`. */
+/** 복합 부분에서 클래스 이름 하나를 캡처한다, 예: `.note`에서 `note`. */
 private val CssClassNameRegex = Regex("""\.([\w-]+)""")
-/** Captures the id out of a compound, e.g. the `lead` in `#lead`. */
+/** 복합 부분에서 id를 캡처한다, 예: `#lead`에서 `lead`. */
 private val CssIdRegex = Regex("""#([\w-]+)""")
 /**
- * Matches a length value and captures its number and unit; a leading `-` is allowed since a margin may
- * legitimately be negative.
+ * 길이 값을 매칭하고 그 숫자와 단위를 캡처한다; margin은 음수일 수 있으므로 앞의 `-`가 허용된다.
  */
 private val CssLengthRegex = Regex("""(-?[0-9.]+)\s*(%|em|rem|px|pt)""", RegexOption.IGNORE_CASE)
-/** Splits shorthands like `margin`/`border-radius` on CSS whitespace. */
+/** `margin`/`border-radius` 같은 축약형을 CSS 공백 기준으로 나눈다. */
 private val CssWhitespaceRegex = Regex("""\s+""")
-/** A single trailing `!important` marker at the end of one declaration value. */
+/** 하나의 선언 값 끝에 있는 단일 `!important` 마커. */
 private val ImportantSuffixRegex = Regex("""\s*!important\s*$""", RegexOption.IGNORE_CASE)
-/** Captures one `url(...)` payload out of an `@font-face src` declaration. */
+/** `@font-face src` 선언에서 하나의 `url(...)` 페이로드를 캡처한다. */
 private val FontFaceUrlRegex = Regex("""url\(([^)]+)\)""", RegexOption.IGNORE_CASE)

@@ -18,61 +18,56 @@ import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
 import kotlin.math.abs
 
 /**
- * Flattened text of one chapter together with the structure that text carries.
+ * 한 챕터의 평탄화된 텍스트와 해당 텍스트가 담고 있는 구조.
  *
- * The text is what the reader paginates, searches and stores; the blocks and spans address ranges
- * inside it. Replacing every tag with a space threw all of that away and collapsed the newlines with
- * it, which is why an EPUB used to read as one run-on line.
+ * 텍스트는 리더가 페이지를 나누고, 검색하고, 저장하는 대상이며, 블록과 스팬은 그 내부의 범위를 가리킨다.
+ * 태그를 모두 공백으로 대체하면 이 정보가 사라지고 줄바꿈까지 뭉개지는데, 바로 그 때문에
+ * EPUB이 줄바꿈 없는 한 덩어리로 읽히던 문제가 생겼다.
  */
 internal data class XhtmlContent(
-    /** The chapter's readable text, with every tag stripped but its structure preserved as newlines. */
+    /** 챕터의 가독 텍스트. 모든 태그가 제거되되 구조는 줄바꿈으로 보존된다. */
     val text: String,
     /**
-     * Structural spans over [text] — headings, paragraphs, images, table cells, and the rest — in
-     * reading order.
+     * [text] 위의 구조적 스팬 — 제목, 단락, 이미지, 표 셀 등 — 읽기 순서 기준.
      */
     val blocks: List<ReaderBlock>,
     /**
-     * Every `id`/`name`/`xml:id` this chapter declares, mapped to its absolute offset in [text], for
-     * resolving an internal link's fragment to a position.
+     * 이 챕터에서 선언된 모든 `id`/`name`/`xml:id`를 [text] 내의 절대 오프셋에 매핑한 것.
+     * 내부 링크의 프래그먼트를 위치로 해석하는 데 사용된다.
      */
     val anchors: Map<String, Long> = emptyMap(),
     /**
-     * Chapter name taken from the `title` attribute of the first heading. These books set their part
-     * and chapter headings as a picture and put the readable name only in that attribute, so without
-     * it the chapter has no title text at all.
+     * 첫 번째 제목의 `title` 속성에서 가져온 챕터 이름. 이 책들은 파트와 챕터 제목을 이미지로
+     * 표시하고 가독 이름은 해당 속성에만 넣기 때문에, 이것이 없으면 챕터에 제목 텍스트가 전혀 없다.
      */
     val headingTitle: String? = null,
 )
 
 /**
- * Turn chapter XHTML into text plus blocks, with every offset expressed relative to [baseOffset] so
- * chapter content can be concatenated into one document without recomputing anything.
+ * 챕터 XHTML을 텍스트와 블록으로 변환한다. 모든 오프셋은 [baseOffset]을 기준으로 표현되므로,
+ * 챕터 내용을 하나의 문서로 연결할 때 아무것도 재계산할 필요가 없다.
  *
- * The parser is a single forward scan: it is not a full XML/HTML parser and builds no DOM, only a
- * running block/span builder ([XhtmlContentBuilder]) fed one tag or text run at a time. `<script>`,
- * `<style>`, `<head>` and `<title>` bodies are skipped outright (see [SkippedBodyElements]) — none of
- * them hold readable text, and skipping keeps CSS source and script code out of the page — but `<svg>`
- * is deliberately not treated this way even though it is not a recognized block or inline tag either:
- * EPUBs very commonly wrap a full-page illustration as `<svg><image xlink:href="..."/></svg>`
- * (Sigil/Calibre's standard cover/illustration pattern) so it scales to the viewport, and skipping that
- * whole subtree the way script/style genuinely warrant silently dropped every one of those pictures.
- * Descending into `svg` is harmless: it matches no known block or inline tag so it is otherwise
- * ignored, and its inner `image` element is handled the same as any other. Malformed markup fails soft
- * rather than throwing: an unterminated comment, CDATA section, or tag simply consumes the rest of the
- * input as its own body or text, and an inline or block element left unclosed at the end is closed
- * implicitly by [XhtmlContentBuilder.build].
+ * 파서는 단일 순방향 스캔으로 동작한다: 완전한 XML/HTML 파서가 아니며 DOM을 만들지 않고,
+ * 태그나 텍스트 런을 하나씩 처리하는 블록/스팬 빌더([XhtmlContentBuilder])만 운용한다.
+ * `<script>`, `<style>`, `<head>`, `<title>` 바디는 [SkippedBodyElements] 참조로 즉시 건너뛴다 —
+ * 이것들은 가독 텍스트를 담지 않으며, 건너뜀으로써 CSS 소스와 스크립트 코드가 페이지에 들어오지 않는다.
+ * 단, `<svg>`는 인식된 블록이나 인라인 태그가 아님에도 불구하고 의도적으로 이와 같이 처리하지 않는다:
+ * EPUB은 전체 페이지 일러스트를 `<svg><image xlink:href="..."/></svg>` 형식으로 감싸는 경우가
+ * 매우 많으며(Sigil/Calibre의 표준 표지/일러스트 패턴), 이는 뷰포트에 맞게 크기가 조정된다.
+ * 그런데 script/style처럼 전체 서브트리를 건너뛰면 그 그림들이 모두 조용히 사라진다.
+ * `svg` 안으로 내려가는 것은 무해하다: 인식된 블록이나 인라인 태그가 없으므로 그 외에는 무시되고,
+ * 내부 `image` 요소도 다른 것과 동일하게 처리된다. 잘못된 마크업은 예외를 던지지 않고 소프트하게 실패한다:
+ * 닫히지 않은 주석, CDATA 섹션, 태그는 나머지 입력을 자신의 본문이나 텍스트로 소비하고,
+ * 끝에서 닫히지 않은 인라인 또는 블록 요소는 [XhtmlContentBuilder.build]에서 묵시적으로 닫힌다.
  *
- * @param xhtml the chapter's raw markup.
- * @param baseOffset absolute offset [XhtmlContent.text]'s start represents, so a caller concatenating
- *   many chapters can pass the previous chapters' combined length and get ranges that already line up
- *   with the whole book rather than just this one file.
- * @param resolveImageHref maps a raw `src`/`xlink:href`/`href` to a path inside the container, or null
- *   to drop the image — e.g. a remote `http(s)://` URL this reader cannot fetch.
- * @param css the full CSS cascade for this chapter's element ancestry — alignment, weight, style,
- *   family, line height, indent, paragraph spacing, and picture width alike. Defaults to
- *   [EpubCss.Empty].
- * @return the flattened [XhtmlContent] for this chapter.
+ * @param xhtml 챕터의 원시 마크업.
+ * @param baseOffset [XhtmlContent.text] 시작 위치가 나타내는 절대 오프셋. 여러 챕터를 연결하는 호출자가
+ *   이전 챕터들의 합산 길이를 전달하면, 이 파일 하나가 아닌 책 전체에 이미 맞춰진 범위를 얻을 수 있다.
+ * @param resolveImageHref 원시 `src`/`xlink:href`/`href`를 컨테이너 내 경로로 매핑하거나, 이미지를
+ *   버려야 하면 null을 반환한다 — 예: 이 리더가 가져올 수 없는 원격 `http(s)://` URL.
+ * @param css 이 챕터 요소 계층에 적용되는 전체 CSS 캐스케이드 — 정렬, 굵기, 스타일, 글꼴 패밀리,
+ *   줄 높이, 들여쓰기, 단락 간격, 이미지 너비 모두 포함. 기본값은 [EpubCss.Empty].
+ * @return 이 챕터에 대한 평탄화된 [XhtmlContent].
  */
 internal fun parseXhtmlContent(
     xhtml: String,
@@ -130,13 +125,13 @@ internal fun parseXhtmlContent(
 }
 
 /**
- * Index just past the first occurrence of [marker] at or after [from], or [String.length] if [marker]
- * never appears — used to jump over a comment, CDATA section, or skipped-element body whose closing
- * marker may be missing from malformed markup, rather than looping forever looking for it.
+ * [from] 이후에서 [marker]가 처음 나타나는 위치의 바로 다음 인덱스를 반환하고,
+ * [marker]가 없으면 [String.length]를 반환한다. 잘못된 마크업에서 닫는 마커가 빠진
+ * 주석, CDATA 섹션, 건너뛸 요소 본문을 영원히 찾아다니지 않고 단번에 넘어가기 위해 사용된다.
  *
- * @receiver the markup being scanned.
- * @param from index to start searching from.
- * @param marker the closing text being sought, e.g. `"-->"` or `"</script"`.
+ * @receiver 스캔 중인 마크업.
+ * @param from 검색을 시작할 인덱스.
+ * @param marker 찾고 있는 닫는 텍스트, 예: `"-->"` 또는 `"</script"`.
  */
 private fun String.skipPast(from: Int, marker: String): Int {
     val found = indexOf(marker, from)
@@ -144,21 +139,21 @@ private fun String.skipPast(from: Int, marker: String): Int {
 }
 
 /**
- * One start or end tag as [parseTag] reads it, before it is interpreted as a block, inline style, or
- * something ignored entirely.
+ * [parseTag]가 읽어낸 시작 또는 종료 태그 하나. 블록, 인라인 스타일, 또는 완전히 무시할 대상으로
+ * 해석되기 전의 상태.
  */
 private class XhtmlTag(
-    /** Lowercased tag name, e.g. `"p"` or `"img"`. */
+    /** 소문자로 변환된 태그 이름, 예: `"p"` 또는 `"img"`. */
     val name: String,
-    /** Attribute name to value, lowercase names; empty for a closing tag. */
+    /** 속성 이름을 값에 매핑한 것, 이름은 소문자; 닫는 태그는 빈 맵. */
     val attributes: Map<String, String>,
-    /** True for `</name>`. */
+    /** `</name>` 형식이면 true. */
     val isClosing: Boolean,
-    /** True for `<name .../>`. */
+    /** `<name .../>` 형식이면 true. */
     val isSelfClosing: Boolean,
 )
 
-/** Parses one tag's raw interior — between its `<`/`</` and its closing `>` — into an [XhtmlTag]. */
+/** 태그의 원시 내부(`<`/`</`와 닫는 `>` 사이)를 [XhtmlTag]로 파싱한다. */
 private fun parseTag(raw: String): XhtmlTag {
     val isClosing = raw.startsWith("/")
     val body = raw.removePrefix("/").removeSuffix("/")
@@ -171,82 +166,80 @@ private fun parseTag(raw: String): XhtmlTag {
     )
 }
 
-/** Parses a tag body's `name="value"`/`name='value'` pairs into a lowercase-keyed map. */
+/** 태그 본문의 `name="value"`/`name='value'` 쌍을 소문자 키 맵으로 파싱한다. */
 private fun parseTagAttributes(body: String): Map<String, String> =
     TagAttributeRegex.findAll(body).associate { match ->
         match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
     }
 
 /**
- * An element currently open on [XhtmlContentBuilder]'s stack, kept for CSS ancestry matching and for
- * closing it back off by name.
+ * [XhtmlContentBuilder]의 스택에 현재 열려 있는 요소. CSS 계층 매칭과 이름 기반 닫기를 위해 보관한다.
  */
 private class OpenElement(
-    /** Lowercased tag name. */
+    /** 소문자로 변환된 태그 이름. */
     val name: String,
-    /** The element's own classes, in markup order. */
+    /** 마크업 순서 기준 이 요소 자신의 클래스 목록. */
     val classNames: List<String>,
-    /** The element's `id` attribute, or null. */
+    /** 요소의 `id` 속성, 없으면 null. */
     val id: String?,
-    /** Inline `style` declarations on this element, which outrank linked CSS on the same element. */
+    /** 이 요소의 인라인 `style` 선언. 같은 요소에 적용된 링크된 CSS보다 우선한다. */
     val inlineDeclarations: CssDeclarations = CssDeclarations.Empty,
-    /** This element's fully resolved style; see [ComputedStyle]. */
+    /** 이 요소의 완전히 해석된 스타일; [ComputedStyle] 참조. */
     val computed: ComputedStyle = ComputedStyle.Root,
 ) {
     /**
-     * This element as [EpubCss.declarationsFor] needs it, built once and reused for every child's cascade
-     * lookup.
+     * [EpubCss.declarationsFor]가 필요로 하는 형태로 이 요소를 표현한 것. 한 번 빌드되어
+     * 모든 자식의 캐스케이드 조회에 재사용된다.
      */
     val cssElement: CssElement = CssElement(tag = name, classes = classNames.toSet(), id = id)
 }
 
 /**
- * A `line-height` as the resolver hands it on: either still a factor of whichever font it lands on, or a
- * size already fixed in units of the reader's base em.
+ * 해석기가 전달하는 `line-height`: 적용될 글꼴의 배율 인수로 남아 있거나,
+ * 리더의 기준 em 단위로 이미 고정된 크기.
  */
 private sealed interface ResolvedLineHeight {
-    /** A unitless factor, multiplied by each element's own [ComputedStyle.fontScale] where consumed. */
+    /** 단위 없는 배율. 소비 시 각 요소 자신의 [ComputedStyle.fontScale]과 곱해진다. */
     data class Factor(val value: Float) : ResolvedLineHeight
-    /** A length already computed at its declaring element, in base-em units. */
+    /** 선언된 요소에서 이미 계산된 길이, 기준 em 단위. */
     data class BaseEm(val value: Float) : ResolvedLineHeight
 }
 
 /**
- * One element's style with the whole cascade already resolved — the single place CSS stops being raw
- * declarations and becomes numbers a renderer can consume without re-interpreting anything.
+ * 전체 캐스케이드가 이미 해석된 한 요소의 스타일 — CSS가 원시 선언에서 벗어나
+ * 렌더러가 어떤 재해석 없이 소비할 수 있는 수치로 바뀌는 단 한 곳.
  *
- * Every length here is in one coordinate system: **units of the reader's base em**. That is the contract
- * that keeps the four consumers (block styling, span styling, gap sizing, box painting) agreeing with each
- * other — an `em` in a book compounds through its ancestors *here*, once, instead of each consumer guessing
- * what it was relative to.
+ * 여기의 모든 길이는 하나의 좌표계, 즉 **리더의 기준 em 단위**로 표현된다. 이것이
+ * 네 소비자(블록 스타일링, 스팬 스타일링, 간격 크기 조정, 박스 페인팅)가 서로 일치하게 만드는
+ * 계약이다 — 책 안의 `em`은 각 소비자가 상대값을 추측하는 대신 *여기서* 한 번만 조상을 통해 복합된다.
  */
 private class ComputedStyle(
     /**
-     * Effective declarations for this element: inherited raw-text properties (weight, style, family,
-     * color, alignment) with the element's own declarations layered on top. Non-inherited properties
-     * (margins, padding, borders, display, width, float) are the element's own only.
+     * 이 요소의 유효 선언: 상속된 텍스트 속성(굵기, 스타일, 패밀리, 색상, 정렬)에
+     * 요소 자신의 선언이 위에 덧씌워진 것. 비상속 속성(마진, 패딩, 테두리, 디스플레이, 너비, 플로트)은
+     * 요소 자신의 것만.
      */
     val declarations: CssDeclarations,
-    /** Font size as a multiple of the reader's base, compounded through the ancestor chain. */
+    /** 리더 기준값의 배수로 표현된 글꼴 크기. 조상 체인을 통해 복합된다. */
     val fontScale: Float,
-    /** Line height as declared or inherited, or null when nothing in the chain stated one. */
+    /** 선언 또는 상속된 줄 높이. 체인 어디에도 명시되지 않으면 null. */
     val lineHeight: ResolvedLineHeight?,
-    /** `text-indent` in base-em units, inherited as its computed value; null when unstated. */
+    /** 기준 em 단위의 `text-indent`. 계산된 값으로 상속된다; 명시되지 않으면 null. */
     val textIndentEm: Float?,
-    /** Whether an underline is painted across this element, by itself or an ancestor; null = nothing said. */
+    /** 이 요소(자신 또는 조상)에 밑줄이 그려지는지 여부; null = 아무것도 명시되지 않음. */
     val underline: Boolean?,
-    /** Whether a strikethrough is painted across this element, on the same terms. */
+    /** 같은 조건으로 이 요소에 취소선이 그려지는지 여부. */
     val lineThrough: Boolean?,
     /**
-     * Inline-start space accumulated from every block-level ancestor's margin+padding plus this element's
-     * own, in base-em units. What indents a paragraph nested in an indented wrapper. Page containers
-     * (`html`/`body`) are excluded — their spacing becomes the page margin instead.
+     * 모든 블록 레벨 조상의 margin+padding과 이 요소 자신의 것을 합산한 인라인-스타트 공간,
+     * 기준 em 단위. 들여쓰기된 래퍼 안에 중첩된 단락을 들여쓰는 값이다.
+     * 페이지 컨테이너(`html`/`body`)는 제외 — 그것들의 간격은 대신 페이지 마진이 된다.
      */
     val insetStartEm: Float,
-    /** Inline-end counterpart of [insetStartEm]. */
+    /** [insetStartEm]의 인라인-엔드 대응값. */
     val insetEndEm: Float,
 ) {
-    /** The line height this element's own text is set at, in base-em units, or null when unstated. */
+    /** 이 요소 자신의 텍스트가 설정된 줄 높이, 기준 em 단위. 명시되지 않으면 null. */
     fun lineHeightBaseEm(): Float? = when (val height = lineHeight) {
         is ResolvedLineHeight.Factor -> height.value * fontScale
         is ResolvedLineHeight.BaseEm -> height.value
@@ -254,8 +247,8 @@ private class ComputedStyle(
     }
 
     /**
-     * Whether a blank line belongs after a block of this style. `margin-bottom: 0` is the classic
-     * indented-prose setting where paragraphs run on with no gap; anything else keeps the gap.
+     * 이 스타일의 블록 뒤에 빈 줄이 들어가야 하는지 여부. `margin-bottom: 0`은
+     * 단락이 간격 없이 이어지는 고전적인 들여쓰기 산문 설정이며, 그 외에는 간격을 유지한다.
      */
     fun separatesParagraphs(): Boolean {
         val bottom = declarations.marginBottom?.toResolvedMarginEm(fontScale) ?: return true
@@ -263,7 +256,7 @@ private class ComputedStyle(
     }
 
     companion object {
-        /** What the document root inherits from: nothing stated, base type, no insets. */
+        /** 문서 루트가 상속받는 것: 아무것도 명시되지 않음, 기본 타입, 인셋 없음. */
         val Root = ComputedStyle(
             declarations = CssDeclarations.Empty,
             fontScale = 1f,
@@ -278,16 +271,15 @@ private class ComputedStyle(
 }
 
 /**
- * Resolves one element's [ComputedStyle] from its parent's — one incremental step instead of a re-fold of
- * the whole ancestry, which is also what makes the cascade O(depth) per element instead of O(depth²).
+ * 한 요소의 [ComputedStyle]을 부모의 것에서 점진적으로 해석한다 — 전체 조상 체인을 매번 다시 접는 대신
+ * 한 단계씩 증가하므로, 캐스케이드가 요소당 O(depth²)가 아닌 O(depth)가 된다.
  *
- * @param parent the enclosing element's computed style, or [ComputedStyle.Root] at the top.
- * @param css the chapter's stylesheets.
- * @param ancestry CSS ancestry including the element itself, outermost first.
- * @param inline the element's own `style=""` declarations, which outrank the sheet.
- * @param accumulatesInset whether this element's own start/end margin+padding joins the inset its
- * descendants are laid out with — true for block-level wrappers, false for inline elements and for the
- * page containers whose spacing becomes the page margin instead.
+ * @param parent 감싸는 요소의 계산된 스타일, 최상위에서는 [ComputedStyle.Root].
+ * @param css 챕터의 스타일시트.
+ * @param ancestry 요소 자신 포함 CSS 계층, 가장 바깥쪽부터.
+ * @param inline 요소 자신의 `style=""` 선언. 스타일시트보다 우선한다.
+ * @param accumulatesInset 이 요소 자신의 start/end margin+padding이 자식들의 레이아웃 인셋에 합산되는지 여부.
+ * 블록 레벨 래퍼는 true, 인라인 요소와 간격이 페이지 마진이 되는 페이지 컨테이너는 false.
  */
 private fun resolveComputedStyle(
     parent: ComputedStyle,
@@ -331,8 +323,8 @@ private fun resolveComputedStyle(
 }
 
 /**
- * This element's own declared font size resolved against its parent's, or the parent's when it declares
- * none — the compounding CSS defines: `0.8em` inside `0.8em` is `0.64`, not `0.8`.
+ * 이 요소 자신이 선언한 글꼴 크기를 부모의 것을 기준으로 해석하거나, 선언이 없으면 부모의 값을 사용한다.
+ * CSS가 정의한 복합 방식: `0.8em` 안의 `0.8em`은 `0.64`이고 `0.8`이 아니다.
  */
 private fun CssLength?.resolveFontScale(parentScale: Float): Float = when (this) {
     is CssLength.Em -> (value * parentScale).takeIf { it > 0f } ?: parentScale
@@ -341,14 +333,14 @@ private fun CssLength?.resolveFontScale(parentScale: Float): Float = when (this)
     null -> parentScale
 }
 
-/** A `line-height` length in base-em units: `em`/`%` against the element's own size, `px` against 16. */
+/** 기준 em 단위의 `line-height` 길이: `em`/`%`는 요소 자신의 크기 기준, `px`는 16 기준. */
 private fun CssLength.toResolvedLineHeightEm(fontScale: Float): Float? = when (this) {
     is CssLength.Em -> (value * fontScale).takeIf { it > 0f }
     is CssLength.Percent -> (fraction * fontScale).takeIf { it > 0f }
     is CssLength.Px -> (value / CssDefaultFontPx).takeIf { it > 0f }
 }
 
-/** A `text-indent` in base-em units; a percent needs a width this parser does not have and is dropped. */
+/** 기준 em 단위의 `text-indent`. 퍼센트는 이 파서가 갖지 않은 너비가 필요하므로 무시된다. */
 private fun CssLength.toResolvedIndentEm(fontScale: Float): Float? = when (this) {
     is CssLength.Em -> value * fontScale
     is CssLength.Px -> value / CssDefaultFontPx
@@ -356,11 +348,11 @@ private fun CssLength.toResolvedIndentEm(fontScale: Float): Float? = when (this)
 }
 
 /**
- * A margin or padding side in base-em units, never negative.
+ * 기준 em 단위의 마진 또는 패딩 한 변. 음수가 될 수 없다.
  *
- * A negative margin pulls content the other way, which this renderer has no way to draw, so it reads as no
- * margin at all. A percentage resolves against the containing block's *width* in CSS — a number this parser
- * does not have — so only an exact zero survives from that form.
+ * 음수 마진은 반대 방향으로 콘텐츠를 당기는데 이 렌더러는 그릴 방법이 없으므로 마진 없음으로 읽힌다.
+ * 퍼센트는 CSS에서 컨테이닝 블록의 *너비*를 기준으로 해석되는데, 이 파서에는 그 값이 없으므로
+ * 정확히 0인 경우만 살아남는다.
  */
 private fun CssLength.toResolvedMarginEm(fontScale: Float): Float? = when (this) {
     is CssLength.Em -> (value * fontScale).coerceAtLeast(0f)
@@ -369,131 +361,127 @@ private fun CssLength.toResolvedMarginEm(fontScale: Float): Float? = when (this)
 }
 
 /**
- * Accumulates [parseXhtmlContent]'s output one tag or text run at a time: the flattened text, the
- * [ReaderBlock]s addressing it, and the anchors found along the way. State that spans multiple calls —
- * which block is currently open, which inline spans and container elements are still open, list and
- * table position — lives here rather than in [parseXhtmlContent] itself, so that function's single
- * forward scan can stay a flat loop over tag boundaries instead of a recursive descent.
+ * [parseXhtmlContent]의 출력을 태그 또는 텍스트 런 하나씩 누적한다: 평탄화된 텍스트,
+ * 그것을 가리키는 [ReaderBlock]들, 그리고 도중에 발견된 앵커들. 여러 호출에 걸쳐 유지되는 상태 —
+ * 현재 열려 있는 블록, 아직 열린 인라인 스팬과 컨테이너 요소들, 리스트 및 테이블 위치 — 는
+ * [parseXhtmlContent] 자체가 아닌 여기에 보관된다. 그래야 그 함수의 단일 순방향 스캔이
+ * 재귀 하강이 아닌 태그 경계 위의 평탄한 루프로 유지될 수 있다.
  */
 private class XhtmlContentBuilder(
     /**
-     * Absolute offset the builder's text starts at; see [parseXhtmlContent]'s own `baseOffset` parameter.
+     * 빌더의 텍스트가 시작하는 절대 오프셋; [parseXhtmlContent]의 `baseOffset` 파라미터 참조.
      */
     private val baseOffset: Long,
     /**
-     * Maps a raw `src`/`href` to a container path, or null to drop the image; see [parseXhtmlContent]'s own
-     * parameter of the same name.
+     * 원시 `src`/`href`를 컨테이너 경로로 매핑하거나, 이미지를 버려야 하면 null 반환;
+     * [parseXhtmlContent]의 같은 이름 파라미터 참조.
      */
     private val resolveImageHref: (String) -> String?,
-    /** The chapter's full CSS cascade; see [parseXhtmlContent]'s own parameter of the same name. */
+    /** 챕터의 전체 CSS 캐스케이드; [parseXhtmlContent]의 같은 이름 파라미터 참조. */
     private val css: EpubCss,
 ) {
     private val text = StringBuilder()
 
     /**
-     * Every [ReaderBlock] recorded so far, appended to by [flushBlock], [appendImage], and
-     * [emitStandaloneBlock] as each block or standalone element closes. Left in recording order —
-     * an inline picture is recorded mid-paragraph, before the paragraph enclosing it closes — and
-     * only sorted into reading order once, by [build].
+     * 지금까지 기록된 모든 [ReaderBlock]. 각 블록이나 독립 요소가 닫힐 때 [flushBlock],
+     * [appendImage], [emitStandaloneBlock]이 추가한다. 기록 순서로 남겨지며 —
+     * 인라인 그림은 단락이 닫히기 전, 단락 중간에 기록된다 — [build]에서 한 번만 읽기 순서로 정렬된다.
      */
     private val blocks = mutableListOf<ReaderBlock>()
 
     /**
-     * Every `id`/`name`/`xml:id` seen so far, mapped to its absolute offset in [text]; recorded by
-     * [rememberAnchors] as markup is scanned and handed out as-is, unsorted, by [build].
+     * 지금까지 발견된 모든 `id`/`name`/`xml:id`를 [text] 내의 절대 오프셋에 매핑.
+     * 마크업을 스캔하면서 [rememberAnchors]가 기록하고, [build]가 정렬하지 않고 그대로 반환한다.
      */
     private val anchors = linkedMapOf<String, Long>()
 
-    /** Offset into [text] where the block currently being built starts, or -1 when no block is open. */
+    /** 현재 빌드 중인 블록이 시작하는 [text] 내 오프셋. 열린 블록이 없으면 -1. */
     private var blockStart = -1
 
-    /** [ReaderBlockKind] the block currently being built will be recorded as. */
+    /** 현재 빌드 중인 블록이 기록될 [ReaderBlockKind]. */
     private var blockKind = ReaderBlockKind.PARAGRAPH
 
-    /** Heading level, or list nesting depth for a list item; 0 for anything else. */
+    /** 제목 레벨, 또는 목록 항목이면 목록 중첩 깊이; 그 외는 0. */
     private var blockLevel = 0
 
-    /** Alignment for the block currently being built, from markup or the stylesheet cascade. */
+    /** 마크업 또는 스타일시트 캐스케이드에서 가져온 현재 빌드 중인 블록의 정렬. */
     private var blockAlign: ReaderTextAlign? = null
 
-    /** Ordinal marker text (e.g. `"3."`) for the current block when it is an ordered list item. */
+    /** 현재 블록이 순서 있는 목록 항목일 때의 서수 마커 텍스트(예: `"3."`). */
     private var blockLabel: String? = null
 
     /**
-     * Style (font scale, weight, family, line height, indent) the stylesheet cascade gives the current
-     * block.
+     * 스타일시트 캐스케이드가 현재 블록에 부여하는 스타일(글꼴 배율, 굵기, 패밀리, 줄 높이, 들여쓰기).
      */
     private var blockStyle: ReaderBlockStyle? = null
 
-    /** The current block's resolved style, kept so inline spans can be emitted as deltas against it. */
+    /** 현재 블록의 해석된 스타일. 인라인 스팬이 이것을 기준으로 델타로 방출될 수 있도록 보관한다. */
     private var blockComputed: ComputedStyle? = null
 
     /**
-     * Whether the current block gets a full blank line after it, or just a single line break; see
-     * [flushBlock].
+     * 현재 블록 뒤에 전체 빈 줄이 오는지, 아니면 단순 줄바꿈 하나만 오는지 여부; [flushBlock] 참조.
      */
     private var blockSeparatesWithBlankLine = true
 
-    /** Table row index for the current block, when it is a table cell. */
+    /** 현재 블록이 표 셀일 때의 표 행 인덱스. */
     private var blockTableRow: Int? = null
 
-    /** Table column index for the current block, when it is a table cell. */
+    /** 현재 블록이 표 셀일 때의 표 열 인덱스. */
     private var blockTableColumn: Int? = null
 
-    /** Inline spans (bold, italic, links, …) collected so far for the block currently being built. */
+    /** 현재 빌드 중인 블록을 위해 지금까지 수집된 인라인 스팬(굵기, 이탤릭, 링크 등). */
     private val blockSpans = mutableListOf<ReaderSpan>()
 
-    /** Inline styling elements (`<b>`, `<a>`, …) still open, innermost last. */
+    /** 아직 열려 있는 인라인 스타일 요소(`<b>`, `<a>` 등), 가장 안쪽이 마지막. */
     private val openInline = mutableListOf<OpenSpan>()
 
     /**
-     * Block and container elements still open, outermost first — the ancestry both a CSS lookup and an
-     * image's width lookup walk.
+     * 아직 열려 있는 블록 및 컨테이너 요소들, 가장 바깥쪽부터 — CSS 조회와 이미지 너비 조회가
+     * 모두 순회하는 계층.
      */
     private val openBlocks = mutableListOf<OpenElement>()
     private val openContainers = mutableListOf<OpenContainer>()
     private val hiddenElements = mutableListOf<String>()
 
-    /** Open `<ol>`/`<ul>` contexts, innermost last, tracking ordinal position. */
+    /** 열려 있는 `<ol>`/`<ul>` 컨텍스트들, 가장 안쪽이 마지막. 서수 위치를 추적한다. */
     private val lists = mutableListOf<ListContext>()
 
-    /** Open `<table>` contexts, innermost last, tracking row/column position. */
+    /** 열려 있는 `<table>` 컨텍스트들, 가장 안쪽이 마지막. 행/열 위치를 추적한다. */
     private val tables = mutableListOf<TableContext>()
 
-    /** Depth of nested `<pre>` elements; whitespace is written verbatim while this is above zero. */
+    /** 중첩된 `<pre>` 요소의 깊이. 0보다 크면 공백이 그대로 기록된다. */
     private var preformattedDepth = 0
 
     /**
-     * A run of whitespace has been seen but not yet written, since markup padding must not open a block or
-     * start a line by itself.
+     * 공백 런이 감지됐지만 아직 기록되지 않은 상태. 마크업 패딩이 블록을 열거나
+     * 줄의 맨 앞에 오면 안 되기 때문이다.
      */
     private var pendingSpace = false
 
     /**
-     * Chapter name taken from the first heading's `title` attribute, if any; becomes
-     * [XhtmlContent.headingTitle].
+     * 첫 번째 제목의 `title` 속성에서 가져온 챕터 이름(있으면);
+     * [XhtmlContent.headingTitle]이 된다.
      */
     private var headingTitle: String? = null
 
-    /** Pictures written into the block being built, so a wrapper holding only pictures is recognised. */
+    /** 빌드 중인 블록에 기록된 그림 수. 그림만 담은 래퍼를 인식하는 데 사용된다. */
     private var blockImageCount = 0
 
-    /** Explicit `<br>`s written into the block being built, so a blank-line paragraph is recognised. */
+    /** 빌드 중인 블록에 기록된 명시적 `<br>` 수. 빈 줄 단락을 인식하는 데 사용된다. */
     private var blockLineBreakCount = 0
 
     private val suppressingHiddenContent: Boolean
         get() = hiddenElements.isNotEmpty()
 
     /**
-     * Appends one text run between tags to the output, decoding its entities first.
+     * 태그 사이의 텍스트 런 하나를 출력에 추가한다. 엔티티를 먼저 디코딩한다.
      *
-     * Outside a `<pre>`, whitespace is collapsed the way HTML collapses it: a run of whitespace is
-     * held in [pendingSpace] rather than written immediately, because markup padding around a tag must
-     * not open a block or start a line by itself, while a real space between two inline elements
-     * arrives as its own text run and still has to survive the gap between them. Inside a `<pre>`
-     * (tracked by [preformattedDepth]), the text is written exactly as given, with no collapsing at all.
+     * `<pre>` 바깥에서는 HTML이 공백을 축약하는 방식으로 축약한다: 공백 런은 즉시 기록하지 않고
+     * [pendingSpace]에 보관하는데, 태그 주변의 마크업 패딩이 블록을 열거나 줄을 시작해서는 안 되기
+     * 때문이다. 반면 두 인라인 요소 사이의 진짜 공백은 자체 텍스트 런으로 도착하므로 그 간격을
+     * 살아남아야 한다. `<pre>` 안([preformattedDepth]로 추적)에서는 텍스트를 그대로, 축약 없이 기록한다.
      *
-     * @param rawText the text run as it appeared in the markup, not yet entity-decoded.
+     * @param rawText 마크업에 그대로 나타난 텍스트 런. 아직 엔티티 디코딩이 안 된 상태.
      */
     fun appendText(rawText: String) {
         if (suppressingHiddenContent) return
@@ -518,22 +506,20 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Handles one opening (or self-closing) tag: some tags act immediately (`<br>`, `<img>`/`<image>`,
-     * `<hr>`), some only push list/table tracking state, and the rest — recognized block elements or
-     * inline styles — either open a span or close the previous block and open a new one shaped by
-     * whatever the stylesheet cascade and markup attributes say about it.
+     * 열리는(또는 자체 닫히는) 태그 하나를 처리한다. 일부 태그는 즉시 동작하고(`<br>`, `<img>`/`<image>`,
+     * `<hr>`), 일부는 리스트/테이블 추적 상태만 쌓으며, 나머지 — 인식된 블록 요소 또는 인라인 스타일 —
+     * 는 스팬을 열거나 이전 블록을 닫고 스타일시트 캐스케이드와 마크업 속성이 지시하는 형태로 새 블록을 연다.
      *
-     * For an image, width and float are resolved from the same cascade the rest of the element sees:
-     * linked CSS through [css], inline `style` layered on top of it, and [styleSheet] kept as the
-     * legacy width fallback for older class-keyed image rules. For a recognized block element, [css] is
-     * asked for the declarations that apply to the whole open-element ancestry, not just the element
-     * itself, so an inherited `text-align` set on a wrapper still reaches a paragraph nested inside it;
-     * markup written directly on the element (an `align` attribute, an inline `style`) still wins over
-     * that cascade, the same way it would in a browser. Before an inline styling element records where
-     * its span starts, any pending space is flushed first — recording the start before that flush made
-     * every span begin one character early, swallowing the leading space of whatever it wrapped.
+     * 이미지의 경우, 너비와 float는 요소가 받는 캐스케이드와 동일하게 해석된다:
+     * [css]를 통한 링크된 CSS, 그 위에 덧씌워진 인라인 `style`, 그리고 오래된 클래스 키 기반 이미지
+     * 규칙을 위한 레거시 너비 폴백으로 유지되는 [styleSheet]. 인식된 블록 요소의 경우
+     * [css]는 요소 자체만이 아닌 전체 열린 요소 계층에 적용되는 선언들을 제공하므로,
+     * 래퍼에 설정된 상속된 `text-align`이 중첩된 단락까지 도달한다; 요소에 직접 작성된 마크업
+     * (`align` 속성, 인라인 `style`)은 브라우저에서와 마찬가지로 여전히 캐스케이드보다 우선한다.
+     * 인라인 스타일 요소가 스팬 시작 위치를 기록하기 전에 대기 중인 공백을 먼저 플러시한다 —
+     * 플러시 전에 시작을 기록하면 모든 스팬이 한 문자 일찍 시작하여 감싸는 내용의 선행 공백을 삼켜버렸다.
      *
-     * @param tag the opening tag, already parsed by [parseTag].
+     * @param tag [parseTag]가 이미 파싱한 열린 태그.
      */
     fun openElement(tag: XhtmlTag) {
         if (suppressingHiddenContent) {
@@ -624,8 +610,8 @@ private class XhtmlContentBuilder(
 
         val kind = BlockKinds[tag.name] ?: run {
             if (tag.name in NeutralContainers) {
-                // A pure inline container's styling reaches its text as a span; a block-level wrapper's
-                // reaches it baked into every block resolved inside it, so only the former needs one.
+                // 순수 인라인 컨테이너의 스타일은 스팬으로 텍스트에 전달되고, 블록 레벨 래퍼의 스타일은
+                // 내부에서 해석된 모든 블록에 구워 넣어지므로, 전자만 스팬이 필요하다.
                 if (tag.name in PureInlineContainers) {
                     ensureBlockOpen()
                     val delta = currentElement.computed.toSpanDelta(spanDeltaBase(), css)
@@ -683,12 +669,12 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Handles one closing tag: closes the innermost still-open inline span of this name if there is
-     * one, pops list/table tracking, and closes (flushing) the innermost still-open block element of
-     * this name if there is one. A closing tag with no matching open element — already consumed by an
-     * ancestor's own close, or malformed markup with no matching open tag at all — is simply ignored.
+     * 닫는 태그 하나를 처리한다. 이 이름의 가장 안쪽에 열려 있는 인라인 스팬이 있으면 닫고,
+     * 리스트/테이블 추적을 팝하며, 이 이름의 가장 안쪽에 열려 있는 블록 요소가 있으면 닫는다(플러시 포함).
+     * 매칭되는 열린 요소가 없는 닫는 태그 — 조상의 자체 닫기로 이미 소비됐거나,
+     * 매칭 열린 태그가 전혀 없는 잘못된 마크업 — 는 단순히 무시한다.
      *
-     * @param name the closing tag's element name (already lowercased by the caller).
+     * @param name 닫는 태그의 요소 이름(호출자가 이미 소문자로 변환한 것).
      */
     fun closeElement(name: String) {
         val lowered = name.lowercase()
@@ -723,19 +709,17 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Finishes the chapter: flushes whatever block is still open, trims the trailing blank line(s) a
-     * closing block would otherwise leave dangling past the end of the readable content, and returns
-     * the accumulated [XhtmlContent].
+     * 챕터를 마무리한다: 아직 열려 있는 블록을 플러시하고, 닫는 블록이 가독 콘텐츠 끝 이후에
+     * 남겨두는 후행 빈 줄을 잘라내며, 누적된 [XhtmlContent]를 반환한다.
      *
-     * Trimming stops at the end of the last recorded block's range rather than at the very end of the
-     * text, because the separator written after that block is exactly the blank line that would
-     * otherwise show up as trailing whitespace at the end of a chapter. The returned blocks are sorted
-     * by start offset rather than left in the order they were recorded, because an inline picture is
-     * recorded the moment it is written — mid-paragraph — while the paragraph enclosing it is only
-     * recorded once that paragraph's own block closes; putting the list back into reading order here is
-     * what lets every downstream consumer assume blocks already come in that order.
+     * 잘라내기는 텍스트 맨 끝이 아닌 마지막으로 기록된 블록 범위의 끝에서 멈춘다. 그 블록 뒤에
+     * 기록된 구분자가 바로 챕터 끝 후행 공백으로 나타날 빈 줄이기 때문이다. 반환되는 블록들은
+     * 기록된 순서가 아닌 시작 오프셋 기준으로 정렬된다. 인라인 그림은 기록되는 순간 — 단락 중간 —
+     * 저장되는 반면, 그것을 감싸는 단락은 그 단락 자체의 블록이 닫힐 때만 기록되기 때문이다;
+     * 여기서 목록을 읽기 순서로 되돌리는 것이 하위 소비자들이 블록이 이미 그 순서로 왔다고
+     * 가정할 수 있게 해준다.
      *
-     * @return the accumulated text, blocks (in reading order), anchors, and heading title for this chapter.
+     * @return 이 챕터의 누적된 텍스트, 블록(읽기 순서), 앵커, 제목 타이틀.
      */
     fun build(): XhtmlContent {
         flushBlock()
@@ -753,8 +737,8 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Records [attributes]' `id`/`name`/`xml:id`, if any, as pointing at the current write position.
-     * The first anchor recorded for a given name wins over a later duplicate of the same name.
+     * [attributes]의 `id`/`name`/`xml:id`가 있으면 현재 기록 위치를 가리키는 것으로 등록한다.
+     * 같은 이름에 대해 먼저 기록된 앵커가 이후 중복보다 우선한다.
      */
     private fun rememberAnchors(attributes: Map<String, String>) {
         val absoluteOffset = baseOffset + text.length
@@ -765,13 +749,12 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Marks a block as started at the current write position, if one is not already open.
+     * 아직 열린 블록이 없으면 현재 기록 위치에서 블록이 시작됨으로 표시한다.
      *
-     * A block opened here rather than by a block tag — text set directly inside `<body>` or a wrapper —
-     * still sits inside whatever styling its ancestors resolved, so it takes the inherited-visual slice
-     * of the nearest block-level ancestor's computed style as its own. Pure inline containers are skipped
-     * as that ancestor: their styling reaches the text as a span, and taking it here too would apply it
-     * twice.
+     * 블록 태그가 아닌 여기서 열리는 블록 — `<body>`나 래퍼 안에 직접 설정된 텍스트 — 은
+     * 조상들이 해석한 스타일 안에 여전히 위치하므로, 가장 가까운 블록 레벨 조상의 계산된 스타일에서
+     * 상속된 시각적 부분만 가져온다. 순수 인라인 컨테이너는 그 조상으로서 건너뛴다:
+     * 그것의 스타일은 스팬으로 텍스트에 전달되며, 여기서도 가져오면 두 번 적용된다.
      */
     private fun ensureBlockOpen() {
         if (blockStart >= 0) return
@@ -784,7 +767,7 @@ private class XhtmlContentBuilder(
         }
     }
 
-    /** Builds one [OpenElement] with its style resolved incrementally from the innermost open ancestor. */
+    /** 스타일을 가장 안쪽 열린 조상에서 점진적으로 해석하여 [OpenElement] 하나를 빌드한다. */
     private fun openElementFor(tag: XhtmlTag): OpenElement {
         val classNames = tag.classNames()
         val id = tag.attributes["id"]
@@ -800,7 +783,7 @@ private class XhtmlContentBuilder(
         return OpenElement(tag.name, classNames, id, inline, computed)
     }
 
-    /** The style the next inline span should be a delta against: the innermost span, else the block. */
+    /** 다음 인라인 스팬이 델타를 계산할 기준 스타일: 가장 안쪽 스팬, 없으면 블록. */
     private fun spanDeltaBase(): ComputedStyle =
         openInline.lastOrNull()?.computed
             ?: blockComputed
@@ -808,8 +791,7 @@ private class XhtmlContentBuilder(
             ?: ComputedStyle.Root
 
     /**
-     * Writes the held space from [pendingSpace], if any, unless it would be the very first character of the
-     * open block.
+     * [pendingSpace]에 보류된 공백이 있으면 기록한다. 단, 열린 블록의 첫 번째 문자가 되는 경우는 제외한다.
      */
     private fun flushPendingSpace() {
         if (!pendingSpace) return
@@ -818,14 +800,12 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Write a picture where it was written: ordinarily into the line being built, not between two
-     * blocks.
+     * 그림을 기록된 위치, 즉 보통은 두 블록 사이가 아닌 빌드 중인 줄 안에 기록한다.
      *
-     * `<img>` is inline content in HTML, so an ordinary inline glyph or icon stays in its paragraph.
-     * A floated image is likewise preserved inline here; the publisher float itself is carried on the
-     * image block for a later renderer decision. A picture that turns out to be the only thing in its
-     * block is still recognised in [flushBlock], and stands on a line of its own there, the way a plate
-     * does.
+     * HTML에서 `<img>`는 인라인 콘텐츠이므로, 일반 인라인 글리프나 아이콘은 단락 안에 머문다.
+     * 플로트된 이미지도 마찬가지로 인라인으로 보존된다; 퍼블리셔의 float 자체는 나중에 렌더러가
+     * 결정할 수 있도록 이미지 블록에 실린다. 블록에서 유일한 내용이 그림으로 판명된 경우는
+     * [flushBlock]에서 여전히 인식되어, 판화처럼 자체 줄에 단독으로 위치한다.
      */
     private fun appendImage(
         imageHref: String,
@@ -857,17 +837,16 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Writes a self-contained block that is not built up from surrounding text — currently just a rule
-     * (`<hr>`) — as one character plus its own [ReaderBlock], flushing whatever paragraph was already
-     * open first.
+     * 주변 텍스트에서 만들어지지 않는 독립 블록 — 현재는 규칙선(`<hr>`)만 해당 — 을
+     * 한 문자와 자신의 [ReaderBlock]으로 기록하되, 이미 열려 있던 단락을 먼저 플러시한다.
      *
-     * The block is given a real, one-character range rather than a zero-width one because a zero-width
-     * range would fall through a page-range filter exactly at a page boundary. The single newline
-     * written after it ends the block's own line; no blank line is added before it, because the
-     * preceding paragraph's own flush already wrote one — the same spacing a browser gives `<hr>`,
-     * rather than the roughly doubled gap two newlines from both sides would have produced.
+     * 블록에는 너비 0이 아닌 실제 1문자 범위를 부여한다. 너비 0 범위는 페이지 경계에서
+     * 페이지 범위 필터를 통과해버리기 때문이다. 뒤에 기록된 단일 줄바꿈은 블록 자체의 줄을 끝낸다;
+     * 앞에는 빈 줄을 추가하지 않는데, 앞의 단락 자체 플러시가 이미 하나를 기록했기 때문이다 —
+     * 브라우저가 `<hr>`에 주는 것과 동일한 간격이며, 양쪽에서 각각 줄바꿈이 오면 생기는
+     * 두 배 가량의 간격을 피한다.
      *
-     * @param kind block kind to record.
+     * @param kind 기록할 블록 종류.
      */
     private fun emitStandaloneBlock(kind: ReaderBlockKind) {
         flushBlock()
@@ -882,21 +861,18 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Closes out whatever block is currently open (if any) and writes the separator that follows it.
+     * 현재 열려 있는 블록(있으면)을 닫고 그 뒤에 구분자를 기록한다.
      *
-     * Trailing block padding (spaces, tabs, line breaks) is trimmed off the end first; a block that
-     * turns out to be completely empty after trimming — its start and end offset now equal — records
-     * no [ReaderBlock] at all, and its open spans are discarded rather than kept for an empty range. A
-     * block that held nothing but pictures (an image-only wrapper `<div>`, for instance) is treated the
-     * same way: there is no prose to record, so no paragraph block is written, and each picture already
-     * written keeps its own line rather than being folded into an empty paragraph drawn around it.
-     * Otherwise the accumulated [ReaderBlock] is recorded with whatever kind, level, spans, alignment,
-     * label, table position, and style were set while it was open. The separator written afterward is a
-     * blank line (`"\n\n"`) or a single line break (`"\n"`) depending on [blockSeparatesWithBlankLine] —
-     * how one paragraph is told apart from the next on the page. A stylesheet rule of `margin: 0` on a
-     * paragraph is this reader's signal that paragraphs should run on with no gap between them (their
-     * own first-line indent is what separates them instead); giving those a blank line anyway would
-     * have spread the page out to roughly twice the length the book intended.
+     * 후행 블록 패딩(공백, 탭, 줄바꿈)을 먼저 끝에서 잘라낸다; 잘라낸 뒤 완전히 비어있는 블록 —
+     * 시작과 끝 오프셋이 같아진 경우 — 은 [ReaderBlock]을 전혀 기록하지 않으며, 열린 스팬은
+     * 빈 범위를 위해 보관하지 않고 버린다. 그림만 담은 블록(예: 이미지 전용 래퍼 `<div>`)도
+     * 동일하게 처리한다: 기록할 산문이 없으므로 단락 블록은 기록되지 않으며, 이미 기록된 각 그림은
+     * 빈 단락 안에 접혀 들어가지 않고 자체 줄을 유지한다. 그 외에는 열려 있는 동안 설정된 종류, 레벨,
+     * 스팬, 정렬, 레이블, 표 위치, 스타일로 [ReaderBlock]이 기록된다. 뒤에 기록되는 구분자는
+     * [blockSeparatesWithBlankLine]에 따라 빈 줄(`"\n\n"`) 또는 단일 줄바꿈(`"\n"`) —
+     * 페이지에서 하나의 단락이 다음 단락과 구별되는 방식이다. 단락에 `margin: 0` 스타일시트 규칙은
+     * 이 리더가 단락들이 간격 없이 이어져야 한다는 신호로 해석한다(대신 첫 줄 들여쓰기로 구분된다);
+     * 그럼에도 빈 줄을 주면 책이 의도한 것의 약 두 배 길이로 페이지가 펼쳐진다.
      */
     private fun flushBlock() {
         val start = blockStart
@@ -914,11 +890,11 @@ private class XhtmlContentBuilder(
         blockStart = -1
         while (text.length > start && text.last().isBlockPadding()) text.deleteAt(text.length - 1)
         if (text.length == start) {
-            // A paragraph holding nothing but explicit line breaks is a *blank-line* paragraph, not an
-            // empty one: `<p><br/></p>` draws as one empty line in a browser, and it is how these books
-            // put the space between a chapter-title box and its prose. Dropping it glued the two
-            // together. The breaks are kept as the paragraph's own content so each draws as one line of
-            // the paragraph's line height, exactly the height the book set the space in.
+            // 명시적 줄바꿈만 담은 단락은 빈 단락이 아닌 *빈 줄* 단락이다: `<p><br/></p>`는
+            // 브라우저에서 빈 줄 하나로 그려지며, 이 책들이 챕터 제목 박스와 본문 사이 공간을
+            // 표현하는 방식이다. 이것을 버리면 둘이 붙어버린다. 줄바꿈은 단락 자체의 콘텐츠로
+            // 유지하므로 각각이 단락의 줄 높이 한 줄로 그려지며, 그 높이는 책에서 해당 공간에
+            // 설정한 높이와 정확히 일치한다.
             if (lineBreakCount > 0) {
                 repeat(lineBreakCount) { text.append('\n') }
             } else {
@@ -952,8 +928,8 @@ private class XhtmlContentBuilder(
     }
 
     /**
-     * Closes every still-open inline span at the block's own end, so unclosed inline markup (an
-     * unterminated `<b>`, say) ends with the block instead of leaking into whatever follows it.
+     * 블록 자체의 끝에서 아직 열린 모든 인라인 스팬을 닫는다. 그래야 닫히지 않은 인라인 마크업
+     * (예: 종료되지 않은 `<b>`)이 이후 내용으로 누수되지 않고 블록과 함께 끝난다.
      */
     private fun resetOpenSpans() {
         if (openInline.isEmpty()) return
@@ -970,7 +946,7 @@ private class XhtmlContentBuilder(
         openInline.clear()
     }
 
-    /** Resets all per-block state to its default, ready for the next block to be built. */
+    /** 모든 블록별 상태를 기본값으로 재설정하여 다음 블록을 빌드할 준비를 한다. */
     private fun resetBlockAttributes() {
         blockKind = ReaderBlockKind.PARAGRAPH
         blockLevel = 0
@@ -1003,13 +979,13 @@ private class XhtmlContentBuilder(
         while (endIndex > container.start && text[endIndex - 1].isBlockPadding()) endIndex -= 1
         val end = baseOffset + endIndex
         if (end <= start) return
-        // A styled block element that wrapped exactly one text run already carries this whole style on
-        // that leaf block — its box is the leaf's box. Recording a CONTAINER twin over the same range
-        // with the same style forced every renderer to re-discover the duplication (by comparing ranges
-        // and styles) just to avoid double-counting its spacing; suppressing the twin at the single
-        // point it would be created keeps the invariant structural: a CONTAINER is always a genuine
-        // wrapper. Page containers are exempt — html/body must always be recorded, since page margins
-        // and the page background are read off them.
+        // 정확히 텍스트 런 하나를 감싼 스타일 있는 블록 요소는 이미 그 리프 블록에
+        // 전체 스타일을 갖고 있다 — 그것의 박스가 리프의 박스다. 같은 범위에 같은 스타일로
+        // CONTAINER 쌍둥이를 기록하면 모든 렌더러가 간격 이중 계산을 피하기 위해 범위와 스타일을
+        // 비교해서 중복을 재발견해야 했다; 쌍둥이가 생성될 단 하나의 지점에서 억제하면
+        // 불변성이 구조적으로 유지된다: CONTAINER는 항상 진짜 래퍼다.
+        // 페이지 컨테이너는 예외 — html/body는 항상 기록해야 하며, 페이지 마진과
+        // 페이지 배경이 여기서 읽히기 때문이다.
         val range = TextRange(start, end)
         if (!container.isPageContainer &&
             blocks.any { block ->
@@ -1038,69 +1014,67 @@ private class XhtmlContentBuilder(
 }
 
 /**
- * An inline styling element (`<b>`, `<a>`, …) currently open, remembered until its closing tag turns it
- * into a [ReaderSpan].
+ * 현재 열려 있는 인라인 스타일 요소(`<b>`, `<a>` 등). 닫는 태그가 이것을 [ReaderSpan]으로
+ * 변환할 때까지 기억된다.
  */
 private class OpenSpan(
-    /** Lowercased tag name, matched against the closing tag that ends this span. */
+    /** 소문자로 변환된 태그 이름. 이 스팬을 끝내는 닫는 태그와 매칭된다. */
     val name: String,
-    /** Inline style this element applies once closed. */
+    /** 이 요소가 닫힐 때 적용하는 인라인 스타일. */
     val style: ReaderInlineStyle?,
-    /** Link target, for [ReaderInlineStyle.LINK]; null otherwise. */
+    /** [ReaderInlineStyle.LINK]의 링크 대상; 그 외는 null. */
     val href: String?,
-    /** Offset into the builder's text where this span starts. */
+    /** 이 스팬이 시작하는 빌더 텍스트 내 오프셋. */
     val start: Int,
-    /** Extra CSS-derived styling carried by this span, as a delta against its enclosing context. */
+    /** 이 스팬이 담고 있는 CSS 유래 추가 스타일. 감싸는 컨텍스트에 대한 델타. */
     val styleDelta: ReaderSpanStyle? = null,
-    /** The element's resolved style, the delta base for any span nested inside this one. */
+    /** 요소의 해석된 스타일. 이 스팬 안에 중첩된 스팬의 델타 기준. */
     val computed: ComputedStyle = ComputedStyle.Root,
 )
 
-/** Tracks position inside one open `<ol>`/`<ul>`. */
+/** 열려 있는 `<ol>`/`<ul>` 하나의 위치를 추적한다. */
 private class ListContext(
-    /** True for `<ol>`, false for `<ul>` — only an ordered list gives its items a numeric label. */
+    /** `<ol>`이면 true, `<ul>`이면 false — 순서 있는 목록만 항목에 숫자 레이블을 붙인다. */
     val isOrdered: Boolean,
-    /** The ordinal the next `<li>` should be labeled with, incremented after each one. */
+    /** 다음 `<li>`에 붙일 서수. 항목마다 하나씩 증가한다. */
     var nextOrdinal: Int,
 )
 
-/** Tracks position inside one open `<table>`. */
+/** 열려 있는 `<table>` 하나의 위치를 추적한다. */
 private class TableContext {
-    /** Index of the row currently open, incremented on each `<tr>`; -1 before the first row. */
+    /** 현재 열려 있는 행의 인덱스. `<tr>`마다 증가하며, 첫 행 전은 -1. */
     var rowIndex: Int = -1
 
     /**
-     * Index of the cell currently open within the row, incremented on each `<td>`/`<th>`; reset to -1 by
-     * each `<tr>`.
+     * 행 안에서 현재 열려 있는 셀의 인덱스. `<td>`/`<th>`마다 증가하며, 각 `<tr>`에서 -1로 초기화된다.
      */
     var columnIndex: Int = -1
 }
 
-/** Whether this character is whitespace [XhtmlContentBuilder] trims from a block's trailing edge. */
+/** 이 문자가 [XhtmlContentBuilder]가 블록의 후행 끝에서 잘라내는 공백인지 여부. */
 private fun Char.isBlockPadding(): Boolean = this == ' ' || this == '\n' || this == '\t' || this == '\r'
 
 /**
- * Whether this kind is one of the two table-cell kinds, which carry a row/column position the others do
- * not.
+ * 이 종류가 행/열 위치를 갖는 두 표 셀 종류 중 하나인지 여부.
  */
 private fun ReaderBlockKind.isTableCellKind(): Boolean =
     this == ReaderBlockKind.TABLE_CELL || this == ReaderBlockKind.TABLE_HEADER_CELL
 
-/** This tag's `class` attribute, split on whitespace into its individual class names. */
+/** 이 태그의 `class` 속성을 공백으로 분할한 개별 클래스 이름 목록. */
 private fun XhtmlTag.classNames(): List<String> =
     attributes["class"].orEmpty().split(WhitespaceRunRegex).map(String::trim).filter(String::isNotEmpty)
 
-/** An `<ol>`'s `start` attribute as the first ordinal its items should be labeled with, defaulting to 1. */
+/** `<ol>`의 `start` 속성. 항목에 붙일 첫 번째 서수이며, 기본값은 1. */
 private fun Map<String, String>.startOrdinal(): Int = this["start"]?.toIntOrNull() ?: 1
 
-/** Inline `style` declarations on this tag, parsed with the same declaration reader as linked CSS. */
+/** 이 태그의 인라인 `style` 선언. 링크된 CSS와 동일한 선언 파서로 파싱된다. */
 private fun Map<String, String>.inlineCssDeclarations(): CssDeclarations =
     this["style"]?.let(::parseCssDeclarations) ?: CssDeclarations.Empty
 
 /**
- * Whether this element's own inline-start/end margin and padding join the inset its descendants are laid
- * out with. Block-level wrappers and blocks do; inline elements do not; `html`/`body` do not either, since
- * their spacing becomes the reader's page margin instead of a per-paragraph inset.
+ * 이 요소 자신의 인라인-스타트/엔드 마진과 패딩이 자식들의 레이아웃 인셋에 합산되는지 여부.
+ * 블록 레벨 래퍼와 블록은 합산된다; 인라인 요소는 그렇지 않다; `html`/`body`도 그렇지 않다,
+ * 그것들의 간격은 단락별 인셋이 아닌 리더의 페이지 마진이 되기 때문이다.
  */
 private fun String.accumulatesInset(): Boolean = when {
     this == "html" || this == "body" -> false
@@ -1155,11 +1129,11 @@ private fun resolveImageLayout(
     val float = (sequenceOf(ownDeclarations) + ancestorDeclarations.asSequence())
         .mapNotNull(CssDeclarations::floatOrNull)
         .firstOrNull()
-    // A float claims an edge and wins outright. Otherwise a deliberate placement — the inherited
-    // `text-align` reaching the image being `center` or `right` — is honored; `left`/`justify` are how
-    // a book styles its *prose* (body/p defaults the image merely inherits), and reading systems still
-    // center a plate under those, so they fall through to the CENTER default rather than dragging the
-    // picture to the margin.
+    // float는 한쪽 가장자리를 차지하며 무조건 우선한다. 그 외에는 의도적 배치 —
+    // 이미지에 상속된 `text-align`이 `center` 또는 `right`인 경우 — 가 우선된다;
+    // `left`/`justify`는 책이 *산문*(body/p 기본값, 이미지가 그냥 상속받는 것)을 스타일링하는 방식이며,
+    // 읽기 시스템은 그 아래에서도 여전히 판화를 중앙에 위치시키므로,
+    // 이미지를 마진으로 끌어당기지 않고 CENTER 기본값으로 넘어간다.
     val inheritedAlign = ownDeclarations.textAlign?.toReaderTextAlign()
     val align = float?.toTextAlign()
         ?: inheritedAlign?.takeIf { it == ReaderTextAlign.CENTER || it == ReaderTextAlign.END }
@@ -1174,18 +1148,17 @@ private fun resolveImageLayout(
 }
 
 /**
- * A span's styling as the *difference* between its own resolved style and [base], the style of whatever
- * encloses it — the innermost open span, or the block.
+ * 스팬의 스타일을 자신의 해석된 스타일과 [base](감싸는 것의 스타일 — 가장 안쪽 열린 스팬, 또는 블록)의
+ * *차이*로 표현한다.
  *
- * A delta is the only shape a span can safely carry here. The renderer nests span styles the way Compose
- * nests them: an `em` font size multiplies whatever size is already in force at that position. A span
- * carrying its full inherited style re-applied everything its block already applied — a `0.9em` wrapper's
- * text came out at `0.81`. [ReaderSpanStyle] makes that structural: absolute lengths cannot even be
- * stated on a span.
+ * 델타만이 스팬이 여기서 안전하게 담을 수 있는 유일한 형태다. 렌더러는 Compose가 스팬 스타일을
+ * 중첩하는 방식으로 중첩한다: `em` 글꼴 크기는 그 위치에 이미 적용된 크기와 곱해진다. 완전히 상속된
+ * 스타일을 갖는 스팬은 블록이 이미 적용한 모든 것을 다시 적용하게 되어 — `0.9em` 래퍼의 텍스트가
+ * `0.81`로 나온다. [ReaderSpanStyle]은 이것을 구조적으로 만든다: 스팬에는 절대 길이를 명시조차 할 수 없다.
  *
- * @receiver the span element's resolved style.
- * @param base the enclosing context's resolved style.
- * @return the properties that actually differ, or null when nothing does.
+ * @receiver 스팬 요소의 해석된 스타일.
+ * @param base 감싸는 컨텍스트의 해석된 스타일.
+ * @return 실제로 다른 속성들, 또는 아무것도 다르지 않으면 null.
  */
 private fun ComputedStyle.toSpanDelta(base: ComputedStyle, css: EpubCss): ReaderSpanStyle? {
     fun <T> changed(value: T?, baseValue: T?): T? = value?.takeIf { it != baseValue }
@@ -1204,7 +1177,7 @@ private fun ComputedStyle.toSpanDelta(base: ComputedStyle, css: EpubCss): Reader
     ).takeIf { !it.isEmpty() }
 }
 
-/** How far from exactly 1 a span's font-scale ratio must be before it is worth emitting at all. */
+/** 스팬의 글꼴 배율 비율이 방출할 가치가 있으려면 정확히 1에서 얼마나 멀어야 하는지. */
 private const val FontScaleRatioEpsilon = 0.001f
 
 private fun CssDeclarations.toReaderImageStyle(): ReaderBlockStyle? = ReaderBlockStyle(
@@ -1213,9 +1186,9 @@ private fun CssDeclarations.toReaderImageStyle(): ReaderBlockStyle? = ReaderBloc
 ).takeIf { !it.isEmpty() }
 
 /**
- * Width divided by height, from the `width`/`height` attributes or an inline `style`, when the markup
- * declares both as plain pixel numbers. A `%` or missing dimension carries no real aspect ratio, so it
- * is left null rather than guessed; the real pixels are sniffed from the image bytes instead.
+ * 마크업이 `width`/`height` 속성 또는 인라인 `style`로 둘 다 순수 픽셀 숫자로 선언한 경우의
+ * 너비 나누기 높이. `%`이거나 치수가 없으면 실제 종횡비가 없으므로 추측하지 않고 null로 남긴다;
+ * 실제 픽셀은 대신 이미지 바이트에서 읽는다.
  */
 private fun Map<String, String>.declaredImageAspectRatio(): Float? {
     val declaredWidth = this["width"]?.toPixelValue() ?: this["style"]?.let { cssPixelDimension(it, CssWidthPxRegex) }
@@ -1225,29 +1198,28 @@ private fun Map<String, String>.declaredImageAspectRatio(): Float? {
 }
 
 /**
- * This attribute value as a plain pixel number, or null if it is empty or carries a unit letter (e.g.
- * `"100%"`, `"2em"`) rather than a bare number.
+ * 이 속성 값을 순수 픽셀 숫자로 반환하거나, 비어 있거나 단위 문자(예: `"100%"`, `"2em"`)를
+ * 포함하는 경우 null을 반환한다.
  */
 private fun String.toPixelValue(): Float? = trim().takeIf { it.isNotEmpty() && it.none(Char::isLetter) }?.toFloatOrNull()
 
 /**
- * The pixel value [dimension] matches out of an inline `style` attribute, or null if the property is
- * absent or not declared in `px`.
+ * 인라인 `style` 속성에서 [dimension]이 매칭하는 픽셀 값을 반환하거나, 속성이 없거나 `px`로
+ * 선언되지 않은 경우 null을 반환한다.
  *
- * Takes the pattern already compiled rather than a property name so that measuring a page of images
- * does not recompile one regex per `<img>`: [CssWidthPxRegex] and [CssHeightPxRegex] are the only two
- * properties any caller asks for, and both are built once for the process.
+ * 속성 이름 대신 이미 컴파일된 패턴을 받는다. 이미지 페이지 측정 시 `<img>`마다 정규식을
+ * 재컴파일하지 않기 위해서다: [CssWidthPxRegex]와 [CssHeightPxRegex]가 어떤 호출자든 요청하는
+ * 유일한 두 속성이며, 둘 다 프로세스당 한 번만 빌드된다.
  *
- * @param style raw inline `style` attribute text.
- * @param dimension pattern whose first group captures the numeric `px` value, i.e. [CssWidthPxRegex]
- *   or [CssHeightPxRegex].
+ * @param style 원시 인라인 `style` 속성 텍스트.
+ * @param dimension 첫 번째 그룹이 숫자 `px` 값을 캡처하는 패턴, 즉 [CssWidthPxRegex] 또는 [CssHeightPxRegex].
  */
 private fun cssPixelDimension(style: String, dimension: Regex): Float? =
     dimension.find(style)?.groupValues?.get(1)?.toFloatOrNull()
 
 /**
- * This tag's alignment from its `align` attribute or an inline `style`'s `text-align`, or null if neither
- * declares a recognized value.
+ * 이 태그의 `align` 속성 또는 인라인 `style`의 `text-align`에서 가져온 정렬.
+ * 둘 다 인식된 값을 선언하지 않으면 null.
  */
 private fun Map<String, String>.textAlign(): ReaderTextAlign? {
     val declared = this["align"] ?: this["style"]?.let { style ->
@@ -1263,13 +1235,13 @@ private fun Map<String, String>.textAlign(): ReaderTextAlign? {
 }
 
 /**
- * Decodes XML/HTML character references in [value]: numeric (`&#160;`, `&#x1F600;`) and the named
- * entities in [NamedEntities]. An entity reference longer than [MaxEntityLength], with no closing `;`,
- * or naming an entity not in [NamedEntities] is left in the output exactly as written rather than
- * dropped or guessed at — malformed or unrecognized markup should not silently eat the text around it.
+ * [value]에 있는 XML/HTML 문자 참조를 디코딩한다: 숫자형(`&#160;`, `&#x1F600;`)과
+ * [NamedEntities]에 있는 이름 있는 엔티티. [MaxEntityLength]보다 긴 엔티티 참조, 닫는 `;`가 없는 것,
+ * 또는 [NamedEntities]에 없는 엔티티를 이름으로 지정한 것은 버리거나 추측하지 않고 쓰여진 그대로
+ * 출력에 남긴다 — 잘못되거나 인식할 수 없는 마크업이 주변 텍스트를 조용히 삼켜버려서는 안 된다.
  *
- * @param value raw text that may contain entity references.
- * @return [value] with every recognized entity replaced by the character(s) it represents.
+ * @param value 엔티티 참조가 포함될 수 있는 원시 텍스트.
+ * @return 모든 인식된 엔티티가 나타내는 문자(들)로 교체된 [value].
  */
 internal fun decodeXmlEntities(value: String): String {
     if ('&' !in value) return value
@@ -1306,8 +1278,8 @@ internal fun decodeXmlEntities(value: String): String {
 }
 
 /**
- * This Unicode code point as a `String`, using a UTF-16 surrogate pair above the BMP, or null if it is out
- * of range or itself an unpaired surrogate value.
+ * 이 유니코드 코드 포인트를 `String`으로 반환한다. BMP 위의 경우 UTF-16 서로게이트 쌍을 사용한다.
+ * 범위를 벗어나거나 자체가 쌍 없는 서로게이트 값이면 null.
  */
 private fun Int.toCharsOrNull(): String? = when {
     this <= 0 || this > 0x10FFFF -> null
@@ -1322,45 +1294,44 @@ private fun Int.toCharsOrNull(): String? = when {
     }
 }
 
-/** Matches one `name="value"` or `name='value'` attribute pair inside a tag body. */
+/** 태그 본문 내의 `name="value"` 또는 `name='value'` 속성 쌍 하나와 매칭된다. */
 private val TagAttributeRegex = Regex("""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 
 /**
- * Matches one run of whitespace, used to split a `class` attribute into its individual names.
+ * 공백 런 하나와 매칭된다. `class` 속성을 개별 이름으로 분리하는 데 사용된다.
  *
- * Hoisted out of [classNames] because that runs on every opening tag the parser sees: a full-length
- * book imports on the order of a hundred thousand tags, and compiling this pattern per tag made the
- * import pay for a regex compilation it can pay for once per process instead.
+ * [classNames]에서 끌어올린 이유는, 그것이 파서가 보는 모든 열린 태그마다 실행되기 때문이다:
+ * 풀 길이 책은 약 10만 개의 태그를 임포트하며, 태그마다 이 패턴을 컴파일하면 프로세스당 한 번으로
+ * 줄일 수 있는 정규식 컴파일 비용을 매번 치르게 된다.
  */
 private val WhitespaceRunRegex = Regex("""\s+""")
 
-/** Captures the numeric `px` value of an inline `style`'s `width` declaration; see [cssPixelDimension]. */
+/** 인라인 `style`의 `width` 선언에서 숫자 `px` 값을 캡처한다; [cssPixelDimension] 참조. */
 private val CssWidthPxRegex = Regex("""width\s*:\s*([0-9.]+)px""")
 
-/** Captures the numeric `px` value of an inline `style`'s `height` declaration; see [cssPixelDimension]. */
+/** 인라인 `style`의 `height` 선언에서 숫자 `px` 값을 캡처한다; [cssPixelDimension] 참조. */
 private val CssHeightPxRegex = Regex("""height\s*:\s*([0-9.]+)px""")
 
-/** Captures an inline `style` attribute's `text-align` value. */
+/** 인라인 `style` 속성의 `text-align` 값을 캡처한다. */
 private val TextAlignRegex = Regex("""text-align\s*:\s*([a-zA-Z]+)""")
 
 /**
- * Longest entity reference (name or numeric, between `&` and `;`) [decodeXmlEntities] will try to resolve,
- * before giving up and leaving the `&` as literal text.
+ * [decodeXmlEntities]가 해석을 시도하는 가장 긴 엔티티 참조(`&`와 `;` 사이의 이름 또는 숫자).
+ * 이를 초과하면 포기하고 `&`를 리터럴 텍스트로 남긴다.
  */
 private const val MaxEntityLength = 12
 
 /**
- * Element names whose entire body is skipped as unreadable — script code, CSS source text, and page
- * metadata. `svg` is deliberately not included, even though it is not a recognized block or inline tag
- * either; see [parseXhtmlContent] for why skipping it the same way would be wrong.
+ * 전체 본문을 가독 불가로 건너뛰는 요소 이름들 — 스크립트 코드, CSS 소스 텍스트, 페이지 메타데이터.
+ * `svg`는 인식된 블록이나 인라인 태그가 아님에도 불구하고 의도적으로 포함하지 않는다;
+ * 동일하게 건너뛰면 왜 안 되는지는 [parseXhtmlContent] 참조.
  */
 private val SkippedBodyElements = setOf("script", "style", "head", "title")
 
 /**
- * Elements that are neither a recognized block ([BlockKinds]) nor an inline style ([InlineStyles]) but
- * are still pushed onto the open-element ancestry, so their own class or id can still be matched by a
- * CSS rule targeting a descendant (`.quotebox p`), even though opening one of these does not, by
- * itself, start a new block.
+ * 인식된 블록([BlockKinds])도 인라인 스타일([InlineStyles])도 아니지만, 여전히 열린 요소 계층에
+ * 쌓이는 요소들. 그래야 자신의 클래스나 id가 하위 요소를 대상으로 하는 CSS 규칙(`.quotebox p`)에
+ * 매칭될 수 있다. 비록 이것들 중 하나를 여는 것 자체만으로는 새 블록을 시작하지 않더라도.
  */
 private val NeutralContainers = setOf(
     "html", "body", "span", "font", "small", "big", "label", "tbody", "thead", "tfoot",
@@ -1370,8 +1341,8 @@ private val NeutralContainers = setOf(
 private val PureInlineContainers = setOf("span", "font", "small", "big", "label")
 
 /**
- * Recognized block-level elements, mapped to the [ReaderBlockKind] each becomes; anything else falls
- * through to [NeutralContainers] or is ignored outright.
+ * 인식된 블록 레벨 요소들을 각각이 되는 [ReaderBlockKind]에 매핑한 것.
+ * 그 외는 [NeutralContainers]로 넘어가거나 완전히 무시된다.
  */
 private val BlockKinds: Map<String, ReaderBlockKind> = mapOf(
     "p" to ReaderBlockKind.PARAGRAPH,
@@ -1395,7 +1366,7 @@ private val BlockKinds: Map<String, ReaderBlockKind> = mapOf(
     "th" to ReaderBlockKind.TABLE_HEADER_CELL,
 )
 
-/** Recognized inline styling elements, mapped to the [ReaderInlineStyle] span each becomes when closed. */
+/** 인식된 인라인 스타일 요소들을 닫힐 때 각각이 되는 [ReaderInlineStyle] 스팬에 매핑한 것. */
 private val InlineStyles: Map<String, ReaderInlineStyle> = mapOf(
     "a" to ReaderInlineStyle.LINK,
     "b" to ReaderInlineStyle.BOLD,
@@ -1419,8 +1390,8 @@ private val InlineStyles: Map<String, ReaderInlineStyle> = mapOf(
 )
 
 /**
- * Named XML/HTML character references [decodeXmlEntities] resolves, beyond the numeric `&#…;`/`&#x…;`
- * forms it handles directly.
+ * [decodeXmlEntities]가 직접 처리하는 숫자형 `&#…;`/`&#x…;` 외에 해석하는 이름 있는
+ * XML/HTML 문자 참조들.
  */
 private val NamedEntities: Map<String, String> = mapOf(
     "amp" to "&", "lt" to "<", "gt" to ">", "quot" to "\"", "apos" to "'",
@@ -1441,8 +1412,8 @@ private val NamedEntities: Map<String, String> = mapOf(
 )
 
 /**
- * A block's whole resolved style as the renderer's model carries it — every length already in base-em
- * units, so no consumer re-interprets a raw declaration.
+ * 렌더러의 모델이 담는 형태로 표현된 블록의 완전히 해석된 스타일 — 모든 길이가 이미 기준 em 단위이므로
+ * 어떤 소비자도 원시 선언을 재해석하지 않는다.
  */
 private fun ComputedStyle.toReaderBlockStyle(css: EpubCss): ReaderBlockStyle = ReaderBlockStyle(
     fontScale = fontScale.takeIf { it != 1f },
@@ -1470,10 +1441,9 @@ private fun ComputedStyle.toReaderBlockStyle(css: EpubCss): ReaderBlockStyle = R
 )
 
 /**
- * Only the inherited-visual slice of this style — what a block opened implicitly (text set directly
- * inside a wrapper, with no block tag of its own) takes from its surroundings. The wrapper's own box
- * (margins, padding, borders) stays with the wrapper; carrying it here would give every implicit
- * paragraph the wrapper's margins.
+ * 이 스타일에서 상속된 시각적 부분만 — 묵시적으로 열린 블록(래퍼 안에 직접 설정된 텍스트로,
+ * 자체 블록 태그가 없는)이 주변에서 가져가는 것. 래퍼 자신의 박스(마진, 패딩, 테두리)는
+ * 래퍼에 남는다; 여기로 가져오면 모든 묵시적 단락에 래퍼의 마진이 적용된다.
  */
 private fun ComputedStyle.toInheritedReaderBlockStyle(css: EpubCss): ReaderBlockStyle? = ReaderBlockStyle(
     fontScale = fontScale.takeIf { it != 1f },
@@ -1491,21 +1461,19 @@ private fun ComputedStyle.toInheritedReaderBlockStyle(css: EpubCss): ReaderBlock
     foregroundColor = declarations.color?.toReaderColorOrNull(),
 ).takeIf { !it.isEmpty() }
 
-/** Whether this `font-style` value asks for italic type. */
+/** 이 `font-style` 값이 이탤릭 서체를 요구하는지 여부. */
 private fun String.toItalicFlag(): Boolean = this == "italic" || this == "oblique"
 
 /**
- * Whether this `text-decoration` value asks for [decoration], or null when the value says nothing about
- * decoration at all.
+ * 이 `text-decoration` 값이 [decoration]을 요구하는지, 또는 값이 장식에 대해 아무것도 말하지 않으면 null.
  *
- * `none` is an answer, not silence: a book writing `text-decoration: none` on its links is saying they
- * carry no underline, and reading that as "unstated" leaves the reader's own underline on. A value naming
- * some other decoration (`overline`, say) leaves [decoration] unstated rather than switching it off, since
- * the book was talking about something else.
+ * `none`은 침묵이 아닌 답이다: 책이 링크에 `text-decoration: none`을 쓰면 밑줄이 없음을 말하는 것이며,
+ * 이것을 "명시되지 않음"으로 읽으면 리더 자체의 밑줄이 켜진 상태로 남는다. 다른 장식(`overline` 등)을
+ * 지정하는 값은 [decoration]을 끄지 않고 명시되지 않은 상태로 남긴다. 책이 다른 것에 대해 말하고 있기 때문이다.
  *
- * @receiver the raw declaration value, already lowercased by the declaration parser.
- * @param decoration the decoration being asked about, e.g. `"underline"`.
- * @return true when the value asks for it, false when the value is `none`, null otherwise.
+ * @receiver 선언 파서가 이미 소문자로 변환한 원시 선언 값.
+ * @param decoration 물어보는 장식, 예: `"underline"`.
+ * @return 값이 요구하면 true, 값이 `none`이면 false, 그 외는 null.
  */
 private fun String.toDecorationFlag(decoration: String): Boolean? = when {
     contains(decoration) -> true
@@ -1514,10 +1482,10 @@ private fun String.toDecorationFlag(decoration: String): Boolean? = when {
 }
 
 /**
- * This `font-weight` value as a bold flag, or null if it is not a recognized keyword or number.
+ * 이 `font-weight` 값을 굵기 플래그로 반환하거나, 인식된 키워드나 숫자가 아니면 null.
  *
- * A numeric weight reads as bold from [BoldWeightThreshold] (600) up, which is where the CSS weight
- * scale places semi-bold.
+ * 숫자 굵기는 [BoldWeightThreshold](600) 이상에서 굵음으로 읽힌다.
+ * CSS 굵기 척도에서 세미-볼드가 위치하는 곳이다.
  */
 private fun String.toBoldOrNull(): Boolean? = when {
     this == "bold" || this == "bolder" -> true
@@ -1527,9 +1495,8 @@ private fun String.toBoldOrNull(): Boolean? = when {
 }
 
 /**
- * The generic family a declaration asks for. A book naming its own bundled face gets the reader's
- * font instead: that face is not installed here, and guessing a substitute would change the page for
- * no reason the reader asked for.
+ * 선언이 요청하는 일반 패밀리. 책이 자체 번들 서체를 이름으로 지정하면 대신 리더의 글꼴을 사용한다:
+ * 해당 서체는 여기에 설치되어 있지 않으며, 대체를 추측하면 독자가 요청하지 않은 이유로 페이지가 달라진다.
  */
 private fun String.toReaderFontFamily(): ReaderFontFamily? = when {
     contains("monospace") || contains("courier") -> ReaderFontFamily.MONOSPACE
@@ -1556,7 +1523,7 @@ private fun ReaderFloat.toTextAlign(): ReaderTextAlign = when (this) {
 }
 
 /**
- * This CSS `text-align` keyword as a [ReaderTextAlign], or null if it is not one of the recognized values.
+ * 이 CSS `text-align` 키워드를 [ReaderTextAlign]으로 반환하거나, 인식된 값이 아니면 null.
  */
 private fun String.toReaderTextAlign(): ReaderTextAlign? = when (this) {
     "center" -> ReaderTextAlign.CENTER
@@ -1595,17 +1562,17 @@ private fun CssLength?.toBorderRadiusPercentOrNull(): Float? = when (this) {
 }
 
 /**
- * Whether a container carries anything a page can be drawn from: a background or border to paint, or the
- * spacing that holds its own content off those edges.
+ * 컨테이너가 페이지를 그릴 수 있는 무언가를 담고 있는지 여부: 칠할 배경이나 테두리, 또는
+ * 자신의 콘텐츠를 그 가장자리에서 떼어놓는 간격.
  *
- * Spacing counts because `body { margin: 2em }` is how a reflowable book states its page margins, and a
- * container recorded only when it has a background would throw that away — the text is then set edge to edge
- * in a column far wider than the book was typeset for.
+ * 간격이 중요한 이유는 `body { margin: 2em }`이 리플로어블 책이 페이지 마진을 표현하는 방식이기 때문이다.
+ * 배경이 있을 때만 컨테이너를 기록하면 그것을 버리게 되고 — 그러면 텍스트가 책이 조판된 것보다
+ * 훨씬 넓은 열에 가장자리에서 가장자리까지 배치된다.
  */
 private fun ReaderBlockStyle.hasVisualContainerData(): Boolean =
     boxStyle?.isEmpty() == false || hasBoxSpacing()
 
-/** Whether this style states any margin or padding at all, on any side. */
+/** 이 스타일이 어느 변에든 마진이나 패딩을 명시하는지 여부. */
 private fun ReaderBlockStyle.hasBoxSpacing(): Boolean = listOf(
     marginTopEm, marginBottomEm, marginStartEm, marginEndEm,
     paddingTopEm, paddingBottomEm, paddingStartEm, paddingEndEm,
@@ -1661,10 +1628,10 @@ private fun parseRgbColor(value: String, hasAlpha: Boolean): ReaderColor? {
 }
 
 /**
- * Default font size in pixels a `px` length is read against when converting it to a relative scale,
- * matching a typical browser default.
+ * `px` 길이를 상대 배율로 변환할 때 기준이 되는 픽셀 단위 기본 글꼴 크기.
+ * 일반적인 브라우저 기본값과 일치한다.
  */
 private const val CssDefaultFontPx = 16f
 
-/** Numeric `font-weight` at and above which [String.toBoldOrNull] reads a value as bold. */
+/** [String.toBoldOrNull]이 굵음으로 읽는 숫자 `font-weight`의 최솟값(이상). */
 private const val BoldWeightThreshold = 600

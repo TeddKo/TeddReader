@@ -18,16 +18,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Pins [parseXhtmlContent]'s markup-to-text-and-blocks contract: paragraph/heading/list/table
- * structure, inline spans and links, anchors, image placement (inline vs. standalone) and sizing,
- * entity decoding, and tolerance for malformed markup (unclosed tags, script/style bodies, an
- * `<svg>`-wrapped picture). This is the file every EPUB rendering regression in this reader traces
- * back to.
+ * [parseXhtmlContent]의 마크업-텍스트-블록 변환 계약을 고정한다: 문단/헤딩/목록/테이블 구조,
+ * 인라인 스팬과 링크, 앵커, 이미지 배치(인라인 vs. 독립)와 크기, 엔티티 디코딩, 잘못된
+ * 마크업(닫히지 않은 태그, script/style 본문, `<svg>`로 감싼 그림)에 대한 관용성. 이 리더의
+ * EPUB 렌더링 회귀는 모두 이 파일로 거슬러 올라간다.
  */
 class EpubXhtmlParserTest {
     /**
-     * Two paragraphs stay two separate lines of text, rather than collapsing into one run-on line the way a
-     * naive tag-strip would.
+     * 순진하게 태그만 벗겨내면 이어붙은 한 줄이 되어버리는 대신, 두 문단은 텍스트의 별개인 두
+     * 줄로 남는다.
      */
     @Test
     fun paragraphsStayApartInsteadOfCollapsingIntoOneLine() {
@@ -47,7 +46,7 @@ class EpubXhtmlParserTest {
         )
     }
 
-    /** Every block's range indexes exactly the substring of the flattened text it describes. */
+    /** 모든 블록의 범위는 그것이 설명하는 평탄화된 텍스트의 부분 문자열을 정확히 가리킨다. */
     @Test
     fun everyBlockRangeIndexesTheFlattenedTextItDescribes() {
         val content = parseXhtmlContent(
@@ -60,7 +59,7 @@ class EpubXhtmlParserTest {
         assertEquals(listOf("Title", "Body text here.", "Quoted line."), texts)
     }
 
-    /** A heading's numeric level (`h2` -> 2, `h5` -> 5) is carried onto its block. */
+    /** 헤딩의 숫자 레벨(`h2` -> 2, `h5` -> 5)이 그 블록에 실린다. */
     @Test
     fun headingsCarryTheirLevel() {
         val content = parseXhtmlContent("<h2>Chapter</h2><h5>Aside</h5>")
@@ -69,7 +68,7 @@ class EpubXhtmlParserTest {
         assertTrue(content.blocks.all { it.kind == ReaderBlockKind.HEADING })
     }
 
-    /** Bold and italic inline markup become spans over exactly the characters they wrap. */
+    /** 볼드와 이탤릭 인라인 마크업은 정확히 그것이 감싼 문자들 위의 스팬이 된다. */
     @Test
     fun inlineMarkupBecomesSpansOverTheRightCharacters() {
         val content = parseXhtmlContent("<p>plain <b>bold</b> and <i>italic</i></p>")
@@ -83,7 +82,7 @@ class EpubXhtmlParserTest {
         )
     }
 
-    /** An anchor with an `href` becomes a link span carrying that target. */
+    /** `href`를 가진 앵커는 그 대상을 실은 링크 스팬이 된다. */
     @Test
     fun anchorBecomesALinkSpanCarryingItsTarget() {
         val content = parseXhtmlContent("""<p>see <a href="ch2.xhtml">chapter two</a></p>""")
@@ -94,7 +93,7 @@ class EpubXhtmlParserTest {
         assertEquals("chapter two", content.text.substring(span.range.start.toInt(), span.range.end.toInt()))
     }
 
-    /** An anchor with no `href` (a named anchor point, not a link) adds no span at all. */
+    /** `href`가 없는 앵커(링크가 아니라 이름 붙은 앵커 지점)는 스팬을 전혀 추가하지 않는다. */
     @Test
     fun anchorWithoutTargetAddsNoSpan() {
         val content = parseXhtmlContent("""<p>anchor <a id="p12"></a>only</p>""")
@@ -104,8 +103,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Ordered and unordered list items each carry the right depth, and only ordered items carry a numeric
-     * marker that increments per item.
+     * 순서 있는 목록과 순서 없는 목록 항목은 각각 올바른 깊이를 가지며, 순서 있는 항목만 항목마다
+     * 증가하는 숫자 마커를 가진다.
      */
     @Test
     fun listItemsKeepDepthAndOrderedMarkers() {
@@ -119,7 +118,7 @@ class EpubXhtmlParserTest {
         assertTrue(content.blocks.all { it.level == 1 })
     }
 
-    /** A list nested inside another list item raises the item's depth by one over its parent. */
+    /** 다른 목록 항목 안에 중첩된 목록은 항목의 깊이를 부모보다 하나 더 올린다. */
     @Test
     fun nestedListsRaiseTheDepth() {
         val content = parseXhtmlContent("<ul><li>outer<ul><li>inner</li></ul></li></ul>")
@@ -128,8 +127,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Named anchors (`id`) are captured at their absolute offset, shifted correctly by a non-zero base
-     * offset.
+     * 이름 있는 앵커(`id`)는 절대 오프셋에서 포착되며, 0이 아닌 기준 오프셋만큼 올바르게
+     * 이동된다.
      */
     @Test
     fun anchorsCaptureNamedIdsAtAbsoluteOffsets() {
@@ -140,8 +139,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An image becomes a standalone block whose `src` resolves against its chapter's own container
-     * path, with a one-character range that keeps the block addressable at a page boundary.
+     * 이미지는 `src`가 자기 챕터 자체의 컨테이너 경로를 기준으로 해석되는 독립 블록이 되며,
+     * 페이지 경계에서도 블록을 참조할 수 있도록 한 글자 범위를 갖는다.
      */
     @Test
     fun imageBecomesAStandaloneBlockWithAResolvedPath() {
@@ -158,8 +157,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Regression guard: a standalone block's range stays inside the text range [parseXhtmlContent] returns,
-     * even when the image is the very last thing in the chapter.
+     * 회귀 방지: 독립 블록의 범위는 이미지가 챕터의 맨 마지막 요소일 때도 [parseXhtmlContent]가
+     * 반환하는 텍스트 범위 안에 머문다.
      */
     @Test
     fun trailingStandaloneBlockStaysInsideReturnedTextRange() {
@@ -171,8 +170,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An image's `width`/`height` attributes, both given as plain pixel numbers, produce the correct aspect
-     * ratio.
+     * 이미지의 `width`/`height` 속성이 둘 다 순수 픽셀 숫자로 주어지면 올바른 종횡비를 만든다.
      */
     @Test
     fun imageCarriesTheAspectRatioDeclaredInWidthAndHeightAttributes() {
@@ -183,7 +181,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An image's aspect ratio can also be declared through an inline `style` attribute's pixel dimensions.
+     * 이미지의 종횡비는 인라인 `style` 속성의 픽셀 치수를 통해서도 선언될 수 있다.
      */
     @Test
     fun imageCarriesTheAspectRatioDeclaredInAnInlineStyle() {
@@ -194,8 +192,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * No aspect ratio is guessed when dimensions are absent entirely, or given as a percentage rather than
-     * a fixed pixel size.
+     * 치수가 아예 없거나 고정 픽셀 크기가 아니라 퍼센트로 주어지면 종횡비를 추측하지 않는다.
      */
     @Test
     fun imageHasNoAspectRatioWhenDimensionsAreUnspecifiedOrPercentages() {
@@ -266,9 +263,9 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Regression guard: `<svg><image xlink:href="..."/></svg>` — how Sigil/Calibre commonly wrap a
-     * full-page illustration or cover so it scales to the viewport — must still be captured as a
-     * picture rather than discarded the way script/style bodies are.
+     * 회귀 방지: `<svg><image xlink:href="..."/></svg>` — Sigil/Calibre가 전면 삽화나 커버를
+     * 뷰포트에 맞게 스케일되도록 흔히 감싸는 방식 — 은 script/style 본문처럼 버려지지 않고
+     * 여전히 그림으로 포착되어야 한다.
      */
     @Test
     fun svgWrappedImageIsStillCapturedInsteadOfBeingDropped() {
@@ -282,8 +279,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An image whose reference cannot be resolved (a remote URL this reader cannot fetch) is dropped
-     * entirely, leaving the surrounding text intact.
+     * 참조를 해석할 수 없는 이미지(이 리더가 가져올 수 없는 원격 URL)는 완전히 버려지고,
+     * 주변 텍스트는 온전히 남는다.
      */
     @Test
     fun imageIsDroppedWhenItCannotBeResolved() {
@@ -295,7 +292,7 @@ class EpubXhtmlParserTest {
         assertTrue(content.blocks.none { it.kind == ReaderBlockKind.IMAGE })
     }
 
-    /** Table cells carry the row/column position built up as `<tr>`/`<td>`/`<th>` tags are opened. */
+    /** 테이블 셀은 `<tr>`/`<td>`/`<th>` 태그가 열리며 쌓인 행/열 위치를 싣는다. */
     @Test
     fun tableCellsCarryTheirGridPosition() {
         val content = parseXhtmlContent(
@@ -314,7 +311,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * `<pre>` content keeps its own whitespace and line breaks verbatim, unlike ordinary collapsed text.
+     * `<pre>` 콘텐츠는 보통의 붕괴된 텍스트와 달리 자기 자신의 공백과 줄바꿈을 그대로 유지한다.
      */
     @Test
     fun preformattedTextKeepsItsOwnWhitespace() {
@@ -326,8 +323,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Runs of whitespace inside a paragraph collapse to a single space, the way markup whitespace normally
-     * reads.
+     * 문단 안에서 이어지는 공백은 마크업 공백이 보통 읽히는 방식대로 하나의 공백으로 붕괴된다.
      */
     @Test
     fun runsOfWhitespaceInsideAParagraphCollapseLikeMarkupSays() {
@@ -337,8 +333,7 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * A `<br/>` inside a paragraph becomes a literal line break in the text, without splitting the
-     * paragraph into two blocks.
+     * 문단 안의 `<br/>`는 문단을 두 블록으로 나누지 않고 텍스트 안의 실제 줄바꿈이 된다.
      */
     @Test
     fun lineBreakSurvivesInsideAParagraph() {
@@ -348,7 +343,7 @@ class EpubXhtmlParserTest {
         assertEquals(1, content.blocks.size)
     }
 
-    /** Text inside `<script>` and `<style>` never reaches the flattened output. */
+    /** `<script>`와 `<style>` 안의 텍스트는 평탄화된 출력에 절대 도달하지 않는다. */
     @Test
     fun scriptAndStyleBodiesNeverReachTheText() {
         val content = parseXhtmlContent(
@@ -361,7 +356,7 @@ class EpubXhtmlParserTest {
         assertEquals("visible", content.text)
     }
 
-    /** A self-closing `<head/>` does not consume the `<body>` that follows it. */
+    /** 자체 종료된 `<head/>`는 그 뒤에 오는 `<body>`를 삼키지 않는다. */
     @Test
     fun selfClosingHeadDoesNotDiscardBody() {
         val content = parseXhtmlContent("<html><head/><body><p>Body</p></body></html>")
@@ -371,8 +366,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Named (`&ldquo;`) and numeric (`&#160;`, `&#x1F600;`) entity references are decoded, including a
-     * surrogate-pair emoji.
+     * 이름 있는(`&ldquo;`) 엔티티 참조와 숫자로 된(`&#160;`, `&#x1F600;`) 엔티티 참조가
+     * 디코딩된다, 서로게이트 쌍 이모지를 포함해서.
      */
     @Test
     fun namedAndNumericEntitiesAreDecoded() {
@@ -383,8 +378,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An unrecognized entity name is left as literal text (`&`, name, and `;` intact) instead of eating the
-     * text around it.
+     * 인식되지 않는 엔티티 이름은 주변 텍스트를 먹어치우는 대신 문자 그대로의 텍스트로
+     * 남는다(`&`, 이름, `;`가 그대로 유지됨).
      */
     @Test
     fun unknownEntityIsLeftAloneInsteadOfEatingText() {
@@ -392,8 +387,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * A non-zero base offset shifts every block's range by the same amount, letting chapters be
-     * concatenated without recomputing offsets.
+     * 0이 아닌 기준 오프셋은 모든 블록의 범위를 같은 양만큼 이동시켜, 오프셋을 다시 계산하지
+     * 않고도 챕터들이 이어붙여지게 한다.
      */
     @Test
     fun baseOffsetShiftsEveryRangeSoChaptersCanBeConcatenated() {
@@ -404,7 +399,7 @@ class EpubXhtmlParserTest {
         assertEquals(first.text.length + 1L, second.blocks.single().range.start)
     }
 
-    /** Markup with nothing but whitespace inside inline elements produces no text and no blocks at all. */
+    /** 인라인 요소 안에 공백만 있는 마크업은 텍스트도 블록도 전혀 만들어내지 않는다. */
     @Test
     fun markupWithNoReadableTextProducesNoBlocks() {
         val content = parseXhtmlContent("<div><span> </span></div>")
@@ -414,8 +409,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * An inline element left unclosed at the end of a block is still recorded as a span up to that block's
-     * own end, rather than leaking into the next block.
+     * 블록 끝에서 닫히지 않고 남은 인라인 요소는 다음 블록으로 새어나가지 않고 그 블록 자체
+     * 끝까지의 스팬으로 기록된다.
      */
     @Test
     fun unclosedInlineMarkupEndsWithItsBlock() {
@@ -426,7 +421,7 @@ class EpubXhtmlParserTest {
         assertEquals(emptyList(), content.blocks[1].spans)
     }
 
-    /** An inline `style="text-align: center"` is picked up as the block's own alignment. */
+    /** 인라인 `style="text-align: center"`는 블록 자체의 정렬로 인식된다. */
     @Test
     fun inlineStyleAlignmentIsPickedUp() {
         val content = parseXhtmlContent("""<p style="text-align: center">middle</p><p>plain</p>""")
@@ -436,10 +431,9 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Regression guard: part and chapter headings are routinely set as a picture, with the readable
-     * name only in the heading's `title` attribute (`<h1 title="..."><img/></h1>`). The picture is the
-     * heading, so the title survives as [XhtmlContent.headingTitle] and no separate, empty heading
-     * block is recorded alongside it.
+     * 회귀 방지: 파트와 챕터 헤딩은 흔히 그림으로 설정되며, 읽을 수 있는 이름은 오직 헤딩의
+     * `title` 속성에만 있다(`<h1 title="..."><img/></h1>`). 그림이 곧 헤딩이므로 제목은
+     * [XhtmlContent.headingTitle]로 남고, 그 곁에 별도의 빈 헤딩 블록이 기록되지 않는다.
      */
     @Test
     fun aHeadingThatIsOnlyAPictureKeepsItsNameAndDropsTheEmptyHeadingBlock() {
@@ -469,8 +463,8 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * Regression guard: two pictures written inline within one sentence both stay inside that sentence's
-     * paragraph rather than being torn out onto their own lines.
+     * 회귀 방지: 한 문장 안에 인라인으로 쓰인 두 그림 모두, 자기만의 줄로 뜯겨나가지 않고 그
+     * 문장의 문단 안에 머문다.
      */
     @Test
     fun twoPicturesInOneSentenceBothStayInIt() {
@@ -605,9 +599,9 @@ class EpubXhtmlParserTest {
             foregroundColor = ReaderColor(0xFF011689),
         )
         assertEquals(expectedStyle, paragraph.style)
-        // The span differs from its paragraph in nothing, so it carries nothing: inherited styling lives
-        // on the block once, not re-emitted on every nested element — a span repeating it made the
-        // renderer apply relative values twice.
+        // 스팬은 자기 문단과 다른 점이 전혀 없으므로 아무것도 싣지 않는다: 상속된 스타일링은
+        // 모든 중첩 요소마다 다시 나오지 않고 블록에 한 번만 있다 — 스팬이 그것을 반복하면
+        // 렌더러가 상대값을 두 번 적용해버렸다.
         assertEquals(emptyList(), paragraph.spans)
     }
 
@@ -631,8 +625,8 @@ class EpubXhtmlParserTest {
 
         val block = content.blocks.single()
         val link = block.spans.single()
-        // `inherit` resolves to the parent's own values, which the paragraph already carries — so the
-        // link's delta against it is empty and the styling reaches the link through the block.
+        // `inherit`은 부모 자체의 값으로 해석되며, 문단이 이미 그것을 싣고 있다 — 그래서 그것에
+        // 대한 링크의 델타는 비어 있고 스타일링은 블록을 통해 링크에 도달한다.
         assertEquals(
             ReaderBlockStyle(
                 fontFamily = ReaderFontFamily.SERIF,
@@ -670,11 +664,10 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * A stylesheet's spacing and decoration reach the blocks that are drawn from it.
+     * 스타일시트의 간격과 장식이 그것으로부터 그려지는 블록에 도달한다.
      *
-     * These are the declarations a reflowable book leans on hardest — the paragraph gap, the quotation's
-     * indent, and links that carry no underline — and every one of them used to be dropped between the
-     * stylesheet and the page.
+     * 이것들은 리플로우 가능한 책이 가장 크게 의존하는 선언들이다 — 문단 간격, 인용문의 들여쓰기,
+     * 밑줄 없는 링크 — 그리고 이 모두가 예전에는 스타일시트와 페이지 사이에서 누락되었다.
      */
     @Test
     fun spacingAndDecorationReachTheBlocksTheyStyle() {
@@ -712,11 +705,11 @@ class EpubXhtmlParserTest {
     }
 
     /**
-     * `body { margin: 2em }` is recorded as a page container, which is what gives the page its margins.
+     * `body { margin: 2em }`은 페이지 컨테이너로 기록되며, 이것이 페이지에 여백을 준다.
      *
-     * A reflowable book states its page margins on `body`, and the container used to be recorded only when it
-     * had a background or a border to paint — so the margins were dropped and the text was set edge to edge in
-     * a column far wider than the book was typeset for.
+     * 리플로우 가능한 책은 페이지 여백을 `body`에 명시하는데, 예전에는 그릴 배경이나 테두리가
+     * 있을 때만 컨테이너가 기록되었다 — 그래서 여백이 누락되고 텍스트가 책이 조판된 것보다
+     * 훨씬 넓은 칼럼에서 가장자리부터 가장자리까지 채워졌다.
      */
     @Test
     fun bodyMarginsAreRecordedAsThePagesOwnMargins() {

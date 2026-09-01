@@ -44,37 +44,36 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Deterministic regression test for the EPUB scratch-copy lifetime contract: while
- * [DocumentRepositoryImpl.getEmbeddedImages] is extracting bytes from the scratch EPUB,
- * [DocumentRepositoryImpl.deleteDocument] must not be able to delete that scratch file.
+ * EPUB 스크래치 복사본 수명 계약에 대한 결정적 회귀 테스트: [DocumentRepositoryImpl.getEmbeddedImages]가
+ * 스크래치 EPUB에서 바이트를 추출하는 동안 [DocumentRepositoryImpl.deleteDocument]는 그 스크래치 파일을
+ * 삭제할 수 없어야 한다.
  *
- * The fix holds `epubScratchLock` for the entire duration of
- * [EpubDocumentParser.extractEmbeddedImageBytes], so a concurrent [invalidateCaches] (called by
- * [deleteDocument]) blocks on that same mutex until extraction finishes. This test verifies
- * that mutual exclusion by injecting a [GatedEpubDocumentParser] whose extraction blocks at a
- * thread-level latch, then observing that deletion cannot proceed until the latch is released.
+ * 이 수정은 [EpubDocumentParser.extractEmbeddedImageBytes] 실행 전체 동안 `epubScratchLock`을 쥐고
+ * 있으므로, 동시에 실행되는 [deleteDocument]가 호출하는 [invalidateCaches]는 추출이 끝날 때까지 같은
+ * 뮤텍스에서 블록된다. 이 테스트는 [GatedEpubDocumentParser]를 주입해 추출을 스레드 레벨 래치에서
+ * 블록시킨 뒤, 그 래치가 풀릴 때까지 삭제가 진행될 수 없음을 관찰함으로써 그 상호 배제를 검증한다.
  *
- * Mutation verification: reverting the fix to the old pattern (extraction outside the lock)
- * causes [deletionCannotProceedWhileExtractionHoldsLock] to fail because deletion acquires the
- * lock immediately and completes while extraction is still running.
+ * 뮤테이션 검증: 이 수정을 예전 패턴(락 바깥에서 추출)으로 되돌리면
+ * [deletionCannotProceedWhileExtractionHoldsLock]이 실패한다. 삭제가 락을 즉시 획득해 추출이 여전히
+ * 실행 중인 동안 완료돼 버리기 때문이다.
  */
 class EpubScratchLifetimeTest {
 
     /**
-     * Proves that `deleteDocument` cannot delete the scratch file while `getEmbeddedImages` is
-     * extracting from it, because both operations contend on the same non-reentrant mutex.
+     * `getEmbeddedImages`가 스크래치 파일에서 추출하는 동안 `deleteDocument`가 그 파일을 삭제할 수 없음을
+     * 증명한다. 두 작업이 같은 비재진입 뮤텍스를 두고 경합하기 때문이다.
      *
-     * Sequence:
-     * 1. Prime the scratch copy so it exists on disk.
-     * 2. Launch extraction — the [GatedEpubDocumentParser] signals "started" then thread-blocks.
-     * 3. While extraction holds `epubScratchLock`, launch deletion on another coroutine.
-     * 4. Assert deletion does NOT complete within a generous window (it is mutex-blocked).
-     * 5. Verify the scratch file still exists on disk (not deleted while extraction was running).
-     * 6. Release the extraction latch — extraction finishes, lock releases, deletion proceeds.
-     * 7. Assert both coroutines complete without exceptions.
+     * 순서:
+     * 1. 스크래치 복사본을 미리 만들어 디스크에 존재하게 한다.
+     * 2. 추출을 시작한다 — [GatedEpubDocumentParser]가 "시작됨"을 신호로 보낸 뒤 스레드 레벨로 블록된다.
+     * 3. 추출이 `epubScratchLock`을 쥐고 있는 동안, 다른 코루틴에서 삭제를 시작한다.
+     * 4. 삭제가 넉넉한 시간 안에 완료되지 않음을(뮤텍스에 블록되어 있음을) 단언한다.
+     * 5. 스크래치 파일이 디스크에 여전히 존재함을(추출이 실행 중인 동안 삭제되지 않았음을) 검증한다.
+     * 6. 추출 래치를 해제한다 — 추출이 끝나고 락이 풀리며 삭제가 진행된다.
+     * 7. 두 코루틴 모두 예외 없이 완료됨을 단언한다.
      *
-     * When the fix is reverted (extraction outside the lock), step 4 fails: deletion acquires the
-     * lock immediately and completes, and step 5 would find the file deleted.
+     * 수정이 되돌려지면(락 바깥에서 추출) 4단계가 실패한다: 삭제가 락을 즉시 획득해 완료되고, 5단계에서는
+     * 파일이 삭제되어 있는 것을 발견하게 될 것이다.
      */
     @Test
     fun deletionCannotProceedWhileExtractionHoldsLock() = runTest {
@@ -154,23 +153,22 @@ class EpubScratchLifetimeTest {
     }
 
     /**
-     * Proves the two halves of moving the scratch copy outside `epubScratchLock`.
+     * `epubScratchLock` 바깥으로 스크래치 복사를 옮긴 것의 두 측면을 증명한다.
      *
-     * The performance half: `deleteDocument` must be able to run to completion *while* a book is being
-     * copied, which is the whole point of not holding the lock across the copy. The safety half: when
-     * that deletion lands mid-copy, the finished copy must not be installed — `getEmbeddedImages` has
-     * to return an empty map for the now-deleted document rather than serving images out of a scratch
-     * copy it resurrected after the delete.
+     * 성능 측면: `deleteDocument`는 책이 복사되는 *동안*에도 끝까지 실행될 수 있어야 하며, 이것이 바로
+     * 복사 중에 락을 쥐지 않는 이유 전부다. 안전성 측면: 그 삭제가 복사 도중에 일어나면, 완료된 복사본이
+     * 설치되어서는 안 된다 — `getEmbeddedImages`는 이제 삭제된 문서에 대해 빈 맵을 돌려줘야지, 삭제 이후
+     * 되살린 스크래치 복사본에서 이미지를 서빙해서는 안 된다.
      *
-     * The second half is what the invalidation counter exists for. State alone cannot detect this case:
-     * the scratch slot is empty before the copy starts and empty again after the deletion, so a copy
-     * finishing afterwards looks exactly like a first open and would install itself.
+     * 두 번째 측면이 바로 무효화 카운터가 존재하는 이유다. 상태만으로는 이 경우를 탐지할 수 없다: 복사가
+     * 시작되기 전에 스크래치 슬롯은 비어 있고 삭제 이후에도 다시 비어 있으므로, 그 뒤에 완료되는 복사는
+     * 첫 오픈과 완전히 똑같이 보여서 스스로 설치되어 버릴 것이다.
      *
-     * Sequence:
-     * 1. Extraction starts and blocks inside [CopyGatedFileSource.copyTo].
-     * 2. While the copy is blocked, deletion runs and is asserted to complete — not blocked by the lock.
-     * 3. The copy is released and finishes.
-     * 4. Extraction must yield an empty map, and no abandoned copy may be left on disk.
+     * 순서:
+     * 1. 추출이 시작되고 [CopyGatedFileSource.copyTo] 안에서 블록된다.
+     * 2. 복사가 블록되어 있는 동안, 삭제가 실행되며 — 락에 막히지 않고 — 완료됨을 단언한다.
+     * 3. 복사가 풀려서 끝난다.
+     * 4. 추출은 빈 맵을 내놓아야 하고, 버려진 복사본이 디스크에 남아 있으면 안 된다.
      */
     @Test
     fun deletionDuringUnlockedCopyDoesNotResurrectTheScratchCopy() = runTest {
@@ -251,14 +249,14 @@ class EpubScratchLifetimeTest {
 }
 
 /**
- * A [DocumentFileSource] that blocks the calling thread inside [copyTo] until an external latch is
- * released, making the window between "the copy started" and "the copy finished" observable to a test.
+ * 외부 래치가 풀릴 때까지 [copyTo] 안에서 호출 스레드를 블록하는 [DocumentFileSource]. "복사가 시작됨"과
+ * "복사가 끝남" 사이의 구간을 테스트에서 관찰할 수 있게 한다.
  *
- * @property location The single location this source serves.
- * @property bytes The EPUB archive bytes written once the copy is allowed to proceed.
- * @property copyStarted Counted down the instant [copyTo] is entered.
- * @property proceedWithCopy Awaited before any bytes are written, so a test can act during the copy.
- * @property copiedPath Captures the destination so a test can assert whether the file survived.
+ * @property location 이 소스가 서빙하는 단일 위치.
+ * @property bytes 복사가 진행되도록 허용된 뒤 기록되는 EPUB 아카이브 바이트.
+ * @property copyStarted [copyTo]에 진입하는 즉시 카운트다운된다.
+ * @property proceedWithCopy 어떤 바이트도 기록되기 전에 대기된다. 그래서 테스트가 복사 도중에 동작할 수 있다.
+ * @property copiedPath 목적지를 캡처해, 테스트가 파일이 살아남았는지 단언할 수 있게 한다.
  */
 private class CopyGatedFileSource(
     private val location: DocumentLocation,
@@ -287,18 +285,16 @@ private class CopyGatedFileSource(
 }
 
 /**
- * An [EpubDocumentParser] subclass that blocks the calling thread inside
- * [extractEmbeddedImageBytes] until an external latch is released. This simulates a slow ZIP
- * extraction and makes the mutex-exclusion contract observable: if the caller holds a coroutine
- * [Mutex] around this call, no other coroutine can acquire that same mutex until the latch
- * releases.
+ * [extractEmbeddedImageBytes] 안에서 외부 래치가 풀릴 때까지 호출 스레드를 블록하는 [EpubDocumentParser]
+ * 서브클래스. 느린 ZIP 추출을 시뮬레이션해 뮤텍스 배타 계약을 관찰 가능하게 만든다: 호출자가 이 호출을
+ * 코루틴 [Mutex]로 감싸고 있으면, 그 래치가 풀릴 때까지 다른 어떤 코루틴도 같은 뮤텍스를 획득할 수 없다.
  *
- * @property extractionStarted Counted down the instant extraction begins, signalling that the
- *   calling coroutine is now inside the lock-protected region.
- * @property proceedWithExtraction The latch the parser awaits before returning — the test holds
- *   this to keep the lock occupied while verifying deletion cannot proceed.
- * @property scratchPathDuringExtraction Captures the [path] argument so the test can verify the
- *   file still exists on disk while extraction is blocked.
+ * @property extractionStarted 추출이 시작되는 즉시 카운트다운되어, 호출 코루틴이 이제 락으로 보호되는
+ *   구간 안에 있음을 알린다.
+ * @property proceedWithExtraction 파서가 반환하기 전에 대기하는 래치 — 테스트는 삭제가 진행될 수 없음을
+ *   검증하는 동안 락을 점유 상태로 유지하기 위해 이를 붙잡고 있는다.
+ * @property scratchPathDuringExtraction [path] 인자를 캡처해, 추출이 블록된 동안 파일이 여전히 디스크에
+ *   존재하는지 테스트가 검증할 수 있게 한다.
  */
 private class GatedEpubDocumentParser(
     private val extractionStarted: CountDownLatch,
@@ -319,14 +315,13 @@ private class GatedEpubDocumentParser(
 }
 
 /**
- * Wires a [DocumentRepositoryImpl] with the caller's parser and fakes for all other
- * collaborators. Only the scratch-lock behaviour is exercised — import, pagination, and search
- * paths are stubbed to no-ops.
+ * 호출자의 파서와 다른 모든 협력자를 위한 페이크로 [DocumentRepositoryImpl]을 연결한다. 스크래치 락
+ * 동작만 검증하며 — 임포트, 페이지네이션, 검색 경로는 no-op으로 스텁된다.
  *
- * @param documentDao Must support deletion so the test exercises the full [deleteDocument] path.
- * @param fileSource Serves the EPUB bytes for [epubScratchCopy].
- * @param epubDocumentParser The parser to inject — [GatedEpubDocumentParser] for the lock test.
- * @return A repository wired for the scratch-lock test.
+ * @param documentDao 삭제를 지원해야 테스트가 [deleteDocument] 전체 경로를 검증할 수 있다.
+ * @param fileSource [epubScratchCopy]에 EPUB 바이트를 서빙한다.
+ * @param epubDocumentParser 주입할 파서 — 락 테스트라면 [GatedEpubDocumentParser].
+ * @return 스크래치 락 테스트용으로 연결된 저장소.
  */
 private fun buildRepository(
     documentDao: DocumentDao,
@@ -347,10 +342,10 @@ private fun buildRepository(
 )
 
 /**
- * A [DocumentDao] that removes entries on [deleteDocument], enabling the test to exercise the
- * full deletion path including [invalidateCaches].
+ * [deleteDocument]에서 항목을 제거하는 [DocumentDao]. 테스트가 [invalidateCaches]를 포함한 삭제 전체
+ * 경로를 검증할 수 있게 한다.
  *
- * @property documents Mutable backing list protected by [lock].
+ * @property documents [lock]으로 보호되는 가변 백업 목록.
  */
 private class MutableDocumentDao(
     vararg initial: DocumentEntity,
@@ -390,11 +385,11 @@ private class MutableDocumentDao(
 }
 
 /**
- * A [DocumentFileSource] that writes pre-loaded bytes to the destination. No I/O gating — the
- * race is exercised via the [GatedEpubDocumentParser], not the file copy.
+ * 미리 로드된 바이트를 목적지에 기록하는 [DocumentFileSource]. I/O 게이팅 없음 — 경합은 파일 복사가
+ * 아니라 [GatedEpubDocumentParser]를 통해 검증된다.
  *
- * @property location The single location this source serves.
- * @property bytes The EPUB archive bytes for that location.
+ * @property location 이 소스가 서빙하는 단일 위치.
+ * @property bytes 그 location에 대한 EPUB 아카이브 바이트.
  */
 private class InMemoryFileSource(
     private val location: DocumentLocation,
@@ -417,7 +412,7 @@ private class InMemoryFileSource(
 }
 
 /**
- * No-op [SearchIndexDao] — the scratch-lock test never exercises import or search storage.
+ * no-op [SearchIndexDao] — 스크래치 락 테스트는 임포트나 검색 저장소를 전혀 검증하지 않는다.
  */
 private class ScratchTestSearchIndexDao : SearchIndexDao {
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) = Unit
@@ -434,7 +429,7 @@ private class ScratchTestSearchIndexDao : SearchIndexDao {
 }
 
 /**
- * No-op [PageLayoutDao] — the scratch-lock test never exercises stored page layouts.
+ * no-op [PageLayoutDao] — 스크래치 락 테스트는 저장된 페이지 레이아웃을 전혀 검증하지 않는다.
  */
 private class ScratchTestPageLayoutDao : PageLayoutDao {
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit
@@ -447,10 +442,10 @@ private class ScratchTestPageLayoutDao : PageLayoutDao {
 }
 
 /**
- * A minimal valid EPUB with one 4-byte image at `OEBPS/images/pic.png`, used to exercise the
- * scratch copy creation and ZIP extraction paths.
+ * `OEBPS/images/pic.png`에 4바이트 이미지 하나를 가진 최소한의 유효한 EPUB. 스크래치 복사본 생성과 ZIP
+ * 추출 경로를 검증하는 데 쓰인다.
  *
- * @return The encoded EPUB bytes.
+ * @return 인코딩된 EPUB 바이트.
  */
 private fun minimalEpubBytes(): ByteArray {
     val output = ByteArrayOutputStream()

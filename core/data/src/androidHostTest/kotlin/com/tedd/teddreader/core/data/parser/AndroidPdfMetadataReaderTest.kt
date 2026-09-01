@@ -9,25 +9,25 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Verifies [AndroidPdfMetadataReader]'s location-first resolution strategy: a `file://` URI pointing
- * at a readable PDF is opened directly without touching [bytes], while a non-file URI (or a missing
- * file) falls back to the bytes-to-temp-file path. This is the behavioral contract that ensures an
- * already-materialized PDF never pays for a redundant temp-file write during metadata extraction.
+ * [AndroidPdfMetadataReader]의 위치 우선 해석 전략을 검증한다: 읽을 수 있는 PDF를 가리키는 `file://`
+ * URI는 [bytes]를 건드리지 않고 직접 열리고, 파일이 아닌 URI(또는 없는 파일)는 바이트를 임시 파일에
+ * 쓰는 경로로 폴백한다. 이는 이미 실체화된 PDF가 메타데이터 추출 중에 결코 불필요한 임시 파일 쓰기 비용을
+ * 치르지 않도록 보장하는 동작 계약이다.
  *
- * These tests use a minimal 1-page PDF synthesized in memory — just enough structure for `PdfRenderer`
- * to open and report one page. The same bytes are either written to a real file (for the file:// path)
- * or passed as the bytes fallback, so both paths exercise `PdfRenderer` itself.
+ * 이 테스트들은 메모리 안에서 합성된 최소한의 1페이지 PDF를 사용한다 — `PdfRenderer`가 열어서 페이지
+ * 하나를 보고하기에 딱 필요한 만큼의 구조다. 같은 바이트가 (file:// 경로를 위해) 실제 파일에
+ * 기록되거나 bytes 폴백으로 전달되므로, 두 경로 모두 `PdfRenderer` 자체를 실제로 거친다.
  */
 class AndroidPdfMetadataReaderTest {
     /**
-     * Minimal PDF bytes that `PdfRenderer` accepts as a valid single-page document. This is the
-     * simplest PDF 1.4 structure: one page with an empty content stream.
+     * `PdfRenderer`가 유효한 단일 페이지 문서로 받아들이는 최소한의 PDF 바이트. 가장 단순한 PDF 1.4
+     * 구조다: 빈 콘텐츠 스트림을 가진 페이지 하나.
      */
     private val minimalPdfBytes = createMinimalPdf()
 
     /**
-     * When [DocumentLocation.sourceUri] is a `file://` URI pointing at a readable PDF, [pageCount]
-     * returns the real page count without needing [bytes].
+     * [DocumentLocation.sourceUri]가 읽을 수 있는 PDF를 가리키는 `file://` URI일 때, [pageCount]는
+     * [bytes] 없이도 실제 페이지 수를 반환한다.
      */
     @Test
     fun pageCountFromFileLocationWithoutBytes() {
@@ -50,8 +50,8 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * When [DocumentLocation.sourceUri] is a non-file URI (simulating a content:// that has not been
-     * materialized), [pageCount] falls back to the provided [bytes].
+     * [DocumentLocation.sourceUri]가 파일이 아닌 URI일 때(아직 실체화되지 않은 content://를
+     * 시뮬레이션), [pageCount]는 주어진 [bytes]로 폴백한다.
      */
     @Test
     fun pageCountFromBytesFallbackWhenLocationIsNotFile() {
@@ -69,8 +69,8 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * When [DocumentLocation.sourceUri] is a `file://` URI whose target does not exist, and [bytes]
-     * is null, [pageCount] returns the safe default of 1 rather than throwing.
+     * [DocumentLocation.sourceUri]가 대상이 존재하지 않는 `file://` URI이고 [bytes]가 null일 때,
+     * [pageCount]는 던지는 대신 안전한 기본값 1을 반환한다.
      */
     @Test
     fun pageCountReturnsOneWhenFileIsMissingAndBytesNull() {
@@ -88,8 +88,8 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * When [DocumentLocation.sourceUri] is a `file://` URI whose target does not exist, but [bytes]
-     * is provided, [pageCount] falls back to the bytes and returns the real page count.
+     * [DocumentLocation.sourceUri]가 대상이 존재하지 않는 `file://` URI이지만 [bytes]가 제공될 때,
+     * [pageCount]는 bytes로 폴백해 실제 페이지 수를 반환한다.
      */
     @Test
     fun pageCountFallsBackToBytesWhenFileIsMissing() {
@@ -107,10 +107,9 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * Cover extraction from a `file://` location attempts to open from file without needing
-     * [bytes]. With a minimal PDF the renderer may produce a blank image or null depending on
-     * the PDF structure, but the key assertion is that no exception is thrown and the method
-     * does not require bytes to attempt extraction.
+     * `file://` 위치로부터의 표지 추출은 [bytes] 없이도 파일에서 여는 것을 시도한다. 최소한의 PDF에
+     * 대해서는 렌더러가 PDF 구조에 따라 빈 이미지를 만들거나 null을 낼 수 있지만, 핵심 단언은 예외가
+     * 던져지지 않으며 이 메서드가 추출을 시도하는 데 bytes를 필요로 하지 않는다는 점이다.
      */
     @Test
     fun coverImageBytesFromFileLocationWithoutBytesDoesNotThrow() {
@@ -128,10 +127,10 @@ class AndroidPdfMetadataReaderTest {
 
         val cover = reader.coverImageBytes(location, bytes = null)
 
-        // The minimal PDF may or may not produce renderable content; the key contract
-        // is that the method does not throw and does not require bytes to execute.
-        // A null result here means PdfRenderer couldn't render the empty page, which is
-        // acceptable — the location-first path was still exercised.
+        // 최소한의 PDF는 렌더링 가능한 콘텐츠를 만들 수도, 만들지 않을 수도 있다; 핵심 계약은 메서드가
+        // 예외를 던지지 않고 bytes 없이도 실행된다는 점이다. 여기서 null 결과는 PdfRenderer가 빈
+        // 페이지를 렌더링하지 못했다는 뜻이며, 이는 받아들일 수 있다 — 위치 우선 경로는 여전히
+        // 실행되었다.
         if (cover != null) {
             assertTrue(cover.isNotEmpty())
         }
@@ -139,7 +138,7 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * Cover extraction returns null when location is unreachable and bytes is null.
+     * 위치에 도달할 수 없고 bytes가 null일 때 표지 추출은 null을 반환한다.
      */
     @Test
     fun coverImageBytesReturnsNullWhenLocationUnreachableAndBytesNull() {
@@ -157,9 +156,9 @@ class AndroidPdfMetadataReaderTest {
     }
 
     /**
-     * Mutation guard: when both file:// path exists AND bytes are provided, the file path takes
-     * priority. This is verified by passing corrupt bytes that would fail if used, while the file
-     * contains valid PDF. If the reader incorrectly prefers bytes over location, this test fails.
+     * 뮤테이션 방지: file:// 경로가 존재하면서 동시에 bytes도 제공될 때는 파일 경로가 우선한다. 파일에는
+     * 유효한 PDF가 들어 있는데 사용됐다면 실패했을 손상된 bytes를 전달해 이를 검증한다. 리더가 위치보다
+     * bytes를 잘못 우선한다면 이 테스트는 실패한다.
      */
     @Test
     fun filePathTakesPriorityOverBytesWhenBothPresent() {
@@ -184,11 +183,11 @@ class AndroidPdfMetadataReaderTest {
 }
 
 /**
- * Creates the smallest valid PDF `PdfRenderer` will accept: a single blank page at 72×72 points with
- * an empty content stream. Cross-reference offsets are approximate but `PdfRenderer` is tolerant
- * enough to accept this without exact byte positions.
+ * `PdfRenderer`가 받아들이는 가장 작은 유효한 PDF를 만든다: 72×72 포인트의 빈 콘텐츠 스트림을 가진
+ * 단일 빈 페이지. 상호참조 오프셋은 근사치이지만 `PdfRenderer`는 정확한 바이트 위치 없이도 이를
+ * 받아들일 만큼 관대하다.
  *
- * @return The minimal PDF as a [ByteArray].
+ * @return 최소한의 PDF를 [ByteArray]로.
  */
 private fun createMinimalPdf(): ByteArray {
     val pdf = buildString {
