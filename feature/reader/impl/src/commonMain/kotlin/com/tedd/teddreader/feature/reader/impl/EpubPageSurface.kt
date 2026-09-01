@@ -69,20 +69,20 @@ import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Draws one EPUB text page with the same semantic text the page breaker measured.
+ * page breaker가 측정한 것과 동일한 semantic text로 EPUB 텍스트 페이지 한 장을 그린다.
  *
- * The page surface rebuilds semantic text with the same text style, font families, widths, and float fitting
- * callback the breaker used, then lets Compose lay that result out once for actual drawing. Container
- * backgrounds and borders are painted from the final text layout geometry so page decorations track the same
- * lines the glyphs occupy.
+ * 페이지 서피스는 breaker가 사용한 것과 같은 text style, 폰트 패밀리, 너비, float fitting 콜백으로 semantic
+ * text를 다시 구성한 뒤, 실제로 그리기 위해 Compose가 그 결과를 한 번 레이아웃하도록 한다. 컨테이너 배경과
+ * 테두리는 최종 텍스트 레이아웃 geometry로부터 그려져서, 페이지 장식이 글리프가 차지하는 것과 같은 줄을
+ * 따라가도록 한다.
  *
- * @param page the already-sliced page content to draw, including embedded image bytes and failure state.
- * @param style the style this page's slices were measured under, including theme mode and any user
- * font override — colour rides in from the live style regardless; see `ReaderPagePane` in
- * `ReaderScreen.kt` for what actually chooses which style reaches this parameter.
- * @param embeddedFontFamiliesByHref resolved embedded font families keyed by EPUB href, shared with the page
- * breaker so measurement and rendering stay in sync.
- * @param modifier applied to the page root.
+ * @param page 그릴, 이미 분할된 페이지 콘텐츠. 내장 이미지 바이트와 실패 상태를 포함한다.
+ * @param style 이 페이지 조각이 측정된 기준 style로, 테마 모드와 사용자 폰트 오버라이드를 포함한다 — 색상은
+ * 어차피 실시간 style로부터 들어온다. 이 파라미터에 실제로 어떤 style이 도달하는지 결정하는 로직은
+ * `ReaderScreen.kt`의 `ReaderPagePane`를 참고한다.
+ * @param embeddedFontFamiliesByHref EPUB href를 키로 하는, 해석된 내장 폰트 패밀리. page breaker와 공유되어
+ * 측정과 렌더링이 어긋나지 않도록 한다.
+ * @param modifier 페이지 루트에 적용된다.
  */
 @Composable
 internal fun EpubPageSurface(
@@ -114,8 +114,8 @@ internal fun EpubPageSurface(
         val measurer = rememberTextMeasurer(cacheSize = 0)
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        // The one derivation the breaker also uses — same struct, same numbers, so a page is drawn with
-        // exactly the values it was measured with.
+        // breaker도 사용하는 바로 그 유도값이다 — 구조체도 숫자도 같아서, 페이지는 측정될 때와
+        // 정확히 같은 값으로 그려진다.
         val inputs = remember(style.layoutKey(), widthPx, heightPx, density, embeddedFontFamiliesByHref) {
             readerLayoutInputs(
                 style = style,
@@ -219,11 +219,11 @@ internal fun EpubPageSurface(
 }
 
 /**
- * Whether an EPUB page has enough embedded-font state to allow its first measured pagination.
+ * EPUB 페이지가 첫 측정 페이지 나누기를 허용할 만큼 충분한 내장 폰트 상태를 갖췄는지 여부.
  *
- * A user-selected reader font bypasses publisher fonts entirely, so no wait is needed. Otherwise every font
- * href referenced by the page must have either resolved successfully or reached a known failed state before
- * the breaker is allowed to measure.
+ * 사용자가 선택한 리더 폰트는 퍼블리셔 폰트를 아예 우회하므로 기다릴 필요가 없다. 그 외의 경우에는 페이지가
+ * 참조하는 모든 폰트 href가 breaker의 측정을 허용하기 전에 성공적으로 해석되었거나 알려진 실패 상태에
+ * 도달해 있어야 한다.
  */
 internal fun canMeasureEpubPage(
     page: ReaderPageUi,
@@ -241,18 +241,18 @@ internal fun canMeasureEpubPage(
 }
 
 /**
- * The composable an EPUB page's inline placeholder resolves to at the spot [buildReaderSemanticText]
- * reserved for it — an image, a floated image plus nested text, a separator rule, or nothing for placeholder
- * kinds that carry no visual content of their own.
+ * EPUB 페이지의 인라인 placeholder가 [buildReaderSemanticText]가 예약해 둔 자리에서 실제로 해석되는
+ * composable — 이미지, floated 이미지와 그 안에 중첩된 텍스트, 구분선, 또는 자체 시각 콘텐츠가 없는
+ * placeholder 종류라면 아무것도 그리지 않는다.
  *
- * @param placeholder the placeholder's kind, label, float metadata, and inherited colors, as produced by
- * [buildReaderSemanticText].
- * @param imageBytes the encoded image bytes for this placeholder, when its kind is an image and the bytes are available.
- * @param imageCacheKey stable document-and-href identity Coil uses to reuse the decoded image.
- * @param isFailed whether this placeholder's image previously failed to decode.
- * @param textStyle the resolved text style the nested float text must draw with.
- * @param baseTextColor the reader theme's fallback text color when publisher colors are disabled.
- * @param publisherColorsEnabled whether publisher colors should be honored for this page.
+ * @param placeholder [buildReaderSemanticText]가 만들어낸 placeholder의 종류, 라벨, float 메타데이터,
+ * 상속된 색상.
+ * @param imageBytes 이 placeholder의 인코딩된 이미지 바이트. 종류가 이미지이고 바이트를 사용할 수 있을 때.
+ * @param imageCacheKey Coil이 디코딩된 이미지를 재사용하는 데 쓰는, 문서와 href로 결정되는 안정적인 식별자.
+ * @param isFailed 이 placeholder의 이미지가 이전에 디코딩에 실패한 적이 있는지 여부.
+ * @param textStyle 중첩된 float 텍스트가 그려야 할, 해석이 끝난 text style.
+ * @param baseTextColor 퍼블리셔 색상이 꺼져 있을 때 사용하는 리더 테마의 기본 텍스트 색상.
+ * @param publisherColorsEnabled 이 페이지에서 퍼블리셔 색상을 존중할지 여부.
  */
 @Composable
 private fun EpubInlinePlaceholder(
@@ -292,18 +292,18 @@ private fun EpubInlinePlaceholder(
 }
 
 /**
- * Lays out a floated image placeholder as an inline full-column box whose content is a row-like split:
- * image on the start/end edge and the fitted leading paragraph slice beside it.
+ * floated 이미지 placeholder를, 이미지는 시작/끝 가장자리에 두고 그 옆에 맞춰진 선두 단락 조각을 두는
+ * row 형태 분할을 콘텐츠로 갖는 인라인 전체-열 박스로 배치한다.
  *
- * @param floatContent fitted text and image geometry for the floated block.
- * @param imageBytes encoded image bytes to decode, or null while extraction is pending.
- * @param imageCacheKey stable document-and-href identity Coil uses to reuse the decoded image.
- * @param label alternative text used for accessibility and failures.
- * @param isFailed whether extraction has already failed.
- * @param imageBoxStyle publisher styling around the image half.
- * @param textStyle resolved style for the fitted text half.
- * @param currentColor fallback border color.
- * @param usePublisherColors whether publisher colors are honored.
+ * @param floatContent floated 블록에 맞춰진 텍스트와 이미지 geometry.
+ * @param imageBytes 디코딩할 인코딩된 이미지 바이트, 추출이 진행 중이면 null.
+ * @param imageCacheKey Coil이 디코딩된 이미지를 재사용하는 데 쓰는, 문서와 href로 결정되는 안정적인 식별자.
+ * @param label 접근성과 실패 시 사용되는 대체 텍스트.
+ * @param isFailed 추출이 이미 실패했는지 여부.
+ * @param imageBoxStyle 이미지 쪽 절반을 감싸는 퍼블리셔 스타일링.
+ * @param textStyle 맞춰진 텍스트 쪽 절반에 적용되는, 해석이 끝난 style.
+ * @param currentColor 대체 테두리 색상.
+ * @param usePublisherColors 퍼블리셔 색상을 존중할지 여부.
  */
 @Composable
 private fun EpubFloatPlaceholder(
@@ -355,32 +355,30 @@ private fun EpubFloatPlaceholder(
 }
 
 /**
- * Draws one EPUB image — a full-page plate or an inline picture — as either the decoded artwork or,
- * once it is certain the image will never arrive, a text label in its place.
+ * EPUB 이미지 한 장 — 전면 판(plate) 또는 인라인 그림 — 을 디코딩된 아트워크로, 혹은 이미지가 끝내 도착하지
+ * 않으리라는 것이 확실해지면 그 자리에 텍스트 라벨로 그린다.
  *
- * The publisher background for the image box is drawn before the content, then the image itself is drawn,
- * then borders are painted above it. That keeps explicit image frames visible while preserving the exact box
- * pagination measured.
+ * 이미지 박스의 퍼블리셔 배경은 콘텐츠보다 먼저 그리고, 그다음 이미지 자체를 그리고, 그 위에 테두리를 그린다.
+ * 이렇게 하면 측정된 박스 페이지 나누기를 정확히 유지하면서도 명시적인 이미지 프레임이 보이도록 유지된다.
  *
- * A picture arrives in two steps — its bytes are read out of the book, then decoded — and showing something
- * during each step made the page change three times before settling: alt text or a spinner, then a second
- * spinner, then the picture. Since the space is already reserved at the right size, [AsyncImage] draws
- * no loading painter; only the decoded image (crossfaded in over [ImageFadeMillis] so the page settles once
- * instead of snapping as each picture finishes) or, once decoding has actually failed, the [label] text is
- * ever shown. Regular composition avoids the extra subcomposition cost for every mounted inline image.
+ * 그림은 두 단계로 도착한다 — 책에서 바이트를 읽어낸 뒤 디코딩한다 — 그리고 각 단계마다 무언가를 보여주면
+ * 페이지가 자리 잡기까지 세 번 바뀌었다: alt 텍스트나 스피너, 그다음 두 번째 스피너, 그다음 그림. 공간이
+ * 이미 올바른 크기로 예약되어 있으므로 [AsyncImage]는 로딩 painter를 전혀 그리지 않는다. 디코딩된 이미지만
+ * ([ImageFadeMillis]에 걸쳐 크로스페이드되어, 그림이 끝날 때마다 툭 튀지 않고 페이지가 한 번에 자리 잡는다)
+ * 표시되거나, 디코딩이 실제로 실패했을 때만 [label] 텍스트가 표시된다. 일반 composition을 사용하여 마운트된
+ * 인라인 이미지마다 추가로 드는 subcomposition 비용을 피한다.
  *
- * @param imageBytes the image's encoded bytes, when available; null renders nothing unless [isFailed] is
- * also true, in which case [label] is shown.
- * @param imageCacheKey stable document-and-href identity that makes ByteArray requests memory-cacheable.
- * @param label alt text shown when the image is missing or failed to decode, and used as the content
- * description while it renders successfully.
- * @param isFailed whether this image previously failed to decode, so a missing [imageBytes] here is shown as
- * [label] instead of silently rendering nothing.
- * @param boxStyle publisher box styling attached to the image itself, including background, borders and radius.
- * @param currentColor fallback color for `currentColor`-style borders.
- * @param usePublisherColors whether explicit publisher colors should be honored instead of theme fallbacks.
- * @param modifier the modifier applied to the image's root; expected to already carry the exact size the
- * image should occupy.
+ * @param imageBytes 이미지의 인코딩된 바이트. 사용할 수 있으면 그리고, null이면 [isFailed]도 true가 아닌 한
+ * 아무것도 그리지 않으며, true라면 [label]을 표시한다.
+ * @param imageCacheKey ByteArray 요청을 메모리 캐시 가능하게 만드는, 문서와 href로 결정되는 안정적인 식별자.
+ * @param label 이미지가 없거나 디코딩에 실패했을 때 표시되는 alt 텍스트이며, 정상적으로 렌더링되는 동안에는
+ * content description으로도 쓰인다.
+ * @param isFailed 이 이미지가 이전에 디코딩에 실패한 적이 있는지 여부. 그렇다면 여기서 [imageBytes]가
+ * 없어도 아무것도 그리지 않는 대신 [label]을 표시한다.
+ * @param boxStyle 이미지 자체에 붙은 퍼블리셔 박스 스타일링으로, 배경·테두리·radius를 포함한다.
+ * @param currentColor `currentColor` 방식 테두리에 쓰이는 대체 색상.
+ * @param usePublisherColors 테마 기본값 대신 명시적인 퍼블리셔 색상을 존중할지 여부.
+ * @param modifier 이미지 루트에 적용되는 modifier. 이미지가 차지해야 할 정확한 크기를 이미 담고 있어야 한다.
  */
 @Composable
 private fun EpubImageBox(
@@ -441,16 +439,16 @@ private fun EpubImageBox(
 }
 
 /**
- * Builds the stable memory-cache identity for one image inside one EPUB.
+ * 하나의 EPUB 안에 있는 이미지 한 장에 대한 안정적인 메모리 캐시 식별자를 만든다.
  *
- * Coil 3.5.0 can fetch [ByteArray] data but has no `Keyer<ByteArray>`, so an explicit key is the
- * only way duplicate page-effect compositions can share the decoded bitmap. The document URI is
- * length-prefixed before the href to keep identical container paths isolated across books. A
- * missing identity returns null so Coil cannot accidentally cache the image under a partial key.
+ * Coil 3.5.0은 [ByteArray] 데이터를 가져올 수는 있지만 `Keyer<ByteArray>`가 없으므로, 중복된 page-effect
+ * composition들이 디코딩된 비트맵을 공유할 수 있는 유일한 방법은 명시적인 키뿐이다. 문서 URI는 href 앞에
+ * 길이 접두사가 붙어서, 서로 다른 책들 사이에 동일한 컨테이너 경로가 섞이지 않도록 격리한다. 식별자가
+ * 하나라도 없으면 null을 반환하여 Coil이 실수로 부분적인 키로 이미지를 캐시하지 못하도록 한다.
  *
- * @param documentUri stable source URI of the EPUB that owns the image.
- * @param imageHref container-relative image path inside that EPUB.
- * @return a document-scoped Coil memory-cache key, or null when either identity is unavailable.
+ * @param documentUri 이미지를 소유한 EPUB의 안정적인 소스 URI.
+ * @param imageHref 그 EPUB 안에서 컨테이너 기준 상대 이미지 경로.
+ * @return 문서 범위로 한정된 Coil 메모리 캐시 키. 둘 중 하나라도 식별자가 없으면 null.
  */
 internal fun epubImageMemoryCacheKey(documentUri: String?, imageHref: String?): String? {
     val document = documentUri?.takeIf(String::isNotBlank) ?: return null
@@ -563,33 +561,32 @@ internal fun maxBorderHalfStrokePx(boxStyle: ReaderBoxStyle, density: Float): Fl
         ?: 0f
 
 /**
- * Deepest page-container publisher background, if any, to paint across the whole text pane.
+ * 텍스트 페인 전체에 칠할, 가장 깊은 page-container의 퍼블리셔 배경(있는 경우).
  *
- * html/body-like containers cover the reader's whole text page rather than only the laid-out glyph bounds, so
- * the pane background is chosen separately from the per-layout decoration pass.
+ * html/body 같은 컨테이너는 레이아웃된 글리프 경계뿐 아니라 리더의 텍스트 페이지 전체를 덮으므로, 페인
+ * 배경은 레이아웃별 장식 처리 단계와 별도로 선택된다.
  */
 /**
- * The page margins a book asks for on its own `html`/`body`, in em, or [ReaderPageMarginsEm.Zero] when it
- * asks for none.
+ * 책이 자신의 `html`/`body`에 요구하는 페이지 여백(em 단위), 아무것도 요구하지 않으면
+ * [ReaderPageMarginsEm.Zero].
  *
- * A reflowable book states its page margins on `body` — `body { margin: 2em }` is the single most common
- * line in an EPUB's stylesheet — and a reader that ignores it sets the text edge to edge in a column far
- * wider than the book was typeset for. The margins are read off the page-container blocks (`html` and
- * `body`), the widest of which wins, and applied outside the text area so pagination measures the same
- * column the text is drawn into.
+ * 리플로우 가능한 책은 `body`에 페이지 여백을 명시한다 — `body { margin: 2em }`은 EPUB 스타일시트에서 가장
+ * 흔한 한 줄이다 — 그리고 이를 무시하는 리더는 책이 조판된 것보다 훨씬 넓은 열에서 텍스트를 가장자리까지
+ * 채우게 된다. 여백은 page-container 블록(`html`과 `body`)에서 읽어 그중 가장 넓은 값이 이기며, 텍스트
+ * 영역 바깥에 적용되어 페이지 나누기가 텍스트가 그려지는 것과 같은 열을 측정하도록 한다.
  *
- * Each side is capped at [MaxPageContainerMarginEm]: a book asking for a margin wider than the page it is
- * read on would otherwise leave a column too narrow to set a word in.
+ * 각 방향은 [MaxPageContainerMarginEm]으로 상한이 걸린다. 그렇지 않으면 읽는 페이지보다 더 넓은 여백을
+ * 요구하는 책이 단어 하나 앉히기에도 너무 좁은 열을 남기게 된다.
  *
- * @param page the page whose blocks carry the container styling.
- * @return the margins to inset the text area by.
+ * @param page 컨테이너 스타일링을 담은 블록을 가진 페이지.
+ * @return 텍스트 영역을 안쪽으로 밀어 넣을 여백.
  */
 internal fun epubPageContainerMarginsEm(page: ReaderPageUi): ReaderPageMarginsEm {
     val containers = page.blocks.filter(ReaderBlock::isPageContainer)
     if (containers.isEmpty()) return ReaderPageMarginsEm.Zero
-    // Margin and padding are summed per side: on `html`/`body` both simply stand between the page edge
-    // and the text, and the parser deliberately keeps page-container spacing out of the per-paragraph
-    // insets so it lands here exactly once.
+    // margin과 padding은 방향별로 합산된다: `html`/`body`에서는 둘 다 그저 페이지 가장자리와 텍스트 사이에
+    // 놓이는 것일 뿐이며, 파서는 page-container 간격을 문단별 inset에서 의도적으로 제외해 두었으므로
+    // 정확히 한 번만 여기에 반영된다.
     fun widest(margin: (ReaderBlockStyle) -> Float?, padding: (ReaderBlockStyle) -> Float?): Float =
         containers.mapNotNull { block ->
             block.style?.let { style -> (margin(style) ?: 0f) + (padding(style) ?: 0f) }
@@ -606,12 +603,12 @@ internal fun epubPageContainerMarginsEm(page: ReaderPageUi): ReaderPageMarginsEm
 }
 
 /**
- * Page margins in em, as a book's own `body` rule states them.
+ * 책 자신의 `body` 규칙이 명시하는, em 단위 페이지 여백.
  *
- * @property start inline-start margin in em.
- * @property top margin above the text area in em.
- * @property end inline-end margin in em.
- * @property bottom margin below the text area in em.
+ * @property start inline-start 여백(em).
+ * @property top 텍스트 영역 위쪽 여백(em).
+ * @property end inline-end 여백(em).
+ * @property bottom 텍스트 영역 아래쪽 여백(em).
  */
 data class ReaderPageMarginsEm(
     val start: Float,
@@ -619,17 +616,17 @@ data class ReaderPageMarginsEm(
     val end: Float,
     val bottom: Float,
 ) {
-    /** True when the book asks for no page margin at all, so the reader's own padding stands alone. */
+    /** 책이 페이지 여백을 전혀 요구하지 않아서 리더 자체의 padding만 단독으로 적용될 때 true. */
     fun isZero(): Boolean = this == Zero
 
-    /** Holds [Zero], the margins a book that states none is given. */
+    /** 아무것도 명시하지 않은 책에게 주어지는 여백인 [Zero]를 담는다. */
     companion object {
-        /** No page margin on any side. */
+        /** 어느 방향으로도 페이지 여백이 없음. */
         val Zero = ReaderPageMarginsEm(0f, 0f, 0f, 0f)
     }
 }
 
-/** Widest page margin, per side, this reader will honor before the text column stops being readable. */
+/** 텍스트 열이 더 이상 읽기 어려워지기 전까지, 이 리더가 방향별로 허용하는 가장 넓은 페이지 여백. */
 private const val MaxPageContainerMarginEm = 4f
 
 internal fun epubPageContainerBackgroundColor(
@@ -650,9 +647,9 @@ internal fun epubPageContainerBackgroundColor(
 }
 
 /**
- * The text colour used only when publisher styling does not provide one. A publisher page background
- * wins over the reader background, so its luminance must also choose the fallback ink; otherwise a
- * light publisher page on a dark device receives the dark theme's light ink and becomes unreadable.
+ * 퍼블리셔 스타일링이 텍스트 색상을 제공하지 않을 때만 쓰이는 대체 텍스트 색상. 퍼블리셔 페이지 배경이 리더
+ * 배경보다 우선하므로, 그 명도(luminance) 역시 대체 잉크 색을 결정해야 한다. 그렇지 않으면 다크 기기에서
+ * 밝은 퍼블리셔 페이지가 다크 테마의 밝은 잉크색을 받아 읽을 수 없게 된다.
  */
 internal fun epubPageBaseTextColor(page: ReaderPageUi, style: ReaderStyle): ReaderColor {
     val publisherBackground = epubPageContainerBackgroundColor(page, style) ?: return style.textColor
@@ -661,23 +658,22 @@ internal fun epubPageBaseTextColor(page: ReaderPageUi, style: ReaderStyle): Read
     )
 }
 
-/** The EPUB body style with its unspecified-foreground fallback matched to the painted page. */
+/** EPUB body style이되, 지정되지 않은 전경색 대체값은 실제로 칠해질 페이지에 맞춰져 있다. */
 internal fun epubPageTextStyle(page: ReaderPageUi, style: ReaderStyle): TextStyle =
     style.readerTextStyle().copy(color = epubPageBaseTextColor(page, style).toColor())
 
 /**
- * This rect grown to include the box's own padding, so its border is drawn off the text rather than through
- * it.
+ * 이 rect를 박스 자체의 padding만큼 넓혀서, 테두리가 텍스트를 가로지르지 않고 텍스트 바깥에 그려지도록 한다.
  *
- * A text layout only knows where the lines are, so a box measured from it ends exactly at the glyphs it
- * encloses — and a book framing a section with `border-top` plus `padding: 1em 0` then had its rule drawn
- * across the first and last lines of that section. The space is reserved in the gap either side of the box
- * (see the renderer's container-edge accounting), and this is where it is claimed.
+ * 텍스트 레이아웃은 줄이 어디 있는지만 알기 때문에, 거기서 측정한 박스는 감싼 글리프에서 정확히 끝난다 —
+ * 그래서 `border-top`과 `padding: 1em 0`으로 어느 섹션을 감싼 책은 그 규칙 선이 해당 섹션의 첫 줄과 마지막
+ * 줄을 가로질러 그려지곤 했다. 공간은 박스 양쪽의 간격에 예약되어 있고(렌더러의 container-edge 계산 참고),
+ * 그 자리를 여기서 가져다 쓴다.
  *
- * @receiver the rect the box's lines occupy.
- * @param decoration the box being painted, which states its padding in em.
- * @param emPx how many pixels one em is.
- * @return the rect to paint the background and borders in.
+ * @receiver 박스의 줄들이 차지하는 rect.
+ * @param decoration 그려지는 박스로, padding을 em 단위로 명시한다.
+ * @param emPx 1em이 몇 픽셀인지.
+ * @return 배경과 테두리를 그릴 rect.
  */
 private fun Rect.grownByPadding(decoration: ReaderContainerDecoration, emPx: Float): Rect = Rect(
     left = left,
@@ -704,8 +700,8 @@ private fun DrawScope.drawBorderSide(
     )
 }
 
-/** The decode size, in pixels, requested for any EPUB image drawn by [EpubImageBox]. */
+/** [EpubImageBox]가 그리는 모든 EPUB 이미지에 요청하는 디코딩 크기(픽셀). */
 private const val MaxInlineImageDimensionPx = 2_048
 
-/** How long, in milliseconds, an EPUB image crossfades in once decoded; see [EpubImageBox]. */
+/** 디코딩된 EPUB 이미지가 크로스페이드로 나타나는 데 걸리는 시간(밀리초). [EpubImageBox] 참고. */
 private const val ImageFadeMillis = 120

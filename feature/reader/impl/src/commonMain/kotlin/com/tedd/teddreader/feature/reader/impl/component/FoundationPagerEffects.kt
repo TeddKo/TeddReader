@@ -67,77 +67,75 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * The pager behind [PageAnimation.SLIDE]/[PageAnimation.SHEET_FLIP]/[PageAnimation.FLUID_PAGER]/
- * [PageAnimation.CIRCLE_REVEAL]/[PageAnimation.MOVIE_CAROUSEL]/[PageAnimation.PAGE_FLIP]: a
- * Foundation `HorizontalPager`/`VerticalPager` fixed to 3 slots (previous/current/next, see
- * [FoundationPagerPage]) that always sits at [FoundationCenterPage] between turns, with a custom
- * transition modifier per [pageAnimation] drawing the fold/reveal/carousel/flip effect over the
- * plain Foundation swipe.
+ * [PageAnimation.SLIDE]/[PageAnimation.SHEET_FLIP]/[PageAnimation.FLUID_PAGER]/
+ * [PageAnimation.CIRCLE_REVEAL]/[PageAnimation.MOVIE_CAROUSEL]/[PageAnimation.PAGE_FLIP]의
+ * 배후에 있는 pager: 3개의 슬롯(이전/현재/다음, [FoundationPagerPage] 참고)으로 고정된 Foundation
+ * `HorizontalPager`/`VerticalPager`로, turn 사이에는 항상 [FoundationCenterPage]에 위치하며,
+ * [pageAnimation]별 커스텀 트랜지션 modifier가 일반 Foundation 스와이프 위에 fold/reveal/carousel/
+ * flip 효과를 그린다.
  *
- * **Keeping the pager centred in sync with document state.** The pager's own [pagerState] tracks
- * a 0..2 slot index, while the document's actual page lives in [pageKey] one level up in
- * `ReaderViewModel`. A turn has to move both — the reader's page and the pager's slot back to
- * centre — but they cannot be written at the same instant: the move leaves through the view model
- * and comes back as new [pageKey] state on a later frame. Drawing the three slots' content
- * directly from [pageKey] would show the page being left at its already-settled scroll position
- * until the new [pageKey] caught up — the wrong text visible for a moment on every turn. The
- * `renderedPageKey` variable exists to prevent that: the three slots are drawn from
- * `renderedPageKey`, not [pageKey] directly, and `renderedPageKey` only moves on once [pageKey]'s
- * change and the pager's re-centring reach the screen in the same frame (see the
- * `LaunchedEffect(pageKey, pageCount, pageStep)` block below, which resets `renderedPageKey` and
- * re-centres the pager together).
+ * **pager를 문서 상태와 동기화된 채로 가운데에 유지하기.** pager 자신의 [pagerState]는 0..2 범위의
+ * 슬롯 인덱스를 추적하는 반면, 문서의 실제 페이지는 한 단계 위 `ReaderViewModel`의 [pageKey]에
+ * 담겨 있다. turn 하나는 리더의 페이지와 pager의 슬롯 둘 다 가운데로 이동시켜야 하지만, 그 둘을 같은
+ * 순간에 쓸 수는 없다: 이동은 view model을 거쳐 나갔다가 이후 프레임에서 새 [pageKey] 상태로
+ * 되돌아온다. 세 슬롯의 콘텐츠를 [pageKey]로부터 곧바로 그린다면, 새 [pageKey]가 따라잡을 때까지
+ * 페이지가 이미 안착된 스크롤 위치에 그대로 남아 있는 모습이 보이게 된다 — turn마다 순간적으로 잘못된
+ * 텍스트가 보이는 것이다. `renderedPageKey` 변수는 이를 막기 위해 존재한다: 세 슬롯은 [pageKey]가
+ * 아니라 `renderedPageKey`로부터 그려지며, `renderedPageKey`는 [pageKey]의 변경과 pager를 가운데로
+ * 되돌리는 동작이 같은 프레임에 화면에 함께 도달했을 때만 앞으로 나아간다(아래
+ * `LaunchedEffect(pageKey, pageCount, pageStep)` 블록 참고 — 이 블록이 `renderedPageKey`를
+ * 재설정하는 동시에 pager를 가운데로 되돌린다).
  *
- * That same effect re-centres the pager with `pagerState.requestScrollToPage(FoundationCenterPage)`
- * rather than `scrollToPage`: `requestScrollToPage` moves the pager's own position at once and
- * leaves the layout to catch up on the next measure pass, so the snap-back and the `renderedPageKey`
- * update driving what the slots show both land in the same frame instead of one after the other.
+ * 같은 effect가 pager를 `scrollToPage`가 아니라
+ * `pagerState.requestScrollToPage(FoundationCenterPage)`로 가운데로 되돌린다: `requestScrollToPage`는
+ * pager 자신의 위치를 즉시 옮기고 레이아웃이 다음 측정 패스에서 따라잡도록 남겨 두므로, 가운데로
+ * 되돌아가는 동작과 슬롯이 보여줄 내용을 정하는 `renderedPageKey` 갱신이 하나가 다른 하나를 뒤따르는
+ * 대신 같은 프레임에 함께 반영된다.
  *
- * **Consuming a settled scroll exactly once.** The `LaunchedEffect(pagerState, pageKey,
- * renderedPageKey, pageCount, pageStep, isManualDragInProgress)` block watches for the pager
- * settling on slot 0 or 2 (a completed turn) and reports it upward via [onPreviousPage]/
- * [onNextPage]. It bails out whenever `pageKey != renderedPageKey`: two keys out of step means the
- * turn just reported is still on its way back as new [pageKey] state, the pager is still parked
- * off-centre waiting for it, and reporting that same resting slot a second time would move the
- * reader two pages for one turn. Once a settled slot is reported, only a turn with nowhere left to
- * go (no previous/next page) puts the pager back to centre itself — every other case is snapped
- * back by the `renderedPageKey`-driven effect above once the new key arrives.
+ * **안착된 스크롤을 정확히 한 번만 소비하기.** `LaunchedEffect(pagerState, pageKey,
+ * renderedPageKey, pageCount, pageStep, isManualDragInProgress)` 블록은 pager가 슬롯 0이나 2에
+ * 안착하는 것(완료된 turn)을 지켜보다가 이를 [onPreviousPage]/[onNextPage]를 통해 위로 보고한다.
+ * `pageKey != renderedPageKey`인 동안에는 항상 그대로 빠져나오는데, 두 키가 어긋나 있다는 것은
+ * 방금 보고한 turn이 아직 새 [pageKey] 상태로 되돌아오는 중이며 pager는 여전히 그것을 기다리며
+ * 가운데를 벗어난 채 멈춰 있다는 뜻이고, 같은 안착 슬롯을 두 번째로 보고하면 turn 한 번에 리더가
+ * 페이지 두 개를 이동하게 되기 때문이다. 안착 슬롯이 한 번 보고되고 나면, 더 갈 곳이 없는 turn(이전/
+ * 다음 페이지가 없음)만이 pager를 스스로 가운데로 되돌린다 — 그 밖의 모든 경우는 새 키가 도착하면
+ * 위의 `renderedPageKey`가 구동하는 effect가 되돌려 놓는다.
  *
- * **Tap zones.** [tapModifier]'s `onTap` resolves the tap position into
+ * **탭 영역.** [tapModifier]의 `onTap`은 `foundationPagerTapAction`을 통해 탭 위치를
  * [FoundationPagerTapAction.Previous]/[FoundationPagerTapAction.Next]/
- * [FoundationPagerTapAction.ToggleControls] via `foundationPagerTapAction`. A tap in the
- * previous/next zone with no adjacent page in that direction (the start or end of the book) falls
- * through to toggling the controls the same as the middle zone — a tap must never be silently
- * swallowed, which is exactly what used to happen on the last page before this fell through (F16).
+ * [FoundationPagerTapAction.ToggleControls]로 해석한다. 이전/다음 영역에서의 탭인데 그 방향에
+ * 인접 페이지가 없으면(책의 시작이나 끝) 가운데 영역과 마찬가지로 컨트롤 토글로 넘어간다 — 탭은
+ * 결코 조용히 삼켜져서는 안 되며, 이 fallthrough가 생기기 전에는 마지막 페이지에서 정확히 그런 일이
+ * 벌어졌었다.
  *
- * @param pageKey The current page index.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one turn advances.
- * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
- * @param pageAnimation Which of the styles this pager supports is currently active; selects the
- *   transition modifier applied per slot.
- * @param canRequestNextPage Whether a text document at its known end should still forward a next
- *   request while pagination remains incomplete.
- * @param pageMoveRequest A pending programmatic page-move request, or null when none is
- *   outstanding.
- * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been animated
- *   or found to have nowhere to go.
- * @param onPreviousPage Called once a turn toward the start of the document settles.
- * @param onNextPage Called once a turn toward the end of the document settles.
- * @param onToggleControls Called when a tap lands outside both turn zones, or during auto-scroll.
- * @param onDoubleTap Called with the tap position on a double-tap; null disables it.
- * @param isAutoScrollEnabled Whether auto-scroll is currently driving turns.
- * @param autoScrollMode The auto-scroll mode to honor.
- * @param autoScrollSpeed The configured auto-scroll speed.
- * @param autoScrollLineHeightPx The current style's line height in pixels, used by line-mode
- *   auto-scroll.
- * @param autoScrollDensity The display density, used to convert auto-scroll speed into pixels.
- * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
- * @param onMovieTransitionProgressChanged Called with the movie-carousel transition's progress.
- * @param paneCount How many page panes are shown side by side (2 for a spread, 1 otherwise);
- *   selects between [FoundationPageFlipLayout.WholePage] and
- *   [FoundationPageFlipLayout.SplitHalfFold] for the page-flip style.
- * @param modifier The modifier applied to the pager's root.
- * @param content Renders the page at the given index.
+ * @param pageKey 현재 페이지 인덱스.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지.
+ * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
+ * @param pageAnimation 이 pager가 지원하는 스타일 중 현재 활성화된 것으로, 슬롯마다 적용되는
+ *   트랜지션 modifier를 결정한다.
+ * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은
+ *   동안에도 다음 요청을 계속 전달해야 하는지 여부.
+ * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
+ * @param onPageMoveRequestConsumed [pageMoveRequest]의 id와 함께, 그것이 애니메이션되었거나 갈
+ *   곳이 없다고 확인된 뒤 호출된다.
+ * @param onPreviousPage 문서 시작 쪽으로의 turn이 안착하면 호출된다.
+ * @param onNextPage 문서 끝 쪽으로의 turn이 안착하면 호출된다.
+ * @param onToggleControls 탭이 두 turn 영역 바깥에 떨어지거나, 자동 스크롤 도중이면 호출된다.
+ * @param onDoubleTap 더블 탭 시 탭 위치와 함께 호출된다; null이면 이를 비활성화한다.
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 turn을 구동하고 있는지 여부.
+ * @param autoScrollMode 따를 자동 스크롤 모드.
+ * @param autoScrollSpeed 설정된 자동 스크롤 속도.
+ * @param autoScrollLineHeightPx line 모드 자동 스크롤이 쓰는, 현재 style의 픽셀 단위 줄 높이.
+ * @param autoScrollDensity 자동 스크롤 속도를 픽셀로 환산하는 데 쓰이는 화면 밀도.
+ * @param onAutoScrollStop 자동 스크롤이 문서 끝에 닿아 멈춰야 할 때 호출된다.
+ * @param onMovieTransitionProgressChanged movie-carousel 트랜지션의 진행률과 함께 호출된다.
+ * @param paneCount 몇 개의 페이지 pane이 나란히 보이는지(spread면 2, 그 외엔 1); page-flip
+ *   style에서 [FoundationPageFlipLayout.WholePage]와 [FoundationPageFlipLayout.SplitHalfFold]
+ *   중 무엇을 쓸지를 결정한다.
+ * @param modifier pager의 루트에 적용되는 modifier.
+ * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -484,7 +482,7 @@ internal fun FoundationEffectPager(
         )
     }
 
-    /** Builds one slot's per-frame transition modifier, shared between the horizontal and vertical pager branches below so it is not written out twice. */
+    /** 가로/세로 pager 분기 양쪽에서 공유되어 두 번 작성되지 않도록 하는, 한 슬롯의 프레임별 트랜지션 modifier를 만든다. */
     fun pageModifier(pagerPage: Int): Modifier {
         val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
         return Modifier
@@ -583,39 +581,38 @@ internal fun FoundationEffectPager(
 }
 
 /**
- * The pager behind [PageAnimation.BOOK_CURL]/[PageAnimation.CURL_PAGER]: a thin pass-through onto
- * [FoundationPagerCurlReferenceImpl], which owns the actual pagecurl gesture and rendering state
- * machine. This wrapper exists only so [ReaderPager] can dispatch on [PageAnimation] the same way
- * it does for [FoundationEffectPager], without every caller needing to know the curl
- * implementation's name.
+ * [PageAnimation.BOOK_CURL]/[PageAnimation.CURL_PAGER]의 배후에 있는 pager: 실제 pagecurl
+ * 제스처와 렌더링 상태 머신을 소유하는 [FoundationPagerCurlReferenceImpl]로 그대로 위임하는 얇은
+ * 래퍼다. 이 래퍼가 존재하는 이유는 오직 [ReaderPager]가 [FoundationEffectPager]에 대해서와 같은
+ * 방식으로 [PageAnimation]에 따라 분기할 수 있도록 하기 위함이며, 그래서 호출자마다 curl 구현의
+ * 이름을 알 필요가 없다.
  *
- * @param pageKey The current page index.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one turn advances.
- * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
- * @param style Whether the existing curl renderer uses its standard appearance or the stronger
- *   front/back/rim lighting of the 3D Curl option.
- * @param canRequestNextPage Whether a text document at its known end should still forward a next
- *   request while pagination remains incomplete.
- * @param pageMoveRequest A pending programmatic page-move request, or null when none is
- *   outstanding.
- * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been animated
- *   or found to have nowhere to go.
- * @param onPreviousPage Called once a backward curl completes.
- * @param onNextPage Called once a forward curl completes.
- * @param onToggleControls Called when a tap lands outside both turn zones, or during auto-scroll.
- * @param onDoubleTap Called with the tap position on a double-tap; null disables it.
- * @param isAutoScrollEnabled Whether auto-scroll is currently driving turns.
- * @param autoScrollMode The auto-scroll mode to honor.
- * @param autoScrollSpeed The configured auto-scroll speed.
- * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
- * @param modifier The modifier applied to the pager's root.
- * @param paneCount How many page panes are shown side by side (2 for a spread, 1 otherwise).
- * @param spreadGutter The gap drawn between panes in a spread.
- * @param spreadLeftWeight The fraction of a spread's width given to its left pane.
- * @param spreadModifier The modifier applied to a spread's row.
- * @param paneContent Renders one pane of a spread with its own modifier; null for a single pane.
- * @param content Renders the page at the given index for the single-pane case.
+ * @param pageKey 현재 페이지 인덱스.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지.
+ * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
+ * @param style 기존 curl 렌더러가 표준 모습을 쓸지, 3D Curl 옵션의 더 강한 front/back/rim 조명을
+ *   쓸지.
+ * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은
+ *   동안에도 다음 요청을 계속 전달해야 하는지 여부.
+ * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
+ * @param onPageMoveRequestConsumed [pageMoveRequest]의 id와 함께, 그것이 애니메이션되었거나 갈
+ *   곳이 없다고 확인된 뒤 호출된다.
+ * @param onPreviousPage 뒤로 가는 curl이 완료되면 호출된다.
+ * @param onNextPage 앞으로 가는 curl이 완료되면 호출된다.
+ * @param onToggleControls 탭이 두 turn 영역 바깥에 떨어지거나, 자동 스크롤 도중이면 호출된다.
+ * @param onDoubleTap 더블 탭 시 탭 위치와 함께 호출된다; null이면 이를 비활성화한다.
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 turn을 구동하고 있는지 여부.
+ * @param autoScrollMode 따를 자동 스크롤 모드.
+ * @param autoScrollSpeed 설정된 자동 스크롤 속도.
+ * @param onAutoScrollStop 자동 스크롤이 문서 끝에 닿아 멈춰야 할 때 호출된다.
+ * @param modifier pager의 루트에 적용되는 modifier.
+ * @param paneCount 몇 개의 페이지 pane이 나란히 보이는지(spread면 2, 그 외엔 1).
+ * @param spreadGutter spread에서 pane 사이에 그려지는 간격.
+ * @param spreadLeftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param spreadModifier spread의 row에 적용되는 modifier.
+ * @param paneContent spread의 한 pane을 자신만의 modifier로 렌더링한다; 단일 pane이면 null.
+ * @param content 단일 pane인 경우 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 internal fun FoundationCurlPager(
@@ -671,21 +668,21 @@ internal fun FoundationCurlPager(
 }
 
 /**
- * Wraps a pager slot's content in the page-flip fold box when [pageAnimation] is
- * [PageAnimation.PAGE_FLIP] and this is the current-page slot, otherwise draws [content] plain.
- * Only the current slot folds because the neighbour slots are what the fold reveals underneath —
- * folding them too would double the effect.
+ * [pageAnimation]이 [PageAnimation.PAGE_FLIP]이고 이 슬롯이 current-page 슬롯일 때 pager 슬롯의
+ * 콘텐츠를 page-flip fold box로 감싸며, 그 외에는 [content]를 그대로 그린다. current 슬롯만
+ * fold되는 이유는 이웃 슬롯들이 바로 그 fold가 아래에서 드러내는 대상이기 때문이다 — 이웃까지
+ * fold하면 효과가 두 배가 되어 버린다.
  *
- * @param pageAnimation The active page-turn animation; only [PageAnimation.PAGE_FLIP] triggers
- *   the fold.
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`.
- * @param pageFlipLayout Whether the fold is a whole-page turn or a two-pane split-half fold.
- * @param isCurrentPage Whether this slot is the pager's current-page slot.
- * @param modifier The modifier applied to the box.
- * @param incomingContent The neighbour page's content revealed as the fold progresses, used only
- *   by [FoundationPageFlipLayout.SplitHalfFold]; null when there is no such neighbour.
- * @param content This slot's own page content.
+ * @param pageAnimation 현재 적용 중인 page-turn 애니메이션; [PageAnimation.PAGE_FLIP]일 때만
+ *   fold를 일으킨다.
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @param pageFlipLayout fold가 whole-page turn인지 두 pane짜리 split-half fold인지.
+ * @param isCurrentPage 이 슬롯이 pager의 current-page 슬롯인지 여부.
+ * @param modifier box에 적용되는 modifier.
+ * @param incomingContent fold가 진행됨에 따라 드러나는 이웃 페이지의 콘텐츠로,
+ *   [FoundationPageFlipLayout.SplitHalfFold]에서만 쓰인다; 그런 이웃이 없으면 null.
+ * @param content 이 슬롯 자신의 페이지 콘텐츠.
  */
 @Composable
 private fun FoundationPageFlipAwareBox(
@@ -727,23 +724,23 @@ private fun FoundationPageFlipAwareBox(
 }
 
 /**
- * The two-pane split-half fold: one half of the spread flips like a page in a real open book,
- * hinged along the spine, while the other half stays flat.
+ * 두 pane짜리 split-half fold: spread의 한 절반은 실제로 펼쳐진 책의 페이지처럼 spine을 따라
+ * 경첩을 이루며 넘어가고, 나머지 절반은 평평하게 남는다.
  *
- * The half the leaf lands on is seated with the outgoing (currently visible) page underneath it
- * for the whole fold, and the incoming neighbour page is drawn on top of that same half only once
- * the leaf's own back face has rotated far enough to cover it (`spec.showIncoming`). Seating the
- * incoming page there unconditionally instead made that half swap to the new page the moment a
- * drag started, which read as the far page changing before the turn instead of at the end of it.
- * The half the leaf lifts off deliberately gets no seat of its own: the arriving pager page lies
- * directly underneath it already, and uncovering that is what a real book shows there.
+ * leaf가 내려앉는 절반은 fold가 진행되는 내내 outgoing(현재 보이는) 페이지를 그 아래에 깔고
+ * 있으며, incoming 이웃 페이지는 leaf 자신의 뒷면이 충분히 회전해 그 절반을 덮고 나서야
+ * (`spec.showIncoming`) 같은 절반 위에 그려진다. incoming 페이지를 조건 없이 그 자리에 깔아
+ * 두었다면 드래그가 시작되는 순간 그 절반이 새 페이지로 바뀌어 버려, turn이 끝나기도 전에 먼 쪽
+ * 페이지가 바뀐 것처럼 보였을 것이다. leaf가 들려 올라가는 절반은 의도적으로 자신만의 깔개를
+ * 두지 않는다: 도착하는 pager 페이지가 이미 그 바로 아래 놓여 있으므로, 그것을 드러내는 것이
+ * 실제 책이 그 자리에서 보여주는 모습이기 때문이다.
  *
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`.
- * @param modifier The modifier applied to the box.
- * @param incomingContent The neighbour page's content, revealed as the fold progresses; a null or
- *   zero [pageOffset] draws [content] plain with no fold.
- * @param content The current page's content.
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @param modifier box에 적용되는 modifier.
+ * @param incomingContent fold가 진행됨에 따라 드러나는 이웃 페이지의 콘텐츠; [pageOffset]이
+ *   null이거나 0이면 fold 없이 [content]를 그대로 그린다.
+ * @param content 현재 페이지의 콘텐츠.
  */
 @Composable
 private fun FoundationSpreadPageFlipBox(
@@ -794,16 +791,16 @@ private fun FoundationSpreadPageFlipBox(
 }
 
 /**
- * The single-pane whole-page fold: the entire page rotates about its outer edge like a stiff
- * sheet, rather than splitting into two hinged halves the way [FoundationSpreadPageFlipBox] does.
+ * 단일 pane짜리 whole-page fold: [FoundationSpreadPageFlipBox]처럼 경첩으로 이어진 두 절반으로
+ * 나뉘는 대신, 페이지 전체가 뻣뻣한 한 장의 시트처럼 자신의 바깥쪽 edge를 축으로 회전한다.
  *
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`,
- *   which drives the rotation and pivot corner via [foundationWholePageFlipSpec].
- * @param modifier The modifier applied to the box.
- * @param incomingContent The next/previous page seated below the rotating front face; null while
- *   settled or when no neighbour exists.
- * @param content The outgoing page drawn on the rotating front face.
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위로,
+ *   [foundationWholePageFlipSpec]을 통해 회전과 피벗 모서리를 결정한다.
+ * @param modifier box에 적용되는 modifier.
+ * @param incomingContent 회전하는 앞면 아래에 깔리는 다음/이전 페이지; 안착해 있거나 이웃이 없으면
+ *   null.
+ * @param content 회전하는 앞면에 그려지는 outgoing 페이지.
  */
 @Composable
 private fun FoundationWholePageFlipBox(
@@ -853,14 +850,14 @@ private fun FoundationWholePageFlipBox(
 }
 
 /**
- * One quarter- or half-page seat used by the split-half fold. The moving leaf receives the
- * reference implementation's clipped inner shadow; a flat seat passes no [shadow].
+ * split-half fold가 사용하는, 페이지의 4분의 1 또는 절반 크기 깔개 하나. 움직이는 leaf는 참조
+ * 구현의 클리핑된 inner shadow를 받으며, 평평하게 고정된 깔개는 [shadow]를 전달받지 않는다.
  *
- * @param half Which quadrant/half of the page this box seats.
- * @param spec The rotation to apply.
- * @param modifier Additional layout or drawing applied to this clipped half.
- * @param shadow Reference outer/inner dimensions for this frame, or null for a stationary seat.
- * @param content The page content seated in this half.
+ * @param half 이 box가 페이지의 어느 사분면/절반을 앉히는지.
+ * @param spec 적용할 회전.
+ * @param modifier 이 클리핑된 절반에 추가로 적용되는 레이아웃이나 그리기.
+ * @param shadow 이 프레임에 대한 참조 outer/inner 치수로, 고정된 깔개면 null.
+ * @param content 이 절반에 앉히는 페이지 콘텐츠.
  */
 @Composable
 private fun FoundationPageFlipHalfBox(
@@ -897,8 +894,8 @@ private fun FoundationPageFlipHalfBox(
 }
 
 /**
- * Draws StPageFlip's inner shadow on the moving leaf. Its width is 75% of the outer shadow and its
- * 5/15/35/100% stops are mirrored around the turning edge for start/end folds.
+ * StPageFlip의 inner shadow를 움직이는 leaf 위에 그린다. 너비는 outer shadow의 75%이며,
+ * start/end fold에 대해 5/15/35/100% 정지점이 도는 edge를 기준으로 대칭을 이룬다.
  */
 private fun Modifier.foundationPageFlipInnerShadow(
     axis: FoundationPagerAxis,
@@ -957,22 +954,22 @@ private fun Modifier.foundationPageFlipInnerShadow(
 }
 
 /**
- * Builds the per-slot transition modifier for [pagerPage], dispatching on [pageAnimation] to the
- * fluid-reveal, circle-reveal, movie-carousel, or page-flip transform/shadow/z-index combination;
- * any other animation (handled entirely by [AnimatedContent]/plain Foundation swipe elsewhere)
- * gets no extra modifier here.
+ * [pagerPage]에 대한 슬롯별 트랜지션 modifier를 만든다. [pageAnimation]에 따라 fluid-reveal,
+ * circle-reveal, movie-carousel, page-flip의 transform/shadow/z-index 조합 중 하나로 분기하며,
+ * 그 외의 애니메이션(다른 곳에서 [AnimatedContent]/일반 Foundation 스와이프가 전부 처리한다)에는
+ * 여기서 별도의 modifier를 주지 않는다.
  *
- * @receiver The modifier chain this transition is appended to.
- * @param pagerState The Foundation pager whose scroll progress drives the transition.
- * @param pagerPage This slot's index within [pagerState] (0, 1, or 2).
- * @param axis Whether the pager turns along the horizontal or vertical axis.
- * @param pageAnimation Which transition style to apply.
- * @param pageOffset This slot's signed offset from the pager's settled position.
- * @param gestureState The manual drag/touch state driving fluid- and circle-reveal geometry.
- * @param fluidEdge The shared spring-animated edge shape for the fluid-reveal style.
- * @param fluidVersion A change counter for [fluidEdge], read (but not directly used) inside
- *   `drawWithCache` blocks so they invalidate whenever the mutable edge shape changes.
- * @return A modifier applying this slot's transform, shadow, and z-index for [pageAnimation].
+ * @receiver 이 트랜지션이 덧붙는 modifier 체인.
+ * @param pagerState 스크롤 진행률이 트랜지션을 구동하는 Foundation pager.
+ * @param pagerPage [pagerState] 안에서 이 슬롯의 인덱스(0, 1, 또는 2).
+ * @param axis pager가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageAnimation 적용할 트랜지션 style.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋.
+ * @param gestureState fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
+ * @param fluidEdge fluid-reveal style을 위한, 공유되는 spring 애니메이션 edge 모양.
+ * @param fluidVersion [fluidEdge]의 변경 카운터로, `drawWithCache` 블록 안에서 읽히기만
+ *   하고(직접 쓰이지는 않고) 가변 edge 모양이 바뀔 때마다 그 블록들이 무효화되도록 한다.
+ * @return [pageAnimation]에 대해 이 슬롯의 transform, shadow, z-index를 적용하는 modifier.
  */
 @OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.foundationEffectPageModifier(
@@ -1049,18 +1046,18 @@ private fun Modifier.foundationEffectPageModifier(
 }
 
 /**
- * The cast + contact shadow drawn along the fluid-reveal edge onto whichever neighbour is being
- * revealed, or no modifier at all for the current page or an inactive/complete turn.
+ * fluid-reveal edge를 따라, 지금 드러나고 있는 이웃 쪽으로 그려지는 cast + contact shadow로,
+ * current 페이지이거나 turn이 비활성/완료 상태면 modifier를 전혀 적용하지 않는다.
  *
- * @param page Which pager slot this shadow would be drawn on.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param activeSide Which side (start/end) the active turn is revealing from.
- * @param progress How far the active turn has progressed, in `[0, 1]`.
- * @param fluidEdge The shared spring-animated edge shape the shadow traces.
- * @param fluidVersion A change counter read inside the `drawWithCache` block so it invalidates
- *   whenever [fluidEdge]'s mutable shape changes.
- * @return A modifier drawing the shadow, or [Modifier] unchanged when this slot has no shadow to
- *   show.
+ * @param page 이 shadow가 그려질 pager 슬롯.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param fluidEdge shadow가 따라 그리는, 공유되는 spring 애니메이션 edge 모양.
+ * @param fluidVersion `drawWithCache` 블록 안에서 읽히는 변경 카운터로, [fluidEdge]의 가변
+ *   모양이 바뀔 때마다 무효화되도록 한다.
+ * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
+ *   [Modifier].
  */
 private fun foundationFluidShadow(
     page: FoundationPagerPage,
@@ -1107,19 +1104,18 @@ private fun foundationFluidShadow(
 }
 
 /**
- * The shadow cast onto whichever neighbour the growing circle is revealing — the
- * [PageAnimation.CIRCLE_REVEAL] counterpart of [foundationFluidShadow], using the same
- * cast-plus-contact idea but following the circle's radius instead of the fluid edge's path.
- * Draws no modifier at all for the current page or an inactive/complete turn.
+ * 커지는 원이 드러내고 있는 이웃 쪽으로 지워지는 shadow — [foundationFluidShadow]의
+ * [PageAnimation.CIRCLE_REVEAL]판으로, 같은 cast-plus-contact 방식을 쓰되 fluid edge의 경로
+ * 대신 원의 반지름을 따른다. current 페이지이거나 turn이 비활성/완료 상태면 modifier를 전혀
+ * 적용하지 않는다.
  *
- * @param page Which pager slot this shadow would be drawn on.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param activeSide Which side (start/end) the active turn is revealing from.
- * @param progress How far the active turn has progressed, in `[0, 1]`.
- * @param gestureState The manual drag/touch state that anchors the circle's origin at the touch
- *   point.
- * @return A modifier drawing the shadow, or [Modifier] unchanged when this slot has no shadow to
- *   show.
+ * @param page 이 shadow가 그려질 pager 슬롯.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param gestureState 원의 원점을 터치 지점에 고정하는 수동 드래그/터치 상태.
+ * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
+ *   [Modifier].
  */
 private fun foundationCircleRevealShadow(
     page: FoundationPagerPage,
@@ -1171,18 +1167,18 @@ private fun foundationCircleRevealShadow(
 }
 
 /**
- * Draws an edge shadow along the side of an incoming neighbour page in the
- * [PageAnimation.MOVIE_CAROUSEL] style, so a page sliding in from off-screen reads as passing
- * under the current page's edge instead of appearing flatly on top of it. Draws no shadow for the
- * current page, for a slot that is not currently incoming, or once the turn has settled.
+ * [PageAnimation.MOVIE_CAROUSEL] style에서 들어오는 이웃 페이지의 옆면을 따라 edge shadow를
+ * 그려서, 화면 밖에서 미끄러져 들어오는 페이지가 current 페이지 위에 납작하게 나타나는 대신 그
+ * edge 아래를 지나는 것처럼 보이게 한다. current 페이지이거나, 현재 들어오는 중이 아닌 슬롯이거나,
+ * turn이 이미 안착했으면 shadow를 그리지 않는다.
  *
- * @receiver The modifier chain this shadow is appended to.
- * @param axis Whether the carousel moves along the horizontal or vertical axis.
- * @param page Which pager slot this shadow would be drawn on.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`;
- *   its sign decides whether the slot is incoming and its magnitude how far the shadow has faded.
- * @return A modifier drawing the shadow, or the receiver unchanged when this slot has no shadow to
- *   show.
+ * @receiver 이 shadow가 덧붙는 modifier 체인.
+ * @param axis carousel이 가로축과 세로축 중 어느 쪽으로 움직이는지.
+ * @param page 이 shadow가 그려질 pager 슬롯.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
+ *   부호는 이 슬롯이 들어오는 중인지를, 크기는 shadow가 얼마나 옅어졌는지를 결정한다.
+ * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
+ *   receiver.
  */
 private fun Modifier.foundationMovieCarouselShadow(
     axis: FoundationPagerAxis,
@@ -1242,13 +1238,13 @@ private fun Modifier.foundationMovieCarouselShadow(
 }
 
 /**
- * Which edge the [PageAnimation.MOVIE_CAROUSEL] shadow in [Modifier.foundationMovieCarouselShadow]
- * hugs for [page]: a previous-page slot is covered from its trailing (end) edge as the current
- * page slides away from it, a next-page slot from its leading (start) edge as the current page
- * slides toward it, and the current page itself casts no such edge shadow.
+ * [Modifier.foundationMovieCarouselShadow]의 [PageAnimation.MOVIE_CAROUSEL] shadow가 [page]에
+ * 대해 어느 edge에 붙는지: previous-page 슬롯은 current 페이지가 멀어져 감에 따라 뒤쪽(end)
+ * edge에서 덮이고, next-page 슬롯은 current 페이지가 다가옴에 따라 앞쪽(start) edge에서 덮이며,
+ * current 페이지 자신은 이런 edge shadow를 드리우지 않는다.
  *
- * @param page Which pager slot the shadow side is being resolved for.
- * @return The side the shadow anchors to, or null for the current page.
+ * @param page shadow의 side를 구할 대상 pager 슬롯.
+ * @return shadow가 붙는 side, 또는 current 페이지면 null.
  */
 internal fun foundationMovieCarouselShadowSide(page: FoundationPagerPage): FoundationFluidSide? = when (page) {
     FoundationPagerPage.Previous -> FoundationFluidSide.End
@@ -1257,21 +1253,20 @@ internal fun foundationMovieCarouselShadowSide(page: FoundationPagerPage): Found
 }
 
 /**
- * The alpha of the darkening overlay drawn over a movie-carousel page as it recedes, peaking at
- * the midpoint of the turn (`progress == 0.5`) and fading to nothing at either end via a
- * half-sine curve — the same shape [foundationFluidShadow] and its siblings use for their cast
- * shadows.
+ * movie-carousel 페이지가 멀어질 때 그 위에 그려지는 어둡게 하는 오버레이의 alpha로, turn의
+ * 중간점(`progress == 0.5`)에서 정점을 찍고 양쪽 끝에서는 half-sine 곡선을 따라 0으로 옅어진다 —
+ * [foundationFluidShadow]와 그 형제 함수들이 자신의 cast shadow에 쓰는 것과 같은 모양이다.
  *
- * @param progress How far the turn has progressed, in `[0, 1]`.
- * @return The overlay alpha, in `[0, FoundationMovieShadowAlpha]`.
+ * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @return 오버레이의 alpha, `[0, FoundationMovieShadowAlpha]` 범위.
  */
 internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
     (FoundationMovieShadowAlpha * sin(progress.coerceIn(0f, 1f) * PI.toFloat())).coerceAtLeast(0f)
 
 /**
- * Draws StPageFlip's outer shadow on the uncovered page. Width grows linearly with turn progress,
- * opacity fades linearly, and the band runs from the moving leaf edge to transparent. Existing
- * projection math still chooses the uncovered receiver side.
+ * StPageFlip의 outer shadow를 드러난 페이지 위에 그린다. 너비는 turn 진행률에 선형으로 비례해
+ * 커지고, 불투명도는 선형으로 옅어지며, 띠는 움직이는 leaf의 edge에서 시작해 투명해질 때까지
+ * 이어진다. 드러난 쪽(receiver)을 고르는 것은 기존 투영 계산이 그대로 담당한다.
  */
 private fun Modifier.foundationPageFlipProjectedShadow(
     axis: FoundationPagerAxis,
@@ -1319,21 +1314,21 @@ private fun Modifier.foundationPageFlipProjectedShadow(
 }
 
 /**
- * A general-purpose cast-plus-contact edge shadow, parameterised over which side it hugs and how
- * wide/strong the cast and contact bands are, unlike the fixed-constant shadows such as
- * [foundationFluidShadow]. It has no call site in this file or its tests as of this writing — kept
- * as the reusable shape those fixed shadows were factored from, not currently wired into any of
- * the page-turn styles.
+ * 범용 cast-plus-contact edge shadow로, 어느 side에 붙는지와 cast/contact 띠가 얼마나 넓고
+ * 진한지를 매개변수로 받는다는 점에서 [foundationFluidShadow] 같은 고정-상수 shadow들과 다르다.
+ * 이 글을 쓰는 시점 기준으로 이 파일이나 그 테스트 어디에서도 호출되지 않는다 — 저 고정
+ * shadow들을 뽑아낸 재사용 가능한 형태로 남겨 두었을 뿐, 현재 어떤 page-turn style에도 연결돼
+ * 있지 않다.
  *
- * @receiver The modifier chain this shadow is appended to.
- * @param axis Whether the shadow's edge runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the edge advances from as [progress] grows.
- * @param progress How far the edge has advanced, in `[0, 1]`.
- * @param maxAlpha The cast shadow's alpha at full intensity (`progress == 1`); the contact band is
- *   derived from this and capped independently.
- * @param castWidth The cast shadow's width in pixels.
- * @param contactWidth The narrower, darker contact band's width in pixels.
- * @return A modifier drawing the shadow, or the receiver unchanged when [progress] is zero.
+ * @receiver 이 shadow가 덧붙는 modifier 체인.
+ * @param axis shadow의 edge가 가로축과 세로축 중 어느 쪽을 따라 도는지.
+ * @param side [progress]가 커짐에 따라 edge가 어느 side(start/end)에서 전진하는지.
+ * @param progress edge가 얼마나 전진했는지, `[0, 1]` 범위.
+ * @param maxAlpha 최대 강도(`progress == 1`)에서 cast shadow의 alpha; contact 띠는 이 값에서
+ *   파생되되 별도로 상한이 적용된다.
+ * @param castWidth cast shadow의 픽셀 단위 너비.
+ * @param contactWidth 더 좁고 진한 contact 띠의 픽셀 단위 너비.
+ * @return shadow를 그리는 modifier, 또는 [progress]가 0이면 변경되지 않은 receiver.
  */
 private fun Modifier.foundationMovingEdgeShadow(
     axis: FoundationPagerAxis,
@@ -1428,12 +1423,12 @@ private fun Modifier.foundationMovingEdgeShadow(
 }
 
 /**
- * Which side an in-progress manual drag is turning toward, or null when the gesture is not active
- * or has not yet moved far enough along the turn axis to commit to a direction.
+ * 진행 중인 수동 드래그가 어느 side로 향하는 중인지로, 제스처가 활성 상태가 아니거나 아직
+ * turn 축을 따라 방향을 확정할 만큼 충분히 움직이지 않았으면 null이다.
  *
- * @param axis Whether the drag is read along the horizontal or vertical axis.
- * @param gestureState The current manual drag/touch state.
- * @return The side the drag is turning toward, or null when there is no committed direction yet.
+ * @param axis 드래그를 가로축과 세로축 중 어느 쪽으로 읽는지.
+ * @param gestureState 현재의 수동 드래그/터치 상태.
+ * @return 드래그가 향하는 side, 또는 아직 확정된 방향이 없으면 null.
  */
 private fun foundationGestureSide(
     axis: FoundationPagerAxis,
@@ -1446,16 +1441,16 @@ private fun foundationGestureSide(
 }
 
 /**
- * Resolves which neighbour is the active turn's target and how far along it is, reading the
- * gesture side directly off [gestureState] via [foundationGestureSide]. A thin Compose-side
- * wrapper around the pure, unit-testable overload below — kept separate so the drag-direction
- * lookup does not have to be duplicated at every call site inside a `drawWithCache` block.
+ * 활성 turn의 대상이 어느 이웃이고 얼마나 진행됐는지를, [foundationGestureSide]를 통해
+ * [gestureState]에서 제스처 side를 직접 읽어 알아낸다. 아래의 순수하고 유닛 테스트 가능한
+ * 오버로드를 감싸는 얇은 Compose 쪽 래퍼로, `drawWithCache` 블록 안 호출 지점마다 드래그 방향
+ * 조회가 중복되지 않도록 따로 떼어 두었다.
  *
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param gestureState The current manual drag/touch state.
- * @param previousProgress How settled the previous-page turn is, in `[0, 1]`.
- * @param nextProgress How settled the next-page turn is, in `[0, 1]`.
- * @return The side and progress of whichever turn is currently active.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param gestureState 현재의 수동 드래그/터치 상태.
+ * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @return 현재 활성 상태인 turn의 side와 progress.
  */
 private fun foundationActivePageTurn(
     axis: FoundationPagerAxis,
@@ -1470,18 +1465,18 @@ private fun foundationActivePageTurn(
 )
 
 /**
- * The pure decision behind [foundationActivePageTurn]'s Compose-side overload, factored out so it
- * is unit-testable without a real gesture/pager: while a drag is active but has not yet committed
- * to a side, the turn it reports has zero progress rather than borrowing whichever neighbour's
- * pager progress happens to be higher — otherwise a drag that starts moving in one direction could
- * flash the other neighbour's shadow/reveal for a frame before the direction settles.
+ * [foundationActivePageTurn]의 Compose 쪽 오버로드 뒤에 있는 순수한 판단 로직으로, 실제
+ * 제스처/pager 없이도 유닛 테스트할 수 있도록 따로 떼어냈다: 드래그가 활성 상태이지만 아직
+ * side를 확정하지 못한 동안에는, 어느 이웃의 pager progress가 우연히 더 높은지를 가져다 쓰는
+ * 대신 보고하는 turn의 progress를 0으로 둔다 — 그렇지 않으면 한 방향으로 움직이기 시작한
+ * 드래그가 방향이 확정되기 전 한 프레임 동안 다른 쪽 이웃의 shadow/reveal을 잠깐 비출 수 있다.
  *
- * @param gestureActive Whether a manual drag is currently in progress.
- * @param gestureSide Which side the drag has committed to, or null if it is active but
- *   undirected, or if there is no drag at all.
- * @param previousProgress How settled the previous-page turn is, in `[0, 1]`.
- * @param nextProgress How settled the next-page turn is, in `[0, 1]`.
- * @return The side and progress of whichever turn is currently active.
+ * @param gestureActive 수동 드래그가 현재 진행 중인지 여부.
+ * @param gestureSide 드래그가 확정한 side, 또는 활성 상태이지만 방향이 없거나 드래그 자체가
+ *   없으면 null.
+ * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @return 현재 활성 상태인 turn의 side와 progress.
  */
 internal fun foundationActivePageTurn(
     gestureActive: Boolean,
@@ -1507,15 +1502,14 @@ internal fun foundationActivePageTurn(
 }
 
 /**
- * Stacking order for the fluid- and circle-reveal styles: the current page sits above a settled
- * neighbour, but the neighbour actively being revealed rises above the current page as the reveal
- * progresses, so the growing fold/circle appears to lift off the page underneath it rather than
- * being cut off by it.
+ * fluid-reveal과 circle-reveal style의 쌓임 순서: current 페이지는 안착한 이웃 위에 놓이지만,
+ * 지금 드러나고 있는 이웃은 reveal이 진행됨에 따라 current 페이지 위로 올라와서, 커지는
+ * fold/원이 그 아래 페이지에 잘리는 대신 그 위로 들려 올라오는 것처럼 보이게 한다.
  *
- * @param page Which pager slot is being placed.
- * @param activeSide Which side (start/end) the active turn is revealing from.
- * @param progress How far the active turn has progressed, in `[0, 1]`.
- * @return The z-index for [page].
+ * @param page 배치할 대상 pager 슬롯.
+ * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @return [page]의 z-index.
  */
 private fun foundationRevealZIndex(
     page: FoundationPagerPage,
@@ -1529,24 +1523,23 @@ private fun foundationRevealZIndex(
 }
 
 /**
- * The clip shape for a fluid- or circle-reveal neighbour slot: the current page is never clipped,
- * an inactive or not-yet-progressing neighbour is hidden entirely via
- * [Modifier.foundationHiddenWhenInactive] rather than left visible full-frame underneath the
- * active turn, and the neighbour on the active side is clipped to the growing fluid edge or circle
- * per [style].
+ * fluid-reveal 또는 circle-reveal 이웃 슬롯의 클리핑 모양: current 페이지는 결코 클리핑되지
+ * 않고, 비활성이거나 아직 진행되지 않은 이웃은 활성 turn 아래에 전체 프레임으로 그대로 보이는
+ * 대신 [Modifier.foundationHiddenWhenInactive]를 통해 완전히 숨겨지며, 활성 side의 이웃은
+ * [style]에 따라 커지는 fluid edge 또는 원에 클리핑된다.
  *
- * @param page Which pager slot this modifier is for.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param activeSide Which side (start/end) the active turn is revealing from.
- * @param progress How far the active turn has progressed, in `[0, 1]`.
- * @param gestureState The manual drag/touch state driving the clip's touch-anchored geometry.
- * @param style Whether the reveal is a fluid edge or a growing circle.
- * @param fluidEdge The shared spring-animated edge shape for [FoundationRevealStyle.Fluid]; a
- *   fresh, unused edge is created if null since only the fluid path reads it.
- * @param fluidVersion A change counter for [fluidEdge], read (but not directly used) inside the
- *   clip shape so it invalidates whenever the mutable edge shape changes.
- * @return A modifier clipping this slot to its reveal shape, hiding it, or [Modifier] unchanged
- *   for the current page.
+ * @param page 이 modifier가 적용될 pager 슬롯.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param gestureState 클리핑의 터치-고정 기하를 구동하는 수동 드래그/터치 상태.
+ * @param style reveal이 fluid edge인지 커지는 원인지.
+ * @param fluidEdge [FoundationRevealStyle.Fluid]를 위한, 공유되는 spring 애니메이션 edge
+ *   모양; fluid 경로만 이를 읽으므로 null이면 새로 쓰이지 않는 edge를 만든다.
+ * @param fluidVersion [fluidEdge]의 변경 카운터로, 클리핑 모양 안에서 읽히기만 하고(직접
+ *   쓰이지는 않고) 가변 edge 모양이 바뀔 때마다 무효화되도록 한다.
+ * @return 이 슬롯을 자신의 reveal 모양으로 클리핑하는 modifier, 이를 숨기는 modifier, 또는
+ *   current 페이지면 변경되지 않은 [Modifier].
  */
 private fun foundationRevealModifier(
     page: FoundationPagerPage,
@@ -1574,13 +1567,13 @@ private fun foundationRevealModifier(
 }
 
 /**
- * Fully transparent, rather than merely un-clipped, for a neighbour slot the active reveal has not
- * reached — leaving it visible full-frame would show it flatly overlapping the current page
- * instead of appearing only once the fluid edge or circle actually reaches it.
+ * 활성 reveal이 아직 닿지 않은 이웃 슬롯을 단순히 클리핑하지 않는 것을 넘어 완전히 투명하게
+ * 만든다 — 전체 프레임으로 그대로 보이게 두면, fluid edge나 원이 실제로 닿았을 때 비로소
+ * 나타나는 대신 current 페이지와 납작하게 겹쳐 보일 것이다.
  *
- * @receiver The modifier chain this visibility is appended to.
- * @param hidden Whether this slot should be hidden.
- * @return The receiver with zero alpha applied when [hidden], or the receiver unchanged otherwise.
+ * @receiver 이 가시성이 덧붙는 modifier 체인.
+ * @param hidden 이 슬롯을 숨겨야 하는지 여부.
+ * @return [hidden]이면 alpha를 0으로 적용한 receiver, 아니면 변경되지 않은 receiver.
  */
 private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = if (hidden) {
     graphicsLayer { alpha = 0f }
@@ -1588,31 +1581,32 @@ private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = i
     this
 }
 
-/** Which shape [foundationRevealModifier] clips a revealing neighbour to. */
+/** [foundationRevealModifier]가 드러나는 이웃을 어느 모양으로 클리핑하는지. */
 private enum class FoundationRevealStyle {
-    /** Clipped to [FoundationFluidEdge]'s spring-animated wavy edge, for [PageAnimation.FLUID_PAGER]. */
+    /** [PageAnimation.FLUID_PAGER]를 위해, [FoundationFluidEdge]의 spring 애니메이션 물결 edge로 클리핑된다. */
     Fluid,
 
-    /** Clipped to a growing circle anchored at the touch point, for [PageAnimation.CIRCLE_REVEAL]. */
+    /** [PageAnimation.CIRCLE_REVEAL]을 위해, 터치 지점에 고정된 채 커지는 원으로 클리핑된다. */
     Circle,
 }
 
 /**
- * Clips content to [FoundationFluidEdge]'s current wavy edge shape for [PageAnimation.FLUID_PAGER].
- * The [Shape] is a fresh anonymous object per call, but it drives [fluidEdge] toward this call's
- * [side]/[progress]/touch target every time Compose asks it for an outline
- * ([Shape.createOutline]) — `applyTarget` only records the target, the physics that chases it
- * still runs once per frame in the `LaunchedEffect(pageAnimation)` loop in [FoundationEffectPager].
+ * [PageAnimation.FLUID_PAGER]를 위해 콘텐츠를 [FoundationFluidEdge]의 현재 물결 edge 모양으로
+ * 클리핑한다. [Shape]는 호출마다 새로 만들어지는 익명 객체이지만, Compose가 outline을 요청할
+ * 때마다([Shape.createOutline]) 이 호출의 [side]/[progress]/터치 목표 쪽으로 [fluidEdge]를
+ * 구동한다 — `applyTarget`은 목표만 기록할 뿐이고, 그것을 뒤쫓는 물리 시뮬레이션은
+ * [FoundationEffectPager] 안의 `LaunchedEffect(pageAnimation)` 루프에서 여전히 프레임마다
+ * 한 번씩 실행된다.
  *
- * @receiver The modifier chain this clip is appended to.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the fluid edge advances from.
- * @param progress How far the active turn has progressed, in `[0, 1]`; the edge's resting target.
- * @param gestureState The manual drag/touch state whose touch point steers the edge's bulge.
- * @param fluidEdge The shared spring-animated edge shape this clip both drives and reads.
- * @param fluidVersion A change counter for [fluidEdge], captured (but not read) purely so the
- *   outline is recomputed whenever the mutable edge shape changes.
- * @return A modifier clipping the receiver to the fluid edge's current shape.
+ * @receiver 이 클리핑이 덧붙는 modifier 체인.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; edge가 쉬어야 할 목표값이다.
+ * @param gestureState 터치 지점이 edge의 부풀어 오름을 조종하는, 수동 드래그/터치 상태.
+ * @param fluidEdge 이 클리핑이 구동하는 동시에 읽는, 공유되는 spring 애니메이션 edge 모양.
+ * @param fluidVersion [fluidEdge]의 변경 카운터로, 오직 가변 edge 모양이 바뀔 때마다
+ *   outline이 다시 계산되도록 하기 위해 캡처만 되고(읽히지는 않는다).
+ * @return receiver를 fluid edge의 현재 모양으로 클리핑하는 modifier.
  */
 private fun Modifier.foundationFluidClip(
     axis: FoundationPagerAxis,
@@ -1652,17 +1646,17 @@ private fun Modifier.foundationFluidClip(
 )
 
 /**
- * Clips content to the growing circle for [PageAnimation.CIRCLE_REVEAL], drawn with
- * [clipPath]/`drawWithCache` rather than [clip] (unlike [foundationFluidClip]) because the circle
- * needs no persistent per-frame physics state — its geometry is a pure function of [progress] and
- * the touch point, recomputed fresh whenever the cache invalidates.
+ * [PageAnimation.CIRCLE_REVEAL]을 위해 콘텐츠를 커지는 원으로 클리핑하며, ([foundationFluidClip]과
+ * 달리) [clip]이 아니라 [clipPath]/`drawWithCache`로 그린다. 원은 프레임마다 유지되는 물리
+ * 상태가 필요 없기 때문인데 — 그 기하는 [progress]와 터치 지점만의 순수 함수여서, 캐시가
+ * 무효화될 때마다 새로 계산된다.
  *
- * @receiver The modifier chain this clip is appended to.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the circle's origin sits on.
- * @param progress How far the active turn has progressed, in `[0, 1]`; drives the circle's radius.
- * @param gestureState The manual drag/touch state whose touch point anchors the circle's origin.
- * @return A modifier clipping the receiver to the circle's current shape.
+ * @receiver 이 클리핑이 덧붙는 modifier 체인.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side 원의 원점이 어느 side에 놓이는지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; 원의 반지름을 결정한다.
+ * @param gestureState 원의 원점을 고정하는 터치 지점을 가진, 수동 드래그/터치 상태.
+ * @return receiver를 원의 현재 모양으로 클리핑하는 modifier.
  */
 private fun Modifier.foundationCircleRevealClip(
     axis: FoundationPagerAxis,
@@ -1690,21 +1684,21 @@ private fun Modifier.foundationCircleRevealClip(
 }
 
 /**
- * The [PageAnimation.MOVIE_CAROUSEL] transform: scales and fades a receding page down via
- * [foundationMovieCarouselSpec]. It also carries a translate-and-3D-tilt branch along [axis],
- * meant to slide the page sideways and pitch it away from the viewer as it recedes, with
- * [FoundationCameraDistance] keeping the perspective foreshortening subtle rather than
- * fisheye-distorting it at full tilt — but [FoundationMovieTranslationRatio] is currently `0f`, so
- * `spec.translationFraction` is always zero and this branch presently applies no translation or
- * rotation; only the scale and alpha are visibly active.
+ * [PageAnimation.MOVIE_CAROUSEL] transform: [foundationMovieCarouselSpec]을 통해 멀어지는
+ * 페이지를 축소하고 옅어지게 한다. 또한 [axis]를 따라 이동+3D 기울임 분기도 가지고 있는데,
+ * 이는 페이지가 멀어지면서 옆으로 미끄러지고 뷰어에게서 등을 돌리듯 기울게 만들되,
+ * [FoundationCameraDistance]로 완전히 기울었을 때도 원근 단축이 어안렌즈처럼 왜곡되지 않고
+ * 은은하게 유지되도록 한다 — 그런데 [FoundationMovieTranslationRatio]가 현재 `0f`이므로
+ * `spec.translationFraction`은 항상 0이고 이 분기는 지금은 어떤 이동이나 회전도 적용하지
+ * 않는다; 눈에 보이게 동작하는 것은 scale과 alpha뿐이다.
  *
- * @receiver The modifier chain this transform is appended to.
- * @param axis Whether the carousel moves along the horizontal or vertical axis; selects which
- *   translation/rotation pair the (currently inert) tilt branch would apply to.
- * @param page Which pager slot this transform is for.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`.
- * @return A modifier applying the carousel's scale and alpha (and translation/tilt, if
- *   [FoundationMovieTranslationRatio] is ever made non-zero).
+ * @receiver 이 transform이 덧붙는 modifier 체인.
+ * @param axis carousel이 가로축과 세로축 중 어느 쪽으로 움직이는지; (현재는 작동하지 않는)
+ *   기울임 분기가 어느 이동/회전 쌍을 적용할지를 결정한다.
+ * @param page 이 transform이 적용될 pager 슬롯.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @return carousel의 scale과 alpha를 적용하는 modifier(그리고 [FoundationMovieTranslationRatio]가
+ *   언젠가 0이 아니게 되면 이동/기울임도).
  */
 private fun Modifier.foundationMovieCarouselLayer(
     axis: FoundationPagerAxis,
@@ -1726,16 +1720,16 @@ private fun Modifier.foundationMovieCarouselLayer(
 }
 
 /**
- * Stacking order for [PageAnimation.MOVIE_CAROUSEL]: the page actively sliding in over the current
- * page sits highest, the current page sits above the untouched far neighbour, and a neighbour with
- * no active turn touching it sits at the back — mirroring [foundationRevealZIndex]'s logic for the
- * fluid/circle styles, but with the current page always above an inactive neighbour instead of at
- * a fixed middle rank.
+ * [PageAnimation.MOVIE_CAROUSEL]의 쌓임 순서: current 페이지 위로 활발히 미끄러져 들어오는
+ * 페이지가 가장 위에 놓이고, current 페이지는 손대지 않은 먼 이웃 위에 놓이며, 활성 turn이
+ * 닿지 않은 이웃은 맨 뒤에 놓인다 — fluid/circle style에 대한 [foundationRevealZIndex]의
+ * 로직을 그대로 따르되, current 페이지가 고정된 중간 순위 대신 항상 비활성 이웃보다 위에
+ * 있다는 점이 다르다.
  *
- * @param page Which pager slot is being placed.
- * @param activeSide Which side (start/end) the active turn is coming from.
- * @param progress How far the active turn has progressed, in `[0, 1]`.
- * @return The z-index for [page].
+ * @param page 배치할 대상 pager 슬롯.
+ * @param activeSide 활성 turn이 어느 쪽(start/end)에서 오는 중인지.
+ * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @return [page]의 z-index.
  */
 private fun foundationMovieZIndex(
     page: FoundationPagerPage,
@@ -1750,16 +1744,17 @@ private fun foundationMovieZIndex(
 }
 
 /**
- * Stacking order for the page-flip animation, where the pager's own translation is cancelled.
+ * page-flip 애니메이션의 쌓임 순서로, 여기서는 pager 자신의 이동이 상쇄되어 있다.
  *
- * Because nothing is translated, all three pages sit on the same spot and only this order separates them.
- * Giving both neighbours the same index let composition order decide, and the neighbour on the far side
- * won — turning back then showed the *next* page through the half the folding page leaves transparent.
- * Ranking the neighbours by how near each is to being the page on screen is what fixes that.
+ * 아무것도 이동하지 않으므로 세 페이지 모두 같은 자리에 놓이고, 오직 이 순서만이 그들을
+ * 구분한다. 두 이웃에 같은 인덱스를 주면 composition 순서가 승패를 갈랐고, 그 결과 먼 쪽
+ * 이웃이 이겨서 — 뒤로 turn할 때 접히는 페이지가 투명하게 남기는 절반 너머로 *다음* 페이지가
+ * 비쳐 보였다. 각 이웃이 화면에 보이는 페이지에 얼마나 가까운지로 순위를 매기는 것이 이를
+ * 고친다.
  *
- * @param page which of the three pages is being placed.
- * @param pageOffset how far the pager has moved from [page], in pages.
- * @return the z-index: the current page always on top, a neighbour rising as it approaches the screen.
+ * @param page 세 페이지 중 어느 것을 배치하는 중인지.
+ * @param pageOffset pager가 [page]로부터 얼마나 이동했는지, 페이지 단위.
+ * @return z-index: current 페이지는 항상 맨 위에, 이웃은 화면에 가까워질수록 위로 올라온다.
  */
 internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Float): Float = when (page) {
     FoundationPagerPage.Current -> 3f
@@ -1767,9 +1762,9 @@ internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Flo
 }
 
 /**
- * Which quadrant (for [FoundationPageFlipLayout.WholePage]'s hinge shadow) or half (for
- * [FoundationPageFlipLayout.SplitHalfFold]'s spine) of the page a [FoundationPageFlipHalfBox] or
- * [foundationPageFlipShape] call is seating content into.
+ * [FoundationPageFlipHalfBox]나 [foundationPageFlipShape] 호출이 콘텐츠를 앉히는 대상이,
+ * 페이지의 어느 사분면([FoundationPageFlipLayout.WholePage]의 hinge shadow용)인지 어느
+ * 절반([FoundationPageFlipLayout.SplitHalfFold]의 spine용)인지.
  */
 internal enum class FoundationPageFlipHalf {
     Top,
@@ -1778,7 +1773,7 @@ internal enum class FoundationPageFlipHalf {
     Right,
 }
 
-/** The outer free edge of a clipped half, where StPageFlip's inner shadow begins. */
+/** 클리핑된 절반의 바깥쪽 자유 edge로, StPageFlip의 inner shadow가 여기서 시작된다. */
 internal fun foundationPageFlipHalfShadowSide(half: FoundationPageFlipHalf): FoundationFluidSide = when (half) {
     FoundationPageFlipHalf.Left,
     FoundationPageFlipHalf.Top,
@@ -1788,25 +1783,23 @@ internal fun foundationPageFlipHalfShadowSide(half: FoundationPageFlipHalf): Fou
         -> FoundationFluidSide.End
 }
 
-/** Whether [PageAnimation.PAGE_FLIP] folds the whole page as one sheet, or splits it into two hinged halves. */
+/** [PageAnimation.PAGE_FLIP]이 페이지 전체를 한 장의 시트로 접는지, 경첩으로 이어진 두 절반으로 나누는지. */
 internal enum class FoundationPageFlipLayout {
-    /** A single pane turns as one stiff sheet about its outer edge; see [FoundationWholePageFlipBox]. */
+    /** 단일 pane이 자신의 바깥쪽 edge를 축으로 뻣뻣한 한 장의 시트처럼 넘어간다; [FoundationWholePageFlipBox] 참고. */
     WholePage,
 
-    /** A two-pane spread folds along its own spine, one half at a time; see [FoundationSpreadPageFlipBox]. */
+    /** 두 pane짜리 spread가 자신의 spine을 따라 한 번에 한 절반씩 접힌다; [FoundationSpreadPageFlipBox] 참고. */
     SplitHalfFold,
 }
 
 /**
- * The rotation and pivot corner for a [FoundationPageFlipLayout.WholePage] turn, as computed by
- * [foundationWholePageFlipSpec].
+ * [foundationWholePageFlipSpec]이 계산하는, [FoundationPageFlipLayout.WholePage] turn의
+ * 회전과 피벗 모서리.
  *
- * @property rotationX The page's rotation about the horizontal axis, in degrees.
- * @property rotationY The page's rotation about the vertical axis, in degrees.
- * @property transformOriginX The pivot's horizontal position, as a fraction of page width in
- *   `[0, 1]`.
- * @property transformOriginY The pivot's vertical position, as a fraction of page height in
- *   `[0, 1]`.
+ * @property rotationX 페이지가 가로축을 중심으로 회전하는 각도, degree 단위.
+ * @property rotationY 페이지가 세로축을 중심으로 회전하는 각도, degree 단위.
+ * @property transformOriginX 피벗의 가로 위치로, 페이지 너비에 대한 비율, `[0, 1]` 범위.
+ * @property transformOriginY 피벗의 세로 위치로, 페이지 높이에 대한 비율, `[0, 1]` 범위.
  */
 internal data class FoundationWholePageFlipSpec(
     val rotationX: Float,
@@ -1816,12 +1809,12 @@ internal data class FoundationWholePageFlipSpec(
 )
 
 /**
- * Reference-driven dimensions for PAGE_FLIP's outer cast and moving-leaf inner shadow.
+ * PAGE_FLIP의 outer cast shadow와 움직이는 leaf의 inner shadow를 위한, 참조 구현 기반 치수.
  *
- * @property side The moving free edge, or null at the untouched start position.
- * @property outerWidthFraction Outer-shadow width as a fraction of the full viewport extent.
- * @property innerWidthFraction Inner-shadow width as a fraction of the full viewport extent.
- * @property opacity Shared shadow opacity.
+ * @property side 움직이는 자유 edge, 또는 손대지 않은 시작 위치면 null.
+ * @property outerWidthFraction 전체 viewport 크기에 대한 비율로 나타낸 outer-shadow 너비.
+ * @property innerWidthFraction 전체 viewport 크기에 대한 비율로 나타낸 inner-shadow 너비.
+ * @property opacity 공유되는 shadow 불투명도.
  */
 internal data class FoundationPageFlipShadowSpec(
     val side: FoundationFluidSide?,
@@ -1831,9 +1824,9 @@ internal data class FoundationPageFlipShadowSpec(
 )
 
 /**
- * Implements StPageFlip's `0.75 * leafWidth * progress` outer width and
- * `maxOpacity * (1 - progress)` fade. The maximum alpha follows Harism's page-curl shadow color;
- * split spreads use half the viewport because one leaf occupies half the spread.
+ * StPageFlip의 `0.75 * leafWidth * progress` outer 너비 공식과 `maxOpacity * (1 - progress)`
+ * 페이드 공식을 구현한다. 최대 alpha는 Harism의 page-curl shadow 색상을 따르며, split
+ * spread는 leaf 하나가 spread의 절반을 차지하므로 viewport의 절반을 쓴다.
  */
 internal fun foundationPageFlipShadowSpec(
     pageOffset: Float,
@@ -1859,12 +1852,13 @@ internal fun foundationPageFlipShadowSpec(
 }
 
 /**
- * Describes where PAGE_FLIP's contact/cast shadow originates and which way it extends on the
- * underlying page. Both layouts use the moving free edge and cast onto the uncovered side of the
- * incoming page. [Modifier.foundationPageFlipProjectedShadow] consumes both fields directly.
+ * PAGE_FLIP의 contact/cast shadow가 어디서 시작해 그 아래 페이지 위 어느 방향으로 뻗는지를
+ * 나타낸다. 두 레이아웃 모두 움직이는 자유 edge를 사용하며 incoming 페이지의 드러난 쪽으로
+ * shadow를 드리운다. [Modifier.foundationPageFlipProjectedShadow]는 두 필드를 그대로
+ * 사용한다.
  *
- * @property shadowEdgeFraction Where the contact and cast shadow originate along the turn axis.
- * @property castDirection Which uncovered side the cast extends onto from [shadowEdgeFraction].
+ * @property shadowEdgeFraction contact와 cast shadow가 turn 축을 따라 시작되는 위치.
+ * @property castDirection [shadowEdgeFraction]으로부터 cast가 뻗어 나가는, 드러난 쪽.
  */
 internal data class FoundationPageFlipProjectionSpec(
     val shadowEdgeFraction: Float,
@@ -1872,28 +1866,27 @@ internal data class FoundationPageFlipProjectionSpec(
 )
 
 /**
- * Computes the shadow/contact edge and cast direction for one PAGE_FLIP frame, or null on settled
- * endpoints so no stale band survives a completed or cancelled turn.
+ * PAGE_FLIP 프레임 하나에 대한 shadow/contact edge와 cast 방향을 계산하며, 완료되거나
+ * 취소된 turn 뒤에 낡은 띠가 남지 않도록 안착한 끝점에서는 null을 반환한다.
  *
- * A whole-page leaf uses the same directional pivot as [foundationWholePageFlipSpec], while its
- * free edge sweeps toward that pivot along the projected cosine of the rotation. The cast extends
- * away from the leaf onto the incoming page exposed beyond that moving edge.
+ * whole-page leaf는 [foundationWholePageFlipSpec]과 같은 방향의 피벗을 쓰며, 그 자유 edge는
+ * 회전을 투영한 코사인 값을 따라 그 피벗 쪽으로 쓸어간다. cast는 leaf에서 멀어져, 그 움직이는
+ * edge 너머로 드러난 incoming 페이지 위로 뻗는다.
  *
- * A split-half leaf always pivots on the spine at `0.5`. Its free edge starts at the outgoing
- * half's outer edge, reaches the spine while edge-on, then continues onto the opposite incoming half
- * as the fold completes, along `0.5 + direction * 0.5 * cos(progress * PI)`, where `direction` is
- * the outgoing side (toward the end for a forward turn, toward the start for a backward one). The
- * receiver follows the half the edge is actually in before vs. after the spine crossing, and the
- * cast extends farther into that uncovered half rather than underneath the opaque leaf toward the
- * spine. At the exact edge-on midpoint the moving edge lands on the spine itself (`cos(PI/2) = 0`);
- * the receiver is then resolved deterministically toward the incoming half (the side the leaf is
- * crossing onto), so the frame is never ambiguous.
+ * split-half leaf는 항상 spine의 `0.5` 지점을 피벗으로 삼는다. 그 자유 edge는 outgoing
+ * 절반의 바깥쪽 edge에서 시작해, 정면으로 선 채 spine에 이르렀다가, fold가 완료됨에 따라
+ * 반대쪽 incoming 절반으로 `0.5 + direction * 0.5 * cos(progress * PI)`를 따라 이어진다.
+ * 여기서 `direction`은 outgoing 쪽(정방향 turn이면 끝 쪽으로, 역방향이면 시작 쪽으로)이다.
+ * receiver는 edge가 spine을 넘기 전/후 실제로 위치한 절반을 따르며, cast는 spine 쪽
+ * 불투명한 leaf 아래가 아니라 그 드러난 절반 안쪽으로 더 뻗어 나간다. 정확히 정면으로 선
+ * 중간점에서는 움직이는 edge가 spine 자체 위에 놓이는데(`cos(PI/2) = 0`), 이때 receiver는
+ * 결정론적으로 incoming 절반(leaf가 넘어가는 쪽) 쪽으로 결정되므로, 프레임이 모호해지는 일은
+ * 없다.
  *
- * @param pageOffset Signed pager progress in `[-1, 1]`; its magnitude is the turn progress and its
- *   sign the turn direction. Values outside the range are clamped.
- * @param layout Whether the turn folds the whole page as one sheet or splits it along the spine.
- * @return The moving-edge projection for this frame, or null when the turn is settled at `0` or
- *   `±1`.
+ * @param pageOffset `[-1, 1]` 범위의 부호 있는 pager progress; 크기는 turn progress를,
+ *   부호는 turn 방향을 나타낸다. 범위 밖의 값은 고정된다.
+ * @param layout turn이 페이지 전체를 한 장으로 접는지 spine을 따라 나누는지.
+ * @return 이 프레임의 움직이는-edge 투영, 또는 turn이 `0`이나 `±1`에 안착했으면 null.
  */
 internal fun foundationPageFlipProjectionSpec(
     pageOffset: Float,
@@ -1934,11 +1927,11 @@ internal fun foundationPageFlipProjectionSpec(
 }
 
 /**
- * The rotation for one seated half/quadrant of a [FoundationPageFlipLayout.SplitHalfFold] turn, as
- * computed by [foundationPageFlipHalfSpec].
+ * [foundationPageFlipHalfSpec]이 계산하는, [FoundationPageFlipLayout.SplitHalfFold] turn에서
+ * 자리잡은 절반/사분면 하나의 회전.
  *
- * @property rotationX The half's rotation about the horizontal axis, in degrees.
- * @property rotationY The half's rotation about the vertical axis, in degrees.
+ * @property rotationX 그 절반이 가로축을 중심으로 회전하는 각도, degree 단위.
+ * @property rotationY 그 절반이 세로축을 중심으로 회전하는 각도, degree 단위.
  */
 internal data class FoundationPageFlipHalfSpec(
     val rotationX: Float,
@@ -1946,20 +1939,17 @@ internal data class FoundationPageFlipHalfSpec(
 )
 
 /**
- * The full layout for a [FoundationPageFlipLayout.SplitHalfFold] turn in progress, as computed by
- * [foundationSpreadPageFlipSpec]: which half is folding away, which half the incoming neighbour
- * lands on, their individual rotations, and whether each is currently visible.
+ * [foundationSpreadPageFlipSpec]이 계산하는, 진행 중인 [FoundationPageFlipLayout.SplitHalfFold]
+ * turn의 전체 레이아웃: 어느 절반이 접혀 나가는 중인지, incoming 이웃이 어느 절반에 내려앉는지,
+ * 각각의 회전, 그리고 각각이 현재 보이는지 여부.
  *
- * @property outgoingHalf The half the current page's leaf is folding off of.
- * @property incomingHalf The half the incoming neighbour is revealed on — the same half the leaf
- *   folds onto once it has rotated far enough to cover it.
- * @property outgoing The outgoing leaf's current rotation.
- * @property incoming The incoming neighbour's rotation once it becomes visible underneath the
- *   leaf's back face.
- * @property showOutgoing Whether the outgoing leaf is still in front, i.e. progress is at most
- *   halfway.
- * @property showIncoming Whether the incoming neighbour has been uncovered, i.e. progress is at
- *   least halfway.
+ * @property outgoingHalf current 페이지의 leaf가 접혀 나가는 절반.
+ * @property incomingHalf incoming 이웃이 드러나는 절반 — leaf가 충분히 회전해 덮고 나면
+ *   leaf가 접혀 들어가는 바로 그 절반.
+ * @property outgoing outgoing leaf의 현재 회전.
+ * @property incoming leaf의 뒷면 아래로 보이게 됐을 때 incoming 이웃의 회전.
+ * @property showOutgoing outgoing leaf가 아직 앞에 있는지, 즉 progress가 절반 이하인지.
+ * @property showIncoming incoming 이웃이 드러났는지, 즉 progress가 절반 이상인지.
  */
 internal data class FoundationSpreadPageFlipSpec(
     val outgoingHalf: FoundationPageFlipHalf,
@@ -1971,14 +1961,15 @@ internal data class FoundationSpreadPageFlipSpec(
 )
 
 /**
- * Chooses between [FoundationPageFlipLayout.WholePage] and [FoundationPageFlipLayout.SplitHalfFold]
- * for [PageAnimation.PAGE_FLIP]: a single page turning one page at a time folds as a whole sheet,
- * while a multi-pane spread (a 2-up layout, or turning more than one page per step) folds each pane
- * along its own spine instead, since a whole-sheet fold has no natural hinge to seat a spread on.
+ * [PageAnimation.PAGE_FLIP]을 위해 [FoundationPageFlipLayout.WholePage]와
+ * [FoundationPageFlipLayout.SplitHalfFold] 중 하나를 고른다: 한 번에 페이지 하나씩 넘어가는
+ * 단일 페이지는 한 장의 시트로 접히는 반면, 다중 pane spread(2단 레이아웃, 또는 한 스텝에
+ * 페이지 두 장 이상을 넘기는 경우)는 각 pane을 자신의 spine을 따라 접는다. 한 장짜리
+ * fold에는 spread를 앉힐 자연스러운 경첩이 없기 때문이다.
  *
- * @param pageStep How many pages one turn advances; coerced to at least 1.
- * @param paneCount How many page panes are shown side by side; coerced to at least 1.
- * @return [FoundationPageFlipLayout.WholePage] only when both are exactly 1, otherwise
+ * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지; 최소 1로 고정된다.
+ * @param paneCount 몇 개의 페이지 pane이 나란히 보이는지; 최소 1로 고정된다.
+ * @return 둘 다 정확히 1일 때만 [FoundationPageFlipLayout.WholePage], 그 외에는
  *   [FoundationPageFlipLayout.SplitHalfFold].
  */
 internal fun foundationPageFlipLayout(pageStep: Int, paneCount: Int): FoundationPageFlipLayout =
@@ -1989,15 +1980,14 @@ internal fun foundationPageFlipLayout(pageStep: Int, paneCount: Int): Foundation
     }
 
 /**
- * The rotation and pivot for a [FoundationPageFlipLayout.WholePage] turn, used by
- * [FoundationWholePageFlipBox]: the page pivots about whichever of its own corners is on the far
- * side from the direction it is turning, so it reads as swinging on a hinge at that edge rather
- * than rotating about its own center.
+ * [FoundationWholePageFlipBox]가 사용하는, [FoundationPageFlipLayout.WholePage] turn의 회전과
+ * 피벗: 페이지는 자신이 넘어가는 방향에서 먼 쪽에 있는 자신의 모서리 하나를 중심으로 피벗해서,
+ * 자기 중심을 축으로 회전하는 대신 그 edge에 달린 경첩에서 흔들리는 것처럼 보이게 한다.
  *
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`;
- *   coerced into that range before use.
- * @return The rotation and pivot corner for this offset.
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
+ *   사용 전에 이 범위로 고정된다.
+ * @return 이 오프셋에 대한 회전과 피벗 모서리.
  */
 internal fun foundationWholePageFlipSpec(
     axis: FoundationPagerAxis,
@@ -2040,15 +2030,15 @@ internal fun foundationWholePageFlipSpec(
 }
 
 /**
- * The rotation for one half/quadrant of a [FoundationPageFlipLayout.SplitHalfFold] turn: only the
- * half on the side the turn is heading toward rotates (via `startOffset`/`endOffset`, whichever
- * one [pageOffset]'s sign feeds), so a half that is not the active leaf stays flat at zero
- * rotation instead of the other half's motion bleeding into it.
+ * [FoundationPageFlipLayout.SplitHalfFold] turn에서 절반/사분면 하나의 회전: turn이 향하는
+ * 쪽의 절반만 회전하며([pageOffset]의 부호가 먹이는 `startOffset`/`endOffset` 중 하나를
+ * 통해), 그래서 활성 leaf가 아닌 절반은 다른 절반의 움직임이 번져 들어오는 대신 회전 0인
+ * 평평한 상태로 남는다.
  *
- * @param half Which half/quadrant this rotation is being computed for.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`;
- *   coerced into that range before use.
- * @return The rotation for [half] at this offset.
+ * @param half 이 회전을 계산할 대상 절반/사분면.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
+ *   사용 전에 이 범위로 고정된다.
+ * @return 이 오프셋에서 [half]의 회전.
  */
 internal fun foundationPageFlipHalfSpec(
     half: FoundationPageFlipHalf,
@@ -2078,18 +2068,18 @@ internal fun foundationPageFlipHalfSpec(
 }
 
 /**
- * The full layout for a [FoundationPageFlipLayout.SplitHalfFold] turn, used by
- * [FoundationSpreadPageFlipBox]: works out which half is folding away and which the incoming
- * neighbour surfaces on, then hands each to [foundationPageFlipHalfSpec] for its own rotation. The
- * incoming half's own offset is computed as the mirror image of the outgoing progress
- * (`incomingOffset`) so it swings in from the opposite side as the outgoing leaf swings out,
- * meeting in the middle at `progress == 0.5` — the same point [showOutgoing]/[showIncoming] swap
- * which half is drawn on top.
+ * [FoundationSpreadPageFlipBox]가 사용하는, [FoundationPageFlipLayout.SplitHalfFold] turn의
+ * 전체 레이아웃: 어느 절반이 접혀 나가는지와 incoming 이웃이 어느 절반에 떠오르는지를 알아낸
+ * 뒤, 각각을 [foundationPageFlipHalfSpec]에 넘겨 자신의 회전을 구하게 한다. incoming 절반
+ * 자신의 오프셋은 outgoing progress를 거울에 비춘 값(`incomingOffset`)으로 계산되어,
+ * outgoing leaf가 밖으로 흔들려 나가는 것과 반대쪽에서 안으로 흔들려 들어와
+ * `progress == 0.5`인 가운데서 만난다 — [showOutgoing]/[showIncoming]이 어느 절반을 위에
+ * 그릴지 뒤바뀌는 바로 그 지점이다.
  *
- * @param axis Whether the fold turns along the horizontal or vertical axis.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`;
- *   coerced into that range before use.
- * @return The outgoing/incoming halves, their rotations, and which is currently visible.
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
+ *   사용 전에 이 범위로 고정된다.
+ * @return outgoing/incoming 절반, 그 회전, 그리고 현재 보이는 쪽.
  */
 internal fun foundationSpreadPageFlipSpec(
     axis: FoundationPagerAxis,
@@ -2118,13 +2108,13 @@ internal fun foundationSpreadPageFlipSpec(
 }
 
 /**
- * The clip [Shape] for [FoundationPageFlipHalfBox]'s seat, one quadrant/half of the page rectangle
- * per [FoundationPageFlipHalf]. Each shape is a plain rectangle held in a shared `val` rather than
- * allocated per call, since the rectangle only depends on the box's own size, not on any per-frame
- * state.
+ * [FoundationPageFlipHalfBox]의 깔개를 위한 클리핑 [Shape]로, [FoundationPageFlipHalf]마다
+ * 페이지 사각형의 한 사분면/절반이다. 각 모양은 사각형이 box 자신의 크기에만 좌우될 뿐 어떤
+ * 프레임별 상태에도 좌우되지 않으므로, 호출마다 새로 할당하는 대신 공유되는 `val`에 담긴
+ * 평범한 사각형이다.
  *
- * @param half Which quadrant/half to clip to.
- * @return The matching shared shape constant.
+ * @param half 클리핑할 대상 사분면/절반.
+ * @return 그에 대응하는 공유 모양 상수.
  */
 private fun foundationPageFlipShape(half: FoundationPageFlipHalf): Shape = when (half) {
     FoundationPageFlipHalf.Top -> FoundationPageFlipTopShape
@@ -2133,39 +2123,39 @@ private fun foundationPageFlipShape(half: FoundationPageFlipHalf): Shape = when 
     FoundationPageFlipHalf.Right -> FoundationPageFlipRightShape
 }
 
-/** The top half of the page rectangle, for [FoundationPageFlipHalf.Top]. */
+/** 페이지 사각형의 윗쪽 절반으로, [FoundationPageFlipHalf.Top]용. */
 private val FoundationPageFlipTopShape: Shape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
         Outline.Rectangle(Rect(0f, 0f, size.width, size.height / 2f))
 }
 
-/** The bottom half of the page rectangle, for [FoundationPageFlipHalf.Bottom]. */
+/** 페이지 사각형의 아래쪽 절반으로, [FoundationPageFlipHalf.Bottom]용. */
 private val FoundationPageFlipBottomShape: Shape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
         Outline.Rectangle(Rect(0f, size.height / 2f, size.width, size.height))
 }
 
-/** The left half of the page rectangle, for [FoundationPageFlipHalf.Left]. */
+/** 페이지 사각형의 왼쪽 절반으로, [FoundationPageFlipHalf.Left]용. */
 private val FoundationPageFlipLeftShape: Shape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
         Outline.Rectangle(Rect(0f, 0f, size.width / 2f, size.height))
 }
 
-/** The right half of the page rectangle, for [FoundationPageFlipHalf.Right]. */
+/** 페이지 사각형의 오른쪽 절반으로, [FoundationPageFlipHalf.Right]용. */
 private val FoundationPageFlipRightShape: Shape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
         Outline.Rectangle(Rect(size.width / 2f, 0f, size.width, size.height))
 }
 
 /**
- * The scale/alpha/translation for a [PageAnimation.MOVIE_CAROUSEL] page, as computed by
- * [foundationMovieCarouselSpec].
+ * [foundationMovieCarouselSpec]이 계산하는, [PageAnimation.MOVIE_CAROUSEL] 페이지의
+ * scale/alpha/이동.
  *
- * @property translationFraction The fraction of the page's own size to translate it by; always
- *   `0f` while [FoundationMovieTranslationRatio] stays `0f` (see
- *   [Modifier.foundationMovieCarouselLayer]).
- * @property scale The uniform scale to apply, in `[FoundationMovieMinScale, 1]`.
- * @property alpha The alpha to apply, in `[FoundationMovieMinAlpha, 1]`.
+ * @property translationFraction 페이지 자신의 크기에 대한 비율로 나타낸 이동량;
+ *   [FoundationMovieTranslationRatio]가 `0f`로 유지되는 동안은 항상 `0f`이다
+ *   ([Modifier.foundationMovieCarouselLayer] 참고).
+ * @property scale 적용할 균일한 배율, `[FoundationMovieMinScale, 1]` 범위.
+ * @property alpha 적용할 alpha, `[FoundationMovieMinAlpha, 1]` 범위.
  */
 internal data class FoundationMovieCarouselSpec(
     val translationFraction: Float,
@@ -2174,15 +2164,16 @@ internal data class FoundationMovieCarouselSpec(
 )
 
 /**
- * The scale/alpha/translation for a [PageAnimation.MOVIE_CAROUSEL] page: only the current page
- * shrinks and fades as it turns — a neighbour slot always reports zero offset here regardless of
- * its own [pageOffset], because it is the incoming page and should arrive at full size/alpha, not
- * shrink in from the same distant state the outgoing current page is receding to.
+ * [PageAnimation.MOVIE_CAROUSEL] 페이지의 scale/alpha/이동: turn에 따라 축소되고 옅어지는
+ * 것은 오직 current 페이지뿐이다 — 이웃 슬롯은 자신의 [pageOffset]과 무관하게 여기서 항상
+ * 오프셋 0을 보고하는데, 이는 그것이 incoming 페이지이며 outgoing current 페이지가 멀어져
+ * 가는 것과 같은 먼 상태에서 축소되며 들어오는 대신 완전한 크기/alpha로 도착해야 하기
+ * 때문이다.
  *
- * @param page Which pager slot this spec is for.
- * @param pageOffset This slot's signed offset from the pager's settled position, in `[-1, 1]`;
- *   only read when [page] is [FoundationPagerPage.Current].
- * @return The scale, alpha, and translation fraction for this slot.
+ * @param page 이 spec이 적용될 pager 슬롯.
+ * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
+ *   [page]가 [FoundationPagerPage.Current]일 때만 읽힌다.
+ * @return 이 슬롯의 scale, alpha, 이동 비율.
  */
 internal fun foundationMovieCarouselSpec(
     page: FoundationPagerPage,
@@ -2202,21 +2193,20 @@ internal fun foundationMovieCarouselSpec(
 }
 
 /**
- * Where a manual drag should settle once released: a fast enough fling commits to a turn
- * regardless of how far the drag travelled, otherwise the drag must have crossed a fraction of
- * the viewport for the turn to commit; anything short of either threshold snaps back to center. A
- * turn toward a side with no adjacent page never commits, even if both thresholds are met, since
- * there is nowhere for the pager to land.
+ * 손을 뗀 뒤 수동 드래그가 어디에 안착해야 하는지: 충분히 빠른 fling은 드래그가 얼마나
+ * 멀리 이동했는지와 무관하게 turn을 확정하며, 그렇지 않으면 드래그가 viewport의 일정
+ * 비율을 넘어야 turn이 확정된다; 두 임계값 중 어느 쪽도 넘지 못하면 가운데로 되돌아간다.
+ * 인접 페이지가 없는 쪽으로의 turn은 두 임계값을 모두 만족해도 결코 확정되지 않는데,
+ * pager가 내려앉을 곳이 없기 때문이다.
  *
- * @param dragDistancePx How far the manual drag has moved, in pixels; sign indicates direction.
- * @param velocityPxPerSecond The drag's release velocity, in pixels per second; sign indicates
- *   direction.
- * @param viewportExtentPx The pager's viewport size along the turn axis, in pixels; coerced to at
- *   least 1 to avoid a zero-extent threshold.
- * @param hasPreviousPage Whether there is a page to turn back to.
- * @param hasNextPage Whether there is a page to turn forward to.
- * @return `-1` to settle on the previous page, `1` on the next page, or `0` to snap back to
- *   center.
+ * @param dragDistancePx 수동 드래그가 얼마나 이동했는지, 픽셀 단위; 부호가 방향을 나타낸다.
+ * @param velocityPxPerSecond 드래그를 놓을 때의 속도, 초당 픽셀 단위; 부호가 방향을
+ *   나타낸다.
+ * @param viewportExtentPx turn 축을 따른 pager의 viewport 크기, 픽셀 단위; 임계값이
+ *   0이 되지 않도록 최소 1로 고정된다.
+ * @param hasPreviousPage 뒤로 넘어갈 페이지가 있는지 여부.
+ * @param hasNextPage 앞으로 넘어갈 페이지가 있는지 여부.
+ * @return 이전 페이지에 안착하려면 `-1`, 다음 페이지면 `1`, 가운데로 되돌아가려면 `0`.
  */
 internal fun foundationPagerDragTargetOffset(
     dragDistancePx: Float,
@@ -2239,16 +2229,16 @@ internal fun foundationPagerDragTargetOffset(
 }
 
 /**
- * Whether a manual drag moving in [primaryDelta]'s direction should be consumed and blocked rather
- * than handed to the pager — used both for the gesture-tracking `pointerInput` that feeds
- * [FoundationPagerGestureState] and for the actual `draggable` modifier, so a drag toward the
- * start or end of the book with nothing to turn to cannot drag the pager past its first/last slot.
+ * [primaryDelta] 방향으로 움직이는 수동 드래그를 pager에 넘기는 대신 소비하여 막아야
+ * 하는지 — [FoundationPagerGestureState]에 값을 대는 제스처 추적용 `pointerInput`과 실제
+ * `draggable` modifier 양쪽에서 쓰여서, 넘어갈 곳이 없는 책의 시작이나 끝 쪽으로의
+ * 드래그가 pager를 첫/마지막 슬롯 너머로 끌고 갈 수 없게 한다.
  *
- * @param primaryDelta The drag's movement along the turn axis so far, in pixels; sign indicates
- *   direction.
- * @param hasPreviousPage Whether there is a page to turn back to.
- * @param hasNextPage Whether there is a page to turn forward to.
- * @return Whether the drag should be blocked.
+ * @param primaryDelta 지금까지 turn 축을 따라 이동한 드래그의 양, 픽셀 단위; 부호가
+ *   방향을 나타낸다.
+ * @param hasPreviousPage 뒤로 넘어갈 페이지가 있는지 여부.
+ * @param hasNextPage 앞으로 넘어갈 페이지가 있는지 여부.
+ * @return 드래그를 막아야 하는지 여부.
  */
 internal fun foundationPagerShouldBlockDrag(
     primaryDelta: Float,
@@ -2260,22 +2250,23 @@ internal fun foundationPagerShouldBlockDrag(
     else -> false
 }
 
-/** What a tap on the pager should do, as decided by [foundationPagerTapAction]. */
+/** [foundationPagerTapAction]이 결정하는, pager 위의 탭이 해야 할 일. */
 internal enum class FoundationPagerTapAction { Previous, ToggleControls, Next }
 
 /**
- * What a tap on the page should do, decided from the tap's position alone.
+ * 페이지 위의 탭이 해야 할 일을, 오직 탭의 위치만으로 결정한다.
  *
- * Factored out of the gesture handler so it is unit-testable, because the rule it carries was a shipped
- * bug (F16): a tap in an edge zone with no adjacent page — the first or last page of the book — used to do
- * nothing at all. It now falls through to toggling the controls, the same as a tap in the middle. The
- * return type is a non-null enum for that reason: "do nothing" is not a state this decision can express.
+ * 유닛 테스트가 가능하도록 제스처 핸들러에서 따로 떼어냈는데, 이것이 담고 있는 규칙이
+ * 한때 출시된 버그였기 때문이다: 인접 페이지가 없는 edge 영역에서의 탭 — 책의 첫
+ * 페이지나 마지막 페이지 — 은 예전에는 아무 일도 하지 않았다. 지금은 가운데에서의 탭과
+ * 마찬가지로 컨트롤 토글로 넘어간다. 반환 타입이 null을 허용하지 않는 enum인 이유가
+ * 바로 이것이다: "아무 일도 하지 않음"은 이 결정이 표현할 수 있는 상태가 아니다.
  *
- * @param primary the tap's position along the turn axis, in pixels.
- * @param extent the pane's size along that same axis.
- * @param hasPreviousPage whether there is a page to turn back to.
- * @param hasNextPage whether there is a page to turn forward to.
- * @return the action to take; never "nothing".
+ * @param primary turn 축을 따른 탭의 위치, 픽셀 단위.
+ * @param extent 같은 축을 따른 pane의 크기.
+ * @param hasPreviousPage 뒤로 넘어갈 페이지가 있는지 여부.
+ * @param hasNextPage 앞으로 넘어갈 페이지가 있는지 여부.
+ * @return 취할 동작; 결코 "아무 일도 하지 않음"이 아니다.
  */
 internal fun foundationPagerTapAction(
     primary: Float,
@@ -2291,33 +2282,33 @@ internal fun foundationPagerTapAction(
 }
 
 /**
- * The release velocity, in pixels per second, above which [foundationPagerDragTargetOffset] commits
- * a manual drag to a turn regardless of how far it travelled — a fast flick that only barely moved
- * the finger still reads as an intentional page turn.
+ * 이 값(초당 픽셀)을 넘는 손 뗄 때의 속도부터는 [foundationPagerDragTargetOffset]이
+ * 드래그가 얼마나 이동했는지와 무관하게 수동 드래그를 turn으로 확정한다 — 손가락을 아주
+ * 살짝만 움직인 빠른 플릭도 의도된 페이지 turn으로 읽힌다.
  */
 private const val FoundationManualFlingVelocityThresholdPxPerSecond = 1000f
 
 /**
- * The fraction of the viewport's extent a manual drag must travel, absent a qualifying fling
- * velocity, before [foundationPagerDragTargetOffset] commits it to a turn instead of snapping back
- * to center.
+ * 자격을 갖춘 fling 속도가 없을 때, [foundationPagerDragTargetOffset]이 가운데로
+ * 되돌리는 대신 turn으로 확정하기까지 수동 드래그가 이동해야 하는, viewport 크기에 대한
+ * 비율.
  */
 private const val FoundationManualDragDistanceThresholdRatio = 0.25f
 
 /**
- * The manual gesture state read by the fluid-edge, circle-reveal, and drag-blocking logic to know
- * where a touch is and whether it is still down. Tracked separately from Foundation's own pager
- * gesture handling because those effects need the raw pointer position (for the touch-anchored
- * bulge/circle origin), not just the pager's settled scroll offset.
+ * fluid-edge, circle-reveal, 드래그 차단 로직이 터치가 어디에 있고 아직 눌려 있는지
+ * 알기 위해 읽는 수동 제스처 상태. Foundation 자신의 pager 제스처 처리와 별도로 추적하는
+ * 이유는, 그 effect들이 pager의 안착된 스크롤 오프셋만이 아니라 원시 포인터 위치(터치에
+ * 고정된 부풀어 오름/원의 원점을 위해)를 필요로 하기 때문이다.
  *
- * @property start Where the current gesture began, in local coordinates.
- * @property current The gesture's live position while [active] is true.
- * @property last The gesture's last known position, retained once [active] becomes false so a
- *   released touch still has a point to report via [touchPoint].
- * @property active Whether a pointer is currently down.
- * @property touched Whether any gesture has occurred since this state was last reset; distinguishes
- *   "never touched" from "touched and released" so [touchPoint]/[startPoint] can report null only
- *   for the former.
+ * @property start 현재 제스처가 시작된 위치, 로컬 좌표계 기준.
+ * @property current [active]가 true인 동안의 제스처 실시간 위치.
+ * @property last 제스처의 마지막으로 알려진 위치로, [active]가 false가 된 뒤에도 유지되어
+ *   놓인 터치도 [touchPoint]를 통해 보고할 지점을 여전히 가지게 한다.
+ * @property active 포인터가 현재 눌려 있는지 여부.
+ * @property touched 이 상태가 마지막으로 재설정된 뒤 어떤 제스처든 발생한 적이 있는지
+ *   여부; "한 번도 터치되지 않음"과 "터치되었다가 놓임"을 구분해서, [touchPoint]/
+ *   [startPoint]가 전자에 대해서만 null을 보고할 수 있게 한다.
  */
 private data class FoundationPagerGestureState(
     val start: Offset = Offset.Zero,
@@ -2327,11 +2318,11 @@ private data class FoundationPagerGestureState(
     val touched: Boolean = false,
 ) {
     /**
-     * The point the fluid/circle reveal geometry should anchor to: the live position while a
-     * touch is down, or the last known position once it has been released, so the reveal keeps
-     * following where the finger was instead of snapping back to the origin.
+     * fluid/circle reveal 기하가 고정해야 할 지점: 터치가 눌려 있는 동안은 실시간 위치를,
+     * 놓인 뒤에는 마지막으로 알려진 위치를 가리켜서, reveal이 원점으로 되돌아가는 대신
+     * 손가락이 있던 곳을 계속 따라가게 한다.
      *
-     * @return The current or last touch point, or null if [touched] is false.
+     * @return 현재 또는 마지막 터치 지점, 또는 [touched]가 false면 null.
      */
     fun touchPoint(): FoundationPagerPoint? {
         if (!touched) return null
@@ -2340,11 +2331,11 @@ private data class FoundationPagerGestureState(
     }
 
     /**
-     * Where this gesture began. Currently has no call site in this file or its tests — [start] is
-     * read directly at the one place ([FoundationEffectPager]'s gesture-tracking `pointerInput`)
-     * that needs the gesture's origin.
+     * 이 제스처가 시작된 위치. 현재 이 파일이나 그 테스트 어디에서도 호출되지 않는다 —
+     * [start]는 제스처의 원점이 필요한 유일한 곳([FoundationEffectPager]의 제스처
+     * 추적용 `pointerInput`)에서 직접 읽힌다.
      *
-     * @return The gesture's starting point, or null if [touched] is false.
+     * @return 제스처의 시작 지점, 또는 [touched]가 false면 null.
      */
     fun startPoint(): FoundationPagerPoint? {
         if (!touched) return null
@@ -2353,53 +2344,55 @@ private data class FoundationPagerGestureState(
 }
 
 /**
- * A 1D spring-mass chain modelling the wavy, cloth-like edge used by [PageAnimation.FLUID_PAGER]:
- * [FoundationFluidPointCount] points spaced evenly along the page's cross axis (`y` in `[0, 1]`),
- * each carrying its own horizontal displacement (`x`, a fraction of page width in `[0, 1]`) and
- * velocity, integrated every frame by [tick]. [applyTarget] only records where the edge is
- * heading — the turn's progress and the touch point pulling on it; [tick] is the only place any
- * point actually moves, called once per frame from the `LaunchedEffect(pageAnimation)` loop in
- * [FoundationEffectPager] while [PageAnimation.FLUID_PAGER] is active. [version] exists purely so
- * a `drawWithCache`/[Shape] block that captured [points] earlier can be told when to recompute —
- * the points are mutated in place rather than the list being replaced, so nothing else would
- * otherwise signal Compose that they changed.
+ * [PageAnimation.FLUID_PAGER]가 쓰는, 물결치는 천 같은 edge를 모델링하는 1차원
+ * spring-mass 체인: 페이지의 cross axis(`[0, 1]` 범위의 `y`)를 따라 고르게 배치된
+ * [FoundationFluidPointCount]개의 점 각각이 자신의 수평 변위(`x`, `[0, 1]` 범위의 페이지
+ * 너비 비율)와 속도를 가지며, 이는 [tick]이 매 프레임 적분한다. [applyTarget]은 edge가
+ * 향하는 곳 — turn의 progress와 그것을 당기는 터치 지점 — 만을 기록할 뿐이며, 실제로
+ * 어떤 점이든 움직이는 곳은 오직 [tick]뿐으로, [PageAnimation.FLUID_PAGER]가 활성인
+ * 동안 [FoundationEffectPager] 안의 `LaunchedEffect(pageAnimation)` 루프에서 프레임마다
+ * 한 번씩 호출된다. [version]이 존재하는 이유는 오직, 앞서 [points]를 캡처해 둔
+ * `drawWithCache`/[Shape] 블록에 언제 다시 계산해야 하는지 알려주기 위해서다 — 점들은
+ * 리스트가 교체되는 대신 제자리에서 변경되므로, 그렇지 않으면 그것들이 바뀌었다는 것을
+ * Compose에 알려줄 다른 수단이 없다.
  *
- * @param pointCount How many points make up the edge; also [points]' size.
+ * @param pointCount edge를 이루는 점의 개수; [points]의 크기이기도 하다.
  */
 internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) {
     /**
-     * The chain's points, evenly spaced along the page's cross axis from `y = 0` to `y = 1`, each
-     * starting at rest (`x = 0`). Mutated in place by [tick] and [reset] rather than replaced, so
-     * a caller must read [version] to know when to react to a change.
+     * `y = 0`부터 `y = 1`까지 페이지의 cross axis를 따라 고르게 배치된 체인의 점들로,
+     * 각각 정지 상태(`x = 0`)에서 시작한다. 교체되는 대신 [tick]과 [reset]에 의해
+     * 제자리에서 변경되므로, 호출자는 변경에 언제 반응해야 하는지 알려면 [version]을
+     * 읽어야 한다.
      */
     val points: List<FoundationFluidPoint> = List(pointCount) { index ->
         FoundationFluidPoint(y = index.toFloat() / (pointCount - 1).toFloat())
     }
 
     /**
-     * A change counter bumped every time [tick] or [reset] mutates [points] in place, so a
-     * `drawWithCache`/[Shape] block that captured this value knows to recompute even though the
-     * [points] list reference itself never changes.
+     * [tick]이나 [reset]이 [points]를 제자리에서 변경할 때마다 증가하는 변경 카운터로,
+     * 이 값을 캡처해 둔 `drawWithCache`/[Shape] 블록이 [points] 리스트 참조 자체는
+     * 결코 바뀌지 않는데도 다시 계산해야 함을 알 수 있게 한다.
      */
     var version by mutableStateOf(0)
         private set
 
-    /** The side [applyTarget] was last told is active; a change here resets every point in [points]. */
+    /** [applyTarget]이 마지막으로 활성이라고 전달받은 side; 이 값이 바뀌면 [points]의 모든 점이 재설정된다. */
     private var activeSide = FoundationFluidSide.Start
 
-    /** The turn progress [applyTarget] last recorded, read by [tick] as the touch-tension target. */
+    /** [applyTarget]이 마지막으로 기록한 turn progress로, [tick]이 touch-tension 목표값으로 읽는다. */
     private var progress = 0f
 
-    /** The touch's cross-axis position [applyTarget] last recorded, read by [tick] to weight each point's touch influence. */
+    /** [applyTarget]이 마지막으로 기록한 터치의 cross-axis 위치로, [tick]이 각 점의 터치 영향력에 가중치를 매기는 데 읽는다. */
     private var touchCrossAxis = 0.5f
 
-    /** Whether a touch was active as of the last [applyTarget] call; selects which branch of [tick] runs. */
+    /** 마지막 [applyTarget] 호출 시점에 터치가 활성이었는지 여부; [tick]의 어느 분기가 실행될지를 결정한다. */
     private var touchActive = false
 
     /**
-     * Snaps every point back to rest and clears [activeSide]/[progress]/[touchCrossAxis]/
-     * [touchActive] to their starting values, so a stale bulge or velocity left over from the
-     * previous turn cannot bleed into the next one.
+     * 모든 점을 정지 상태로 되돌리고 [activeSide]/[progress]/[touchCrossAxis]/[touchActive]를
+     * 시작 값으로 지워서, 이전 turn에서 남은 낡은 부풀어 오름이나 속도가 다음 turn으로
+     * 번져 들어갈 수 없게 한다.
      */
     fun reset() {
         activeSide = FoundationFluidSide.Start
@@ -2414,21 +2407,20 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
     }
 
     /**
-     * Records where the edge should be heading — which side is active, how far the turn has
-     * progressed, and where the touch sits along the cross axis — without moving any point
-     * itself; [tick] is what actually chases this target every frame. Resets every point's
-     * position and velocity when [side] differs from the previously active one, since a bulge
-     * built up while revealing one neighbour has no meaning once the active side flips. Clears
-     * velocity (but not position) the moment [touchActive] goes from true to false, so drag
-     * momentum does not carry into the release-and-settle interpolation [tick] switches to once
-     * the touch is up.
+     * edge가 향해야 할 곳 — 어느 side가 활성인지, turn이 얼마나 진행됐는지, 터치가
+     * cross axis를 따라 어디에 있는지 — 을 기록할 뿐, 점 자체는 움직이지 않는다; 이
+     * 목표를 실제로 매 프레임 뒤쫓는 것은 [tick]이다. [side]가 이전에 활성이던 것과
+     * 다르면 모든 점의 위치와 속도를 재설정하는데, 한 이웃을 드러내며 쌓인 부풀어
+     * 오름은 활성 side가 바뀌고 나면 의미가 없어지기 때문이다. [touchActive]가 true에서
+     * false로 바뀌는 순간 속도(위치는 아니고)를 지워서, 터치가 떨어졌을 때 [tick]이
+     * 전환하는 release-and-settle 보간으로 드래그의 관성이 넘어가지 않도록 한다.
      *
-     * @param side Which side (start/end) the edge is advancing from.
-     * @param progress How far the turn has progressed, in `[0, 1]`; clamped into that range.
-     * @param touchCrossAxis Where the touch sits along the page's cross axis, in `[0, 1]`; clamped
-     *   into that range.
-     * @param touchActive Whether a finger is currently down; false switches [tick] to the
-     *   release-and-settle interpolation instead of the spring simulation.
+     * @param side edge가 어느 side(start/end)에서 전진하는지.
+     * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위; 이 범위로 고정된다.
+     * @param touchCrossAxis 터치가 페이지의 cross axis를 따라 어디에 있는지, `[0, 1]`
+     *   범위; 이 범위로 고정된다.
+     * @param touchActive 손가락이 현재 눌려 있는지 여부; false면 [tick]을 spring
+     *   시뮬레이션 대신 release-and-settle 보간으로 전환한다.
      */
     fun applyTarget(
         side: FoundationFluidSide,
@@ -2454,73 +2446,76 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
     }
 
     /**
-     * Advances the spring-mass chain by one frame. This is an explicit-Euler spring-mass
-     * simulation, not a set of values tuned by feel the way the pure visual constants elsewhere in
-     * this file are — these constants interact with each other, and changing one shifts what the
-     * others mean.
+     * spring-mass 체인을 한 프레임만큼 진행시킨다. 이는 explicit-Euler spring-mass
+     * 시뮬레이션이지, 이 파일 다른 곳의 순수 시각적 상수들처럼 느낌으로 조정된 값들의
+     * 모음이 아니다 — 이 상수들은 서로 상호작용하며, 하나를 바꾸면 나머지가 의미하는
+     * 바가 달라진다.
      *
-     * While no touch is active, every point simply interpolates toward [progress]
-     * (`point.x += (progress - point.x) * releaseFraction`, with velocity zeroed) — see
-     * [FoundationFluidReleaseDamping] below for what that fraction means. While a touch is active,
-     * every point instead receives four kinds of force before its velocity is damped and applied:
-     * an edge-tension term pulling it back toward `x = 0` (weight [FoundationFluidEdgeTension]);
-     * once [progress] has passed [FoundationFluidCompleteThreshold], a far-edge-tension term
-     * pulling it toward `x = 1` (weight [FoundationFluidFarEdgeTension]) — the two weights are
-     * equal by design and pull in opposite directions, a deliberately symmetric restoring force
-     * that only engages the far side once the turn is nearly complete; a touch-tension term toward
-     * [progress] itself, weighted by [FoundationFluidTouchTension] and by `influence`, a linear
-     * falloff that reaches zero at [FoundationFluidTouchRadius] from the touch's cross-axis
-     * position; and a term pulling it toward each *neighbouring* point, weighted by
-     * [FoundationFluidPointTension]. An interior point receives that neighbour term twice — once
-     * from each side — so its effective neighbour coupling is `2 × FoundationFluidPointTension` =
-     * 0.50, five times [FoundationFluidTouchTension]'s 0.10, while an endpoint (index 0 or the
-     * last index) receives only one neighbour term. That asymmetry is why the edge relaxes flat
-     * into the frame at the top and bottom instead of following the touch as sharply as the
-     * interior does: with only half the coupling pulling it along, an endpoint is dominated by its
-     * own much weaker edge tension, and the touch bulge reads as a smooth sheet flexing around a
-     * fixed anchor rather than a spike dragging the corners with it.
+     * 터치가 활성이 아닌 동안에는, 모든 점이 그저 [progress] 쪽으로 보간될 뿐이다
+     * (`point.x += (progress - point.x) * releaseFraction`, 속도는 0으로 초기화된다) —
+     * 그 비율이 무엇을 뜻하는지는 아래 [FoundationFluidReleaseDamping]을 참고한다.
+     * 터치가 활성인 동안에는, 대신 모든 점이 속도가 감쇠되어 적용되기 전 네 종류의
+     * 힘을 받는다: `x = 0` 쪽으로 다시 당기는 edge-tension 항(가중치
+     * [FoundationFluidEdgeTension]); [progress]가 [FoundationFluidCompleteThreshold]를
+     * 넘고 나면 `x = 1` 쪽으로 당기는 far-edge-tension 항(가중치
+     * [FoundationFluidFarEdgeTension]) — 두 가중치는 설계상 같은 크기이고 서로 반대
+     * 방향으로 당기는, turn이 거의 끝나갈 때만 먼 쪽을 개입시키는 의도적으로 대칭인
+     * 복원력이다; [progress] 자신 쪽으로 향하는 touch-tension 항으로,
+     * [FoundationFluidTouchTension]과 `influence`(터치의 cross-axis 위치로부터
+     * [FoundationFluidTouchRadius]에서 0이 되는 선형 감쇠)로 가중된다; 그리고 각
+     * *이웃* 점 쪽으로 당기는 항으로, [FoundationFluidPointTension]으로 가중된다.
+     * 내부의 점은 이 이웃 항을 두 번 — 양쪽에서 한 번씩 — 받으므로 실효 이웃 결합은
+     * `2 × FoundationFluidPointTension` = 0.50으로, [FoundationFluidTouchTension]의
+     * 0.10의 다섯 배인 반면, 끝점(인덱스 0 또는 마지막 인덱스)은 이웃 항을 하나만
+     * 받는다. 이 비대칭이 바로 edge가 위아래 끝에서는 내부만큼 터치를 날카롭게
+     * 따라가는 대신 프레임 안으로 평평하게 풀리는 이유다: 끌어당기는 결합이 절반뿐이라
+     * 끝점은 자신의 훨씬 약한 edge tension에 지배되고, 터치의 부풀어 오름은 모서리를
+     * 잡아끄는 뾰족한 형태가 아니라 고정된 지점을 중심으로 휘어지는 매끄러운 시트처럼
+     * 보인다.
      *
-     * [FoundationFluidPointCount] and [FoundationFluidTouchRadius] are not independent: with 25
-     * points spread over `y` in `[0, 1]`, the spacing between points is `1 / (pointCount - 1)` ≈
-     * 0.0417, so a touch radius of 0.24 spans roughly `2 × 0.24 / 0.0417` ≈ 12 of the 25 points
-     * around the touch. Changing either constant alone without the other aliases the influence
-     * kernel — too few points under the radius and the bulge looks faceted instead of smooth; too
-     * many and the touch loses its local shape entirely.
+     * [FoundationFluidPointCount]와 [FoundationFluidTouchRadius]는 독립적이지 않다:
+     * `[0, 1]` 범위의 `y`에 걸쳐 25개의 점이 퍼져 있을 때 점 사이 간격은
+     * `1 / (pointCount - 1)` ≈ 0.0417이므로, 0.24의 터치 반경은 터치 주변 25개 점 중
+     * 대략 `2 × 0.24 / 0.0417` ≈ 12개를 아우른다. 둘 중 하나만 바꾸면 영향력 커널이
+     * 앨리어싱을 일으킨다 — 반경 안의 점이 너무 적으면 부풀어 오름이 매끄럽지 않고
+     * 각져 보이고, 너무 많으면 터치가 자신의 국소적인 모양을 완전히 잃는다.
      *
-     * Stability here is a real constraint, not a suggestion. Summing the coefficients acting on an
-     * interior point at full touch influence — edge tension (0.01) + doubled point tension (0.50)
-     * + touch tension (0.10) — gives an effective per-tick stiffness of about 0.61, and
-     * [frameUnits] is clamped to at most 1.5, keeping the stiffness-times-timestep product under 1
-     * (`0.61 × 1.5 ≈ 0.915`). Running this update rule numerically confirms it converges (velocity
-     * decays toward zero) for [FoundationFluidPointTension] values up to about 0.40 — comfortably
-     * above the shipped 0.25 — starts to ring (velocity stops decaying and oscillates instead) at
-     * 0.50, and diverges outright (velocity growing without bound) from roughly 0.55 upward; the
-     * same numerical check shows raising the [frameUnits] clamp has an equivalent destabilizing
-     * effect at the shipped tension, since it is the stiffness-times-timestep product that governs
-     * this, not either factor alone. The `coerceIn(0f, 1f)` on each point's position at the end of
-     * this function is the only thing standing between that divergence and a `NaN` or off-screen
-     * shape — the velocity itself is free to grow arbitrarily large once the system is unstable;
-     * only the position it moves is clamped.
+     * 여기서 안정성은 제안이 아니라 실질적인 제약이다. 터치 영향력이 최대일 때 내부
+     * 점에 작용하는 계수를 모두 더하면 — edge tension(0.01) + 두 배가 된 point
+     * tension(0.50) + touch tension(0.10) — 틱당 유효 강성이 약 0.61이 되며,
+     * [frameUnits]는 최대 1.5로 고정되어 강성×시간간격의 곱을 1 미만으로
+     * 유지한다(`0.61 × 1.5 ≈ 0.915`). 이 갱신 규칙을 수치적으로 돌려 보면
+     * [FoundationFluidPointTension] 값이 약 0.40까지는 — 실제 적용된 0.25보다 넉넉히
+     * 높은 값까지 — 수렴하고(속도가 0을 향해 감쇠), 0.50에서는 울리기 시작하며(속도가
+     * 감쇠를 멈추고 대신 진동), 대략 0.55 이상부터는 완전히 발산한다(속도가 한없이
+     * 커짐); 같은 수치 검증에 따르면 [frameUnits]의 상한을 올리는 것도 실제 적용된
+     * tension에서 동등한 불안정화 효과를 낳는데, 이를 지배하는 것은 두 요인 중 하나가
+     * 아니라 강성×시간간격의 곱이기 때문이다. 이 함수 끝에서 각 점의 위치에 적용되는
+     * `coerceIn(0f, 1f)`만이 그 발산과 `NaN` 또는 화면 밖으로 벗어난 모양 사이를 막아
+     * 주는 유일한 장치다 — 시스템이 일단 불안정해지면 속도 자체는 얼마든지 커질 수
+     * 있으며, 고정되는 것은 그것이 움직이는 위치뿐이다.
      *
-     * The two damping-looking constants play different roles despite the similar name, and mixing
-     * them up moves the wrong knob. [FoundationFluidDamping] (0.90) is a per-frame *velocity* decay
-     * applied while the touch is active (`velocityX *= FoundationFluidDamping.pow(t)`, a genuine
-     * multiplier; the `.pow(t)` makes it frame-rate-independent by expressing it per
-     * [FoundationFrameMillis] rather than per wall-clock tick) — its velocity multiplier falls to
-     * `1/e` after about 9.5 frames, roughly 158 ms at 60 fps. [FoundationFluidReleaseDamping]
-     * (0.82) is not a decay multiplier at all: it is read as `1 - 0.82.pow(t)`, the *fraction of
-     * the remaining distance to the target closed this frame*, used only once the touch is
-     * released to interpolate each point straight toward [progress]. Read the same way, that
-     * remaining-distance fraction reaches `1/e` after about 5 frames (roughly 84 ms) and 99% closed
-     * after about 23 frames (roughly 387 ms). [FoundationFluidCompleteThreshold] (0.82) happens to
-     * equal [FoundationFluidReleaseDamping] numerically, but the two gate unrelated things — one is
-     * a progress threshold that switches on the far-edge tension above, the other is a per-frame
-     * lerp fraction for the post-release settle — and that equality is coincidental, not a shared
-     * constant; changing one should never be expected to move the other.
+     * 이름이 비슷해 감쇠처럼 보이는 두 상수는 실제로는 서로 다른 역할을 하며, 이 둘을
+     * 혼동하면 엉뚱한 손잡이를 돌리는 셈이 된다. [FoundationFluidDamping](0.90)은
+     * 터치가 활성인 동안 적용되는 프레임당 *속도* 감쇠다(`velocityX *=
+     * FoundationFluidDamping.pow(t)`, 진짜 곱셈 계수다; `.pow(t)`는 이를 실제
+     * 시간(wall-clock) 틱 단위가 아니라 [FoundationFrameMillis] 단위로 표현해
+     * 프레임레이트와 무관하게 만든다) — 그 속도 곱셈 계수는 약 9.5프레임(60 fps에서
+     * 약 158 ms) 뒤에 `1/e`로 떨어진다. [FoundationFluidReleaseDamping](0.82)은 감쇠
+     * 계수가 전혀 아니다: 이는 `1 - 0.82.pow(t)`로 읽히는, *이 프레임에 좁혀지는,
+     * 목표까지 남은 거리의 비율*이며, 터치가 놓인 뒤 각 점을 [progress] 쪽으로 곧장
+     * 보간할 때만 쓰인다. 같은 방식으로 읽으면 그 남은-거리 비율은 약 5프레임(약
+     * 84 ms) 뒤에 `1/e`에 이르고 약 23프레임(약 387 ms) 뒤에 99%가 좁혀진다.
+     * [FoundationFluidCompleteThreshold](0.82)는 우연히 [FoundationFluidReleaseDamping]과
+     * 수치가 같지만, 둘은 서로 무관한 것을 관장한다 — 하나는 위에서 far-edge
+     * tension을 켜는 progress 임계값이고, 다른 하나는 release 이후 안착을 위한
+     * 프레임당 lerp 비율이다 — 그리고 그 일치는 우연일 뿐 공유되는 상수가 아니므로,
+     * 하나를 바꾼다고 다른 하나가 함께 움직일 것이라 기대해서는 안 된다.
      *
-     * @param frameUnits How much of one [FoundationFrameMillis]-long frame elapsed since the last
-     *   tick; coerced to `[0.1, 1.5]` so a long pause (e.g. a dropped frame) cannot overshoot the
-     *   spring into instability and a near-zero delta cannot stall it.
+     * @param frameUnits 마지막 tick 이후 [FoundationFrameMillis] 길이의 프레임 하나
+     *   중 얼마가 흘렀는지; `[0.1, 1.5]` 범위로 고정되어, 긴 정지(예: 드롭된
+     *   프레임)가 spring을 불안정으로 오버슈트시킬 수 없고 거의 0에 가까운 delta가
+     *   이를 멈춰 세울 수 없게 한다.
      */
     fun tick(frameUnits: Float = 1f) {
         val t = frameUnits.coerceIn(0.1f, 1.5f)
@@ -2566,16 +2561,15 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
 }
 
 /**
- * One mass point in [FoundationFluidEdge]'s spring-mass chain. `x` and `velocityX` are `var`
- * rather than immutable so [FoundationFluidEdge.tick]/[FoundationFluidEdge.reset] can mutate the
- * chain in place every frame instead of allocating a fresh `List` each time.
+ * [FoundationFluidEdge]의 spring-mass 체인 안 질점 하나. `x`와 `velocityX`가 불변이 아니라
+ * `var`인 이유는 [FoundationFluidEdge.tick]/[FoundationFluidEdge.reset]이 매 프레임 새
+ * `List`를 할당하는 대신 체인을 제자리에서 변경할 수 있게 하기 위해서다.
  *
- * @property x The point's horizontal displacement, a fraction of page width in `[0, 1]`; `0`
- *   means resting flat against the frame, `1` fully advanced.
- * @property y The point's fixed position along the page's cross axis, a fraction in `[0, 1]`;
- *   never mutated after construction.
- * @property velocityX The point's current rate of change of [x] per [FoundationFluidEdge.tick]
- *   frame unit.
+ * @property x 점의 수평 변위로, `[0, 1]` 범위의 페이지 너비 비율; `0`은 프레임에 평평하게
+ *   붙어 쉬는 상태를, `1`은 완전히 전진한 상태를 뜻한다.
+ * @property y 페이지의 cross axis를 따른 점의 고정 위치로, `[0, 1]` 범위의 비율; 생성된
+ *   뒤로는 결코 변경되지 않는다.
+ * @property velocityX [FoundationFluidEdge.tick] 프레임 단위당, [x]의 현재 변화율.
  */
 internal data class FoundationFluidPoint(
     var x: Float = 0f,
@@ -2584,11 +2578,11 @@ internal data class FoundationFluidPoint(
 )
 
 /**
- * Which neighbouring turn is currently active and how far it has progressed, as resolved by
- * [foundationActivePageTurn].
+ * [foundationActivePageTurn]이 판단한, 어느 이웃 쪽 turn이 현재 활성인지와 그것이 얼마나
+ * 진행됐는지.
  *
- * @property side Which side (start/end) the active turn is revealing from.
- * @property progress How far the active turn has progressed, in `[0, 1]`.
+ * @property side 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
+ * @property progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
  */
 internal data class FoundationActivePageTurn(
     val side: FoundationFluidSide,
@@ -2596,35 +2590,33 @@ internal data class FoundationActivePageTurn(
 )
 
 /**
- * A 2D point in a pager slot's own local coordinate space (pixels, canonicalised to the turn axis
- * by [FoundationPagerAxis]), used throughout the fluid/circle-reveal geometry in place of
- * Compose's [Offset] so that math on it does not need a `Density`/`LayoutDirection` receiver.
+ * pager 슬롯 자신의 로컬 좌표 공간(픽셀 단위, [FoundationPagerAxis]에 의해 turn 축 기준으로
+ * canonical화됨) 안의 2차원 점으로, fluid/circle-reveal 기하 전반에서 Compose의 [Offset]
+ * 대신 쓰여 그 위의 계산이 `Density`/`LayoutDirection` receiver를 필요로 하지 않게 한다.
  *
- * @property x The point's horizontal component, in pixels (or, once canonicalised, along the
- *   pager's primary axis).
- * @property y The point's vertical component, in pixels (or, once canonicalised, along the
- *   pager's cross axis).
+ * @property x 점의 수평 성분, 픽셀 단위(canonical화된 뒤에는 pager의 주 축을 따른 값).
+ * @property y 점의 수직 성분, 픽셀 단위(canonical화된 뒤에는 pager의 cross axis를 따른 값).
  */
 internal data class FoundationPagerPoint(
     val x: Float,
     val y: Float,
 ) {
-    /** Component-wise sum, used when combining two offsets in the same coordinate space. */
+    /** 성분별 합으로, 같은 좌표 공간의 두 오프셋을 합칠 때 쓰인다. */
     operator fun plus(other: FoundationPagerPoint): FoundationPagerPoint = FoundationPagerPoint(x + other.x, y + other.y)
 
-    /** Component-wise difference, used when measuring one point relative to another. */
+    /** 성분별 차로, 한 점을 다른 점 기준으로 측정할 때 쓰인다. */
     operator fun minus(other: FoundationPagerPoint): FoundationPagerPoint = FoundationPagerPoint(x - other.x, y - other.y)
 
-    /** Uniform scale by [value], used when interpolating or scaling a point toward another. */
+    /** [value]만큼의 균일한 배율로, 한 점을 다른 점 쪽으로 보간하거나 스케일할 때 쓰인다. */
     operator fun times(value: Float): FoundationPagerPoint = FoundationPagerPoint(x * value, y * value)
 }
 
 /**
- * A pager slot's own size, canonicalised to the turn axis by [FoundationPagerAxis], mirroring
- * Compose's [Size] but usable outside a draw scope.
+ * pager 슬롯 자신의 크기로, [FoundationPagerAxis]에 의해 turn 축 기준으로 canonical화되며,
+ * Compose의 [Size]를 본뜨되 draw scope 밖에서도 쓸 수 있다.
  *
- * @property width The slot's size along its own horizontal axis, in pixels.
- * @property height The slot's size along its own vertical axis, in pixels.
+ * @property width 슬롯 자신의 가로축을 따른 크기, 픽셀 단위.
+ * @property height 슬롯 자신의 세로축을 따른 크기, 픽셀 단위.
  */
 internal data class FoundationPagerSize(
     val width: Float,
@@ -2632,10 +2624,10 @@ internal data class FoundationPagerSize(
 )
 
 /**
- * Whether a pager turns along the horizontal or vertical axis. Most of this file's geometry is
- * written once in a "canonical" horizontal-turn coordinate space and then swapped back for a
- * vertical pager via this enum's `toCanonical`/`fromCanonical` helpers, rather than duplicating
- * every shape/polygon computation for both axes.
+ * pager가 가로축과 세로축 중 어느 쪽으로 도는지. 이 파일의 기하 계산 대부분은 두 축
+ * 모두에 대해 모든 모양/polygon 계산을 중복하는 대신, "canonical"한 가로-turn 좌표
+ * 공간에 한 번만 작성된 뒤 이 enum의 `toCanonical`/`fromCanonical` 헬퍼를 통해 세로
+ * pager를 위해 다시 맞바꿔진다.
  */
 internal enum class FoundationPagerAxis {
     Horizontal,
@@ -2643,12 +2635,12 @@ internal enum class FoundationPagerAxis {
     ;
 
     /**
-     * Maps [point] from this axis's real coordinate space into the canonical horizontal-turn
-     * space that the fluid-edge/polygon geometry is written in — a no-op for [Horizontal], an
-     * x/y swap for [Vertical]. Self-inverse, so it also serves as the reverse mapping.
+     * [point]를 이 축의 실제 좌표 공간에서, fluid-edge/polygon 기하가 작성된 canonical한
+     * 가로-turn 공간으로 매핑한다 — [Horizontal]에서는 아무 일도 하지 않고, [Vertical]에서는
+     * x/y를 맞바꾼다. 자기 자신의 역함수이므로 역방향 매핑으로도 쓰인다.
      *
-     * @param point The point in this axis's real coordinate space.
-     * @return The same point in canonical horizontal-turn space.
+     * @param point 이 축의 실제 좌표 공간 안의 점.
+     * @return canonical한 가로-turn 공간 안의 같은 점.
      */
     fun toCanonical(point: FoundationPagerPoint): FoundationPagerPoint = when (this) {
         Horizontal -> point
@@ -2656,20 +2648,21 @@ internal enum class FoundationPagerAxis {
     }
 
     /**
-     * Maps [point] from canonical horizontal-turn space back into this axis's real coordinate
-     * space. Delegates to [toCanonical], which is its own inverse for an x/y swap.
+     * [point]를 canonical한 가로-turn 공간에서 이 축의 실제 좌표 공간으로 다시 매핑한다.
+     * x/y 맞바꿈은 자기 자신의 역함수이므로 [toCanonical]에 위임한다.
      *
-     * @param point The point in canonical horizontal-turn space.
-     * @return The same point in this axis's real coordinate space.
+     * @param point canonical한 가로-turn 공간 안의 점.
+     * @return 이 축의 실제 좌표 공간 안의 같은 점.
      */
     fun fromCanonical(point: FoundationPagerPoint): FoundationPagerPoint = toCanonical(point)
 
     /**
-     * The [FoundationPagerSize] equivalent of [toCanonical]: swaps width/height for [Vertical] so
-     * size-dependent geometry can be written once against a canonical horizontal-turn size.
+     * [toCanonical]의 [FoundationPagerSize]판: [Vertical]에서 width/height를 맞바꿔서,
+     * 크기에 의존하는 기하를 canonical한 가로-turn 크기 기준으로 한 번만 작성할 수 있게
+     * 한다.
      *
-     * @param size The slot's size in this axis's real orientation.
-     * @return The same size in canonical horizontal-turn orientation.
+     * @param size 이 축의 실제 방향 기준 슬롯의 크기.
+     * @return canonical한 가로-turn 방향 기준의 같은 크기.
      */
     fun toCanonicalSize(size: FoundationPagerSize): FoundationPagerSize = when (this) {
         Horizontal -> size
@@ -2677,12 +2670,12 @@ internal enum class FoundationPagerAxis {
     }
 
     /**
-     * The Compose [Size] equivalent of [toCanonicalSize]. Currently has no call site in this file
-     * or its tests — the fluid/circle geometry uses the [FoundationPagerSize] overload above
-     * throughout — kept alongside it for a caller that only has a raw [Size] on hand.
+     * [toCanonicalSize]의 Compose [Size]판. 현재 이 파일이나 그 테스트 어디에서도
+     * 호출되지 않는다 — fluid/circle 기하는 시종일관 위의 [FoundationPagerSize] 오버로드를
+     * 쓴다 — 원시 [Size]만 손에 쥔 호출자를 위해 그 옆에 남겨 두었다.
      *
-     * @param size The slot's size in this axis's real orientation.
-     * @return The same size in canonical horizontal-turn orientation.
+     * @param size 이 축의 실제 방향 기준 슬롯의 크기.
+     * @return canonical한 가로-turn 방향 기준의 같은 크기.
      */
     fun toCanonicalSize(size: Size): Size = when (this) {
         Horizontal -> size
@@ -2690,12 +2683,12 @@ internal enum class FoundationPagerAxis {
     }
 
     /**
-     * Maps a Compose [Offset] from canonical horizontal-turn space back into this axis's real
-     * coordinate space — the [Offset] counterpart of [fromCanonical], used when the caller is
-     * already working in Compose's own offset type rather than [FoundationPagerPoint].
+     * Compose [Offset]을 canonical한 가로-turn 공간에서 이 축의 실제 좌표 공간으로 다시
+     * 매핑한다 — [fromCanonical]의 [Offset]판으로, 호출자가 [FoundationPagerPoint]가 아니라
+     * Compose 자신의 offset 타입으로 이미 작업하고 있을 때 쓰인다.
      *
-     * @param point The offset in canonical horizontal-turn space.
-     * @return The same offset in this axis's real coordinate space.
+     * @param point canonical한 가로-turn 공간 안의 offset.
+     * @return 이 축의 실제 좌표 공간 안의 같은 offset.
      */
     fun fromCanonical(point: Offset): Offset = when (this) {
         Horizontal -> point
@@ -2703,12 +2696,12 @@ internal enum class FoundationPagerAxis {
     }
 
     /**
-     * This axis's primary (turn-direction) component of [point]: `x` for [Horizontal], `y` for
-     * [Vertical]. Used to read gesture deltas and drag distances along the turn direction without
-     * a caller needing its own axis-dependent branch.
+     * [point]의, 이 축의 주(turn 방향) 성분: [Horizontal]이면 `x`, [Vertical]이면 `y`.
+     * 호출자가 자신만의 축-의존 분기를 두지 않고도 turn 방향을 따라 제스처 델타와 드래그
+     * 거리를 읽는 데 쓰인다.
      *
-     * @param point The offset to read.
-     * @return The component of [point] along this axis's turn direction.
+     * @param point 읽을 offset.
+     * @return 이 축의 turn 방향을 따른 [point]의 성분.
      */
     fun primary(point: Offset): Float = when (this) {
         Horizontal -> point.x
@@ -2717,8 +2710,8 @@ internal enum class FoundationPagerAxis {
 }
 
 /**
- * Which end of the turn axis an effect (a reveal, a shadow, a fold) is anchored to or advancing
- * from: [Start] toward the previous page, [End] toward the next page.
+ * effect(reveal, shadow, fold)가 turn 축의 어느 끝에 고정되어 있거나 그로부터 전진하는지:
+ * [Start]는 이전 페이지 쪽, [End]는 다음 페이지 쪽.
  */
 internal enum class FoundationFluidSide {
     Start,
@@ -2726,16 +2719,16 @@ internal enum class FoundationFluidSide {
 }
 
 /**
- * A pager slot's identity independent of its raw Foundation pager index, paired with the
- * [FoundationFluidSide] it sits on for reveal/shadow/z-index purposes. [Current] is assigned
- * [FoundationFluidSide.End] rather than a neutral value because most of the per-side logic in this
- * file (`page.side == activeSide` checks) only needs to distinguish "the neighbour on the active
- * side" from "everything else," and [Current] never matches an [activeSide] comparison as the
- * subject of a reveal, only as the page underneath one.
+ * 원시 Foundation pager 인덱스와 무관한 pager 슬롯의 정체성으로, reveal/shadow/z-index
+ * 목적으로 그것이 놓이는 [FoundationFluidSide]와 짝지어진다. [Current]가 중립값이 아니라
+ * [FoundationFluidSide.End]로 지정된 이유는, 이 파일의 side별 로직 대부분
+ * (`page.side == activeSide` 검사)이 "활성 side의 이웃"과 "그 외 전부"만 구분하면 되고,
+ * [Current]는 reveal의 대상으로서 [activeSide] 비교와 결코 일치하지 않으며 그 아래 놓인
+ * 페이지로서만 일치하기 때문이다.
  *
- * @property pagerPage The raw Foundation pager index this slot corresponds to
+ * @property pagerPage 이 슬롯에 대응하는 원시 Foundation pager 인덱스
  *   ([FoundationPreviousPage]/[FoundationCenterPage]/[FoundationNextPage]).
- * @property side Which side this slot sits on for reveal/shadow/z-index comparisons.
+ * @property side reveal/shadow/z-index 비교를 위해 이 슬롯이 놓이는 side.
  */
 internal enum class FoundationPagerPage(
     val pagerPage: Int,
@@ -2746,15 +2739,15 @@ internal enum class FoundationPagerPage(
     Next(FoundationNextPage, FoundationFluidSide.End),
     ;
 
-    /** Holds the lookup back from a raw pager slot index, so the mapping lives with the type it produces. */
+    /** 원시 pager 슬롯 인덱스로부터의 역조회를 담아, 그 매핑이 자신이 만들어내는 타입과 함께 살아 있게 한다. */
     companion object {
         /**
-         * The [FoundationPagerPage] matching a raw Foundation pager slot index.
+         * 원시 Foundation pager 슬롯 인덱스에 대응하는 [FoundationPagerPage].
          *
-         * @param page A raw pager index, expected to be [FoundationPreviousPage],
-         *   [FoundationCenterPage], or [FoundationNextPage].
-         * @return The matching [FoundationPagerPage]; any index other than
-         *   [FoundationPreviousPage] or [FoundationNextPage] is treated as [Current].
+         * @param page 원시 pager 인덱스로, [FoundationPreviousPage],
+         *   [FoundationCenterPage], 또는 [FoundationNextPage] 중 하나로 예상된다.
+         * @return 대응하는 [FoundationPagerPage]; [FoundationPreviousPage]나
+         *   [FoundationNextPage]가 아닌 인덱스는 모두 [Current]로 취급된다.
          */
         fun fromPagerPage(page: Int): FoundationPagerPage = when (page) {
             FoundationPreviousPage -> Previous
@@ -2765,41 +2758,41 @@ internal enum class FoundationPagerPage(
 }
 
 /**
- * This pager's live scroll offset from [page], in whole pages plus fractional progress: `0` while
- * [page] is exactly settled at the top, positive while scrolling away from it toward a higher
- * index, negative toward a lower one. The building block every per-slot transform in this file
- * reads to know how mid-turn a given slot currently is.
+ * [page]로부터 이 pager의 실시간 스크롤 오프셋으로, 정수 페이지 수에 소수 progress를
+ * 더한 값이다: [page]에 정확히 안착해 있으면 `0`, 더 높은 인덱스 쪽으로 멀어지며 스크롤
+ * 중이면 양수, 더 낮은 인덱스 쪽이면 음수다. 이 파일의 슬롯별 transform 각각이 주어진
+ * 슬롯이 현재 turn 도중 얼마나 진행됐는지 알기 위해 읽는 기본 구성 요소다.
  *
- * @receiver The pager whose live scroll state is being read.
- * @param page The pager slot index to measure the offset from.
- * @return The signed offset from [page], in pages.
+ * @receiver 실시간 스크롤 상태를 읽을 대상 pager.
+ * @param page 오프셋을 측정할 기준 pager 슬롯 인덱스.
+ * @return [page]로부터의 부호 있는 오프셋, 페이지 단위.
  */
 @OptIn(ExperimentalFoundationApi::class)
 fun PagerState.foundationOffsetForPage(page: Int): Float =
     (currentPage - page) + currentPageOffsetFraction
 
 /**
- * How settled a turn toward [page] currently is, as a value that rises from `0` (untouched) to
- * `1` (exactly on [page]) regardless of which direction the offset runs — the sign-agnostic
- * counterpart to [foundationOffsetForPage] that most reveal/shadow math wants instead of the raw
- * signed offset.
+ * [page] 쪽으로의 turn이 현재 얼마나 안착했는지를, 오프셋이 어느 방향으로 진행되든
+ * `0`(손대지 않음)에서 `1`([page]에 정확히 도달)로 오르는 값으로 나타낸다 —
+ * reveal/shadow 계산 대부분이 원시 부호 있는 오프셋 대신 원하는, 부호를 신경 쓰지 않는
+ * [foundationOffsetForPage]의 대응물이다.
  *
- * @receiver The pager whose live scroll state is being read.
- * @param page The pager slot index to measure progress toward.
- * @return The turn's progress toward [page], in `[0, 1]`.
+ * @receiver 실시간 스크롤 상태를 읽을 대상 pager.
+ * @param page progress를 측정할 기준 pager 슬롯 인덱스.
+ * @return [page] 쪽으로의 turn progress, `[0, 1]` 범위.
  */
 @OptIn(ExperimentalFoundationApi::class)
 fun PagerState.foundationAdjacentProgress(page: Int): Float =
     (1f - abs(foundationOffsetForPage(page))).coerceIn(0f, 1f)
 
 /**
- * Linear interpolation from [start] to [stop], clamping [progress] into `[0, 1]` first so a
- * caller passing an out-of-range progress (e.g. overscroll) cannot overshoot past [stop].
+ * [start]에서 [stop]까지의 선형 보간으로, 범위를 벗어난 progress(예: overscroll)를 넘긴
+ * 호출자가 [stop]을 넘어 오버슈트할 수 없도록 [progress]를 먼저 `[0, 1]`로 고정한다.
  *
- * @param start The value at `progress == 0`.
- * @param stop The value at `progress == 1`.
- * @param progress The interpolation fraction; clamped into `[0, 1]` before use.
- * @return The interpolated value between [start] and [stop].
+ * @param start `progress == 0`일 때의 값.
+ * @param stop `progress == 1`일 때의 값.
+ * @param progress 보간 비율; 사용 전에 `[0, 1]`로 고정된다.
+ * @return [start]와 [stop] 사이의 보간된 값.
  */
 internal fun foundationPagerLerp(start: Float, stop: Float, progress: Float): Float {
     val fraction = progress.coerceIn(0f, 1f)
@@ -2807,17 +2800,17 @@ internal fun foundationPagerLerp(start: Float, stop: Float, progress: Float): Fl
 }
 
 /**
- * Where [touch] sits along the axis perpendicular to the turn direction, as a fraction of that
- * cross-axis extent — the coordinate the fluid edge's touch-tension term and the circle-reveal's
- * origin both anchor to, since a page turns along [axis] but the touch can land anywhere across
- * the other dimension.
+ * [touch]가 turn 방향에 수직인 축을 따라 어디에 있는지를, 그 cross-axis 크기에 대한
+ * 비율로 나타낸다 — fluid edge의 touch-tension 항과 circle-reveal의 원점이 둘 다
+ * 고정하는 좌표로, 페이지는 [axis]를 따라 넘어가지만 터치는 다른 차원 어디에든 놓일 수
+ * 있기 때문이다.
  *
- * @param axis Whether the turn runs along the horizontal or vertical axis; selects which of
- *   [touch]'s components is the cross-axis one.
- * @param size The slot's size, used to normalise the raw touch coordinate into a fraction.
- * @param touch The current touch point, or null when there is none.
- * @return The touch's cross-axis position, in `[0, 1]`; `0.5` (the center) when [touch] is null
- *   or the relevant [size] extent is zero.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지; [touch]의 성분 중 어느
+ *   것이 cross-axis 성분인지를 결정한다.
+ * @param size 원시 터치 좌표를 비율로 정규화하는 데 쓰이는 슬롯의 크기.
+ * @param touch 현재 터치 지점, 또는 없으면 null.
+ * @return 터치의 cross-axis 위치, `[0, 1]` 범위; [touch]가 null이거나 관련
+ *   [size] 크기가 0이면 `0.5`(가운데).
  */
 internal fun foundationTouchCrossAxis(
     axis: FoundationPagerAxis,
@@ -2838,17 +2831,18 @@ internal fun foundationTouchCrossAxis(
 }
 
 /**
- * Where [touch] sits along the turn axis itself, as a fraction of that extent — the
- * [foundationTouchCrossAxis] counterpart for the axis a page actually turns along, rather than the
- * one perpendicular to it. Currently has no call site in this file or its tests; none of the
- * shipped reveal/shadow styles need the touch's position along the turn direction, only across it.
+ * [touch]가 turn 축 자체를 따라 어디에 있는지를, 그 크기에 대한 비율로 나타낸다 — 그에
+ * 수직인 축이 아니라 페이지가 실제로 넘어가는 축에 대한 [foundationTouchCrossAxis]의
+ * 대응물이다. 현재 이 파일이나 그 테스트 어디에서도 호출되지 않는다; 출시된 어떤
+ * reveal/shadow style도 터치의 turn 방향을 가로지르는 위치만 필요로 할 뿐, 그 방향을
+ * 따른 위치는 필요로 하지 않는다.
  *
- * @param axis Whether the turn runs along the horizontal or vertical axis; selects which of
- *   [touch]'s components is the primary one.
- * @param size The slot's size, used to normalise the raw touch coordinate into a fraction.
- * @param touch The current touch point, or null when there is none.
- * @return The touch's primary-axis position, in `[0, 1]`, or null when [touch] is null or the
- *   relevant [size] extent is zero.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지; [touch]의 성분 중 어느
+ *   것이 주 성분인지를 결정한다.
+ * @param size 원시 터치 좌표를 비율로 정규화하는 데 쓰이는 슬롯의 크기.
+ * @param touch 현재 터치 지점, 또는 없으면 null.
+ * @return 터치의 주 축 위치, `[0, 1]` 범위, 또는 [touch]가 null이거나 관련 [size] 크기가
+ *   0이면 null.
  */
 internal fun foundationTouchPrimaryAxis(
     axis: FoundationPagerAxis,
@@ -2869,14 +2863,14 @@ internal fun foundationTouchPrimaryAxis(
 }
 
 /**
- * The growing circle's geometry for [PageAnimation.CIRCLE_REVEAL], as computed by
- * [foundationCircleRevealSpec].
+ * [foundationCircleRevealSpec]이 계산하는, [PageAnimation.CIRCLE_REVEAL]에서 커지는
+ * 원의 기하.
  *
- * @property origin The circle's fixed starting point, on the page's near edge at the touch's
- *   cross-axis position — where the reveal would sit at `progress == 0`.
- * @property center The circle's current center, which drifts from [origin] toward the page
- *   center as [progress] advances.
- * @property radius The circle's current radius, in pixels.
+ * @property origin 원의 고정된 시작점으로, 터치의 cross-axis 위치에서 페이지의 가까운
+ *   edge 위 — `progress == 0`일 때 reveal이 놓일 자리다.
+ * @property center 원의 현재 중심으로, [progress]가 진행됨에 따라 [origin]에서 페이지
+ *   중심 쪽으로 옮겨간다.
+ * @property radius 원의 현재 반지름, 픽셀 단위.
  */
 internal data class FoundationCircleRevealSpec(
     val origin: FoundationPagerPoint,
@@ -2885,13 +2879,14 @@ internal data class FoundationCircleRevealSpec(
 )
 
 /**
- * The shadow ring drawn just inside the growing circle's edge for [PageAnimation.CIRCLE_REVEAL],
- * as computed by [foundationCircleRevealShadowSpec].
+ * [foundationCircleRevealShadowSpec]이 계산하는, [PageAnimation.CIRCLE_REVEAL]에서 커지는
+ * 원의 edge 바로 안쪽에 그려지는 shadow ring.
  *
- * @property center The shadow ring's center, matching the reveal circle's own center.
- * @property radius The shadow ring's outer radius, matching the reveal circle's own radius.
- * @property innerRadius Where the shadow ring's gradient starts fading in from, inside [radius].
- * @property alpha The shadow ring's peak alpha at its outer edge.
+ * @property center shadow ring의 중심으로, reveal 원 자신의 중심과 같다.
+ * @property radius shadow ring의 바깥 반지름으로, reveal 원 자신의 반지름과 같다.
+ * @property innerRadius shadow ring의 그라디언트가 옅어지기 시작하는 지점으로, [radius]
+ *   안쪽.
+ * @property alpha shadow ring의 바깥쪽 edge에서의 최대 alpha.
  */
 internal data class FoundationCircleRevealShadowSpec(
     val center: FoundationPagerPoint,
@@ -2901,20 +2896,20 @@ internal data class FoundationCircleRevealShadowSpec(
 )
 
 /**
- * The growing circle's geometry for [PageAnimation.CIRCLE_REVEAL]: the circle starts at [origin],
- * a point on the page's leading edge at the touch's cross-axis position, and its center drifts
- * toward the page's own center as [progress] advances toward 1 — so the reveal both grows and
- * recentres, rather than growing from a fixed corner the way a plain radial wipe would.
+ * [PageAnimation.CIRCLE_REVEAL]에서 커지는 원의 기하: 원은 터치의 cross-axis 위치에서
+ * 페이지의 진행 방향 edge 위의 한 점인 [origin]에서 시작하며, [progress]가 1을 향해
+ * 진행됨에 따라 그 중심은 페이지 자신의 중심 쪽으로 옮겨간다 — 그래서 reveal은 평범한
+ * 방사형 wipe처럼 고정된 모서리에서 커지는 대신, 커지는 동시에 중심도 옮겨간다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis; selects which edge
- *   [origin] sits on.
- * @param side Which side (start/end) the reveal is advancing from; the other determinant, with
- *   [axis], of which edge [origin] sits on.
- * @param progress How far the turn has progressed, in `[0, 1]`; clamped into that range.
- * @param touchCrossAxis Where the touch sits along the page's cross axis, in `[0, 1]`; clamped
- *   into that range; positions [origin] along the edge.
- * @return The circle's origin, current center, and current radius.
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지; [origin]이 어느 edge에
+ *   놓이는지를 결정한다.
+ * @param side reveal이 어느 side(start/end)에서 전진하는지; [axis]와 함께 [origin]이
+ *   어느 edge에 놓이는지를 결정하는 또 다른 요인.
+ * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위; 이 범위로 고정된다.
+ * @param touchCrossAxis 터치가 페이지의 cross axis를 따라 어디에 있는지, `[0, 1]` 범위;
+ *   이 범위로 고정되며, [origin]을 edge를 따라 위치시킨다.
+ * @return 원의 origin, 현재 center, 현재 radius.
  */
 internal fun foundationCircleRevealSpec(
     size: FoundationPagerSize,
@@ -2947,17 +2942,17 @@ internal fun foundationCircleRevealSpec(
 }
 
 /**
- * The shadow ring for [PageAnimation.CIRCLE_REVEAL], derived from the same circle
- * [foundationCircleRevealSpec] computes: a ring [FoundationCircleRevealShadowWidth] pixels wide
- * just inside the circle's edge, with alpha following the same half-sine build/fade curve as the
- * other reveal shadows in this file.
+ * [PageAnimation.CIRCLE_REVEAL]의 shadow ring으로, [foundationCircleRevealSpec]이 계산하는
+ * 것과 같은 원에서 파생된다: 원의 edge 바로 안쪽에 있는, 너비
+ * [FoundationCircleRevealShadowWidth] 픽셀짜리 고리이며, alpha는 이 파일의 다른 reveal
+ * shadow들과 같은 half-sine build/fade 곡선을 따른다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the reveal is advancing from.
- * @param progress How far the turn has progressed, in `[0, 1]`.
- * @param touchCrossAxis Where the touch sits along the page's cross axis, in `[0, 1]`.
- * @return The shadow ring's center, radius, inner radius, and alpha.
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side reveal이 어느 side(start/end)에서 전진하는지.
+ * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param touchCrossAxis 터치가 페이지의 cross axis를 따라 어디에 있는지, `[0, 1]` 범위.
+ * @return shadow ring의 center, radius, inner radius, alpha.
  */
 internal fun foundationCircleRevealShadowSpec(
     size: FoundationPagerSize,
@@ -2983,16 +2978,17 @@ internal fun foundationCircleRevealShadowSpec(
 }
 
 /**
- * The clip path for [PageAnimation.CIRCLE_REVEAL], built from [foundationCircleRevealSpec]'s
- * circle — a thin wrapper that exists so [Modifier.foundationCircleRevealClip] can hand a plain
- * [Path] to `clipPath` without repeating the oval-construction boilerplate at its call site.
+ * [foundationCircleRevealSpec]의 원으로부터 만들어지는, [PageAnimation.CIRCLE_REVEAL]의
+ * 클리핑 경로 — [Modifier.foundationCircleRevealClip]이 호출 지점에서 타원 생성
+ * 보일러플레이트를 반복하지 않고 평범한 [Path]를 `clipPath`에 넘길 수 있도록 존재하는
+ * 얇은 래퍼다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the reveal is advancing from.
- * @param progress How far the turn has progressed, in `[0, 1]`.
- * @param touchCrossAxis Where the touch sits along the page's cross axis, in `[0, 1]`.
- * @return An oval [Path] matching the reveal circle's current geometry.
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side reveal이 어느 side(start/end)에서 전진하는지.
+ * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param touchCrossAxis 터치가 페이지의 cross axis를 따라 어디에 있는지, `[0, 1]` 범위.
+ * @return reveal 원의 현재 기하와 일치하는 타원형 [Path].
  */
 internal fun buildFoundationCircleRevealPath(
     size: FoundationPagerSize,
@@ -3014,21 +3010,22 @@ internal fun buildFoundationCircleRevealPath(
 }
 
 /**
- * Builds a fluid-edge reveal polygon from a fresh, throwaway [FoundationFluidEdge] driven straight
- * to [progress]/[touchCrossAxis] and settled with 8 ticks at the default frame unit, rather than
- * reading the pager's live, spring-animated edge. Meant for callers that want the fluid shape's
- * resting geometry for one set of inputs — such as a test asserting on the polygon at a known
- * progress — without wiring up a real gesture/animation loop; production drawing goes through the
- * sibling overload below that takes an already-live [FoundationFluidEdge] instead, using the
- * shared edge that [FoundationFluidEdge.tick] actually animates frame by frame.
+ * pager의 실시간, spring 애니메이션되는 edge를 읽는 대신, [progress]/[touchCrossAxis]로
+ * 곧장 구동되어 기본 프레임 단위로 8틱만큼 안착시킨, 새로 만들어 한 번 쓰고 버릴
+ * [FoundationFluidEdge]로부터 fluid-edge reveal polygon을 만든다. 실제 제스처/애니메이션
+ * 루프를 연결하지 않고도, 알려진 progress에서의 polygon을 검증하는 테스트처럼 한 세트의
+ * 입력에 대한 fluid 모양의 정지 상태 기하를 원하는 호출자를 위한 것이다; 실제 서비스용
+ * 그리기는 대신 이미 살아 있는 [FoundationFluidEdge]를 받는, 아래의 형제 오버로드를
+ * 거치며, [FoundationFluidEdge.tick]이 실제로 프레임마다 애니메이션하는 공유 edge를
+ * 사용한다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the fluid edge advances from.
- * @param progress How far the turn has progressed, in `[0, 1]`; the edge's resting target.
- * @param touchCrossAxis Where the touch sits along the page's cross axis, in `[0, 1]`.
- * @param pointCount How many points the throwaway edge is built with.
- * @return The polygon outline of the fluid edge once settled at [progress].
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @param progress turn이 얼마나 진행됐는지, `[0, 1]` 범위; edge가 쉬어야 할 목표값이다.
+ * @param touchCrossAxis 터치가 페이지의 cross axis를 따라 어디에 있는지, `[0, 1]` 범위.
+ * @param pointCount 한 번 쓰고 버릴 edge를 몇 개의 점으로 만들지.
+ * @return [progress]에 안착했을 때 fluid edge의 polygon 윤곽.
  */
 internal fun buildFoundationFluidPolygon(
     size: FoundationPagerSize,
@@ -3050,19 +3047,20 @@ internal fun buildFoundationFluidPolygon(
 }
 
 /**
- * Builds the fluid-edge reveal polygon from [edge]'s current, already-animated point positions:
- * the frame boundary on the far side (start or end, per [side]) closed off by the edge's own
- * points down its near side, in canonical horizontal-turn space swapped back to [axis]. This is
- * the overload production drawing actually uses — via [buildFoundationFluidPath] for the clip
- * shape and directly for the shadow polygons in [buildFoundationFluidShadowPolygon] — reading
- * whatever state [edge] is in right now rather than settling a fresh one.
+ * [edge]의 현재, 이미 애니메이션된 점 위치들로부터 fluid-edge reveal polygon을 만든다:
+ * ([side]에 따른) 먼 쪽 프레임 경계를, edge 자신의 점들이 가까운 쪽을 따라 내려오며
+ * 닫아내는 형태로, [axis]로 다시 맞바꿔진 canonical한 가로-turn 공간에서 만든다. 이것이
+ * 실제 서비스용 그리기가 쓰는 오버로드로 — 클리핑 모양을 위해서는
+ * [buildFoundationFluidPath]를 통해, shadow polygon을 위해서는
+ * [buildFoundationFluidShadowPolygon]에서 직접 — 새 edge를 안착시키는 대신 [edge]가 지금
+ * 어떤 상태에 있든 그것을 그대로 읽는다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the fluid edge advances from; the frame corners on the
- *   opposite side close off the polygon.
- * @param edge The fluid edge whose current point positions to trace.
- * @return The polygon outline of [edge]'s current shape.
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지; 반대쪽의 프레임 모서리가
+ *   polygon을 닫아낸다.
+ * @param edge 현재 점 위치를 따라 그릴 대상 fluid edge.
+ * @return [edge]의 현재 모양을 나타내는 polygon 윤곽.
  */
 internal fun buildFoundationFluidPolygon(
     size: FoundationPagerSize,
@@ -3095,16 +3093,15 @@ internal fun buildFoundationFluidPolygon(
 }
 
 /**
- * The clip path for [PageAnimation.FLUID_PAGER], built from [edge]'s current polygon — the thin
- * [Path]-producing wrapper [Modifier.foundationFluidClip]'s [Shape] calls on every
- * [Shape.createOutline], taking a Compose [Size] directly since that is what the outline callback
- * receives.
+ * [edge]의 현재 polygon으로부터 만들어지는, [PageAnimation.FLUID_PAGER]의 클리핑 경로 —
+ * [Modifier.foundationFluidClip]의 [Shape]가 [Shape.createOutline]마다 호출하는, [Path]를
+ * 만들어 내는 얇은 래퍼로, outline 콜백이 받는 그대로 Compose [Size]를 직접 받는다.
  *
- * @param size The slot's size, as given to a [Shape.createOutline] call.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the fluid edge advances from.
- * @param edge The fluid edge whose current point positions to trace.
- * @return A closed [Path] tracing [edge]'s current polygon.
+ * @param size [Shape.createOutline] 호출에 주어지는, 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @param edge 현재 점 위치를 따라 그릴 대상 fluid edge.
+ * @return [edge]의 현재 polygon을 따라 그리는, 닫힌 [Path].
  */
 private fun buildFoundationFluidPath(
     size: Size,
@@ -3119,18 +3116,18 @@ private fun buildFoundationFluidPath(
 ).toPath()
 
 /**
- * A band [width] pixels wide trailing behind the fluid edge's current shape, used as the outline
- * for [foundationFluidShadow]'s cast and contact shadows (called once per shadow with a different
- * [width] for each). Built by taking the edge's own points and a second copy of them offset by
- * [width] toward the edge's origin side, then joining the two point sets into one closed ring
- * rather than an open strip, so the result is a fillable polygon rather than just a curve.
+ * fluid edge의 현재 모양 뒤로 이어지는, 너비 [width] 픽셀짜리 띠로,
+ * [foundationFluidShadow]의 cast와 contact shadow(각각 다른 [width]로 shadow마다 한 번씩
+ * 호출됨)를 위한 윤곽으로 쓰인다. edge 자신의 점들과, 그것을 edge의 원점 쪽으로
+ * [width]만큼 옮긴 두 번째 사본을 취한 뒤, 열린 띠가 아니라 하나의 닫힌 고리로 두 점
+ * 집합을 이어 붙여서, 결과가 단순한 곡선이 아니라 채울 수 있는 polygon이 되게 한다.
  *
- * @param size The slot's size.
- * @param axis Whether the turn runs along the horizontal or vertical axis.
- * @param side Which side (start/end) the fluid edge advances from.
- * @param edge The fluid edge whose current point positions to trace.
- * @param width How wide the shadow band is, in pixels.
- * @return The closed polygon outline of the shadow band.
+ * @param size 슬롯의 크기.
+ * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @param edge 현재 점 위치를 따라 그릴 대상 fluid edge.
+ * @param width shadow 띠의 너비, 픽셀 단위.
+ * @return shadow 띠의 닫힌 polygon 윤곽.
  */
 internal fun buildFoundationFluidShadowPolygon(
     size: FoundationPagerSize,
@@ -3160,13 +3157,13 @@ internal fun buildFoundationFluidShadowPolygon(
 
 
 /**
- * Traces this list of points as a closed [Path]: a `moveTo` the first point, a `lineTo` every
- * point after it, then `close()` back to the start — the shared final step for every fluid-edge
- * polygon built in this file, whether it is already in real screen coordinates or still in
- * canonical horizontal-turn space.
+ * 이 점 리스트를 닫힌 [Path]로 그린다: 첫 점으로 `moveTo`한 뒤 그 다음 모든 점으로
+ * `lineTo`하고, 다시 시작점으로 `close()`한다 — 이미 실제 화면 좌표계에 있든 아직
+ * canonical한 가로-turn 공간에 있든, 이 파일에서 만들어지는 모든 fluid-edge polygon이
+ * 공유하는 마지막 단계다.
  *
- * @receiver The polygon's points, in the order they should be joined.
- * @return A closed [Path] tracing the receiver.
+ * @receiver 이어붙일 순서대로 나열된 polygon의 점들.
+ * @return receiver를 따라 그리는 닫힌 [Path].
  */
 private fun List<FoundationPagerPoint>.toPath(): Path = Path().apply {
     forEachIndexed { index, point ->
@@ -3180,188 +3177,191 @@ private fun List<FoundationPagerPoint>.toPath(): Path = Path().apply {
 }
 
 /**
- * [toPath] for a polygon still expressed in canonical horizontal-turn space, mapping every point
- * back to [axis]'s real orientation first. Currently has no call site in this file or its tests —
- * every polygon builder here maps its points back to [axis] itself before calling the no-argument
- * [toPath] directly, rather than deferring that mapping to this overload.
+ * 아직 canonical한 가로-turn 공간으로 표현된 polygon을 위한 [toPath]로, 모든 점을 먼저
+ * [axis]의 실제 방향으로 다시 매핑한다. 현재 이 파일이나 그 테스트 어디에서도 호출되지
+ * 않는다 — 여기 있는 모든 polygon 빌더는 그 매핑을 이 오버로드에 미루는 대신, 인자 없는
+ * [toPath]를 직접 호출하기 전에 스스로 점들을 [axis]로 다시 매핑한다.
  *
- * @receiver The polygon's points in canonical horizontal-turn space.
- * @param axis The axis to map the points back into before tracing.
- * @return A closed [Path] tracing the receiver in [axis]'s real orientation.
+ * @receiver canonical한 가로-turn 공간 안 polygon의 점들.
+ * @param axis 그리기 전에 점들을 다시 매핑할 대상 축.
+ * @return [axis]의 실제 방향으로 receiver를 그리는 닫힌 [Path].
  */
 private fun List<FoundationPagerPoint>.toPath(axis: FoundationPagerAxis): Path =
     map(axis::fromCanonical).toPath()
 
 /**
- * The [FoundationPagerPage.Previous] slot's raw Foundation pager index. This and the next three
- * constants are not "tuned" at all: each is fixed by something else in the system — here, the
- * pager's fixed 3-slot (previous/current/next) layout — so changing one without changing what it
- * is derived from would make it wrong rather than merely different.
+ * [FoundationPagerPage.Previous] 슬롯의 원시 Foundation pager 인덱스. 이 상수와 다음 세
+ * 상수는 전혀 "조정된" 값이 아니다: 각각은 시스템 안의 다른 무언가에 의해 — 여기서는
+ * pager의 고정된 3-슬롯(이전/현재/다음) 레이아웃에 의해 — 고정되어 있으므로, 그것이
+ * 파생된 근거를 바꾸지 않은 채 하나만 바꾸면 단순히 달라지는 것이 아니라 틀리게 된다.
  */
 private const val FoundationPreviousPage = 0
 
-/** The [FoundationPagerPage.Current] slot's raw Foundation pager index, and the slot the pager always settles back to between turns. */
+/** [FoundationPagerPage.Current] 슬롯의 원시 Foundation pager 인덱스로, pager가 turn 사이에 항상 다시 안착하는 슬롯이기도 하다. */
 private const val FoundationCenterPage = 1
 
-/** The [FoundationPagerPage.Next] slot's raw Foundation pager index — the pager's fixed 3-slot layout. */
+/** [FoundationPagerPage.Next] 슬롯의 원시 Foundation pager 인덱스 — pager의 고정된 3-슬롯 레이아웃. */
 private const val FoundationNextPage = 2
 
-/** The pager's fixed slot count (previous/current/next); always 3, never a function of [pageCount][FoundationEffectPager]. */
+/** pager의 고정된 슬롯 수(이전/현재/다음); 항상 3이며, [pageCount][FoundationEffectPager]의 함수가 아니다. */
 private const val FoundationPagerPageCount = 3
 
 /**
- * The tap zone boundary between the previous-page zone and the middle toggle-controls zone, as a
- * fraction of the pane's extent along the turn axis. Paired with [FoundationNextTapZoneRatio] to
- * form a symmetric 25/50/25 split — the two must sum to `1` so the previous- and next-page zones
- * are equal width with the toggle zone exactly between them; see `foundationPagerTapAction`.
+ * previous-page 영역과 가운데 toggle-controls 영역 사이의 탭 경계로, turn 축을 따른
+ * pane 크기에 대한 비율이다. [FoundationNextTapZoneRatio]와 짝지어져 대칭적인 25/50/25
+ * 분할을 이룬다 — previous/next-page 영역이 같은 너비를 가지고 그 정확히 사이에 toggle
+ * 영역이 놓이도록 둘의 합은 `1`이어야 한다; `foundationPagerTapAction` 참고.
  */
 private const val FoundationPreviousTapZoneRatio = 0.25f
 
 /**
- * The tap zone boundary between the middle toggle-controls zone and the next-page zone, as a
- * fraction of the pane's extent along the turn axis. Paired with [FoundationPreviousTapZoneRatio]
- * to form the same symmetric 25/50/25 split; see `foundationPagerTapAction`.
+ * 가운데 toggle-controls 영역과 next-page 영역 사이의 탭 경계로, turn 축을 따른 pane
+ * 크기에 대한 비율이다. [FoundationPreviousTapZoneRatio]와 짝지어져 같은 대칭적인
+ * 25/50/25 분할을 이룬다; `foundationPagerTapAction` 참고.
  */
 private const val FoundationNextTapZoneRatio = 0.75f
 
 /**
- * How long a settle animation (a programmatic move to a neighbour, or a released manual drag
- * committing to a turn) takes, in milliseconds. Unlike the constants above and below, this is a
- * genuine tuning choice — an animation duration picked for feel — not a derived or physics value.
+ * 안착 애니메이션(이웃으로의 프로그래밍적 이동, 또는 turn을 확정한 뒤 손을 뗀 수동
+ * 드래그)이 걸리는 시간, 밀리초 단위. 위아래의 상수들과 달리 이는 파생값이나 물리량이
+ * 아니라, 느낌을 위해 고른 애니메이션 지속 시간이라는 진짜 조정값이다.
  */
 private const val FoundationPagerSettleMillis = 220
 
 /**
- * The minimum movement along the turn axis, in pixels, before a manual drag commits to a
- * direction in [foundationGestureSide]. A tuning choice for how much slop to allow before
- * treating a drag as directional, not a derived value.
+ * [foundationGestureSide]에서 수동 드래그가 방향을 확정하기까지 turn 축을 따라 필요한
+ * 최소 이동량, 픽셀 단위. 드래그를 방향성 있는 것으로 취급하기까지 얼마나 여유를 둘지에
+ * 대한 조정값이지, 파생값이 아니다.
  */
 private const val FoundationGestureDirectionThresholdPx = 1f
 
 /**
- * How many points make up a [FoundationFluidEdge]'s chain by default. This and the next eight
- * constants are the fluid-edge spring physics: [FoundationFluidEdge.tick]'s KDoc documents them
- * together as one system — how they interact, their stability bound, and the two
- * similarly-named damping constants' different roles — since a change to any one of them shifts
- * what the others mean. The one-liners on each below only restate that constant's own role; see
- * [FoundationFluidEdge.tick] for the derivations and the numeric checks behind them. This one
- * interacts with [FoundationFluidTouchRadius]: point spacing is `1 / (pointCount - 1)`, which
- * determines how many points the touch radius actually covers.
+ * [FoundationFluidEdge]의 체인을 기본값으로 이루는 점의 개수. 이 상수와 다음 여덟 개의
+ * 상수는 fluid-edge spring 물리량이다: [FoundationFluidEdge.tick]의 KDoc이 이들을 —
+ * 서로 어떻게 상호작용하는지, 안정성 한계, 그리고 이름이 비슷한 두 감쇠 상수의 서로
+ * 다른 역할까지 — 하나의 시스템으로 함께 문서화하는데, 이 중 하나를 바꾸면 나머지가
+ * 의미하는 바가 달라지기 때문이다. 아래 각 상수의 한 줄짜리 설명은 그 상수 자신의
+ * 역할만 다시 밝힐 뿐이다; 그 파생 과정과 그 뒤의 수치 검증은 [FoundationFluidEdge.tick]을
+ * 참고한다. 이 값은 [FoundationFluidTouchRadius]와 상호작용한다: 점 사이 간격은
+ * `1 / (pointCount - 1)`이며, 이는 터치 반경이 실제로 몇 개의 점을 아우르는지를
+ * 결정한다.
  */
 private const val FoundationFluidPointCount = 25
 
-/** How far, as a fraction of the chain's cross-axis extent, the touch-tension term in [FoundationFluidEdge.tick] reaches before its influence falls to zero. */
+/** [FoundationFluidEdge.tick]의 touch-tension 항이, 체인의 cross-axis 크기에 대한 비율로, 영향력이 0으로 떨어지기 전까지 얼마나 멀리 미치는지. */
 private const val FoundationFluidTouchRadius = 0.24f
 
-/** The duration of one frame at 60 fps in milliseconds, derived from the frame rate rather than chosen — used to normalise [FoundationFluidEdge.tick]'s `frameUnits` to actual elapsed time. */
+/** 60 fps에서 프레임 하나의 지속 시간, 밀리초 단위로, 선택된 값이 아니라 프레임레이트로부터 파생된 값이다 — [FoundationFluidEdge.tick]의 `frameUnits`를 실제 경과 시간으로 정규화하는 데 쓰인다. */
 private const val FoundationFrameMillis = 1000f / 60f
 
-/** The weight of the restoring force pulling every [FoundationFluidEdge] point back toward `x = 0`; see [FoundationFluidEdge.tick]. */
+/** 모든 [FoundationFluidEdge] 점을 `x = 0` 쪽으로 다시 당기는 복원력의 가중치; [FoundationFluidEdge.tick] 참고. */
 private const val FoundationFluidEdgeTension = 0.01f
 
-/** The weight of the restoring force pulling every [FoundationFluidEdge] point toward `x = 1` once past [FoundationFluidCompleteThreshold]; equal to [FoundationFluidEdgeTension] by design, pulling the opposite way. */
+/** [FoundationFluidCompleteThreshold]를 넘은 뒤 모든 [FoundationFluidEdge] 점을 `x = 1` 쪽으로 당기는 복원력의 가중치; 설계상 [FoundationFluidEdgeTension]과 크기가 같고 반대 방향으로 당긴다. */
 private const val FoundationFluidFarEdgeTension = 0.01f
 
-/** The weight of the force pulling a [FoundationFluidEdge] point toward the touch's target progress, scaled by proximity to the touch within [FoundationFluidTouchRadius]; see [FoundationFluidEdge.tick]. */
+/** [FoundationFluidEdge] 점을 터치의 목표 progress 쪽으로 당기는 힘의 가중치로, [FoundationFluidTouchRadius] 안에서 터치와의 근접도에 따라 스케일된다; [FoundationFluidEdge.tick] 참고. */
 private const val FoundationFluidTouchTension = 0.10f
 
-/** The weight of the force pulling a [FoundationFluidEdge] point toward each neighbouring point; doubled for an interior point, which is central to [FoundationFluidEdge.tick]'s stability analysis. */
+/** [FoundationFluidEdge] 점을 각 이웃 점 쪽으로 당기는 힘의 가중치; 내부 점에서는 두 배가 되며, 이는 [FoundationFluidEdge.tick]의 안정성 분석에서 핵심적인 부분이다. */
 private const val FoundationFluidPointTension = 0.25f
 
-/** The per-frame velocity decay multiplier applied to a [FoundationFluidEdge] point while a touch is active; see [FoundationFluidEdge.tick] for its e-folding time and how it differs in kind from [FoundationFluidReleaseDamping]. */
+/** 터치가 활성인 동안 [FoundationFluidEdge] 점에 적용되는 프레임당 속도 감쇠 계수; 그 e-folding 시간과 [FoundationFluidReleaseDamping]과 근본적으로 어떻게 다른지는 [FoundationFluidEdge.tick] 참고. */
 private const val FoundationFluidDamping = 0.90f
 
-/** The per-frame fraction of remaining distance closed when a released [FoundationFluidEdge] interpolates back toward its target; numerically equal to [FoundationFluidCompleteThreshold] by coincidence only — see [FoundationFluidEdge.tick]. */
+/** 손을 뗀 [FoundationFluidEdge]가 목표 쪽으로 다시 보간될 때, 프레임당 좁혀지는 남은 거리의 비율; [FoundationFluidCompleteThreshold]와 수치가 같은 것은 순전히 우연이다 — [FoundationFluidEdge.tick] 참고. */
 private const val FoundationFluidReleaseDamping = 0.82f
 
-/** The turn progress past which [FoundationFluidEdge.tick] enables the far-edge tension; numerically equal to [FoundationFluidReleaseDamping] by coincidence only — the two gate unrelated behavior. */
+/** 이 값을 넘는 turn progress부터 [FoundationFluidEdge.tick]이 far-edge tension을 활성화한다; [FoundationFluidReleaseDamping]과 수치가 같은 것은 순전히 우연이며, 둘은 서로 무관한 동작을 관장한다. */
 private const val FoundationFluidCompleteThreshold = 0.82f
 
 /**
- * The `graphicsLayer` camera distance used by every 3D tilt/rotation in this file
- * ([FoundationWholePageFlipBox], [FoundationPageFlipHalfBox], [Modifier.foundationMovieCarouselLayer]):
- * a tuning choice keeping the perspective foreshortening at full rotation subtle rather than
- * fisheye-distorting the page, not a derived value.
+ * 이 파일의 모든 3D 기울임/회전([FoundationWholePageFlipBox], [FoundationPageFlipHalfBox],
+ * [Modifier.foundationMovieCarouselLayer])이 쓰는 `graphicsLayer` 카메라 거리: 완전히
+ * 회전했을 때 원근 단축이 페이지를 어안렌즈처럼 왜곡하는 대신 은은하게 유지되도록 하는
+ * 조정값이지, 파생값이 아니다.
  */
 private const val FoundationCameraDistance = 64f
 
 /**
- * The maximum tilt, in degrees, [Modifier.foundationMovieCarouselLayer]'s (currently inert, see
- * [FoundationMovieTranslationRatio]) rotation branch would apply to a fully receded
- * [PageAnimation.MOVIE_CAROUSEL] page. A tuning choice for how far that tilt would lean, not a
- * derived value.
+ * [Modifier.foundationMovieCarouselLayer]의 (현재는 작동하지 않는,
+ * [FoundationMovieTranslationRatio] 참고) 회전 분기가 완전히 멀어진
+ * [PageAnimation.MOVIE_CAROUSEL] 페이지에 적용할 최대 기울임 각도, degree 단위. 그
+ * 기울임이 얼마나 기울어질지에 대한 조정값이지, 파생값이 아니다.
  */
 private const val FoundationMovieRotationDegrees = 12f
 
 /**
- * The fraction of a page's own size [Modifier.foundationMovieCarouselLayer] would translate a
- * receding [PageAnimation.MOVIE_CAROUSEL] page by. Currently `0f`, which makes
- * `FoundationMovieCarouselSpec.translationFraction` always zero and disables that translation and
- * its paired rotation entirely — only the scale/alpha shrink is presently visible for this style.
+ * [Modifier.foundationMovieCarouselLayer]가 멀어지는 [PageAnimation.MOVIE_CAROUSEL]
+ * 페이지를 이동시킬, 페이지 자신의 크기에 대한 비율. 현재 `0f`이며, 이는
+ * `FoundationMovieCarouselSpec.translationFraction`을 항상 0으로 만들어 그 이동과 짝을
+ * 이루는 회전을 완전히 비활성화한다 — 이 style에서 현재 눈에 보이는 것은 scale/alpha
+ * 축소뿐이다.
  */
 private const val FoundationMovieTranslationRatio = 0f
 
-/** The minimum scale a fully receded [PageAnimation.MOVIE_CAROUSEL] page shrinks to, per `foundationMovieCarouselSpec`. A tuning choice for how much the carousel shrinks, not a derived value. */
+/** `foundationMovieCarouselSpec`에 따라, 완전히 멀어진 [PageAnimation.MOVIE_CAROUSEL] 페이지가 축소되는 최소 scale. carousel이 얼마나 축소될지에 대한 조정값이지, 파생값이 아니다. */
 private const val FoundationMovieMinScale = 0.9f
 
-/** The minimum alpha a fully receded [PageAnimation.MOVIE_CAROUSEL] page fades to, per `foundationMovieCarouselSpec`. A tuning choice for how much the carousel fades, not a derived value. */
+/** `foundationMovieCarouselSpec`에 따라, 완전히 멀어진 [PageAnimation.MOVIE_CAROUSEL] 페이지가 옅어지는 최소 alpha. carousel이 얼마나 옅어질지에 대한 조정값이지, 파생값이 아니다. */
 private const val FoundationMovieMinAlpha = 0.55f
 
 /**
- * A geometric half turn, in degrees: the rotation a [FoundationPageFlipLayout.SplitHalfFold] half
- * sweeps through end to end, per `foundationPageFlipHalfSpec`. Back with
- * [FoundationPreviousPage]'s group above — derived from the geometry of a flip, not tuned.
+ * 기하학적으로 반 바퀴, degree 단위: `foundationPageFlipHalfSpec`에 따라
+ * [FoundationPageFlipLayout.SplitHalfFold]의 절반이 처음부터 끝까지 훑는 회전각. 위쪽
+ * [FoundationPreviousPage] 그룹과 한 부류다 — flip의 기하로부터 파생된 값이지, 조정된
+ * 값이 아니다.
  */
 private const val FoundationPageFlipRotationDegrees = 180f
 
 /**
- * A geometric quarter turn, in degrees: the rotation a [FoundationPageFlipLayout.WholePage] sheet
- * sweeps through end to end, per `foundationWholePageFlipSpec`. Derived from the geometry of a
- * flip, not tuned.
+ * 기하학적으로 4분의 1 바퀴, degree 단위: `foundationWholePageFlipSpec`에 따라
+ * [FoundationPageFlipLayout.WholePage] 시트가 처음부터 끝까지 훑는 회전각. flip의
+ * 기하로부터 파생된 값이지, 조정된 값이 아니다.
  */
 private const val FoundationWholePageFlipRotationDegrees = 90f
 
 /**
- * The peak alpha of the fluid-reveal's cast shadow ([foundationFluidShadow]). This and the
- * remaining constants in this file are plain alphas or pixel widths for one of this file's
- * cast/contact/hinge shadows, chosen by eye for how the shadow reads and nothing more — there is
- * no formula, ratio, or physical derivation behind any of them the way there is for the
- * fluid-edge constants above.
+ * fluid-reveal의 cast shadow([foundationFluidShadow])의 최대 alpha. 이 상수와 이
+ * 파일의 나머지 상수들은 이 파일의 cast/contact/hinge shadow 중 하나를 위한 단순한
+ * alpha이거나 픽셀 너비로, 오직 shadow가 어떻게 보이는지만 보고 눈대중으로 고른
+ * 값이다 — 위쪽의 fluid-edge 상수들과 달리 그 뒤에 어떤 공식이나 비율이나 물리적
+ * 유도 과정도 없다.
  */
 private const val FoundationRevealShadowAlpha = 0.28f
 
-/** The width, in pixels, of the fluid-reveal's cast shadow ([foundationFluidShadow]); chosen by eye, no formula. */
+/** fluid-reveal의 cast shadow([foundationFluidShadow])의 너비, 픽셀 단위; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationRevealShadowWidth = 58f
 
-/** The width, in pixels, of the fluid-reveal's narrower contact shadow ([foundationFluidShadow]); chosen by eye, no formula. */
+/** fluid-reveal의 더 좁은 contact shadow([foundationFluidShadow])의 너비, 픽셀 단위; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationRevealContactShadowWidth = 3f
 
-/** The peak alpha of the circle-reveal's shadow ring (`foundationCircleRevealShadowSpec`); chosen by eye, no formula. */
+/** circle-reveal의 shadow ring(`foundationCircleRevealShadowSpec`)의 최대 alpha; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationCircleRevealShadowAlpha = 0.22f
 
-/** The width, in pixels, of the circle-reveal's shadow ring (`foundationCircleRevealShadowSpec`); chosen by eye, no formula. */
+/** circle-reveal의 shadow ring(`foundationCircleRevealShadowSpec`)의 너비, 픽셀 단위; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationCircleRevealShadowWidth = 30f
 
-/** The peak alpha of the movie-carousel's darkening overlay (`foundationMovieCarouselDimAlpha`); chosen by eye, no formula. */
+/** movie-carousel의 어둡게 하는 오버레이(`foundationMovieCarouselDimAlpha`)의 최대 alpha; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationMovieShadowAlpha = 0.16f
 
-/** The peak alpha of the movie-carousel's incoming-edge shadow ([Modifier.foundationMovieCarouselShadow]); chosen by eye, no formula. */
+/** movie-carousel의 incoming-edge shadow([Modifier.foundationMovieCarouselShadow])의 최대 alpha; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationMovieEdgeShadowAlpha = 0.28f
 
-/** The width, in pixels, of the movie-carousel's incoming-edge shadow ([Modifier.foundationMovieCarouselShadow]); chosen by eye, no formula. */
+/** movie-carousel의 incoming-edge shadow([Modifier.foundationMovieCarouselShadow])의 너비, 픽셀 단위; 눈대중으로 고른 값이며 공식은 없다. */
 private const val FoundationMovieShadowWidth = 54f
 
-/** StPageFlip's outer-shadow width relative to one leaf at full progress. */
+/** progress가 최대일 때, leaf 하나에 대한 StPageFlip의 outer-shadow 상대 너비. */
 private const val FoundationPageFlipOuterWidthRatio = 0.75f
 
-/** StPageFlip's inner-shadow width relative to its outer shadow. */
+/** StPageFlip의 inner-shadow가 outer shadow에 대해 갖는 상대 너비. */
 private const val FoundationPageFlipInnerWidthRatio = 0.75f
 
-/** Harism page-curl's maximum inner shadow alpha. */
+/** Harism page-curl의 최대 inner shadow alpha. */
 private const val FoundationPageFlipMaxShadowAlpha = 0.5f
 
-/** StPageFlip's faint inner-shadow stop between its two dark bands. */
+/** StPageFlip의 두 어두운 띠 사이에 있는, 옅은 inner-shadow 정지점. */
 private const val FoundationPageFlipInnerFaintAlpha = 0.05f
 
-/** Numerical tolerance around the normalized spread spine used for deterministic receiver selection. */
+/** 결정론적인 receiver 선택에 쓰이는, 정규화된 spread spine 주변의 수치 허용 오차. */
 private const val FoundationPageFlipSpineEpsilon = 0.0001f

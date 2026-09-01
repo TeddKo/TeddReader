@@ -67,29 +67,28 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * Pins [ReaderViewModel]'s behavior across its four-stage open pipeline, its progressive-import and
- * progressive-pagination continuations, its bounded mount-window warming, page navigation (relative
- * moves, outline/location jumps, and their page-turn side effects), and the favourite/saved-place
- * toggles.
+ * [ReaderViewModel]의 동작을 네 단계 open 파이프라인, progressive-import·progressive-pagination
+ * continuation, 범위가 제한된 mount-window 예열, 페이지 내비게이션(상대 이동, 아웃라인/위치 점프와
+ * 그 페이지 전환 부수 효과), 즐겨찾기/저장 위치 토글 전반에 걸쳐 고정한다.
  *
- * Every test drives the view model through [dispatcher], a [StandardTestDispatcher], so every
- * coroutine it launches is stepped deterministically through `advanceUntilIdle()` rather than racing
- * on a real scheduler. Most tests here exist because a specific bug shipped and was fixed; each
- * carries its own KDoc naming which regression it guards, and the ones marked with a "Pins ..."
- * opening line quote this project's own bug labels (F1(a), F1(b), F3, f33313b) verbatim. The fakes
- * below — [FakeDocumentRepository] above all — model not just the happy path but specific failure
- * and concurrency modes this view model has to survive: an emptied decoded-block cache, a nulled or
- * spuriously-"complete" pagination session, a missing document row, and a frozen background-warm
- * call used to catch a fill partway through instead of only ever observing it fully settled.
+ * 모든 테스트는 [dispatcher], 즉 [StandardTestDispatcher]를 통해 뷰 모델을 구동하므로, 뷰 모델이
+ * 실행하는 모든 코루틴은 실제 스케줄러에서 경쟁하는 대신 `advanceUntilIdle()`을 통해 결정론적으로
+ * 진행된다. 여기 있는 테스트 대부분은 특정 버그가 출시되었다가 고쳐졌기 때문에 존재한다. 각 테스트는
+ * 자신이 지키는 회귀가 무엇인지 이름 붙인 자체 KDoc을 가지며, "Pins ..."로 시작하는 것들은 이
+ * 프로젝트 자체의 버그 라벨(F1(a), F1(b), F3, f33313b)을 그대로 인용한다. 아래의 fake들 — 무엇보다
+ * [FakeDocumentRepository] — 은 정상 경로뿐 아니라 이 뷰 모델이 견뎌내야 하는 구체적인 실패와 동시성
+ * 모드를 모델링한다: 비워진 디코딩-블록 캐시, null이 되거나 거짓으로 "완료"라고 하는 pagination
+ * 세션, 사라진 문서 행, 그리고 fill이 완전히 정착한 상태만 관찰하는 대신 도중에 붙잡기 위해 얼려둔
+ * 백그라운드 warm 호출.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderViewModelTest {
-    /** The [StandardTestDispatcher] every test in this suite drives its view model's coroutines through. */
+    /** 이 스위트의 모든 테스트가 자신의 뷰 모델 코루틴을 구동하는 [StandardTestDispatcher]. */
     private val dispatcher = StandardTestDispatcher()
 
     /**
-     * Installs [dispatcher] as the main dispatcher before each test, so `viewModelScope.launch`
-     * resolves to it.
+     * 각 테스트 전에 [dispatcher]를 main dispatcher로 설치하여, `viewModelScope.launch`가 이것으로
+     * 해석되도록 한다.
      */
     @BeforeTest
     fun setUp() {
@@ -97,8 +96,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Restores the real main dispatcher after each test, so this suite leaves no dispatcher
-     * override behind.
+     * 각 테스트 후 실제 main dispatcher를 복원하여, 이 스위트가 dispatcher override를 남기지 않도록
+     * 한다.
      */
     @AfterTest
     fun tearDown() {
@@ -106,8 +105,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Baseline sanity check: opening a document publishes the first stored page's text and index,
-     * and records the open (document id and a positive timestamp) with [DocumentRepository].
+     * 기본 정상성 확인: 문서를 열면 저장된 첫 페이지의 텍스트와 인덱스가 발행되고, [DocumentRepository]에
+     * open(문서 id와 양수 timestamp)이 기록된다.
      */
     @Test
     fun openDocumentShowsStoredPageText() = runTest(dispatcher) {
@@ -133,7 +132,7 @@ class ReaderViewModelTest {
         assertTrue(documentRepository.lastOpenedAtEpochMillis > 0L)
     }
 
-    /** A failed or stalled same-document open must be restartable instead of staying terminally blank. */
+    /** 실패했거나 멈춘 같은 문서의 open은 영영 빈 화면으로 남는 대신 다시 시도할 수 있어야 한다. */
     @Test
     fun failedOpenCanRetryTheSameDocument() = runTest(dispatcher) {
         val documentId = DocumentId("doc-retry")
@@ -157,8 +156,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Baseline sanity check: [ReaderViewModel.moveToLocation] with a [ReaderLocation.TextOffset]
-     * lands on the page containing that offset.
+     * 기본 정상성 확인: [ReaderLocation.TextOffset]으로 호출한 [ReaderViewModel.moveToLocation]은 그
+     * offset을 포함하는 페이지에 도착한다.
      */
     @Test
     fun moveToLocationShowsMatchingPage() = runTest(dispatcher) {
@@ -186,16 +185,15 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Guards [ReaderViewModel.moveToLocation] against ever collapsing into a text-offset-only lookup
-     * for a visual document. A visual document's outline is built entirely out of
-     * [ReaderLocation.PdfPage] entries (see `ReaderViewModel.buildOutlineItems`), and every outline tap
-     * or jump-location effect in `ReaderScreen` reaches a page solely through this function — there is
-     * no other path. `PaginatedDocument.pageOf(location)` (via `absoluteOffsetOf`) answers null for a
-     * [ReaderLocation.PdfPage], so a body that resolved every location through it directly would
-     * silently turn a PDF/CBZ outline tap into a page-jump the UI still offers but can never actually
-     * take, breaking the reader invariant that an offered jump target must land somewhere real. Every
-     * other moveToLocation test in this suite drives it with a [ReaderLocation.TextOffset], so none of
-     * them would notice that regression.
+     * [ReaderViewModel.moveToLocation]이 visual 문서에 대해 text-offset 전용 조회로 붕괴하지 않도록
+     * 지킨다. visual 문서의 아웃라인은 전부 [ReaderLocation.PdfPage] 항목으로 구성되며(
+     * `ReaderViewModel.buildOutlineItems` 참고), `ReaderScreen`의 모든 아웃라인 탭이나 jump-location
+     * 효과는 오직 이 함수를 통해서만 페이지에 도달한다 — 다른 경로는 없다. `PaginatedDocument.pageOf(location)`
+     * (`absoluteOffsetOf`를 통해)은 [ReaderLocation.PdfPage]에 대해 null을 반환하므로, 모든 위치를
+     * 이를 통해 직접 해석하는 본문은 PDF/CBZ 아웃라인 탭을, UI는 여전히 제공하지만 실제로는 절대
+     * 취할 수 없는 페이지 점프로 조용히 바꿔버려, 제공된 점프 대상은 반드시 어딘가 실제로 도착해야
+     * 한다는 리더의 불변 조건을 깨뜨린다. 이 스위트의 다른 모든 moveToLocation 테스트는
+     * [ReaderLocation.TextOffset]으로 구동되므로, 그중 어느 것도 이 회귀를 알아채지 못했을 것이다.
      */
     @Test
     fun moveToLocationOnAVisualDocumentJumpsToThatPage() = runTest(dispatcher) {
@@ -218,10 +216,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins [ReaderViewModel.openDocument]'s synchronous reset: opening a second document while the
-     * first is still loading must immediately clear every field of the previous document's UI state
-     * — text, current page, slots, outline — rather than leave a stale frame from the document being
-     * left on screen until the new document's own load catches up.
+     * [ReaderViewModel.openDocument]의 동기적 초기화를 고정한다: 첫 번째 문서가 아직 로딩 중일 때 두
+     * 번째 문서를 열면, 새 문서 자체의 로드가 따라잡을 때까지 이전 문서의 낡은 프레임을 화면에 남겨두는
+     * 대신, 이전 문서의 UI 상태 — 텍스트, 현재 페이지, 슬롯, 아웃라인 — 의 모든 필드를 즉시 비워야 한다.
      */
     @Test
     fun openingAnotherDocumentImmediatelyClearsPreviousReaderContent() = runTest(dispatcher) {
@@ -286,30 +283,30 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the [currentDocumentId][ReaderViewModel] re-check `ReaderViewModel.loadOpenState` performs
-     * immediately after its `DocumentRepository.getPageWindows` call, right before writing
-     * `viewportSize`, `pageBreakerStyle`, and the view model's own `paginated` field. `Job.cancel()`
-     * cannot stop a database read already in flight (see [ReaderViewModel]'s own class doc), so
-     * `openDocument`'s synchronous cancel of the previous document's job does not retract document A's
-     * [FakeDocumentRepository.getPageWindows] call once it is already resolving — releasing it here
-     * through [FakeDocumentRepository.unfreezeGetPageWindows], after document B's own open has already
-     * completed, models exactly that late resolution. Without the re-check, A's resolving read
-     * silently overwrites the `paginated` field document B's open just finished publishing into, even
-     * though `publishFirstFrame`'s own, separate guard still refuses to publish A's frame over B's —
-     * which is exactly why the corruption stays invisible until something else reads the corrupted
-     * field, here a page turn via [ReaderViewModel.moveNext].
+     * `ReaderViewModel.loadOpenState`가 자신의 `DocumentRepository.getPageWindows` 호출 직후,
+     * `viewportSize`, `pageBreakerStyle`, 그리고 뷰 모델 자체의 `paginated` 필드를 쓰기 바로 전에
+     * 수행하는 [currentDocumentId][ReaderViewModel] 재확인을 고정한다. `Job.cancel()`은 이미 진행
+     * 중인 데이터베이스 읽기를 멈출 수 없으므로([ReaderViewModel] 자체의 클래스 문서 참고),
+     * `openDocument`가 이전 문서의 job을 동기적으로 취소해도 이미 처리 중인 문서 A의
+     * [FakeDocumentRepository.getPageWindows] 호출은 철회되지 않는다 — 문서 B 자체의 open이 이미
+     * 완료된 뒤 [FakeDocumentRepository.unfreezeGetPageWindows]로 여기서 그것을 풀어주는 것이 바로 그
+     * 늦은 처리를 모델링한다. 재확인이 없다면, A의 처리 중인 읽기는 문서 B의 open이 방금 발행을 마친
+     * `paginated` 필드를 조용히 덮어써버린다 — `publishFirstFrame` 자체의 별도 가드가 여전히 A의
+     * 프레임을 B의 것 위에 발행하는 것을 거부함에도 말이다. 바로 이 때문에 이 손상은 다른 무언가가
+     * 손상된 필드를 읽기 전까지 — 여기서는 [ReaderViewModel.moveNext]를 통한 페이지 넘김 — 보이지
+     * 않은 채로 남는다.
      *
-     * [FakeDocumentRepository.freezeGetPageWindowsAtCallIndex] parks call 0 — document A's own
-     * [FakeDocumentRepository.getPageWindows] call — on a raw [suspendCoroutine] rather than a
-     * [CompletableDeferred], because a `CompletableDeferred.await()` gate is itself a cancellable
-     * suspension point: parking document A's open on one would resume it with a
-     * [kotlinx.coroutines.CancellationException] the instant `openDocument(documentB.value)` cancels
-     * its job, so the guarded lines this test means to pin would never run at all, and the test would
-     * pass whether or not the guard exists — the mistake a first attempt at this test already made.
-     * Document B's own [FakeDocumentRepository.getPageWindows] call (call index 1, answered from
-     * [FakeDocumentRepository]'s own second-document support rather than the "unknown document" empty
-     * answer every other id gets) is not caught by the same freeze, so document B's open runs to
-     * completion underneath document A's still-parked one.
+     * [FakeDocumentRepository.freezeGetPageWindowsAtCallIndex]는 호출 0 — 문서 A 자체의
+     * [FakeDocumentRepository.getPageWindows] 호출 — 을 [CompletableDeferred] 대신 순수한
+     * [suspendCoroutine]에 대기시킨다. `CompletableDeferred.await()` 게이트 자체가 취소 가능한
+     * 중단 지점이기 때문이다: 문서 A의 open을 그런 게이트에 대기시키면 `openDocument(documentB.value)`가
+     * 자신의 job을 취소하는 순간 [kotlinx.coroutines.CancellationException]으로 재개되어, 이 테스트가
+     * 고정하려는 가드된 줄들이 아예 실행조차 되지 않으며, 가드가 있든 없든 테스트가 통과했을 것이다 —
+     * 이 테스트를 처음 시도했을 때 실제로 저지른 실수다. 문서 B 자체의
+     * [FakeDocumentRepository.getPageWindows] 호출(호출 인덱스 1, 다른 모든 id가 받는 "알 수 없는
+     * 문서" 빈 응답이 아니라 [FakeDocumentRepository] 자체의 두 번째 문서 지원에서 응답된다)은 같은
+     * freeze에 걸리지 않으므로, 문서 B의 open은 여전히 대기 중인 문서 A의 open 아래에서 끝까지
+     * 실행된다.
      */
     @Test
     fun openDocumentDoesNotLetAStaleGetPageWindowsReadOverwriteTheNewDocumentsPagination() = runTest(dispatcher) {
@@ -401,9 +398,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A text document's stored [ReaderLocation.TextOffset] progress must resolve to the right page
-     * once pagination actually runs against a real pane measurement, not just against
-     * [openDocument]'s own guessed default viewport.
+     * 텍스트 문서에 저장된 [ReaderLocation.TextOffset] 진행 상황은, [openDocument] 자체가 추정한
+     * 기본 viewport가 아니라 실제 pane 측정을 대상으로 pagination이 실제로 실행된 뒤에 올바른
+     * 페이지로 해석되어야 한다.
      */
     @Test
     fun openDocumentRestoresSavedOffsetAfterViewportPagination() = runTest(dispatcher) {
@@ -433,9 +430,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A PDF's stored [ReaderLocation.PdfPage] progress must resolve to the same page number on open
-     * — a visual document has no pagination pass to resume through, so this is resolved directly
-     * from the stored [PageIndex] rather than through [PaginatedDocument.pageOf].
+     * PDF에 저장된 [ReaderLocation.PdfPage] 진행 상황은 open 시 같은 페이지 번호로 해석되어야 한다
+     * — visual 문서는 다시 거쳐갈 pagination 과정이 없으므로, 이는 [PaginatedDocument.pageOf]가
+     * 아니라 저장된 [PageIndex]에서 직접 해석된다.
      */
     @Test
     fun openDocumentRestoresSavedPdfPage() = runTest(dispatcher) {
@@ -467,9 +464,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Opening a CBZ document starts [ReaderViewModel.openDocument]'s [DocumentFormat.CBZ] branch,
-     * which preloads visual page images around the current page through
-     * [DocumentRepository.getVisualPageImages].
+     * CBZ 문서를 열면 [ReaderViewModel.openDocument]의 [DocumentFormat.CBZ] 분기가 시작되며, 이는
+     * [DocumentRepository.getVisualPageImages]를 통해 현재 페이지 주변의 visual 페이지 이미지를
+     * 미리 로드한다.
      */
     @Test
     fun openComicDocumentLoadsItsVisualPage() = runTest(dispatcher) {
@@ -543,9 +540,9 @@ class ReaderViewModelTest {
 
 
     /**
-     * Opening an EPUB document publishes the current page's own blocks (already present on the
-     * stored [PageWindow]) and preloads its embedded images through
-     * [DocumentRepository.getEmbeddedImages], both reaching [ReaderUiState.currentPage].
+     * EPUB 문서를 열면 현재 페이지 자체의 블록(저장된 [PageWindow]에 이미 있는)이 발행되고
+     * [DocumentRepository.getEmbeddedImages]를 통해 내장 이미지가 미리 로드되며, 둘 다
+     * [ReaderUiState.currentPage]에 도달한다.
      */
     @Test
     fun openEpubDocumentLoadsCurrentPageBlocksAndEmbeddedImages() = runTest(dispatcher) {
@@ -639,9 +636,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Embedded-font resolution starts after the first frame but before the opened-at write finishes, so
-     * an indexed font set can settle the layout key while that unrelated database write is still parked.
-     * Import continuation remains behind the write to preserve completed-outline ordering.
+     * 내장 폰트 해석은 첫 프레임 이후, opened-at 쓰기가 끝나기 전에 시작되므로, 그 무관한 데이터베이스
+     * 쓰기가 여전히 대기 중인 동안에도 색인된 폰트 집합이 layout key를 정착시킬 수 있다. Import
+     * continuation은 완료된 아웃라인 순서를 지키기 위해 그 쓰기 뒤에 남아있는다.
      */
     @Test
     fun epubFontResolutionOverlapsMarkDocumentOpenedWrite() = runTest(dispatcher) {
@@ -826,9 +823,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * When an EPUB carries a package title and navigation, [ReaderUiState.documentTitle] and the
-     * outline (heading, item titles, levels, and each item's [ReaderLocation.EpubOffset]) come from
-     * that navigation via [readerOutlineItems], not from a per-section fallback.
+     * EPUB이 패키지 제목과 navigation을 가지고 있으면, [ReaderUiState.documentTitle]과 아웃라인
+     * (heading, 항목 제목, 레벨, 각 항목의 [ReaderLocation.EpubOffset])은 섹션별 폴백이 아니라
+     * [readerOutlineItems]를 거쳐 그 navigation에서 온다.
      */
     @Test
     fun epubDocumentUsesStoredTitleAndNavigationOutline() = runTest(dispatcher) {
@@ -878,13 +875,13 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the bug `ReaderViewModel.continueImportIfIncomplete`'s completion branch now fixes: EPUB
-     * navigation is only resolved into the stored document on the import batch that completes the
-     * book (`DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport`), so an outline published
-     * only once, at open time, from a not-yet-complete import stayed stuck at whatever it read then —
-     * empty or section-only — until the reader relaunched the app. Opening while the import is still
-     * running must not show the not-yet-resolved navigation, and finishing the import must republish
-     * the outline (heading included) from the freshly imported document without a relaunch.
+     * `ReaderViewModel.continueImportIfIncomplete`의 완료 분기가 지금 고치는 버그를 고정한다: EPUB
+     * navigation은 책을 완성하는 import 배치(`DocumentRepositoryImpl.importEpubPhase0`/
+     * `finishEpubImport`)에서만 저장된 문서로 해석되므로, 아직 완료되지 않은 import로부터 open 시점에
+     * 딱 한 번 발행된 아웃라인은 리더가 앱을 재실행할 때까지 그때 읽었던 그대로 — 비어 있거나
+     * section뿐이거나 — 멈춰 있었다. import가 아직 실행 중인 동안의 open은 아직 해석되지 않은
+     * navigation을 보여주어서는 안 되며, import를 마치면 재실행 없이 방금 import된 문서로부터
+     * 아웃라인(heading 포함)을 다시 발행해야 한다.
      */
     @Test
     fun epubOutlineFillsInFromNavigationOnceProgressiveImportCompletes() = runTest(dispatcher) {
@@ -962,25 +959,25 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the ordering `ReaderViewModel.openDocument` now guarantees between
-     * `ReaderViewModel.publishRest` and `ReaderViewModel.startContinuations`: [publishRest] — including
-     * its own suspending [DocumentRepository.markDocumentOpened] write — must run to completion before
-     * [startContinuations] ever starts `ReaderViewModel.continueImportIfIncomplete`, so that
-     * continuation's completion branch can never publish the resolved outline earlier than [publishRest]
-     * and have it overwritten by [publishRest]'s own, older open-time snapshot.
+     * `ReaderViewModel.openDocument`가 이제 `ReaderViewModel.publishRest`와
+     * `ReaderViewModel.startContinuations` 사이에 보장하는 순서를 고정한다: [publishRest] — 그 자체의
+     * 중단되는 [DocumentRepository.markDocumentOpened] 쓰기를 포함하여 — 는 [startContinuations]가
+     * `ReaderViewModel.continueImportIfIncomplete`를 시작하기 전에 완료까지 실행되어야 한다. 그래야
+     * 그 continuation의 완료 분기가 해석된 아웃라인을 [publishRest]보다 먼저 발행해서 [publishRest]
+     * 자체의 더 오래된 open 시점 스냅샷에 덮어써지는 일이 절대 없다.
      *
-     * [epubOutlineFillsInFromNavigationOnceProgressiveImportCompletes] above only ever exercises the
-     * case where [publishRest] has already finished before the import continuation's first batch lands,
-     * because it gates [FakeDocumentRepository.importNextSectionsGate] — the same gate `publishRest`'s
-     * own suspension is guaranteed to resolve ahead of in that test. This test instead gates
-     * [FakeDocumentRepository.markDocumentOpenedGate] and leaves the import ungated, which — since this
-     * suite drives every coroutine through the manually-stepped [dispatcher] — forces the completion
-     * branch to run and publish the resolved navigation to completion first, strictly before
-     * `markDocumentOpened` (and therefore [publishRest]'s own outline publish) is allowed to resume. If
-     * `openDocument` ever started continuations before calling [publishRest] again, [publishRest]'s
-     * resume here would overwrite the fresh heading/items with the empty navigation it captured at open
-     * time — reproducing the bug this fix branch exists for, deterministically, rather than depending on
-     * real I/O timing the way the original report did.
+     * 위의 [epubOutlineFillsInFromNavigationOnceProgressiveImportCompletes]는 오직
+     * [FakeDocumentRepository.importNextSectionsGate]를 게이트하기 때문에 — 그 테스트에서
+     * `publishRest` 자체의 중단이 그보다 먼저 해소되는 것이 보장되는 바로 그 게이트다 — [publishRest]가
+     * import continuation의 첫 배치가 도착하기 전에 이미 끝난 경우만을 다룬다. 이 테스트는 대신
+     * [FakeDocumentRepository.markDocumentOpenedGate]를 게이트하고 import는 게이트하지 않은 채로
+     * 두는데, 이 스위트가 모든 코루틴을 수동으로 진행되는 [dispatcher]를 통해 구동하기 때문에, 이는
+     * 완료 분기가 먼저 실행되어 해석된 navigation을 끝까지 발행하도록 강제한다 — `markDocumentOpened`
+     * (따라서 [publishRest] 자체의 아웃라인 발행)가 재개되도록 허용되기 엄격히 전에 말이다. 만약
+     * `openDocument`가 [publishRest]를 다시 호출하기 전에 continuation을 시작한 적이 있었다면, 여기서
+     * [publishRest]가 재개되며 새로운 heading/items를 open 시점에 캡처한 빈 navigation으로 덮어썼을
+     * 것이다 — 원래 보고가 그랬던 것처럼 실제 I/O 타이밍에 의존하는 대신, 이 수정 분기가 존재하는
+     * 이유인 버그를 결정론적으로 재현하는 것이다.
      */
     @Test
     fun openDocumentDoesNotLetPublishRestClobberAnImportCompletionOutlineRepublish() = runTest(dispatcher) {
@@ -1049,8 +1046,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The reader still avoids building a whole-book page list: only the mounted window is published
-     * through [ReaderUiState.pageSlots], while the current page's text is available immediately.
+     * 리더는 여전히 책 전체의 페이지 목록을 만들지 않는다: mount된 window만 [ReaderUiState.pageSlots]를
+     * 통해 발행되며, 현재 페이지의 텍스트는 즉시 사용 가능하다.
      */
     @Test
     fun openDocumentProvidesMountedPageSlotsAndCurrentPageText() = runTest(dispatcher) {
@@ -1069,9 +1066,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins [PaginatedDocument.chapterTitleAt]'s inheritance through [ReaderViewModel]: the chapter
-     * title stays pinned in the top bar for the whole chapter, not only its first page — moving from
-     * the chapter's first page to a later page of the same chapter must not lose the title.
+     * [ReaderViewModel]을 통한 [PaginatedDocument.chapterTitleAt]의 상속을 고정한다: 챕터 제목은
+     * 그 챕터의 첫 페이지뿐 아니라 챕터 전체에서 상단 바에 고정되어 있어야 한다 — 챕터의 첫 페이지에서
+     * 같은 챕터의 후속 페이지로 이동해도 제목을 잃어서는 안 된다.
      */
     @Test
     fun epubChapterTitlePersistsAcrossEveryPageOfTheSameChapter() = runTest(dispatcher) {
@@ -1128,7 +1125,7 @@ class ReaderViewModelTest {
         assertEquals("다음 페이지", viewModel.uiState.value.currentPage.text)
     }
 
-    /** A repository emission is the shared source of truth for an already-open reader. */
+    /** 저장소의 emission은 이미 열려 있는 리더에게 공유된 진실의 원천이다. */
     @Test
     fun repositorySettingsChangesReachAnAlreadyOpenReader() = runTest(dispatcher) {
         val documentId = DocumentId("doc-settings-flow")
@@ -1202,20 +1199,19 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the style-match guard inside `ReaderViewModel.reloadPages`
-     * (`pageBreakerStyle?.layoutKey() != style.layoutKey()`) in place by asserting, before the pane
-     * ever remeasures under the new font, that [updateFontSize][ReaderViewModel.updateFontSize] alone
-     * has not asked [DocumentRepository.getPageWindows] for a new layout. Without that guard,
-     * `updateStyle` would lay the book out for the new style using a page breaker still measured for
-     * the old one — mixing a stale measurement into a page the reader has not yet seen under its real
-     * font, the kind of styling/content mismatch this project's reader invariants call out by name.
-     * The original version of this test only asserted after the pane's second, matching report, which
-     * passes whether or not the guard exists; that assertion proves a reload eventually happens, never
-     * that the guard held it back until then. A later consolidation of this guard would slip through
-     * unnoticed without the assertion added here. A breaker measured for the old style cannot
-     * safely reload the new one (see `reloadPages`' own guard), so nothing has queried
-     * `getPageWindows` yet after only [ReaderViewModel.updateFontSize] runs — only once the pane
-     * remeasures under the new font and reports a matching breaker does the reload actually run.
+     * pane이 새 폰트로 다시 측정하기 전에 [updateFontSize][ReaderViewModel.updateFontSize] 하나만으로는
+     * [DocumentRepository.getPageWindows]에 새 레이아웃을 요청하지 않았음을 단언하여,
+     * `ReaderViewModel.reloadPages` 안의 스타일 일치 가드(`pageBreakerStyle?.layoutKey() != style.layoutKey()`)를
+     * 고정한다. 이 가드가 없으면 `updateStyle`은 여전히 이전 스타일로 측정된 page breaker를 사용해
+     * 새 스타일로 책을 레이아웃하게 되어 — 리더가 실제 폰트로는 아직 본 적 없는 페이지에 낡은 측정값이
+     * 섞여 들어간다. 이는 이 프로젝트의 리더 불변 조건이 이름으로 콕 집어 지적하는 종류의
+     * 스타일/콘텐츠 불일치다. 이 테스트의 원래 버전은 pane의 두 번째, 일치하는 보고 이후에만
+     * 단언했는데, 이는 가드가 있든 없든 통과한다 — 그 단언은 결국 reload가 일어난다는 것만 증명할 뿐,
+     * 가드가 그때까지 그것을 막았다는 것은 증명하지 못한다. 이 가드가 나중에 통합되었다면 여기 추가된
+     * 단언 없이는 눈에 띄지 않고 넘어갔을 것이다. 이전 스타일로 측정된 breaker는 새 스타일을 안전하게
+     * reload할 수 없으므로(`reloadPages` 자체의 가드 참고), [ReaderViewModel.updateFontSize]만 실행된
+     * 뒤에는 아직 아무것도 `getPageWindows`를 조회하지 않았다 — pane이 새 폰트로 다시 측정해서 일치하는
+     * breaker를 보고해야만 비로소 reload가 실제로 실행된다.
      */
     @Test
     fun changingTheFontSizeStillLaysTheBookOutAgain() = runTest(dispatcher) {
@@ -1246,28 +1242,26 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the fix for the stale-page-slice defect: a layout-affecting style change (here, a font
-     * family) publishes [ReaderUiState.style] instantly, but the pages held in [ReaderUiState.currentPage]
-     * were sliced for the *previous* style and stay that way until the pane recomposes, remeasures, and
-     * reports a breaker for the new key — the same asynchronous round-trip
-     * [changingTheFontSizeStillLaysTheBookOutAgain] pins from the `getPageWindows`-call-count side.
-     * [ReaderUiState.pageDrawStyle] is what the two page surfaces actually draw with, and this test pins
-     * it from the opposite side: type, not call count. The middle assertion —
-     * `documentRepository.pageWindowRequests` unchanged right after [ReaderViewModel.updateFontFamily] —
-     * is what makes the third assertion mean something even against a fake that does not really re-slice
-     * anything: it proves no new measurement has landed yet, so [ReaderUiState.pageDrawStyle] answering
-     * the *old* layout key at that exact moment is not a coincidence of a fake that ignores style, but
-     * the fix actually holding the draw type back. Once the pane reports again and a real reload lands,
-     * [ReaderUiState.pageDrawStyle] must agree with [ReaderUiState.style] again — the swap from old type
-     * to new type is atomic, with no published state in between the two.
+     * 낡은 페이지 조각(stale-page-slice) 결함에 대한 수정을 고정한다: 레이아웃에 영향을 주는 스타일
+     * 변경(여기서는 폰트 패밀리)은 [ReaderUiState.style]을 즉시 발행하지만, [ReaderUiState.currentPage]에
+     * 담긴 페이지들은 *이전* 스타일로 잘려 있었고, pane이 재구성·재측정하고 새 키에 대한 breaker를
+     * 보고할 때까지 그 상태 그대로 남는다 — [changingTheFontSizeStillLaysTheBookOutAgain]이
+     * `getPageWindows` 호출 횟수 쪽에서 고정하는 것과 같은 비동기 왕복이다. [ReaderUiState.pageDrawStyle]은
+     * 두 페이지 surface가 실제로 그릴 때 쓰는 값이며, 이 테스트는 반대쪽 — 호출 횟수가 아니라 type — 에서
+     * 그것을 고정한다. 중간 단언 — [ReaderViewModel.updateFontFamily] 직후 `documentRepository.pageWindowRequests`가
+     * 바뀌지 않았다는 것 — 은, 실제로는 아무것도 다시 자르지 않는 fake를 상대로도 세 번째 단언이 의미를
+     * 갖도록 만든다: 이는 아직 새 측정값이 도착하지 않았음을 증명하므로, 바로 그 순간
+     * [ReaderUiState.pageDrawStyle]이 *이전* layout key로 답하는 것은 스타일을 무시하는 fake의 우연이
+     * 아니라 수정이 실제로 그리는 type을 붙잡아 두고 있다는 뜻이다. pane이 다시 보고하고 실제 reload가
+     * 도착하면, [ReaderUiState.pageDrawStyle]은 다시 [ReaderUiState.style]과 일치해야 한다 — 이전
+     * type에서 새 type으로의 교체는 원자적이며, 그 둘 사이에 발행되는 중간 상태는 없다.
      *
-     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
-     * `get() = style` and re-run this suite. Only this test's third assertion may fail — the one
-     * comparing `before.style.layoutKey()` against `pageDrawStyle.layoutKey()`, which is the only
-     * assertion in this test that reads [ReaderUiState.pageDrawStyle] at all; the middle assertion
-     * reads `documentRepository.pageWindowRequests`, a `getPageWindows` call count untouched by that
-     * neutralisation. Every other test in this class, including
-     * [changingTheFontSizeStillLaysTheBookOutAgain], must still pass.
+     * 반증(AGENTS.md의 드릴): `ReaderUiState.pageDrawStyle`을 제자리에서 `get() = style`로 무력화하고
+     * 이 스위트를 다시 실행한다. 이 테스트의 세 번째 단언만 실패할 수 있다 — `before.style.layoutKey()`와
+     * `pageDrawStyle.layoutKey()`를 비교하는 단언으로, 이 테스트에서 [ReaderUiState.pageDrawStyle]을
+     * 읽는 유일한 단언이다. 중간 단언은 `documentRepository.pageWindowRequests`를 읽는데, 이는 그
+     * 무력화의 영향을 받지 않는 `getPageWindows` 호출 횟수다. [changingTheFontSizeStillLaysTheBookOutAgain]을
+     * 포함해 이 클래스의 다른 모든 테스트는 여전히 통과해야 한다.
      */
     @Test
     fun fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands() = runTest(dispatcher) {
@@ -1315,24 +1309,23 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the same stale-page-slice fix as
-     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands], for
-     * [ReaderViewModel.updateFontWeight] instead of a font-family change: a layout-affecting style
-     * change (here, weight) publishes [ReaderUiState.style] instantly, but the pages held in
-     * [ReaderUiState.currentPage] were sliced for the *previous* weight and stay that way until the pane
-     * recomposes, remeasures, and reports a breaker for the new key. [ReaderUiState.pageDrawStyle] is
-     * what the two page surfaces actually draw with, and this test pins it from the type side exactly
-     * the way the font-family version does. A non-default weight (600) is chosen deliberately — weight
-     * only moves [layoutKey] when it differs from `ReaderDefaultFontWeight` (see
-     * `ReaderModelsTest.nonDefaultFontWeightChangesLayoutKeyButDefaultWeightDoesNot`), so the middle
-     * assertion's `getPageWindows`-call-count check and the third assertion's `layoutKey()` comparison
-     * both need a real layout-key change to observe.
+     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands]와 같은
+     * 낡은 페이지 조각 수정을, 폰트 패밀리 변경 대신 [ReaderViewModel.updateFontWeight]에 대해
+     * 고정한다: 레이아웃에 영향을 주는 스타일 변경(여기서는 weight)은 [ReaderUiState.style]을 즉시
+     * 발행하지만, [ReaderUiState.currentPage]에 담긴 페이지들은 *이전* weight로 잘려 있었고, pane이
+     * 재구성·재측정하고 새 키에 대한 breaker를 보고할 때까지 그 상태 그대로 남는다.
+     * [ReaderUiState.pageDrawStyle]은 두 페이지 surface가 실제로 그릴 때 쓰는 값이며, 이 테스트는
+     * 폰트 패밀리 버전과 정확히 같은 방식으로 type 쪽에서 그것을 고정한다. 기본값이 아닌 weight(600)를
+     * 의도적으로 골랐다 — weight는 `ReaderDefaultFontWeight`와 다를 때만 [layoutKey]를 바꾸므로
+     * (`ReaderModelsTest.nonDefaultFontWeightChangesLayoutKeyButDefaultWeightDoesNot` 참고), 중간
+     * 단언의 `getPageWindows` 호출 횟수 확인과 세 번째 단언의 `layoutKey()` 비교 둘 다 관찰하려면
+     * 실제 layout-key 변경이 필요하다.
      *
-     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
-     * `get() = style` and re-run this suite. Only this test's third assertion may fail — the one
-     * comparing `before.style.layoutKey()` against `pageDrawStyle.layoutKey()` — while every other test
-     * in this class, including
-     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands], must still pass.
+     * 반증(AGENTS.md의 드릴): `ReaderUiState.pageDrawStyle`을 제자리에서 `get() = style`로 무력화하고
+     * 이 스위트를 다시 실행한다. 이 테스트의 세 번째 단언만 실패할 수 있다 — `before.style.layoutKey()`와
+     * `pageDrawStyle.layoutKey()`를 비교하는 단언이다 —
+     * [fontFamilyChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands]를 포함해 이
+     * 클래스의 다른 모든 테스트는 여전히 통과해야 한다.
      */
     @Test
     fun fontWeightChangeKeepsDrawingTheOldSlicesWithTheirOwnTypeUntilTheReloadLands() = runTest(dispatcher) {
@@ -1380,29 +1373,27 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A colour-only change (here, the theme) must never be caught by the same freeze that pins type
-     * during a layout-key change: [ReaderUiState.pageDrawStyle] only ever pins the four layout fields
-     * [layoutKey] reduces a style to, never [ReaderStyle.textColor] or the rest of a style's colour
-     * fields — those ride straight through from the live [ReaderUiState.style], with no pane report
-     * required, because colour can never move a page break. This is the regression guard for "a design
-     * that makes the whole style wait for pagination is a regression"; the no-repagination half of the
-     * same claim is already pinned by [changingOnlyTheThemeDoesNotLayTheBookOutAgain].
+     * 색상만 바뀌는 변경(여기서는 테마)은 layout-key 변경 동안 type을 고정하는 것과 같은 freeze에
+     * 절대 걸려서는 안 된다: [ReaderUiState.pageDrawStyle]은 [layoutKey]가 스타일을 환원하는 네 개의
+     * 레이아웃 필드만 고정할 뿐, [ReaderStyle.textColor]나 스타일의 나머지 색상 필드는 절대 고정하지
+     * 않는다 — 그것들은 pane 보고 없이 살아 있는 [ReaderUiState.style]에서 그대로 흘러 들어온다. 색상은
+     * 절대 페이지 나누기를 움직일 수 없기 때문이다. 이것은 "스타일 전체를 pagination을 기다리게 만드는
+     * 설계는 회귀다"에 대한 회귀 가드다. 같은 주장의 "재-pagination 없음" 절반은 이미
+     * [changingOnlyTheThemeDoesNotLayTheBookOutAgain]이 고정하고 있다.
      *
-     * The font family is changed first, *before* the theme, so the second assertion actually
-     * exercises the freeze: `updateThemeMode` alone touches no field [layoutKey] reduces a style to,
-     * so comparing `before.style.layoutKey()` against the live style's `layoutKey()` after only a
-     * theme change would pass whether or not [ReaderUiState.pageDrawStyle] pins anything — it would
-     * just restate that a theme change never moves `layoutKey()` in the first place. Stacking the
-     * font change first means the pinned style has to survive a *second*, unrelated publish (the
-     * theme) while still holding the type from before either change, which is what the freeze
-     * actually promises.
+     * 폰트 패밀리를 테마 *이전에* 먼저 바꾸므로, 두 번째 단언이 실제로 freeze를 시험한다:
+     * `updateThemeMode` 하나만으로는 [layoutKey]가 스타일을 환원하는 어떤 필드도 건드리지 않으므로,
+     * 테마 변경만 한 뒤 `before.style.layoutKey()`와 살아 있는 스타일의 `layoutKey()`를 비교하면
+     * [ReaderUiState.pageDrawStyle]이 무언가를 고정하든 말든 통과했을 것이다 — 그저 테마 변경은
+     * 애초에 `layoutKey()`를 절대 움직이지 않는다는 사실을 되풀이할 뿐이다. 폰트 변경을 먼저 쌓으면
+     * 고정된 스타일은 두 변경 이전의 type을 여전히 붙잡은 채로 *두 번째*, 무관한 발행(테마)을
+     * 견뎌내야 하는데, 이것이 바로 freeze가 실제로 약속하는 바다.
      *
-     * Falsification (the AGENTS.md drill): neutralise `ReaderUiState.pageDrawStyle` in place to
-     * `get() = style` and re-run this suite. This test's *second* assertion fails, because with the
-     * freeze gone `pageDrawStyle.layoutKey()` reports the live, font-changed key instead of the one
-     * pinned from before that change. The first assertion, on `textColor`, keeps passing either way —
-     * colour rides the live style whether or not the freeze exists, so it is not what this drill
-     * exercises.
+     * 반증(AGENTS.md의 드릴): `ReaderUiState.pageDrawStyle`을 제자리에서 `get() = style`로 무력화하고
+     * 이 스위트를 다시 실행한다. 이 테스트의 *두 번째* 단언이 실패한다 — freeze가 사라지면
+     * `pageDrawStyle.layoutKey()`는 그 변경 이전에 고정된 키 대신 살아 있는, 폰트가 바뀐 키를
+     * 보고하기 때문이다. `textColor`에 대한 첫 번째 단언은 어느 쪽이든 계속 통과한다 — 색상은 freeze가
+     * 있든 없든 살아 있는 스타일을 그대로 따르므로, 이 드릴이 시험하는 대상이 아니다.
      */
     @Test
     fun themeChangeReachesPageDrawStyleImmediatelyWithNoPaneReport() = runTest(dispatcher) {
@@ -1430,9 +1421,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A viewport resize that repaginates the document must keep the reader on the same reading
-     * offset, resolved into whatever new page now contains it — not on the same page *index*, which
-     * would land somewhere else entirely once the page count changes.
+     * 문서를 재-pagination하는 viewport 크기 변경은 리더를, 페이지 수가 바뀌면 완전히 다른 곳에
+     * 도착하게 될 같은 페이지 *인덱스*가 아니라, 지금 그것을 담고 있는 새 페이지로 해석된 같은
+     * 읽기 offset에 머무르게 해야 한다.
      */
     @Test
     fun repaginationKeepsCurrentReadingOffset() = runTest(dispatcher) {
@@ -1461,12 +1452,11 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins [ReaderViewModel.movePrevious]/[ReaderViewModel.moveNext]'s own contract: they resolve
-     * only the step against whatever pagination is live when they run, never a page index captured
-     * earlier, so a repagination that happens in between (here, a viewport resize that repaginates
-     * the document shorter, standing in for a font or line-height change) cannot misplace the
-     * target. A step that would overrun the newly-shorter document is dropped entirely rather than
-     * clamped onto the last page.
+     * [ReaderViewModel.movePrevious]/[ReaderViewModel.moveNext] 자체의 계약을 고정한다: 이들은 실행될
+     * 때 살아 있는 pagination을 기준으로 step만 해석할 뿐, 이전에 캡처된 페이지 인덱스는 절대 쓰지
+     * 않는다. 그래서 그 사이에 일어나는 재-pagination(여기서는 폰트나 줄 높이 변경을 대신하는, 문서를
+     * 더 짧게 재-pagination하는 viewport 크기 변경)이 대상을 잘못 놓을 수 없다. 새로 짧아진 문서를
+     * 넘어서는 step은 마지막 페이지로 clamp되는 대신 완전히 버려진다.
      */
     @Test
     fun relativeMovesResolveAgainstTheLivePaginationInsteadOfClampingToTheLastPage() = runTest(dispatcher) {
@@ -1560,8 +1550,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Baseline sanity check: [ReaderViewModel.toggleFavorite]'s happy path flips both the published
-     * flag and the stored document.
+     * 기본 정상성 확인: [ReaderViewModel.toggleFavorite]의 정상 경로는 발행된 플래그와 저장된 문서
+     * 둘 다를 뒤집는다.
      */
     @Test
     fun favoriteToggleUpdatesReaderAndDocument() = runTest(dispatcher) {
@@ -1579,9 +1569,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Baseline sanity check: [ReaderViewModel.toggleSavedPlace] saves the current page as a
-     * [Bookmark] with a null label and a [ReaderLocation.TextOffset] location on the first tap, and
-     * removes it again on the second.
+     * 기본 정상성 확인: [ReaderViewModel.toggleSavedPlace]는 첫 번째 탭에서 현재 페이지를 null
+     * label과 [ReaderLocation.TextOffset] location을 가진 [Bookmark]로 저장하고, 두 번째 탭에서
+     * 다시 제거한다.
      */
     @Test
     fun savedPlaceToggleUpdatesCurrentPageState() = runTest(dispatcher) {
@@ -1608,8 +1598,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins [AutoScrollConfig.clampSpeed]'s floor: [ReaderViewModel.updateAutoScrollSpeed] with a
-     * speed at or below zero publishes and persists the clamped minimum, not zero itself.
+     * [AutoScrollConfig.clampSpeed]의 하한을 고정한다: speed가 0이거나 그 이하일 때
+     * [ReaderViewModel.updateAutoScrollSpeed]는 0 자체가 아니라 clamp된 최솟값을 발행하고 저장한다.
      */
     @Test
     fun updateAutoScrollSpeedClampsToMinimum() = runTest(dispatcher) {
@@ -1628,9 +1618,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * `ReaderViewModel.publishFirstFrame` always publishes auto-scroll as disabled for a freshly
-     * opened session, even when the persisted [ReaderSettings.autoScrollConfig] has it enabled — a
-     * reader should never land on a moving page the instant a book opens.
+     * `ReaderViewModel.publishFirstFrame`은 저장된 [ReaderSettings.autoScrollConfig]가 활성화되어
+     * 있더라도, 방금 연 세션에 대해서는 항상 auto-scroll을 비활성 상태로 발행한다 — 독자는 책을 여는
+     * 순간 움직이는 페이지에 도착해서는 절대 안 된다.
      */
     @Test
     fun openDocumentDisablesAutoScrollForReaderSessionEvenWhenSavedSettingIsEnabled() = runTest(dispatcher) {
@@ -1649,8 +1639,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins [AutoScrollConfig.clampSpeed]'s ceiling: [ReaderViewModel.updateAutoScrollSpeed] with a
-     * speed above the maximum publishes and persists the clamped maximum, not the raw input.
+     * [AutoScrollConfig.clampSpeed]의 상한을 고정한다: 최대치를 넘는 speed로 호출한
+     * [ReaderViewModel.updateAutoScrollSpeed]는 원본 입력이 아니라 clamp된 최댓값을 발행하고 저장한다.
      */
     @Test
     fun updateAutoScrollSpeedClampsToMaximum() = runTest(dispatcher) {
@@ -1669,8 +1659,8 @@ class ReaderViewModelTest {
     }
 
     /**
-     * `ReaderViewModel.updateAutoScroll` hides the reader chrome the moment auto-scroll turns on —
-     * the chrome would otherwise sit on screen fighting for attention with a page moving on its own.
+     * `ReaderViewModel.updateAutoScroll`은 auto-scroll이 켜지는 순간 리더 chrome을 숨긴다 — 그렇지
+     * 않으면 chrome이 화면에 남아 스스로 움직이는 페이지와 주의를 놓고 다투게 된다.
      */
     @Test
     fun enablingAutoScrollHidesReaderControls() = runTest(dispatcher) {
@@ -1685,9 +1675,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * [ReaderViewModel.stopAutoScroll] disables the published flag immediately, synchronously, and
-     * only then persists the disabled state in the background — the UI must not wait on the write to
-     * stop showing auto-scroll as enabled.
+     * [ReaderViewModel.stopAutoScroll]은 발행된 플래그를 즉시 동기적으로 비활성화한 다음에야
+     * 백그라운드에서 비활성 상태를 저장한다 — UI는 auto-scroll을 활성 상태로 보여주기를 멈추기 위해
+     * 쓰기를 기다려서는 안 된다.
      */
     @Test
     fun stopAutoScrollDisablesUiImmediatelyAndPersistsDisabledState() = runTest(dispatcher) {
@@ -1708,10 +1698,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Regression guard for f33313b: [ReaderViewModel.openDocument] must paginate against the
-     * default guessed viewport (`DefaultViewportSize`) unconditionally. If it instead waited for a
-     * real pane measurement, a freshly imported book — no pages, so the pager mounts no slot, so
-     * nothing ever measures the pane — would never open.
+     * f33313b에 대한 회귀 가드: [ReaderViewModel.openDocument]는 무조건 기본 추정 viewport
+     * (`DefaultViewportSize`)를 대상으로 pagination해야 한다. 대신 실제 pane 측정을 기다렸다면,
+     * 방금 import된 책 — 페이지가 없으니 pager가 슬롯을 mount하지 않고, 그러니 아무것도 pane을 절대
+     * 측정하지 않는 — 은 절대 열리지 않았을 것이다.
      */
     @Test
     fun openDocumentPublishesNonEmptyPagesForAFreshlyImportedDocumentBeforeAnyViewportIsMeasured() = runTest(dispatcher) {
@@ -1727,10 +1717,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * [ReaderViewModel.updatePageBreaker] is the only trigger left that can launch a reload (a
-     * separate viewport-size callback that used to also trigger one is gone), so one real pane
-     * report settles into exactly one `getPageWindows` call, and a repeat of the same report — as
-     * if the pane's effect replayed mid-composition — is deduped, not doubled.
+     * reload를 시작할 수 있는 트리거로 이제 [ReaderViewModel.updatePageBreaker]만 남았다(예전에는
+     * 함께 트리거하던 별도의 viewport-size 콜백이 사라졌다). 그래서 실제 pane 보고 하나는 정확히
+     * `getPageWindows` 호출 하나로 정착하고, 같은 보고의 반복 — 마치 pane의 effect가 composition
+     * 도중 재생된 것처럼 — 은 두 번이 되는 대신 중복 제거된다.
      */
     @Test
     fun oneMeasuredViewportReportTriggersExactlyOneReload() = runTest(dispatcher) {
@@ -1754,10 +1744,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Step 6 regression guard: before this fix, [ReaderViewModel.openDocument] always paginated
-     * against a hardcoded guessed viewport, which almost never matched a stored layout's real one,
-     * so the first publish carried a wrong/estimated total corrected only once the pane measured
-     * for real. A resolved stored layout must reach the very first publish instead.
+     * Step 6 회귀 가드: 이 수정 전에는 [ReaderViewModel.openDocument]가 항상 하드코딩된 추정
+     * viewport를 대상으로 pagination했는데, 이는 저장된 레이아웃의 실제 값과 거의 일치하지 않아, 첫
+     * 발행이 pane이 실제로 측정한 뒤에야 고쳐지는 잘못되거나 추정된 total을 실어 날랐다. 해석된
+     * 저장된 레이아웃은 대신 바로 그 첫 발행에 도달해야 한다.
      */
     @Test
     fun openDocumentPublishesTheStoredTotalOnTheFirstPublishForAPreviouslyReadBook() = runTest(dispatcher) {
@@ -1783,10 +1773,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Once [ReaderViewModel.openDocument] has adopted a stored layout's viewport, the pane's first
-     * real report — the same physical screen, so the same sp size — must be recognised by
-     * [ReaderViewModel.updatePageBreaker]'s dedupe as already answered, not launch a reload that
-     * would only repeat what `getPageWindows` already cached the answer under.
+     * [ReaderViewModel.openDocument]가 저장된 레이아웃의 viewport를 채택하고 나면, pane의 첫 실제
+     * 보고 — 같은 물리 화면이므로 같은 sp 크기 — 는 [ReaderViewModel.updatePageBreaker]의 중복
+     * 제거에 의해 이미 답해진 것으로 인식되어야 하며, `getPageWindows`가 이미 캐시해 둔 답을 그저
+     * 반복할 reload를 시작해서는 안 된다.
      */
     @Test
     fun matchingMeasuredViewportAfterAdoptingAStoredLayoutDoesNotRepaginate() = runTest(dispatcher) {
@@ -1816,10 +1806,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Neither [PageTurnMode] nor [PageAnimation] is part of `ReaderLayoutKey` (see `ReaderModels.kt`):
-     * the text breaks in the same places no matter how pages turn or animate, so
-     * [ReaderViewModel.updatePageTurnMode] and [ReaderViewModel.updatePageAnimation] must never ask
-     * the repository to lay the book out again.
+     * [PageTurnMode]도 [PageAnimation]도 `ReaderLayoutKey`(`ReaderModels.kt` 참고)의 일부가 아니다:
+     * 페이지가 어떻게 넘어가거나 애니메이션되든 텍스트는 같은 지점에서 나뉘므로,
+     * [ReaderViewModel.updatePageTurnMode]와 [ReaderViewModel.updatePageAnimation]은 저장소에 책을
+     * 다시 레이아웃하라고 절대 요청해서는 안 된다.
      */
     @Test
     fun changingPageTurnModeOrPageAnimationProducesNoPaginationRequest() = runTest(dispatcher) {
@@ -1843,12 +1833,11 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the split between [ReaderViewModel]'s two publishes across
-     * [DocumentRepository.markDocumentOpened]: with that write gated open, the first frame — style,
-     * total, current page, its text — is already up, because [ReaderViewModel]'s first publish no
-     * longer waits for it. Once the gate is released and the second publish lands (observed here by
-     * `markDocumentOpened` completing), the page, its text, and the total that already reached the
-     * reader must not have moved.
+     * [DocumentRepository.markDocumentOpened]를 사이에 두고 [ReaderViewModel]의 두 발행이 나뉘어
+     * 있음을 고정한다: 그 쓰기가 게이트로 열려 있는 상태에서도, 첫 프레임 — 스타일, total, 현재 페이지,
+     * 그 텍스트 — 는 이미 올라와 있다. [ReaderViewModel]의 첫 발행이 더 이상 그것을 기다리지 않기
+     * 때문이다. 게이트가 풀리고 두 번째 발행이 도착하면(여기서는 `markDocumentOpened`가 완료됨으로써
+     * 관찰된다), 이미 리더에 도달한 페이지, 그 텍스트, total은 움직이지 않아야 한다.
      */
     @Test
     fun openDocumentShowsTheFirstPageBeforeMarkDocumentOpenedCompletesAndDoesNotMoveItAfterward() = runTest(dispatcher) {
@@ -1874,13 +1863,13 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The one externally observable assertion that splitting [ReaderViewModel.openDocument] into
-     * private stages does not reorder its two publishes relative to
-     * [DocumentRepository.markDocumentOpened]. Unlike the gate-based test above, which infers the
-     * ordering from state read after `advanceUntilIdle()`, this has the fake capture
-     * `uiState.value.isLoading` at the exact instant `markDocumentOpened` is called — so a stage split
-     * that moved that call ahead of the first publish would flip the captured value to true instead of
-     * merely changing timing this suite already tolerates.
+     * [ReaderViewModel.openDocument]를 private 단계들로 나누어도 그 두 발행이
+     * [DocumentRepository.markDocumentOpened]에 대해 상대적으로 순서가 바뀌지 않음을, 외부에서
+     * 관찰 가능한 형태로 유일하게 단언한다. `advanceUntilIdle()` 이후 읽은 상태로부터 순서를 추론하는
+     * 위의 게이트 기반 테스트와 달리, 이것은 `markDocumentOpened`가 호출되는 바로 그 순간 fake가
+     * `uiState.value.isLoading`을 캡처하게 한다 — 그래서 그 호출을 첫 발행보다 앞으로 옮기는 단계
+     * 분할이 있었다면, 이 스위트가 이미 허용하는 단순한 타이밍 변화가 아니라 캡처된 값을 true로
+     * 뒤집어버렸을 것이다.
      */
     @Test
     fun openMarksTheDocumentOpenedOnlyAfterTheFirstFrameIsPublished() = runTest(dispatcher) {
@@ -1901,14 +1890,14 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins `ReaderViewModel.publishRest`'s own re-check: with [DocumentRepository.markDocumentOpened]
-     * gated open, the pane's reload runs on its own coroutine (see [ReaderViewModel.updatePageBreaker])
-     * and is not waiting on that gate — it measures a viewport the initial guess could not have
-     * predicted and repaginates before the gate is released. (The reload must actually have produced
-     * a different pagination from `openDocument`'s guess against `DefaultViewportSize`, or this test
-     * would not be exercising the race at all.) Once the gate releases and the second publish
-     * (outline, favourite, saved-place flags) lands, it must not put the pre-reload, estimated
-     * pagination back over the reload's own result.
+     * `ReaderViewModel.publishRest` 자체의 재확인을 고정한다: [DocumentRepository.markDocumentOpened]가
+     * 게이트로 열려 있는 동안에도, pane의 reload는 자신만의 코루틴에서 실행되어(
+     * [ReaderViewModel.updatePageBreaker] 참고) 그 게이트를 기다리지 않는다 — 초기 추정이 예측할 수
+     * 없었던 viewport를 측정하고, 게이트가 풀리기 전에 재-pagination한다.(이 reload가 실제로
+     * `openDocument`의 `DefaultViewportSize` 추정과 다른 pagination을 만들어내지 않았다면, 이 테스트는
+     * 애초에 이 경합을 시험하는 것이 아니다.) 게이트가 풀리고 두 번째 발행(아웃라인, 즐겨찾기, 저장
+     * 위치 플래그)이 도착하면, 그것은 reload 자체의 결과 위에 reload 이전의 추정된 pagination을 다시
+     * 얹어서는 안 된다.
      */
     @Test
     fun secondPublishDoesNotClobberARepaginationThatLandsWhileMarkDocumentOpenedIsPending() = runTest(dispatcher) {
@@ -1942,12 +1931,12 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The reader must never see `pageIndex.total == 0` once phase 0/1 of a progressive EPUB import
-     * has committed even one section — total only reaches zero for a document nothing knows
-     * anything about yet, not a partially-imported one. `importNextSectionsGate` is gated so the
-     * background continuation's first `importNextSections` call parks instead of resolving
-     * instantly — otherwise `advanceUntilIdle()` drains it in the same pass as the first publish and
-     * there is no "still incomplete" moment left to observe.
+     * progressive EPUB import의 phase 0/1이 section을 단 하나라도 커밋하고 나면, 리더는
+     * `pageIndex.total == 0`을 절대 봐서는 안 된다 — total은 아직 아무것도 알려진 바 없는 문서에
+     * 대해서만 0에 이르러야지, 부분적으로 import된 문서에 대해서는 그래서는 안 된다.
+     * `importNextSectionsGate`는, 백그라운드 continuation의 첫 `importNextSections` 호출이 즉시
+     * 해소되는 대신 대기하도록 게이트되어 있다 — 그렇지 않으면 `advanceUntilIdle()`이 첫 발행과 같은
+     * 패스에서 그것을 소진해버려, 관찰할 "아직 미완료" 순간이 남지 않는다.
      */
     @Test
     fun openDocumentNeverPublishesZeroTotalPagesForAnIncompleteImport() = runTest(dispatcher) {
@@ -1984,10 +1973,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Baseline sanity check for `ReaderViewModel.continueImportIfIncomplete`: an incomplete import
-     * must start its background continuation (at least one `importNextSections` call), and once
-     * that continuation reports done, the reader must publish its completion-only reload and report
-     * pagination complete when nothing else is left to measure.
+     * `ReaderViewModel.continueImportIfIncomplete`에 대한 기본 정상성 확인: 미완료 import는 자신의
+     * 백그라운드 continuation을 시작해야 하며(적어도 한 번의 `importNextSections` 호출), 그
+     * continuation이 완료를 보고하면, 더 이상 측정할 것이 남지 않았을 때 리더는 완료 전용 reload를
+     * 발행하고 pagination 완료를 보고해야 한다.
      */
     @Test
     fun openDocumentStartsBackgroundImportContinuationAndMarksCompleteWhenDone() = runTest(dispatcher) {
@@ -2021,17 +2010,17 @@ class ReaderViewModelTest {
     }
 
     /**
-     * openDocument's own getPageWindows call passes viewportSize=null whenever no pane has reported a
-     * size yet (see its own doc: "Passing null lets getPageWindows resolve the newest layout ever stored
-     * for this exact style"), so a restored layout's page count is exactly what totalPages reflects for
-     * that very first frame — pageWindows.isNotEmpty() always wins in the totalPages calculation, ruling
-     * out metadata.pageCount or progress.pageIndex.total as the source once any page list comes back.
-     * But updatePageBreaker's own report, moments later, is only deduplicated against an *exact* size
-     * match (see that function's own doc) — a real device's pane can report a viewport that differs from
-     * whatever was resolved above by no more than rounding, and that alone is enough to start a second,
-     * full getPageWindows call whose result silently replaces the first. The total the reader ends up
-     * seeing is therefore whichever getPageWindows call happens to run last, not necessarily the one
-     * that restored the stored layout.
+     * openDocument 자체의 getPageWindows 호출은, 아직 어떤 pane도 크기를 보고하지 않은 동안에는
+     * viewportSize=null을 넘긴다(자체 문서 참고: "null을 넘기면 getPageWindows가 정확히 이 스타일에
+     * 대해 저장된 가장 최신 레이아웃을 해석하게 한다"). 그래서 복원된 레이아웃의 페이지 수는 바로 그
+     * 첫 프레임에 대해 totalPages가 반영하는 값과 정확히 일치한다 — pageWindows.isNotEmpty()는
+     * totalPages 계산에서 항상 우선하므로, 어떤 페이지 목록이든 돌아오는 순간 metadata.pageCount나
+     * progress.pageIndex.total은 출처에서 제외된다. 하지만 잠시 뒤 도착하는 updatePageBreaker 자체의
+     * 보고는 오직 *정확한* 크기 일치에 대해서만 중복 제거된다(그 함수 자체의 문서 참고) — 실제
+     * 기기의 pane은 위에서 해석된 값과 반올림 이상으로는 다르지 않은 viewport를 보고할 수 있는데,
+     * 그것만으로도 첫 결과를 조용히 대체할 두 번째, 완전한 getPageWindows 호출을 시작하기에 충분하다.
+     * 그래서 리더가 결국 보게 되는 total은, 저장된 레이아웃을 복원한 호출이 아니라 우연히 마지막으로
+     * 실행되는 getPageWindows 호출이 무엇이냐에 달려 있다.
      */
     @Test
     fun aLaterViewportReportRepublishesTotalPagesOverTheInitiallyRestoredCount() = runTest(dispatcher) {
@@ -2061,9 +2050,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A page turn into a section outside the current mount window must still show styled blocks because
-     * [ReaderViewModel.moveToPage] warms its target before publishing. The pane-report reload is frozen
-     * at warm call 1 after open's call 0, leaving only the move's own later warm able to prepare page 7.
+     * 현재 mount window 밖의 section으로 넘어가는 페이지 전환도 스타일이 입혀진 블록을 보여줘야
+     * 한다 — [ReaderViewModel.moveToPage]가 발행 전에 대상을 예열하기 때문이다. pane-report reload는
+     * open의 호출 0 다음, warm 호출 1에서 얼려두어, move 자체의 나중 warm만이 페이지 7을 준비할 수
+     * 있게 남겨둔다.
      */
     @Test
     fun pageTurnToNeverWarmedSectionPublishesNonEmptyBlocks() = runTest(dispatcher) {
@@ -2188,22 +2178,20 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The settled-state half of the import/render regression: even though intermediate
-     * [DocumentRepository.importNextSections] batches now keep the active prefix cache alive, the
-     * completion path still rebuilds the final snapshot and reloads from it, so the page already on
-     * screen must still come back with its blocks intact after that reload. The remedy is not a fill
-     * restarted after the fact: reloadPages itself now warms the mount window it is about to publish
-     * from (see that function's own doc), so this test pins the settled state — the page already on
-     * screen must show its blocks once the completion reload has run, not sit unstyled until the
-     * reader closes and reopens the book. It says nothing about what happens in between one publish
-     * and the next — see [importCompletionReloadNeverPublishesThePageWithoutItsBlocks] for that.
-     * `importNextSectionsGate` is gated the same way
-     * `openDocumentNeverPublishesZeroTotalPagesForAnIncompleteImport` parks the background
-     * continuation, so the sanity check right after open observes the state strictly before the
-     * completion reload, not whatever `advanceUntilIdle()` happens to settle both into. The assertion
-     * right after that open is only a sanity check that `lazySectionBlocks` is wired correctly —
-     * `openDocument`'s own mount-window warm has already reached the only page there is at that point
-     * — not the regression this test targets.
+     * import/렌더링 회귀 중 정착 상태 쪽 절반: 이제 중간 [DocumentRepository.importNextSections]
+     * 배치들이 활성 prefix 캐시를 살려 두더라도, 완료 경로는 여전히 최종 스냅샷을 재구성하고 그로부터
+     * reload하므로, 이미 화면에 있는 페이지는 그 reload 이후에도 여전히 블록이 그대로인 채 돌아와야
+     * 한다. 해결책은 사후에 다시 시작하는 fill이 아니다: reloadPages 자체가 이제 발행하려는 mount
+     * window를 미리 예열한다(그 함수 자체의 문서 참고). 그래서 이 테스트는 정착 상태를 고정한다 —
+     * 이미 화면에 있는 페이지는, 리더가 책을 닫았다 다시 열 때까지 스타일 없이 남는 대신, 완료 reload가
+     * 실행되고 나면 그 블록을 보여줘야 한다. 발행 하나와 다음 발행 사이에 무슨 일이 일어나는지는
+     * 다루지 않는다 — 그것은 [importCompletionReloadNeverPublishesThePageWithoutItsBlocks]를 참고.
+     * `importNextSectionsGate`는 `openDocumentNeverPublishesZeroTotalPagesForAnIncompleteImport`가
+     * 백그라운드 continuation을 대기시키는 것과 같은 방식으로 게이트되어 있어서, open 직후의 정상성
+     * 확인은 `advanceUntilIdle()`이 둘 다를 우연히 정착시킨 상태가 아니라, 완료 reload 이전의 상태를
+     * 엄격하게 관찰한다. 그 open 직후의 단언은 그저 `lazySectionBlocks`가 올바르게 배선되어 있다는
+     * 정상성 확인일 뿐이다 — 그 시점에 있는 유일한 페이지에는 `openDocument` 자체의 mount-window
+     * warm이 이미 도달해 있다 — 이 테스트가 겨냥하는 회귀가 아니다.
      */
     @Test
     fun importCompletionReloadKeepsBlocksForPageAlreadyOnScreen() = runTest(dispatcher) {
@@ -2263,15 +2251,14 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The defect this whole fix is for is transient, not a settled-state failure: the import
-     * completion reload can rebuild from a fresh final snapshot whose needed section blocks are not
-     * decoded yet, and without the warm-before-publish guard that reload would emit the page already
-     * on screen with an empty blocks list before a later publish corrected it. The settled-state
-     * assertion above cannot see that — it only reads uiState.value after advanceUntilIdle() drained
-     * everything. This test collects every intermediate emission with an
-     * UnconfinedTestDispatcher collector (uiState is a conflating StateFlow, so only an eager
-     * collector observes each one) and asserts that not one of them ever shows the page currently on
-     * screen with an empty blocks list.
+     * 이 수정 전체가 대상으로 삼는 결함은 정착 상태 실패가 아니라 일시적인 것이다: import 완료
+     * reload는 필요한 section 블록이 아직 디코딩되지 않은 신선한 최종 스냅샷으로부터 재구성될 수
+     * 있으며, warm-before-publish 가드가 없다면 그 reload는 나중 발행이 이를 바로잡기 전에 이미
+     * 화면에 있는 페이지를 빈 블록 목록으로 내보냈을 것이다. 위의 정착 상태 단언은 그것을 볼 수 없다
+     * — advanceUntilIdle()이 모든 것을 소진한 뒤의 uiState.value만 읽기 때문이다. 이 테스트는
+     * UnconfinedTestDispatcher 수집기로(uiState는 합쳐지는(conflating) StateFlow이므로, eager한
+     * 수집기만이 각각을 관찰한다) 모든 중간 emission을 모아, 그중 어느 것도 현재 화면에 있는 페이지를
+     * 빈 블록 목록으로 보여준 적이 없음을 단언한다.
      */
     @Test
     fun importCompletionReloadNeverPublishesThePageWithoutItsBlocks() = runTest(dispatcher) {
@@ -2333,9 +2320,9 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A page whose section became known during progressive import must show that section's title after
-     * [ReaderViewModel.reloadPages] re-reads the grown section list, not a title inherited from the
-     * open-time prefix.
+     * progressive import 도중 알려지게 된 section에 속하는 페이지는, [ReaderViewModel.reloadPages]가
+     * 커진 section 목록을 다시 읽고 난 뒤, open 시점의 prefix로부터 물려받은 제목이 아니라 그
+     * section 자체의 제목을 보여줘야 한다.
      */
     @Test
     fun chapterTitleForASectionDiscoveredDuringImportIsNotTheOpenTimeSectionsTitle() = runTest(dispatcher) {
@@ -2391,11 +2378,11 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins F3: DocumentRepositoryImpl.invalidateDocumentCache nulls the pagination session an
-     * import batch's own continuation was mid-walk through, so continuePagination answers
-     * isComplete=true with sectionsMeasured=0 — a "the walk has nothing left to say" signal, not
-     * "the book is done." continuePaginationIfIncomplete must not publish isPaginationComplete=true
-     * from that alone while the import itself is still running.
+     * F3을 고정한다: DocumentRepositoryImpl.invalidateDocumentCache는 import 배치 자체의
+     * continuation이 한창 걷고 있던 pagination 세션을 null로 만들어, continuePagination이
+     * isComplete=true와 sectionsMeasured=0으로 답하게 한다 — 이는 "책이 끝났다"가 아니라 "이 걷기가
+     * 더 할 말이 없다"는 신호다. continuePaginationIfIncomplete는 import 자체가 여전히 실행 중인
+     * 동안 그것만으로 isPaginationComplete=true를 발행해서는 안 된다.
      */
     @Test
     fun paginationContinuationNeverPublishesCompleteFromASpuriousSignalWhileTheImportIsRunning() = runTest(dispatcher) {
@@ -2678,13 +2665,13 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins the untitled-section inheritance [PaginatedDocument.chapterTitleAt]'s KDoc describes: a
-     * section with no title of its own is not "untitled" for chapter-title purposes, it inherits the
-     * title of the last titled section at or before it. A naive `sectionContaining(start)?.title`
-     * collapse — dropping the "titled sections only" filter before picking the latest-starting one —
-     * would answer null the moment a page's own section has no title, which this test would catch and
-     * [epubChapterTitlePersistsAcrossEveryPageOfTheSameChapter] would not, since every section in that
-     * test already carries a title.
+     * [PaginatedDocument.chapterTitleAt]의 KDoc이 설명하는 제목 없는 section의 상속을 고정한다: 자체
+     * 제목이 없는 section은 챕터 제목 목적으로는 "제목 없음"이 아니다 — 그것이거나 그 이전의 마지막
+     * 제목 있는 section의 제목을 상속받는다. `sectionContaining(start)?.title`을 단순하게 붕괴시켜
+     * — 가장 늦게 시작하는 것을 고르기 전에 "제목 있는 section만" 필터를 빼버리면 — 페이지 자체의
+     * section에 제목이 없는 순간 null로 답하게 될 것이며, 이 테스트는 그것을 잡아내지만
+     * [epubChapterTitlePersistsAcrossEveryPageOfTheSameChapter]는 그 테스트의 모든 section이 이미
+     * 제목을 가지고 있으므로 잡아내지 못한다.
      */
     @Test
     fun chapterTitleForAnUntitledSectionInheritsTheLastTitledSection() = runTest(dispatcher) {
@@ -2720,25 +2707,24 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Pins invariant 24: a reload's background section-warm request must be derived from that
-     * reload's own page/section pair, never from whatever a differently-timed, concurrently-running
-     * reload has since written into the shared `paginated` field (see `ReaderViewModel.warmMountWindow`'s
-     * own doc — "the warm has to touch the same list its own publish will read from"). Constructed by
-     * freezing the viewport-triggered reload's own warm call with
-     * [FakeDocumentRepository.freezeWarmSectionBlocksAtCallIndex] while an import batch's reload runs
-     * to completion underneath it and grows the section list, then reading the frozen call's own
-     * recorded argument — captured before the freeze — once it is released with
-     * [FakeDocumentRepository.unfreezeWarmSectionBlocks].
+     * 불변 조건 24를 고정한다: reload의 백그라운드 section-warm 요청은 반드시 그 reload 자체의
+     * 페이지/section 쌍에서 유도되어야 하며, 타이밍이 다르게 동시에 실행 중인 다른 reload가 그 사이
+     * 공유된 `paginated` 필드에 써넣은 무언가에서 유도되어서는 절대 안 된다(`ReaderViewModel.warmMountWindow`
+     * 자체의 문서 참고 — "warm은 자신의 발행이 읽어올 그 목록을 건드려야 한다"). import 배치의
+     * reload가 그 아래에서 끝까지 실행되어 section 목록을 키우는 동안,
+     * [FakeDocumentRepository.freezeWarmSectionBlocksAtCallIndex]로 viewport가 촉발한 reload
+     * 자체의 warm 호출을 얼려두고, [FakeDocumentRepository.unfreezeWarmSectionBlocks]로 그것을
+     * 풀어준 뒤 — freeze 이전에 캡처된 — 그 얼려진 호출 자체의 기록된 인자를 읽어 구성한다.
      *
-     * The section split below is chosen so the two reloads actually disagree: before the import batch,
-     * only section 0 exists, so every page in the mount window resolves to it; after the batch, a
-     * second section starting exactly where page 1 starts takes over that page, so the same mount
-     * window resolves to sections {0, 1}. If the viewport reload's own warm ever read the live field
-     * instead of its own local pair, its frozen call would have been recorded against whichever
-     * pair happened to be current on that path — this test's expectation only holds if it saw its
-     * own, pre-import pair. `freezeWarmSectionBlocksAtCallIndex = 1` targets exactly the viewport
-     * reload's own warm: call 0 is `openDocument`'s own pre-publish warm, so call 1 is the
-     * viewport-triggered reload's own warm below.
+     * 아래의 section 분할은 두 reload가 실제로 서로 다른 답을 내도록 골랐다: import 배치 이전에는
+     * section 0만 존재하므로 mount window의 모든 페이지가 그것으로 해석된다. 배치 이후에는 페이지
+     * 1이 시작하는 바로 그 지점에서 시작하는 두 번째 section이 그 페이지를 대신 차지하여, 같은
+     * mount window가 section {0, 1}로 해석된다. viewport reload 자체의 warm이 자기 자신의 로컬
+     * 쌍 대신 살아 있는 필드를 읽었다면, 그 얼려진 호출은 그 경로에서 우연히 현재였던 쌍에 대해
+     * 기록되었을 것이다 — 이 테스트의 기대는 오직 그것이 자기 자신의, import 이전 쌍을 봤을 때만
+     * 성립한다. `freezeWarmSectionBlocksAtCallIndex = 1`은 정확히 viewport reload 자체의 warm을
+     * 겨냥한다: 호출 0은 `openDocument` 자체의 발행 전 warm이므로, 호출 1이 아래의 viewport가 촉발한
+     * reload 자체의 warm이다.
      */
     @Test
     fun reloadWarmsSectionsDerivedFromItsOwnPageList() = runTest(dispatcher) {
@@ -2794,10 +2780,10 @@ class ReaderViewModelTest {
     }
 
     /**
-     * The favourite toggle publishes optimistically, so a failed write has to put the flag back.
+     * 즐겨찾기 토글은 낙관적으로 발행하므로, 쓰기가 실패하면 플래그를 되돌려 놓아야 한다.
      *
-     * Without the rollback the star stays lit for a document whose row is gone, and the next open shows it
-     * unlit again — the reader sees the app disagree with itself.
+     * rollback이 없다면 행이 사라진 문서에 대해 별이 계속 켜진 채로 남고, 다음에 열면 다시 꺼진
+     * 상태로 보인다 — 독자는 앱이 자기 자신과 모순되는 것을 보게 된다.
      */
     @Test
     fun togglingFavoriteRollsBackWhenTheDocumentRowIsGone() = runTest(dispatcher) {
@@ -2820,11 +2806,11 @@ class ReaderViewModelTest {
     }
 
     /**
-     * A saved place's id is the document id and the position's storage string, joined by a colon.
+     * 저장 위치의 id는 문서 id와 위치의 저장 문자열을, 콜론으로 이어붙인 것이다.
      *
-     * That format is what makes saving the same page twice replace one row instead of adding another, and it is
-     * produced in exactly one place; pinning it here keeps a future refactor from switching to a generated id
-     * and silently turning the toggle into an append.
+     * 이 형식 덕분에 같은 페이지를 두 번 저장해도 행이 추가되는 대신 하나를 대체한다. 이는 정확히
+     * 한 곳에서만 만들어지며, 여기서 이를 고정해 두면 이후의 리팩터가 생성된 id로 바꿔치기해서
+     * 토글을 조용히 append로 바꿔버리는 것을 막을 수 있다.
      */
     @Test
     fun savedPlaceIdIsDocumentIdAndLocationStorageString() = runTest(dispatcher) {
@@ -2843,16 +2829,15 @@ class ReaderViewModelTest {
     }
 
     /**
-     * Assembles a [ReaderViewModel] wired to [documentRepository] and, unless a test needs to
-     * inspect them, throwaway defaults for the other three collaborators — so a test that only cares
-     * about the document repository does not have to repeat the other three constructor arguments
-     * itself.
+     * [documentRepository]와 연결되고, 테스트가 검사할 필요가 없는 한 나머지 세 협력자에는 그저
+     * 버려도 되는 기본값을 쓰는 [ReaderViewModel]을 조립한다 — 그래서 document repository만
+     * 신경 쓰는 테스트는 나머지 세 생성자 인자를 스스로 반복하지 않아도 된다.
      *
-     * @param documentRepository the fake this view model reads and writes documents through.
-     * @param bookmarkRepository the fake saved-place store; defaults to a fresh, empty one.
-     * @param readerSettingsRepository the fake settings store; defaults to one holding default
-     *   [ReaderSettings].
-     * @return a [ReaderViewModel] ready for a test to call `openDocument` on.
+     * @param documentRepository 이 뷰 모델이 문서를 읽고 쓰는 fake.
+     * @param bookmarkRepository 저장 위치를 담는 fake 저장소. 기본값은 새로 만든 빈 것.
+     * @param readerSettingsRepository 설정을 담는 fake 저장소. 기본값은 기본 [ReaderSettings]를
+     *   담은 것.
+     * @return 테스트가 `openDocument`를 호출할 준비가 된 [ReaderViewModel].
      */
     private fun createViewModel(
         documentRepository: FakeDocumentRepository,
@@ -2871,18 +2856,18 @@ class ReaderViewModelTest {
 }
 
 /**
- * Stands in for the pane reporting its real size now that `updatePageBreaker` is the only entry
- * point for a measurement. [FakeDocumentRepository.getPageWindows] ignores the breaker itself —
- * only the [ViewportSize] drives its own pagination — so this breaker never needs to measure
- * anything real; it exists only to satisfy [ReaderViewModel.updatePageBreaker]'s signature.
+ * `updatePageBreaker`가 측정의 유일한 진입점이 된 지금, pane이 실제 크기를 보고하는 것을 대신한다.
+ * [FakeDocumentRepository.getPageWindows]는 breaker 자체를 무시한다 — 오직 [ViewportSize]만이 그
+ * 자신의 pagination을 이끈다 — 그래서 이 breaker는 실제로 아무것도 측정할 필요가 없다. 그저
+ * [ReaderViewModel.updatePageBreaker]의 시그니처를 만족시키기 위해서만 존재한다.
  */
 private val FakePageBreaker = ReaderPageBreaker { _, _ -> IntArray(0) }
 
 /**
- * Simulates the reader pane reporting a measured size of [width] by [height], the same call
- * [ReaderViewModel.updatePageBreaker] would receive from a real composition. Both the sp and px
- * arguments are given the same [ViewportSize], since [FakeDocumentRepository] only ever reads the
- * size, not which of the two units it arrived as.
+ * 리더 pane이 측정된 크기 [width] by [height]를 보고하는 것을 흉내 낸다. 실제 composition으로부터
+ * [ReaderViewModel.updatePageBreaker]가 받게 될 것과 같은 호출이다. sp와 px 인자 둘 다 같은
+ * [ViewportSize]를 받는다. [FakeDocumentRepository]는 오직 크기만 읽을 뿐, 그것이 두 단위 중 어느
+ * 것으로 도착했는지는 읽지 않기 때문이다.
  */
 private fun ReaderViewModel.reportMeasuredViewport(width: Int, height: Int) {
     val size = ViewportSize(widthPx = width, heightPx = height)
@@ -2890,106 +2875,106 @@ private fun ReaderViewModel.reportMeasuredViewport(width: Int, height: Int) {
 }
 
 /**
- * A test double for [DocumentRepository] used across this suite. Beyond the obvious happy-path
- * fields, several parameters exist to model one specific corner of the real repository's behavior
- * that [ReaderViewModel] has to survive: a progressive EPUB import ([importComplete],
- * [importNextSectionsGate], [sectionsAppendedOnImport], [progressiveImportBatches],
- * [importBatchGates]), a progressive pagination pass decoupled from that import
- * ([progressivePagination]), a pagination session invalidated mid-walk
- * ([paginationSessionAlwaysInvalidated]), a stored layout's viewport being adopted
- * ([storedViewportSize]), an on-demand block decode ([lazySectionBlocks]), a background warm
- * call frozen mid-fill ([freezeWarmSectionBlocksAtCallIndex]), and a second document opened while
- * this one's own [getPageWindows] call is still resolving ([freezeGetPageWindowsAtCallIndex],
- * [secondDocumentId], [secondPageWindows]).
+ * 이 스위트 전체에서 쓰이는 [DocumentRepository]의 테스트 더블이다. 뻔한 정상 경로 필드들 외에도,
+ * [ReaderViewModel]이 견뎌내야 하는 실제 저장소 동작의 구체적인 한 구석을 모델링하기 위한 매개변수가
+ * 여럿 있다: progressive EPUB import([importComplete], [importNextSectionsGate],
+ * [sectionsAppendedOnImport], [progressiveImportBatches], [importBatchGates]), 그 import와 분리된
+ * progressive pagination 패스([progressivePagination]), 한창 걷던 도중 무효화된 pagination 세션
+ * ([paginationSessionAlwaysInvalidated]), 채택되는 저장된 레이아웃의 viewport([storedViewportSize]),
+ * on-demand 블록 디코딩([lazySectionBlocks]), fill 도중 얼려진 백그라운드 warm 호출
+ * ([freezeWarmSectionBlocksAtCallIndex]), 그리고 이 문서 자체의 [getPageWindows] 호출이 여전히
+ * 처리 중인 동안 열리는 두 번째 문서([freezeGetPageWindowsAtCallIndex], [secondDocumentId],
+ * [secondPageWindows]).
  *
- * @property documentId the document this fake answers for; every method that takes a `documentId`
- *   argument checks it against this and answers as if for a different, unknown document otherwise,
- *   except the two-entry lookup [secondDocumentId] adds to [getPageWindows].
- * @property format the document format every stored fact below is described in terms of.
- * @param pageCount the document's own stored page count, used only to seed the fake's [metadata]
- *   `pageCount` field — the count [getPageWindows] actually paginates to is controlled separately,
- *   by [pageWindows]/[paginatedText]/[progressivePagination].
- * @property paginatedText raw text [getPageWindows] paginates into fixed-size windows sized off the
- *   requested viewport, when neither [pageWindows] nor [progressivePagination] answers first.
- * @property visualPageImages the decoded page images [getVisualPageImages] answers with, for a CBZ
- *   document.
- * @property embeddedImages the decoded embedded images [getEmbeddedImages] answers with, for an
- *   EPUB document.
- * @property throwOnGetEmbeddedImagesCall when set, makes that numbered [getEmbeddedImages] call
- *   throw before answering, so a test can model one transient preload failure and the retry after it.
- * @property readerDocument the parsed document [getReaderDocument] answers with; when null, a
- *   minimal placeholder is built from [format]/the fake's own metadata instead.
- * @property pageWindows a fixed page list [getPageWindows] answers with directly (optionally
- *   filtered through [lazySectionBlocks]), when set.
- * @property freezeGetPageWindowsAtCallIndex when set, parks the (0-indexed) [getPageWindows] call at
- *   this index — counted across every document this fake answers for, [documentId] and
- *   [secondDocumentId] alike — on a raw [suspendCoroutine] until [unfreezeGetPageWindows] resumes it.
- *   A [CompletableDeferred] gate would not do: `await()` is a cancellable suspension point, and
- *   `ReaderViewModel.openDocument` cancels the previous document's job synchronously the moment a new
- *   one opens, which would resume a parked call with a [kotlinx.coroutines.CancellationException]
- *   instead of letting it resolve — exactly the case this exists to model, since `Job.cancel()`
- *   cannot actually stop a database read already in flight (see [ReaderViewModel]'s own class doc).
- * @property secondDocumentId a second document id [getPageWindows] answers for with
- *   [secondPageWindows], distinct from [documentId] — lets a test drive two documents through one
- *   fake instance at once, e.g. to open a second document while the first's own [getPageWindows]
- *   call is still parked on [freezeGetPageWindowsAtCallIndex]. Every other method keeps answering
- *   [secondDocumentId] the same "unknown document" way it always has — [getDocument]/[getReaderDocument]
- *   null, [isImportComplete]/[isPaginationComplete] true — which is harmless here: no test in this
- *   suite reads a title, metadata, or import state for [secondDocumentId], only its own pagination.
- * @property secondPageWindows the page list [getPageWindows] answers with for [secondDocumentId] —
- *   real, distinguishable content, unlike the empty list an ordinary unknown document gets, since the
- *   whole point of [secondDocumentId] is to be observably paginated on its own.
- * @property markDocumentOpenedGate suspends [markDocumentOpened] until completed, so a test can
- *   observe the state strictly between the first publish and the second (see e.g.
- *   `openDocumentShowsTheFirstPageBeforeMarkDocumentOpenedCompletesAndDoesNotMoveItAfterward`).
- * @property onMarkDocumentOpened invoked at the moment [markDocumentOpened] is called, before it
- *   awaits its own gate or writes anything — lets a test read live ViewModel state (e.g.
- *   `uiState.value.isLoading`) at that exact instant instead of inferring the ordering from a
- *   suspended gate plus `advanceUntilIdle()`.
- * @property storedViewportSize the viewport a previously-read book's stored layout was measured at
- *   — what [resolveViewportSizeForStyle] resolves for `openDocument` to adopt when it asks with no
- *   pane size reported yet. Only meaningful together with [pageWindows], which stands in for that
- *   stored layout's own pages.
- * @property importComplete false stands in for a progressively-imported EPUB whose background
- *   import hasn't finished yet — see `continueImportIfIncomplete`. Unless [importNextSectionsGate]
- *   holds it open, every call to [importNextSections] below reports done immediately, so a test
- *   that just sets this false is exercising exactly one round of the continuation loop.
- * @property importNextSectionsGate suspends [importNextSections] until completed, the same idea as
- *   [markDocumentOpenedGate] above — lets a test observe the state between the first publish and
- *   the background continuation's first call landing, instead of `advanceUntilIdle()` draining
- *   both in one pass.
- * @property lazySectionBlocks when set, activates a section-aware page list: a page's blocks read
- *   empty until [warmSectionBlocks] has been asked for the section owning it (found the same way
- *   `ReaderViewModel.sectionContaining` does), then flip to this map's answer for that section — the
- *   on-demand decode `SectionBlocksCache` gives the real repository, needed to prove the view model
- *   warms a page before building it instead of a test baking blocks straight into [pageWindows].
- * @property freezeWarmSectionBlocksAtCallIndex when set, freezes the (0-indexed) [warmSectionBlocks]
- *   call at this index until [unfreezeWarmSectionBlocks], allowing deterministic warm/reload races.
- * @property sectionsAppendedOnImport sections the fake's first real [importNextSections] call
- *   appends to what [getReaderDocument] answers — standing in for a progressive import committing a
- *   later chapter while the already-live cache stays usable, with only a later full reload rebuilding
- *   the snapshot the reader publishes from.
- * @property progressiveImportBatches models a multi-batch progressive EPUB import instead of the
- *   single all-at-once batch [sectionsAppendedOnImport] models above: each [importNextSections]
- *   call consumes one entry, appending it to the fake's live section list, and [isImportComplete]
- *   only turns true once every entry is gone — mirroring `documents.importCompletedAtEpochMillis`
- *   only becoming non-null on the real last batch.
- * @property importBatchGates one optional gate per [progressiveImportBatches] entry, awaited before
- *   that batch is consumed. This fake has no real suspension between batches on its own, so without
- *   a gate here the import loop races straight through every batch in one dispatcher pass and never
- *   gives a concurrently-launched pagination continuation a chance to run before the whole import
- *   is already done — exactly the ordering a real, I/O-bound import batch would leave room for.
- * @property progressivePagination models a section-by-section pagination continuation instead of
- *   the fixed [pageWindows]/[paginatedText] answers above: [getPageWindows] returns one page per
- *   section actually "measured" so far, and only [continuePagination] (via
- *   `continuePaginationIfIncomplete`) ever grows that count — decoupled from how many sections
- *   [importNextSections] has appended, the same split `DocumentRepositoryImpl`'s own pagination
- *   session keeps between "known" and "measured."
- * @property paginationSessionAlwaysInvalidated models a pagination continuation whose session was
- *   invalidated mid-walk (see `DocumentRepositoryImpl.invalidateDocumentCache` /
- *   [continuePagination]): every call reports "isComplete" with nothing actually measured, while
- *   [isPaginationComplete] itself never turns true on its own — the "lying complete" signal
- *   `continuePaginationIfIncomplete` must not trust while the import is still running.
+ * @property documentId 이 fake가 응답하는 문서. `documentId` 인자를 받는 모든 메서드는 이것과 비교해
+ *   확인하며, [getPageWindows]에 [secondDocumentId]가 추가하는 두 항목짜리 조회를 제외하고는 다르면
+ *   알 수 없는 문서인 것처럼 응답한다.
+ * @property format 아래의 모든 저장된 사실이 그 기준으로 서술되는 문서 형식.
+ * @param pageCount 문서 자체에 저장된 페이지 수로, fake의 [metadata] `pageCount` 필드를 초기화하는
+ *   데만 쓰인다 — [getPageWindows]가 실제로 pagination하는 페이지 수는
+ *   [pageWindows]/[paginatedText]/[progressivePagination]에 의해 별도로 제어된다.
+ * @property paginatedText [pageWindows]도 [progressivePagination]도 먼저 응답하지 않을 때,
+ *   요청된 viewport에 맞춰 고정 크기 window로 [getPageWindows]가 pagination하는 원본 텍스트.
+ * @property visualPageImages CBZ 문서에 대해 [getVisualPageImages]가 응답하는 디코딩된 페이지
+ *   이미지.
+ * @property embeddedImages EPUB 문서에 대해 [getEmbeddedImages]가 응답하는 디코딩된 내장 이미지.
+ * @property throwOnGetEmbeddedImagesCall 설정되면, 그 번호의 [getEmbeddedImages] 호출이 응답하기 전에
+ *   throw하게 만들어, 테스트가 일시적인 preload 실패와 그 이후 재시도를 모델링할 수 있게 한다.
+ * @property readerDocument [getReaderDocument]가 응답하는 파싱된 문서. null이면 대신
+ *   [format]/fake 자체의 metadata로부터 최소한의 placeholder를 만든다.
+ * @property pageWindows 설정되면 [getPageWindows]가 직접(선택적으로 [lazySectionBlocks]를 거쳐
+ *   필터링되어) 응답하는 고정 페이지 목록.
+ * @property freezeGetPageWindowsAtCallIndex 설정되면, [unfreezeGetPageWindows]가 재개할 때까지
+ *   — [documentId]와 [secondDocumentId] 모두를 통틀어 세는 — 이 인덱스(0부터 시작)의
+ *   [getPageWindows] 호출을 순수한 [suspendCoroutine]에 대기시킨다. [CompletableDeferred] 게이트로는
+ *   안 된다: `await()`는 취소 가능한 중단 지점이고, `ReaderViewModel.openDocument`는 새 문서가 열리는
+ *   순간 이전 문서의 job을 동기적으로 취소하는데, 이는 대기 중인 호출을 해소되도록 두는 대신
+ *   [kotlinx.coroutines.CancellationException]으로 재개해버릴 것이다 — `Job.cancel()`이 실제로
+ *   이미 진행 중인 데이터베이스 읽기를 멈출 수 없기 때문에([ReaderViewModel] 자체의 클래스 문서 참고)
+ *   이것이 바로 모델링하려는 상황이다.
+ * @property secondDocumentId [getPageWindows]가 [secondPageWindows]로 응답하는, [documentId]와
+ *   구분되는 두 번째 문서 id — 테스트가 한 fake 인스턴스로 문서 두 개를 동시에 구동할 수 있게 해준다.
+ *   예를 들어 첫 번째 문서 자체의 [getPageWindows] 호출이 여전히 [freezeGetPageWindowsAtCallIndex]에
+ *   대기 중인 동안 두 번째 문서를 여는 경우다. 다른 모든 메서드는 [secondDocumentId]에 대해 항상 그랬던
+ *   것과 같은 "알 수 없는 문서" 방식으로 계속 응답한다 — [getDocument]/[getReaderDocument]는 null,
+ *   [isImportComplete]/[isPaginationComplete]는 true — 이는 여기서는 무해하다: 이 스위트의 어떤
+ *   테스트도 [secondDocumentId]의 제목, metadata, import 상태를 읽지 않고 오직 그 자신의 pagination만
+ *   읽는다.
+ * @property secondPageWindows [secondDocumentId]에 대해 [getPageWindows]가 응답하는 페이지 목록 —
+ *   일반적인 알 수 없는 문서가 받는 빈 목록과 달리, 실제로 구별 가능한 콘텐츠다. [secondDocumentId]의
+ *   존재 의의 전체가 그 자체로 관찰 가능하게 pagination되는 것이기 때문이다.
+ * @property markDocumentOpenedGate [markDocumentOpened]를 완료될 때까지 중단시켜, 테스트가 첫 발행과
+ *   두 번째 발행 사이의 상태를 엄격하게 관찰할 수 있게 한다(예:
+ *   `openDocumentShowsTheFirstPageBeforeMarkDocumentOpenedCompletesAndDoesNotMoveItAfterward` 참고).
+ * @property onMarkDocumentOpened [markDocumentOpened]가 호출되는 순간, 자신의 게이트를 기다리거나
+ *   무언가를 쓰기 전에 호출된다 — 테스트가 대기 중인 게이트와 `advanceUntilIdle()`로 순서를
+ *   추론하는 대신, 바로 그 순간의 살아 있는 ViewModel 상태(예: `uiState.value.isLoading`)를 읽을 수
+ *   있게 해준다.
+ * @property storedViewportSize 이전에 읽은 책의 저장된 레이아웃이 측정되었던 viewport — pane 크기가
+ *   아직 보고되지 않은 채로 `openDocument`가 물어볼 때 채택하도록 [resolveViewportSizeForStyle]이
+ *   해석하는 값이다. 그 저장된 레이아웃 자체의 페이지를 대신하는 [pageWindows]와 함께일 때만 의미가
+ *   있다.
+ * @property importComplete false는 백그라운드 import가 아직 끝나지 않은, progressively-import된
+ *   EPUB을 대신한다 — `continueImportIfIncomplete` 참고. [importNextSectionsGate]가 열어두지 않는
+ *   한, 아래의 [importNextSections] 호출은 매번 즉시 완료를 보고하므로, 이것만 false로 설정하는
+ *   테스트는 continuation 루프를 정확히 한 바퀴만 시험하는 것이다.
+ * @property importNextSectionsGate [importNextSections]를 완료될 때까지 중단시킨다 — 위의
+ *   [markDocumentOpenedGate]와 같은 발상이다 — `advanceUntilIdle()`이 둘 다를 한 패스에 소진하는
+ *   대신, 테스트가 첫 발행과 백그라운드 continuation의 첫 호출 도착 사이의 상태를 관찰할 수 있게
+ *   한다.
+ * @property lazySectionBlocks 설정되면 section을 인식하는 페이지 목록을 활성화한다: 페이지의 블록은
+ *   그것을 소유한 section이 [warmSectionBlocks]에 요청될 때까지(`ReaderViewModel.sectionContaining`과
+ *   같은 방식으로 찾는다) 빈 채로 읽히다가, 그 section에 대한 이 맵의 응답으로 바뀐다 — 테스트가
+ *   [pageWindows]에 블록을 직접 구워 넣는 대신, 뷰 모델이 페이지를 만들기 전에 그것을 예열함을
+ *   증명하는 데 필요한, 실제 저장소가 주는 on-demand 디코딩 `SectionBlocksCache`를 대신한다.
+ * @property freezeWarmSectionBlocksAtCallIndex 설정되면, [unfreezeWarmSectionBlocks]까지 이
+ *   인덱스(0부터 시작)의 [warmSectionBlocks] 호출을 얼려두어, 결정론적인 warm/reload 경합을
+ *   가능하게 한다.
+ * @property sectionsAppendedOnImport fake의 첫 실제 [importNextSections] 호출이
+ *   [getReaderDocument]의 응답에 덧붙이는 section들 — 이미 살아 있는 캐시는 계속 쓸 수 있는 채로
+ *   progressive import가 나중 챕터를 커밋하는 것을 대신하며, 나중의 전체 reload만이 리더가 발행하는
+ *   스냅샷을 재구성한다.
+ * @property progressiveImportBatches 위에서 [sectionsAppendedOnImport]가 모델링하는 단일한
+ *   한 번에-전부 배치 대신, 다중 배치 progressive EPUB import를 모델링한다: 각 [importNextSections]
+ *   호출은 항목 하나를 소비해 fake의 살아 있는 section 목록에 덧붙이며, [isImportComplete]는 모든
+ *   항목이 사라져야만 true가 된다 — 실제 마지막 배치에서만 non-null이 되는
+ *   `documents.importCompletedAtEpochMillis`를 그대로 반영한다.
+ * @property importBatchGates [progressiveImportBatches] 항목마다 하나씩, 그 배치가 소비되기 전에
+ *   기다리는 선택적 게이트다. 이 fake는 배치 사이에 자체적으로 실제 중단이 없으므로, 여기 게이트가
+ *   없으면 import 루프는 하나의 dispatcher 패스에서 모든 배치를 곧장 통과해버려, 동시에 시작된
+ *   pagination continuation이 전체 import가 이미 끝나기 전에 실행될 기회를 절대 얻지 못한다 —
+ *   실제 I/O에 묶인 import 배치라면 남겨두었을 바로 그 순서다.
+ * @property progressivePagination 위의 고정된 [pageWindows]/[paginatedText] 응답 대신, section별
+ *   pagination continuation을 모델링한다: [getPageWindows]는 지금까지 실제로 "측정된" section당
+ *   페이지 하나를 반환하며, 오직 [continuePagination](`continuePaginationIfIncomplete`를 통해)만이
+ *   그 개수를 늘린다 — [importNextSections]가 몇 개의 section을 덧붙였는지와는 분리되어 있으며,
+ *   `DocumentRepositoryImpl` 자체의 pagination 세션이 "알려짐"과 "측정됨" 사이에 두는 것과 같은
+ *   분리다.
+ * @property paginationSessionAlwaysInvalidated 한창 걷던 도중 무효화된 pagination continuation을
+ *   모델링한다(`DocumentRepositoryImpl.invalidateDocumentCache` / [continuePagination] 참고):
+ *   모든 호출이 실제로는 아무것도 측정하지 않은 채 "isComplete"를 보고하는 반면,
+ *   [isPaginationComplete] 자체는 스스로 절대 true가 되지 않는다 — import가 여전히 실행 중인 동안
+ *   `continuePaginationIfIncomplete`가 신뢰해서는 안 되는 "거짓 완료" 신호다.
  */
 private class FakeDocumentRepository(
     private val documentId: DocumentId,
@@ -3025,45 +3010,44 @@ private class FakeDocumentRepository(
     private val progressivePagination: Boolean = false,
     private val paginationSessionAlwaysInvalidated: Boolean = false,
 ) : DocumentRepository {
-    /** Every section index [warmSectionBlocks] has recorded as warmed so far. */
+    /** [warmSectionBlocks]가 지금까지 예열된 것으로 기록한 모든 section 인덱스. */
     private val warmedSections = linkedSetOf<Int>()
 
     /**
-     * Whether a warm issued right now would actually record anything.
+     * 지금 당장 발행되는 warm이 실제로 무언가를 기록할 것인지 여부.
      *
-     * `DocumentRepositoryImpl.warmSectionBlocks` warms the cache object the repository is holding
-     * right now and returns 0 when there is none (see its own `?: return 0`); this fake only flips
-     * that off for the explicit full-drop paths it models, and only a later `getReaderDocument`/
-     * `getPageWindows` builds a new one. Modelling that is what makes a warm issued between the two a
-     * no-op here too, rather than one that silently still records the sections it was asked for.
+     * `DocumentRepositoryImpl.warmSectionBlocks`는 저장소가 지금 들고 있는 캐시 객체를 예열하며,
+     * 그런 것이 없으면 0을 반환한다(자체의 `?: return 0` 참고). 이 fake는 그것이 모델링하는 명시적인
+     * 전면 폐기 경로에 대해서만 이를 꺼두며, 나중의 `getReaderDocument`/`getPageWindows`만이 새 것을
+     * 만든다. 그것을 모델링하는 것이, 둘 사이에 발행된 warm이 요청받은 section을 조용히 계속
+     * 기록하는 대신 여기서도 아무 일도 하지 않게 만드는 이유다.
      */
     private var sectionBlocksCacheAlive = true
 
     /**
-     * The section list [getReaderDocument]/[getPageWindows] answer with right now — starts at
-     * whatever [readerDocument] was given and grows the one time [importNextSections] below finds
-     * pending sections to append, the same way `DocumentRepositoryImpl`'s own stored section list
-     * grows mid-import.
+     * [getReaderDocument]/[getPageWindows]가 지금 당장 응답하는 section 목록 — [readerDocument]로
+     * 주어진 값에서 시작해, 아래의 [importNextSections]가 붙일 대기 중인 section을 찾는 그 한 번에
+     * 자란다. `DocumentRepositoryImpl` 자체의 저장된 section 목록이 import 도중 자라는 것과 같은
+     * 방식이다.
      */
     private var liveSections: List<ReaderSection> = readerDocument?.sections.orEmpty()
 
     /**
-     * Sections still waiting to be appended by the next [importNextSections] call, drawn from
-     * [sectionsAppendedOnImport].
+     * [sectionsAppendedOnImport]에서 가져와, 다음 [importNextSections] 호출로 덧붙여지기를 기다리는
+     * section들.
      */
     private var pendingImportSections: List<ReaderSection> = sectionsAppendedOnImport
 
-    /** Entries of [progressiveImportBatches] not yet consumed by [importNextSections]. */
+    /** [importNextSections]가 아직 소비하지 않은 [progressiveImportBatches]의 항목들. */
     private val pendingProgressiveBatches = progressiveImportBatches.toMutableList()
 
-    /** How many entries of [progressiveImportBatches]/[importBatchGates] have been consumed so far. */
+    /** 지금까지 소비된 [progressiveImportBatches]/[importBatchGates]의 항목 개수. */
     private var progressiveBatchIndex = 0
 
     /**
-     * How many of [liveSections] a real page breaker has actually measured so far, when
-     * [progressivePagination] is on — starts at 1 for the same reason `DocumentRepositoryImpl`'s own
-     * first `getPageWindows` call measures only the section the reader resumed into (see its own
-     * doc).
+     * [progressivePagination]이 켜져 있을 때, 실제 page breaker가 지금까지 실제로 측정한
+     * [liveSections]의 개수 — `DocumentRepositoryImpl` 자체의 첫 `getPageWindows` 호출이 독자가
+     * 재개해 들어간 section만 측정하는 것(자체 문서 참고)과 같은 이유로 1에서 시작한다.
      */
     private var measuredSectionCount = 1
     private var importInFlight = false
@@ -3076,36 +3060,36 @@ private class FakeDocumentRepository(
         private set
 
     /**
-     * Every argument [warmSectionBlocks] was called with, in call order — read by a test that needs
-     * to inspect a specific call's own recorded sections (e.g. after freezing it with
-     * [freezeWarmSectionBlocksAtCallIndex]).
+     * [warmSectionBlocks]가 호출될 때마다 받은 모든 인자를 호출 순서대로 담는다 — 특정 호출 자체가
+     * 기록한 section을 검사해야 하는 테스트가 읽는다(예: [freezeWarmSectionBlocksAtCallIndex]로
+     * 얼려둔 뒤).
      */
     val warmSectionBlocksCalls = mutableListOf<Set<Int>>()
 
     /**
-     * How many times [warmSectionBlocks] has been called so far; used to recognise the call index
-     * [freezeWarmSectionBlocksAtCallIndex] names.
+     * 지금까지 [warmSectionBlocks]가 호출된 횟수. [freezeWarmSectionBlocksAtCallIndex]가 지정하는
+     * 호출 인덱스를 인식하는 데 쓰인다.
      */
     private var warmSectionBlocksCallCount = 0
 
-    /** The gate a frozen [warmSectionBlocks] call awaits; completed by [unfreezeWarmSectionBlocks]. */
+    /** 얼려진 [warmSectionBlocks] 호출이 대기하는 게이트. [unfreezeWarmSectionBlocks]가 완료시킨다. */
     private val warmSectionBlocksFreezeGate = CompletableDeferred<Unit>()
 
-    /** Snapshot of every section warmed so far — a defensive copy, since [warmedSections] keeps changing. */
+    /** 지금까지 예열된 모든 section의 스냅샷 — [warmedSections]가 계속 바뀌므로 방어적으로 복사한다. */
     fun warmedSectionsSnapshot(): Set<Int> = warmedSections.toSet()
 
-    /** Releases a frozen warm — call at the end of a test that used
-     * [freezeWarmSectionBlocksAtCallIndex], so nothing is left suspended when the test ends. */
+    /** 얼려진 warm을 풀어준다 — [freezeWarmSectionBlocksAtCallIndex]를 쓴 테스트의 끝에서 호출하여,
+     * 테스트가 끝날 때 아무것도 중단된 채로 남지 않게 한다. */
     fun unfreezeWarmSectionBlocks() {
         warmSectionBlocksFreezeGate.complete(Unit)
     }
 
     /**
-     * Models the on-demand decode `DocumentRepositoryImpl.warmSectionBlocks` performs: records
-     * [sectionIndexes] into [warmedSections] and answers how many of them were newly warmed,
-     * honouring [sectionBlocksCacheAlive] (answers 0 while the cache is modelled as dropped) and
-     * pausing forever on [warmSectionBlocksFreezeGate] at the call index
-     * [freezeWarmSectionBlocksAtCallIndex] names, so a test can observe an in-flight warm.
+     * `DocumentRepositoryImpl.warmSectionBlocks`가 수행하는 on-demand 디코딩을 모델링한다:
+     * [sectionIndexes]를 [warmedSections]에 기록하고 그중 몇 개가 새로 예열되었는지 답하며,
+     * [sectionBlocksCacheAlive]를 존중하고(캐시가 폐기된 것으로 모델링되는 동안에는 0을 답한다),
+     * [freezeWarmSectionBlocksAtCallIndex]가 지정하는 호출 인덱스에서 [warmSectionBlocksFreezeGate]에
+     * 영원히 멈춰, 테스트가 진행 중인 warm을 관찰할 수 있게 한다.
      */
     override suspend fun warmSectionBlocks(documentId: DocumentId, sectionIndexes: Set<Int>): Int {
         if (documentId != this.documentId) return 0
@@ -3119,14 +3103,14 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * Models the library row having been deleted while the reader still holds the document open — the state
-     * `toggleFavorite`'s rollback exists for.
+     * 리더가 문서를 여전히 열어둔 채로 라이브러리 행이 삭제된 상태를 모델링한다 — `toggleFavorite`의
+     * rollback이 존재하는 이유인 상태다.
      */
     var documentRowMissing = false
 
     /**
-     * This document's mutable stored metadata row; overwritten by [upsertDocument] and answered by
-     * [getDocument] unless [documentRowMissing].
+     * 이 문서의 변경 가능한 저장된 metadata 행. [upsertDocument]에 의해 덮어써지며, [documentRowMissing]이
+     * 아닌 한 [getDocument]가 응답한다.
      */
     private var metadata = DocumentMetadata(
         id = documentId,
@@ -3147,34 +3131,33 @@ private class FakeDocumentRepository(
         wordCount = 6,
     )
 
-    /** How many times [getDocument] has been called. */
+    /** [getDocument]가 호출된 횟수. */
     var getDocumentCallCount = 0
         private set
 
     /**
-     * The favourite flag [metadata] currently holds, read directly by a test instead of going
-     * through the view model.
+     * [metadata]가 현재 들고 있는 즐겨찾기 플래그. 뷰 모델을 거치지 않고 테스트가 직접 읽는다.
      */
     val isFavorite: Boolean get() = metadata.isBookmarked
 
     /**
-     * The document id [markDocumentOpened] most recently recorded, read by a test to confirm the
-     * open was written.
+     * [markDocumentOpened]가 가장 최근에 기록한 문서 id. open이 실제로 쓰였는지 확인하려는 테스트가
+     * 읽는다.
      */
     var lastOpenedDocumentId: DocumentId? = null
 
-    /** The timestamp [markDocumentOpened] most recently recorded. */
+    /** [markDocumentOpened]가 가장 최근에 기록한 timestamp. */
     var lastOpenedAtEpochMillis: Long = 0L
 
     /**
-     * Answers a single-element list holding [metadata]; no test in this suite drives more than one
-     * document through this fake at once.
+     * [metadata]를 담은 단일 원소 목록으로 응답한다. 이 스위트의 어떤 테스트도 이 fake로 문서 하나
+     * 이상을 동시에 구동하지 않는다.
      */
     override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = flowOf(listOf(metadata))
 
     /**
-     * Answers [metadata] for [documentId], or null when [documentRowMissing] models the row having
-     * been deleted.
+     * [documentId]에 대해 [metadata]로 응답하거나, [documentRowMissing]이 행이 삭제된 상태를
+     * 모델링하는 동안에는 null로 응답한다.
      */
     override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? =
         if (documentRowMissing) {
@@ -3185,20 +3168,20 @@ private class FakeDocumentRepository(
         }
 
     /**
-     * Answers [readerDocument] (or a minimal placeholder built from [format]/[metadata] when none
-     * was given), always re-paired with the fake's current [liveSections] so a caller sees whatever
-     * a progressive import has appended so far. Also marks [sectionBlocksCacheAlive] alive again,
-     * mirroring `DocumentRepositoryImpl` rebuilding its decoded-block cache the moment a document's
-     * structure is read.
+     * [readerDocument](주어지지 않았으면 [format]/[metadata]로부터 만든 최소한의 placeholder)로
+     * 응답하며, 항상 fake의 현재 [liveSections]와 다시 짝지어져, 호출자가 progressive import가
+     * 지금까지 덧붙인 것을 그대로 보게 한다. 문서의 구조가 읽히는 순간 `DocumentRepositoryImpl`이
+     * 디코딩된-블록 캐시를 재구성하는 것을 그대로 반영하여, [sectionBlocksCacheAlive]도 다시 살아
+     * 있는 것으로 표시한다.
      *
-     * Withholds [readerDocument]'s own navigation as an empty [ReaderNavigation] while a modelled
-     * single-batch import ([sectionsAppendedOnImport]) or multi-batch import
-     * ([progressiveImportBatches]) has not finished consuming its batch(es) yet — the same way a real
-     * progressive EPUB import leaves `ReaderDocument.navigation` empty until
-     * `DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport` resolves it on the batch that
-     * completes the book. [importComplete] alone does not gate this, per `ReaderViewModel.refreshPaginationCompleteness`'s
-     * own doc: a test double models import completion through [ImportProgress.isComplete], not a
-     * separate flag promised to agree with it.
+     * 모델링된 단일 배치 import([sectionsAppendedOnImport])나 다중 배치 import
+     * ([progressiveImportBatches])가 아직 자신의 배치(들)을 소비하지 못한 동안에는 [readerDocument]
+     * 자체의 navigation을 빈 [ReaderNavigation]으로 보류한다 — 실제 progressive EPUB import가
+     * `DocumentRepositoryImpl.importEpubPhase0`/`finishEpubImport`가 책을 완성하는 배치에서 그것을
+     * 해석할 때까지 `ReaderDocument.navigation`을 비워두는 것과 같은 방식이다. [importComplete]
+     * 하나만으로는 이를 게이트하지 않는다 — `ReaderViewModel.refreshPaginationCompleteness` 자체의
+     * 문서대로: 테스트 더블은 import 완료를, 그것과 일치하기로 약속된 별도 플래그가 아니라
+     * [ImportProgress.isComplete]를 통해 모델링한다.
      */
     override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? {
         sectionBlocksCacheAlive = true
@@ -3220,7 +3203,7 @@ private class FakeDocumentRepository(
         ).takeIf { documentId == this.documentId }
     }
 
-    /** Answers whichever of [visualPageImages] were asked for. */
+    /** [visualPageImages] 중 요청받은 것들로 응답한다. */
     override suspend fun getVisualPageImages(
         documentId: DocumentId,
         pageIndexes: Set<Int>,
@@ -3230,7 +3213,7 @@ private class FakeDocumentRepository(
         return visualPageImages.filterKeys(pageIndexes::contains)
     }
 
-    /** Answers whichever of [embeddedImages] were asked for. */
+    /** [embeddedImages] 중 요청받은 것들로 응답한다. */
     override suspend fun getEmbeddedImages(
         documentId: DocumentId,
         hrefs: Set<String>,
@@ -3250,7 +3233,7 @@ private class FakeDocumentRepository(
         return embeddedFontFiles.filterKeys(hrefs::contains)
     }
 
-    /** The same whole-document scan the production repository answers with, over this fake's windows. */
+    /** 프로덕션 저장소가 응답하는 것과 같은 문서 전체 스캔을, 이 fake의 window들에 대해 수행한다. */
     override suspend fun getReferencedEmbeddedFontHrefs(documentId: DocumentId): Set<String> =
         pageWindows.orEmpty().asSequence()
             .flatMap { window -> window.blocks.asSequence() }
@@ -3262,73 +3245,71 @@ private class FakeDocumentRepository(
             .toSet()
 
     /**
-     * How many times [getPageWindows] has been called; read by a test asserting a reload did or
-     * did not happen.
+     * [getPageWindows]가 호출된 횟수. reload가 일어났는지 일어나지 않았는지 단언하는 테스트가
+     * 읽는다.
      */
     var pageWindowRequests = 0
         private set
 
-    /** Whether the most recent [getPageWindows] call for each document arrived with a non-null breaker. */
+    /** 각 문서에 대한 가장 최근 [getPageWindows] 호출이 null이 아닌 breaker와 함께 도착했는지 여부. */
     val lastPageBreakerByDocumentId = mutableMapOf<DocumentId, Boolean>()
 
     /**
-     * How many times [getPageWindows] has been called so far, counted across every document this
-     * fake answers for — the same role [warmSectionBlocksCallCount] plays for [warmSectionBlocks] —
-     * used to recognise the call index [freezeGetPageWindowsAtCallIndex] names.
+     * 이 fake가 응답하는 모든 문서를 통틀어 세는, 지금까지 [getPageWindows]가 호출된 횟수 —
+     * [warmSectionBlocks]에 대해 [warmSectionBlocksCallCount]가 하는 것과 같은 역할이다 —
+     * [freezeGetPageWindowsAtCallIndex]가 지정하는 호출 인덱스를 인식하는 데 쓰인다.
      */
     private var getPageWindowsCallCount = 0
 
-    /** How many times [getVisualPageImages] has been called so far. */
+    /** 지금까지 [getVisualPageImages]가 호출된 횟수. */
     private var visualPageImageRequests = 0
 
-    /** How many times [getEmbeddedImages] has been called so far. */
+    /** 지금까지 [getEmbeddedImages]가 호출된 횟수. */
     private var embeddedImageRequests = 0
 
-    /** How many times [getEmbeddedFontFiles] has been called so far. */
+    /** 지금까지 [getEmbeddedFontFiles]가 호출된 횟수. */
     private var embeddedFontFileRequests = 0
 
     /**
-     * The raw continuation a [getPageWindows] call frozen by [freezeGetPageWindowsAtCallIndex] is
-     * parked on, captured through [suspendCoroutine] rather than a [CompletableDeferred]. Unlike
-     * [CompletableDeferred.await], which is a cancellable suspension point, [suspendCoroutine] "does
-     * not support prompt cancellation" by its own contract — resuming this through
-     * [unfreezeGetPageWindows] always delivers the parked call back into ordinary code, even though
-     * `ReaderViewModel.openDocument` may have already cancelled the job that started it, faithfully
-     * modelling a real database read a cancelled `Job` cannot retract (see [ReaderViewModel]'s own
-     * class doc). Null whenever no call is currently frozen.
+     * [freezeGetPageWindowsAtCallIndex]로 얼려진 [getPageWindows] 호출이 대기하는, [CompletableDeferred]
+     * 대신 [suspendCoroutine]으로 캡처된 순수 continuation이다. 취소 가능한 중단 지점인
+     * [CompletableDeferred.await]와 달리, [suspendCoroutine]은 자체 계약상 "즉각적인 취소를 지원하지
+     * 않는다" — [unfreezeGetPageWindows]를 통해 이것을 재개하면, `ReaderViewModel.openDocument`가
+     * 그것을 시작한 job을 이미 취소했더라도, 대기 중인 호출은 언제나 평범한 코드로 되돌아온다.
+     * 취소된 `Job`이 철회할 수 없는 실제 데이터베이스 읽기를 충실히 모델링한다([ReaderViewModel]
+     * 자체의 클래스 문서 참고). 현재 얼려진 호출이 없으면 null.
      */
     private var frozenGetPageWindowsContinuation: Continuation<Unit>? = null
 
     /**
-     * Resumes the [getPageWindows] call parked by [freezeGetPageWindowsAtCallIndex], so a test can
-     * release it — typically after driving a second document's own open to completion underneath it.
-     * A no-op if no call is currently frozen.
+     * [freezeGetPageWindowsAtCallIndex]로 대기 중인 [getPageWindows] 호출을 재개하여, 테스트가 그것을
+     * 풀어줄 수 있게 한다 — 보통은 그 아래에서 두 번째 문서 자체의 open을 완료까지 구동한 뒤다.
+     * 현재 얼려진 호출이 없으면 아무 일도 하지 않는다.
      */
     fun unfreezeGetPageWindows() {
         frozenGetPageWindowsContinuation?.resume(Unit)
     }
 
     /**
-     * Answers [storedViewportSize] — the viewport a previously stored layout for this document was
-     * measured at, or null when there is none.
+     * [storedViewportSize]로 응답한다 — 이 문서에 대해 이전에 저장된 레이아웃이 측정되었던 viewport,
+     * 없으면 null.
      */
     override suspend fun resolveViewportSizeForStyle(documentId: DocumentId, style: ReaderStyle): ViewportSize? =
         storedViewportSize.takeIf { documentId == this.documentId }
 
     /**
-     * The fake's own answer chain for a pagination request. The call is first counted and, if its
-     * index matches [freezeGetPageWindowsAtCallIndex], parked non-cancellably until
-     * [unfreezeGetPageWindows] resumes it (see [frozenGetPageWindowsContinuation]'s own doc for why).
-     * The answer itself is then tried in this order: [secondDocumentId] answers [secondPageWindows]
-     * directly, modelling a second, concurrently open document with its own real pagination rather
-     * than the "unknown document" empty answer every other id gets; failing that, an unknown document
-     * or a PDF answers empty (a PDF has no text pagination); [progressivePagination] answers only as
-     * many pages as [measuredSectionCount] has measured so far; a fixed [pageWindows] answers
-     * directly, optionally filtered through [lazySectionBlocks] to model on-demand block decode;
-     * [paginatedText] is split into fixed-size windows by [paginate]; and failing all of those, a
-     * fixed two-page stub answers. Also increments [pageWindowRequests] and marks
-     * [sectionBlocksCacheAlive] alive again on every call, mirroring the real repository
-     * re-measuring blocks fresh each time it lays a document out.
+     * pagination 요청에 대한 fake 자체의 응답 사슬이다. 호출은 먼저 카운트되고, 그 인덱스가
+     * [freezeGetPageWindowsAtCallIndex]와 일치하면 [unfreezeGetPageWindows]가 재개할 때까지 취소
+     * 불가능하게 대기한다(이유는 [frozenGetPageWindowsContinuation] 자체의 문서 참고). 응답 자체는
+     * 다음 순서로 시도된다: [secondDocumentId]는 다른 모든 id가 받는 "알 수 없는 문서" 빈 응답 대신,
+     * 자기 자신의 실제 pagination을 가진 동시에 열린 두 번째 문서를 모델링하며 [secondPageWindows]로
+     * 직접 응답한다. 그것이 아니면, 알 수 없는 문서나 PDF는 빈 값으로 응답한다(PDF는 텍스트
+     * pagination이 없다). [progressivePagination]은 지금까지 [measuredSectionCount]가 측정한
+     * 만큼의 페이지만 응답한다. 고정된 [pageWindows]는 on-demand 블록 디코딩을 모델링하기 위해
+     * 선택적으로 [lazySectionBlocks]를 거쳐 걸러진 채 직접 응답한다. [paginatedText]는 [paginate]에
+     * 의해 고정 크기 window로 나뉜다. 이 모두가 실패하면 고정된 두 페이지짜리 stub이 응답한다. 또한
+     * 실제 저장소가 문서를 레이아웃할 때마다 블록을 새로 다시 측정하는 것을 반영하여, 매 호출마다
+     * [pageWindowRequests]를 증가시키고 [sectionBlocksCacheAlive]를 다시 살아 있는 것으로 표시한다.
      */
     override suspend fun getPageWindows(
         documentId: DocumentId,
@@ -3396,9 +3377,8 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * Splits [text] into fixed-size windows sized off [viewportSize]'s width, standing in for the
-     * real pagination engine when a test only needs some non-trivial page count rather than exact
-     * measurement.
+     * [text]를 [viewportSize]의 너비에 맞춘 고정 크기 window로 나눈다. 테스트가 정확한 측정이 아니라
+     * 그럴듯한 페이지 수만 필요할 때 실제 pagination 엔진을 대신한다.
      */
     private fun paginate(text: String, viewportSize: ViewportSize): List<PageWindow> {
         val charsPerPage = (viewportSize.widthPx / 10).coerceAtLeast(1)
@@ -3415,8 +3395,8 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * Not used by any test in this suite; importing a brand-new document is out of scope for
-     * [ReaderViewModel]'s own tests.
+     * 이 스위트의 어떤 테스트에서도 쓰이지 않는다. 완전히 새 문서를 import하는 것은
+     * [ReaderViewModel] 자체 테스트의 범위 밖이다.
      */
     override suspend fun importDocument(
         source: DocumentImportSource,
@@ -3424,16 +3404,16 @@ private class FakeDocumentRepository(
     ): ReaderDocument = error("not used")
 
     /**
-     * Overwrites [metadata] with [document] — what `ReaderViewModel.toggleFavorite`'s write is
-     * checked against.
+     * [metadata]를 [document]로 덮어쓴다 — `ReaderViewModel.toggleFavorite`의 쓰기가 이것을 기준으로
+     * 검사된다.
      */
     override suspend fun upsertDocument(document: DocumentMetadata) {
         metadata = document
     }
 
     /**
-     * Records the open through [onMarkDocumentOpened], then [markDocumentOpenedGate] if one is
-     * set, before writing [lastOpenedDocumentId]/[lastOpenedAtEpochMillis].
+     * [lastOpenedDocumentId]/[lastOpenedAtEpochMillis]를 쓰기 전에, [onMarkDocumentOpened]로 open을
+     * 기록한 다음, 설정되어 있다면 [markDocumentOpenedGate]를 거친다.
      */
     override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) {
         onMarkDocumentOpened()
@@ -3442,12 +3422,12 @@ private class FakeDocumentRepository(
         lastOpenedAtEpochMillis = openedAtEpochMillis
     }
 
-    /** Not used by any test in this suite. */
+    /** 이 스위트의 어떤 테스트에서도 쓰이지 않는다. */
     override suspend fun deleteDocument(documentId: DocumentId) = Unit
 
     /**
-     * Answers [importComplete] for the fixed single-batch model, or whether every entry of
-     * [progressiveImportBatches] has been consumed for the multi-batch model.
+     * 고정된 단일 배치 모델에서는 [importComplete]로 응답하고, 다중 배치 모델에서는
+     * [progressiveImportBatches]의 모든 항목이 소비되었는지로 응답한다.
      */
     override suspend fun isImportComplete(documentId: DocumentId): Boolean = when {
         documentId != this.documentId -> true
@@ -3456,19 +3436,18 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * How many times [importNextSections] has been called; read by a test confirming the
-     * background import continuation actually started.
+     * [importNextSections]가 호출된 횟수. 백그라운드 import continuation이 실제로 시작되었는지
+     * 확인하는 테스트가 읽는다.
      */
     var importNextSectionsCallCount = 0
         private set
 
     /**
-     * Models one step of a progressive EPUB import: waits on [importNextSectionsGate] if set, then
-     * either consumes the next entry of [progressiveImportBatches] (waiting on its own
-     * [importBatchGates] entry first) or appends [sectionsAppendedOnImport] in one shot, while
-     * leaving the already-live warmed sections/cache alone until a completion reload replaces the
-     * pagination — mirroring the real repository's "append in place, invalidate once on finish"
-     * import path.
+     * progressive EPUB import의 한 단계를 모델링한다: 설정되어 있으면 [importNextSectionsGate]를
+     * 기다린 다음, [progressiveImportBatches]의 다음 항목을 소비하거나(먼저 자신의
+     * [importBatchGates] 항목을 기다린다) [sectionsAppendedOnImport]를 한 번에 덧붙이며, 완료
+     * reload가 pagination을 대체할 때까지 이미 살아 있는 예열된 section/캐시는 그대로 둔다 — 실제
+     * 저장소의 "제자리에 덧붙이고, 끝날 때 한 번만 무효화하는" import 경로를 그대로 반영한다.
      */
     override suspend fun importNextSections(
         documentId: DocumentId,
@@ -3505,14 +3484,14 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * Models one step of [progressivePagination]'s section-by-section measurement, or the "lying
-     * complete" signal [paginationSessionAlwaysInvalidated] stands in for. Overriding this to
-     * answer anything but the interface's own default matters only when one of those two flags is
-     * set: `DocumentRepository`'s own default implementation (`isComplete = true,
-     * sectionsMeasured = 0`) already applies whenever neither is, which is exactly why no test in
-     * this suite that leaves both flags at their default ever actually starts
-     * `ReaderViewModel.continuePaginationIfIncomplete` — that continuation only starts once
-     * [isPaginationComplete] answers false, and the interface default never does.
+     * [progressivePagination]의 section별 측정 한 단계, 또는 [paginationSessionAlwaysInvalidated]가
+     * 대신하는 "거짓 완료" 신호를 모델링한다. 인터페이스 자체의 기본값이 아닌 무언가로 응답하도록
+     * 이를 override하는 것은 그 두 플래그 중 하나가 설정되었을 때만 의미가 있다:
+     * `DocumentRepository` 자체의 기본 구현(`isComplete = true, sectionsMeasured = 0`)은 둘 다
+     * 아닐 때 이미 적용되며, 이것이 바로 두 플래그를 모두 기본값으로 남겨두는 이 스위트의 어떤
+     * 테스트도 실제로 `ReaderViewModel.continuePaginationIfIncomplete`를 시작하지 않는 이유다 — 그
+     * continuation은 [isPaginationComplete]가 false로 답할 때만 시작되며, 인터페이스 기본값은 절대
+     * 그렇게 답하지 않는다.
      */
     override suspend fun continuePagination(
         documentId: DocumentId,
@@ -3540,9 +3519,9 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * Answers false when [paginationSessionAlwaysInvalidated] models a session invalidated
-     * mid-walk, true when [progressivePagination] is off (nothing to continue), or otherwise
-     * whether [measuredSectionCount] has caught up with [liveSections].
+     * [paginationSessionAlwaysInvalidated]가 한창 걷던 도중 무효화된 세션을 모델링할 때는 false로,
+     * [progressivePagination]이 꺼져 있을 때는(이어갈 것이 없으므로) true로, 그 외에는
+     * [measuredSectionCount]가 [liveSections]를 따라잡았는지로 응답한다.
      */
     override suspend fun isPaginationComplete(documentId: DocumentId): Boolean = when {
         paginationSessionAlwaysInvalidated -> false
@@ -3555,19 +3534,19 @@ private class FakeDocumentRepository(
 }
 
 /**
- * Stands in for [DocumentRepositoryImpl]'s on-demand block decoding (see SectionBlocksCache): a
- * page's blocks read as empty until [warmedSections] reports its owning section as warmed, then flip
- * to [blocksBySection]'s answer for that section — without [FakeDocumentRepository.getPageWindows]
- * ever being asked again, the same way a real restored page list rebuilds a page in place once its
- * section's blocks arrive.
+ * [DocumentRepositoryImpl]의 on-demand 블록 디코딩(SectionBlocksCache 참고)을 대신한다: 페이지의
+ * 블록은 [warmedSections]가 그것을 소유한 section을 예열됨으로 보고할 때까지 빈 채로 읽히다가, 그
+ * section에 대한 [blocksBySection]의 응답으로 바뀐다 — [FakeDocumentRepository.getPageWindows]가
+ * 다시 호출되는 일 없이, 실제로 복원된 페이지 목록이 자신의 section 블록이 도착하면 페이지를
+ * 제자리에서 재구성하는 것과 같은 방식이다.
  *
- * @property pages the underlying page windows, without their blocks.
- * @property sections the section list a page's start offset is matched against to find its owning
- *   section.
- * @property warmedSections a live snapshot of which section indexes have been warmed so far;
- *   queried fresh on every [get], not captured once, so a page already read once can still pick up
- *   blocks warmed afterward.
- * @property blocksBySection every section's own decoded blocks, keyed by section index.
+ * @property pages 블록이 없는, 바탕이 되는 page window들.
+ * @property sections 페이지의 시작 offset을 그것을 소유한 section을 찾기 위해 대조하는 section
+ *   목록.
+ * @property warmedSections 지금까지 어떤 section 인덱스가 예열되었는지의 살아 있는 스냅샷 — 한
+ *   번만 캡처되는 것이 아니라 매 [get]마다 새로 조회되므로, 이미 한 번 읽힌 페이지도 그 뒤에
+ *   예열된 블록을 여전히 받아올 수 있다.
+ * @property blocksBySection section 인덱스를 키로 하는, 각 section 자체의 디코딩된 블록.
  */
 private class LazyBlockPageWindows(
     private val pages: List<PageWindow>,
@@ -3575,12 +3554,12 @@ private class LazyBlockPageWindows(
     private val warmedSections: () -> Set<Int>,
     private val blocksBySection: Map<Int, List<ReaderBlock>>,
 ) : AbstractList<PageWindow>() {
-    /** The number of pages in [pages], unaffected by which sections are warmed. */
+    /** [pages]에 있는 페이지 수. 어떤 section이 예열되었는지와는 무관하다. */
     override val size: Int get() = pages.size
 
     /**
-     * [pages]'s window at [index], with its blocks read from [blocksBySection] once its section
-     * is warmed, empty otherwise.
+     * [pages]의 [index] 위치의 window. 그 section이 예열되면 블록을 [blocksBySection]에서 읽고,
+     * 그렇지 않으면 비어 있다.
      */
     override fun get(index: Int): PageWindow {
         val page = pages[index]
@@ -3595,45 +3574,44 @@ private class LazyBlockPageWindows(
 }
 
 /**
- * A single-document test double for [ReaderRepository]: [progress] holds the one reading-progress
- * row this fake knows about, ignoring [DocumentId] entirely, since no test in this suite exercises
- * more than one document's progress through the same instance.
+ * [ReaderRepository]에 대한 단일 문서 테스트 더블이다: [progress]는 이 fake가 아는 유일한 읽기
+ * 진행 행을 담으며, [DocumentId]는 완전히 무시한다. 이 스위트의 어떤 테스트도 같은 인스턴스로
+ * 문서 하나 이상의 진행 상황을 시험하지 않기 때문이다.
  */
 private class FakeReaderRepository : ReaderRepository {
     /**
-     * The stored reading progress a test seeds before opening a document, or reads after
-     * [saveProgress] runs.
+     * 테스트가 문서를 열기 전에 미리 심어두거나, [saveProgress]가 실행된 뒤에 읽는 저장된 읽기
+     * 진행 상황.
      */
     var progress: ReadingProgress? = null
 
     /**
-     * Answers a single-value flow snapshotting [progress] at subscription time; not updated on
-     * later writes.
+     * 구독 시점의 [progress]를 스냅샷한 단일 값 flow로 응답한다. 이후의 쓰기에는 갱신되지 않는다.
      */
     override fun observeProgress(documentId: DocumentId): Flow<ReadingProgress?> = MutableStateFlow(progress)
 
-    /** Answers [progress] as-is. */
+    /** [progress]를 그대로 응답한다. */
     override suspend fun getProgress(documentId: DocumentId): ReadingProgress? = progress
 
     /**
-     * Overwrites [progress] with [progress] (the parameter) — what [ReaderViewModel]'s own
-     * progress writes are checked against.
+     * [progress](매개변수)로 [progress]를 덮어쓴다 — [ReaderViewModel] 자체의 progress 쓰기가 이를
+     * 기준으로 검사된다.
      */
     override suspend fun saveProgress(progress: ReadingProgress) {
         this.progress = progress
     }
 
-    /** Clears [progress]. Not exercised by any test in this suite. */
+    /** [progress]를 비운다. 이 스위트의 어떤 테스트도 이를 시험하지 않는다. */
     override suspend fun deleteProgress(documentId: DocumentId) {
         progress = null
     }
 }
 
 /**
- * Mutable in-memory [ReaderSettingsRepository] used to drive both local writes and external
- * settings-screen emissions into an already-open reader.
+ * 로컬 쓰기와, 이미 열려 있는 리더로의 외부 설정 화면 emission 둘 다를 구동하는 데 쓰이는, 변경
+ * 가능한 인메모리 [ReaderSettingsRepository].
  *
- * @param initialSettings the first settings snapshot [settings] emits.
+ * @param initialSettings [settings]가 처음 발행하는 설정 스냅샷.
  */
 private class FakeReaderSettingsRepository(
     initialSettings: ReaderSettings = ReaderSettings(),
@@ -3672,32 +3650,31 @@ private class FakeReaderSettingsRepository(
 }
 
 /**
- * A test double for [BookmarkRepository] backed by a single in-memory list, shared across every
- * document id — no test in this suite exercises more than one document's bookmarks through the same
- * instance.
+ * 모든 문서 id에 걸쳐 공유되는 단일 인메모리 목록을 기반으로 하는 [BookmarkRepository]의 테스트
+ * 더블이다 — 이 스위트의 어떤 테스트도 같은 인스턴스로 문서 하나 이상의 bookmark를 시험하지 않는다.
  */
 private class FakeBookmarkRepository : BookmarkRepository {
     /**
-     * The saved places currently held; a [MutableStateFlow] so [observeBookmarks] reflects every
-     * write live.
+     * 현재 담고 있는 저장 위치들. [observeBookmarks]가 모든 쓰기를 실시간으로 반영하도록
+     * [MutableStateFlow]로 되어 있다.
      */
     val bookmarks = MutableStateFlow<List<Bookmark>>(emptyList())
 
-    /** Answers [bookmarks] directly, ignoring [documentId]. */
+    /** [documentId]는 무시하고 [bookmarks]로 직접 응답한다. */
     override fun observeBookmarks(documentId: DocumentId): Flow<List<Bookmark>> = bookmarks
 
-    /** Answers the bookmark in [bookmarks] whose id matches [bookmarkId], or null. */
+    /** [bookmarks] 중 id가 [bookmarkId]와 일치하는 bookmark로 응답하거나, 없으면 null. */
     override suspend fun getBookmark(bookmarkId: String): Bookmark? = bookmarks.value.firstOrNull { it.id == bookmarkId }
 
     /**
-     * Replaces any existing bookmark sharing [bookmark]'s id, then adds [bookmark] — the same
-     * replace-by-id semantics the real store gives a saved place.
+     * [bookmark]와 id가 같은 기존 bookmark가 있으면 대체한 뒤 [bookmark]를 추가한다 — 실제 저장소가
+     * 저장 위치에 부여하는 것과 같은, id 기준 대체 의미론이다.
      */
     override suspend fun saveBookmark(bookmark: Bookmark) {
         bookmarks.value = bookmarks.value.filterNot { it.id == bookmark.id } + bookmark
     }
 
-    /** Removes the bookmark in [bookmarks] whose id matches [bookmarkId], if any. */
+    /** [bookmarks] 중 id가 [bookmarkId]와 일치하는 bookmark가 있으면 제거한다. */
     override suspend fun deleteBookmark(bookmarkId: String) {
         bookmarks.value = bookmarks.value.filterNot { it.id == bookmarkId }
     }

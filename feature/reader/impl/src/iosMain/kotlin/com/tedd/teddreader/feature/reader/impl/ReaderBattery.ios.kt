@@ -12,15 +12,14 @@ import platform.UIKit.UIDevice
 import kotlin.math.roundToInt
 
 /**
- * iOS's answer: reads `UIDevice.currentDevice.batteryLevel`, republished every
- * [BatteryRefreshIntervalMillis] like the Android actual. Unlike Android's always-available
- * `BatteryManager` service, `UIDevice` only reports a real battery level while its own
- * `batteryMonitoringEnabled` flag is set, so this turns it on for as long as this composable is
- * alive and restores whatever the flag was before, rather than leaving monitoring on for the rest
- * of the app's lifetime after a reader screen happens to have opened once.
+ * iOS의 해법은 `UIDevice.currentDevice.batteryLevel`을 읽어, Android actual과 마찬가지로
+ * [BatteryRefreshIntervalMillis]마다 다시 발행하는 것이다. 항상 사용할 수 있는 Android의 `BatteryManager`
+ * 서비스와 달리 `UIDevice`는 자체 `batteryMonitoringEnabled` 플래그가 설정되어 있는 동안에만 실제 배터리
+ * 잔량을 보고하므로, 이 composable이 살아 있는 동안에는 그 플래그를 켜 두었다가 이전 값으로 복원한다 —
+ * 리더 화면이 한 번 열렸다는 이유로 앱이 살아 있는 나머지 기간 내내 모니터링을 켜 둔 채로 두지 않기 위해서다.
  *
- * @return the device's current battery charge, 0 to 100, or null while `batteryLevel` has not yet
- *   reported a valid reading (a negative value before the first observation).
+ * @return 기기의 현재 배터리 충전량(0~100), `batteryLevel`이 아직 유효한 값을 보고하지 않았다면(첫 관측 전에는
+ *   음수 값) null.
  */
 @Composable
 internal actual fun rememberReaderBatteryPercent(): Int? {
@@ -47,9 +46,9 @@ internal actual fun rememberReaderBatteryPercent(): Int? {
 }
 
 /**
- * How often [rememberReaderBatteryPercent] re-reads `batteryLevel`, in milliseconds — the same
- * cadence the Android actual polls `BatteryManager` at, so the footer refreshes battery at one
- * consistent rate regardless of platform. Battery charge changes slowly enough that a 30-second
- * poll keeps the status footer accurate without waking this composable up on every recomposition.
+ * [rememberReaderBatteryPercent]가 `batteryLevel`을 다시 읽는 주기(밀리초)로, Android actual이
+ * `BatteryManager`를 폴링하는 것과 같은 주기를 사용해 플랫폼과 무관하게 상태 표시줄의 배터리 갱신 빈도를
+ * 하나로 맞춘다. 배터리 충전량은 변화가 충분히 느려서 30초 폴링만으로도 매 recomposition마다 이 composable을
+ * 깨우지 않고 상태 표시줄을 정확하게 유지할 수 있다.
  */
 private const val BatteryRefreshIntervalMillis = 30_000L
