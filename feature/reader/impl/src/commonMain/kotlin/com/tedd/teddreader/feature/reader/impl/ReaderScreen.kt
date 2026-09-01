@@ -1132,6 +1132,7 @@ private fun ReaderPagePane(
 
         uiState.isImageMode -> ImagePageSurface(
             page = page,
+            documentUri = uiState.documentUri,
             imageBytes = uiState.visualPageImages[page],
             sourceUri = uiState.documentUri.takeIf { uiState.documentFormat == DocumentFormat.IMAGE },
             isFailed = page in uiState.failedVisualPages,
