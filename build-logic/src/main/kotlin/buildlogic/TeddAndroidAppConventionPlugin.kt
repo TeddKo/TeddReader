@@ -8,26 +8,24 @@ import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
 
 /**
- * Convention plugin for the Android application shell ([androidApp] module).
+ * Android 애플리케이션 셸([androidApp] 모듈)을 위한 convention plugin이다.
  *
- * Applies the Android application, Compose, and Kotlin Compose plugins; configures the
- * [ApplicationExtension] for release and debug builds (including optional signing); wires the
- * baseline-profile plugin in the order its own plugin requires; and adds the module's runtime
- * dependencies. The module's own `build.gradle.kts` stays at a single `id(...)` line because
- * every shared decision lives here.
+ * Android application, Compose, Kotlin Compose plugin을 적용하고, 선택적 서명을 포함한 release 및
+ * debug 빌드용 [ApplicationExtension]을 설정하며, baseline-profile plugin 자체가 요구하는 순서로
+ * 연결하고, 모듈의 런타임 의존성을 추가한다. 모든 공유 결정이 여기에 있으므로 모듈 자체
+ * `build.gradle.kts`는 `id(...)` 한 줄로 유지된다.
  */
 class TeddAndroidAppConventionPlugin : Plugin<Project> {
     /**
-     * Applies the plugin to [target].
+     * [target]에 plugin을 적용한다.
      *
-     * The baseline-profile plugin must be applied **after** [configureAndroid] because it inspects
-     * the module's Android configuration the moment it is applied and rejects the module outright
-     * if it cannot find the `ApplicationExtension`. The `baselineProfile` dependency configuration
-     * is likewise added after the plugin, because the plugin creates that configuration as a side
-     * effect of its own application; attaching the profile module before then would fail with an
-     * unresolved configuration name.
+     * baseline-profile plugin은 적용되는 즉시 모듈의 Android 설정을 검사하고 `ApplicationExtension`을
+     * 찾지 못하면 모듈을 즉시 거부하므로 반드시 [configureAndroid] **이후**에 적용해야 한다.
+     * `baselineProfile` 의존성 configuration도 plugin 다음에 추가한다. plugin 적용의 부수 효과로 해당
+     * configuration을 생성하므로, 그 전에 profile 모듈을 연결하면 해석되지 않은 configuration 이름으로
+     * 실패한다.
      *
-     * @param target The Gradle [Project] this plugin is applied to.
+     * @param target 이 plugin을 적용할 Gradle [Project].
      */
     override fun apply(target: Project): Unit = with(target) {
         pluginManager.apply("com.android.application")
@@ -42,26 +40,24 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
     }
 
     /**
-     * Configures the [ApplicationExtension] for this module.
+     * 이 모듈의 [ApplicationExtension]을 설정한다.
      *
-     * Sets the namespace, compile/min/target SDK versions, packaging exclusions, optional signing,
-     * build types, and Java compatibility options.
+     * namespace, compile/min/target SDK 버전, packaging 제외 항목, 선택적 서명, build type, Java 호환성
+     * 옵션을 설정한다.
      *
-     * **Signing.** Signing material is deliberately kept out of version control: `.signing/` and
-     * `keystore.properties` are both gitignored, and the path is resolved from the repository root
-     * so it reads the same on any machine. A checkout without those files simply produces an
-     * unsigned release build rather than failing on a file it was never given.
+     * **서명.** 서명 자료는 의도적으로 버전 관리에서 제외한다. `.signing/`과
+     * `keystore.properties`는 모두 gitignore 대상이며, 어느 기기에서나 동일하게 읽도록 저장소 루트에서
+     * 경로를 해석한다. 이 파일들이 없는 checkout은 제공되지 않은 파일 때문에 실패하는 대신 서명되지
+     * 않은 release 빌드를 생성한다.
      *
-     * **Build types.** The debug build carries a `.dev` application-ID suffix and the label
-     * "TeddReader dev" so that it installs side by side with the release build on the same device.
-     * Without that split, measuring debug against release required uninstalling — which erased the
-     * reader's library and all stored reading positions.
+     * **Build type.** debug 빌드는 `.dev` application-ID suffix와 "TeddReader dev" label을 사용하여
+     * 같은 기기에 release 빌드와 나란히 설치된다. 이 분리가 없으면 debug와 release를 비교 측정할 때
+     * 앱을 제거해야 했고, 그 과정에서 리더 라이브러리와 저장된 읽기 위치가 모두 지워졌다.
      *
-     * **R8 and shrinking.** The release build enables minification and resource shrinking. Without
-     * R8, the reader's whole composable tree is loaded and JIT-compiled the first time a book is
-     * opened, and that showed up as roughly 1.9 s between the tap and the first page — measured
-     * while the data path had already finished in 230 ms. R8 eliminates that cold-start penalty by
-     * AOT-optimising and pruning the tree before install.
+     * **R8 및 shrinking.** release 빌드는 minification과 resource shrinking을 활성화한다. R8이 없으면
+     * 책을 처음 열 때 리더의 전체 composable 트리를 로드하고 JIT 컴파일하며, 데이터 경로가 이미
+     * 230 ms에 끝난 상황에서도 탭부터 첫 페이지까지 약 1.9 s가 걸렸다. R8은 설치 전에 트리를 AOT
+     * 최적화하고 가지치기하여 이 cold-start 비용을 제거한다.
      */
     private fun Project.configureAndroid() {
         extensions.configure<ApplicationExtension> {
@@ -119,19 +115,19 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
         }
     }
 
-    /** Makes AGP's ungrouped release lifecycle tasks visible in Android Studio's Gradle tool window. */
+    /** AGP에서 그룹이 없는 release lifecycle 태스크를 Android Studio의 Gradle 도구 창에 표시한다. */
     private fun Project.exposeReleaseTasks() {
         tasks.matching { task -> task.name == "assembleRelease" || task.name == "bundleRelease" }
             .configureEach { group = "build" }
     }
 
     /**
-     * Adds the runtime dependencies for the Android application shell.
+     * Android 애플리케이션 셸의 런타임 의존성을 추가한다.
      *
-     * The module depends on `app:reader` (the composition root that wires the DI graph, navigation
-     * host, and theme), `androidx-activity-compose` for the Compose-aware Activity entry point,
-     * the Compose UI tooling preview stub for layout inspection in non-debug builds, and the full
-     * Compose tooling only in the debug variant.
+     * 이 모듈은 DI graph, 탐색 host, theme를 연결하는 composition root인 `app:reader`, Compose를
+     * 인식하는 Activity 진입점용 `androidx-activity-compose`, non-debug 빌드에서 레이아웃을 검사하기
+     * 위한 Compose UI tooling preview stub에 의존하며, 전체 Compose tooling은 debug variant에만
+     * 의존한다.
      */
     private fun Project.configureDependencies() {
         dependencies.add("implementation", project(":app:reader"))

@@ -9,7 +9,7 @@ val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
 kotlin {
     sourceSets {
         androidMain.dependencies {
-            // Display fold / hinge reporting; Android is the only platform with a public API.
+            // 디스플레이 fold / hinge 보고용이며, public API가 있는 플랫폼은 Android뿐이다.
             implementation(libs.findLibrary("androidx-window").get())
         }
         commonMain.dependencies {
