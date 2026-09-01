@@ -48,11 +48,10 @@ class DocumentInfoViewModelTest {
     }
 
     /**
-     * Verifies that cancelling the coroutine that runs [DocumentInfoViewModel.setDocument]
-     * actually stops the suspended work rather than silently swallowing the cancellation. If
-     * [suspendRunCatching] were reverted to plain `runCatching`, the cancellation would be caught
-     * and the coroutine would complete normally — the job would report `isCompleted == true` and
-     * `isCancelled == false`, failing this assertion.
+     * [DocumentInfoViewModel.setDocument]를 실행하는 코루틴을 취소했을 때 취소를 조용히
+     * 삼키지 않고 일시 중단된 작업이 실제로 중단되는지 검증한다. [suspendRunCatching]을
+     * 일반 `runCatching`으로 되돌리면 취소가 포착되어 코루틴이 정상 완료되고, 작업이
+     * `isCompleted == true`와 `isCancelled == false`를 보고하므로 이 단언이 실패한다.
      */
     @Test
     fun cancellationPropagatesOutOfDocumentInfoLoad() = runTest {
