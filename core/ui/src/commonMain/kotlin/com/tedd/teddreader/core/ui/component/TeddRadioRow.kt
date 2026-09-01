@@ -23,25 +23,23 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.teddSelectable
 
 /**
- * A settings row that pairs a title/description with a trailing [RadioButton], where the whole row
- * (not just the radio dot) is the tap target — the row itself carries [teddSelectable] with
- * `role = Role.RadioButton`, and the [RadioButton] passed `onClick = null` so it renders visually but
- * does not register its own, smaller, tap target. Meant to be used in a group (see
- * [TeddOptionGroup]) where each row's [onClick] selects that row's option. [RadioButton] itself is
- * kept rather than rebuilt — a null `onClick` already removes its own ripple — with only its `colors`
- * pinned to this app's tokens instead of the ambient Material scheme.
+ * 제목/설명과 후행 [RadioButton]을 짝짓는 설정 행으로, 라디오 점만이 아니라 행 전체가 탭
+ * 타깃이다 — 행 자체가 `role = Role.RadioButton`으로 [teddSelectable]을 가지고, [RadioButton]에는
+ * `onClick = null`이 전달되어 시각적으로는 렌더링되지만 그 자체의 더 작은 탭 타깃은 등록하지 않는다.
+ * 각 행의 [onClick]이 그 행의 옵션을 선택하는 그룹([TeddOptionGroup] 참고) 안에서 쓰이도록 만들어져
+ * 있다. [RadioButton] 자체는 새로 만들지 않고 그대로 유지한다 — `onClick`이 null이면 이미 자체 리플이
+ * 제거되므로 — `colors`만 주변 Material 스킴 대신 이 앱의 토큰에 고정한다.
  *
- * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
- * @param selected Whether this row's radio button is drawn selected.
- * @param onClick Invoked when the row is tapped, to select this row's option; not invoked while
- * [enabled] is false.
- * @param modifier Modifier applied to the row's root.
- * @param description A second line shown under [title] in a muted color; omitted when null.
- * @param enabled Whether the row responds to taps; false also switches the radio button to disabled
- * colors.
- * @param contentPadding Padding between the row's edge and its content; null means the theme's
- * screenPadding/small combination is used, so the row's horizontal inset lines up with
- * [TeddSection]'s screen padding instead of sitting 4dp inside it.
+ * @param title [teddReaderTypography]의 `settingTitle` 스타일로 표시되는 행의 주요 텍스트.
+ * @param selected 이 행의 라디오 버튼을 선택된 상태로 그릴지 여부.
+ * @param onClick 행이 탭될 때 이 행의 옵션을 선택하기 위해 호출된다. [enabled]가 false인 동안에는
+ * 호출되지 않는다.
+ * @param modifier 행 루트에 적용되는 modifier.
+ * @param description [title] 아래 흐린 색상으로 표시되는 두 번째 줄. null이면 생략된다.
+ * @param enabled 행이 탭에 반응할지 여부. false이면 라디오 버튼도 비활성 색상으로 전환된다.
+ * @param contentPadding 행 가장자리와 콘텐츠 사이의 패딩. null이면 테마의 screenPadding/small
+ * 조합을 사용하여, 행의 가로 인셋이 그 안쪽 4dp에 놓이는 대신 [TeddSection]의 화면 패딩과
+ * 맞춰진다.
  */
 @Composable
 fun TeddRadioRow(
@@ -99,7 +97,7 @@ fun TeddRadioRow(
     }
 }
 
-/** Compose preview rendering [TeddRadioRow] selected, with a title and description. */
+/** 제목과 설명을 갖춘 선택 상태의 [TeddRadioRow]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddRadioRowPreview() {

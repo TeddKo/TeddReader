@@ -6,16 +6,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Verifies `Density.pxToSp`/`Density.dpToSp` (defined in this module's `ConvertUtils.kt`, not owned
- * by this documentation pass) convert correctly given both a pixel density and a font scale, since
- * these two units are easy to get backwards: sp already factors out density but not the user's font
- * scale, so a conversion helper that gets the order of operations wrong would look correct at
- * `fontScale = 1` and only misbehave once a user changes their system font size.
+ * (이 모듈의 `ConvertUtils.kt`에 정의되어 있으며 이 문서화 작업이 소유하지 않는) `Density.pxToSp`/
+ * `Density.dpToSp`가 픽셀 density와 글꼴 배율이 함께 주어졌을 때 올바르게 변환하는지 검증한다. 이
+ * 두 단위는 뒤바뀌기 쉽다: sp는 이미 density를 반영해 없앴지만 사용자의 글꼴 배율은 반영하지
+ * 않으므로, 연산 순서를 틀리는 변환 헬퍼는 `fontScale = 1`에서는 올바르게 보이다가 사용자가 시스템
+ * 글자 크기를 바꾸는 순간에야 잘못 동작하게 된다.
  */
 class ConvertUtilsTest {
     /**
-     * At `density = 2`, 30px is 15dp; at `fontScale = 1.5`, 15dp of text becomes 10sp — confirming the
-     * density division happens before the font-scale division, not after.
+     * `density = 2`일 때 30px는 15dp이고, `fontScale = 1.5`일 때 15dp의 텍스트는 10sp가 된다 —
+     * density 나눗셈이 글꼴 배율 나눗셈 이후가 아니라 그 전에 일어남을 확인한다.
      */
     @Test
     fun densityConvertsPixelsToSpWithDensityAndFontScale() {
@@ -25,9 +25,8 @@ class ConvertUtilsTest {
     }
 
     /**
-     * A dp value is already density-independent, so converting it to sp should divide only by
-     * `fontScale` and ignore `density` entirely — confirmed here by picking a `density` value that
-     * would change the result if it were (incorrectly) applied.
+     * dp 값은 이미 density와 무관하므로, sp로 변환할 때는 `fontScale`로만 나누고 `density`는 완전히
+     * 무시해야 한다 — (잘못) 적용된다면 결과가 달라질 `density` 값을 골라 이를 여기서 확인한다.
      */
     @Test
     fun densityConvertsDpToSpWithFontScaleOnly() {

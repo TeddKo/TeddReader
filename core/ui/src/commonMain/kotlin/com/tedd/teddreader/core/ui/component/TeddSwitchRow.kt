@@ -23,26 +23,26 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.teddToggleable
 
 /**
- * A settings row that pairs a title/description with a trailing [Switch], where the whole row (not
- * just the switch thumb) is the tap target — the row itself carries [teddToggleable] with
- * `role = Role.Switch`, and the [Switch] passed `onCheckedChange = null` so it renders visually but
- * does not register its own, smaller, tap target. Without that split, tapping anywhere but the small
- * switch control itself would do nothing, which fails the row-sized touch target this app's settings
- * screens rely on everywhere else (see [TeddRadioRow], [TeddCheckboxRow]). [Switch] itself is kept
- * rather than rebuilt, since `onCheckedChange = null` already makes it non-interactive with no ripple
- * of its own — only its `colors` are pinned to this app's tokens instead of the ambient Material
- * scheme, so the thumb and track stay correct if that scheme ever drifts from [teddReaderColors].
+ * 제목/설명과 후행 [Switch]를 짝짓는 설정 행으로, 스위치 thumb만이 아니라 행 전체가 탭
+ * 타깃이다 — 행 자체가 `role = Role.Switch`로 [teddToggleable]을 가지고, [Switch]에는
+ * `onCheckedChange = null`이 전달되어 시각적으로는 렌더링되지만 그 자체의 더 작은 탭 타깃은 등록하지
+ * 않는다. 이 분리가 없으면 작은 스위치 컨트롤 자체가 아닌 곳을 탭해도 아무 일도 일어나지 않게 되어,
+ * 이 앱의 설정 화면이 다른 모든 곳에서 의존하는 행 크기의 터치 타깃이 깨진다([TeddRadioRow],
+ * [TeddCheckboxRow] 참고). [Switch] 자체는 새로 만들지 않고 그대로 유지한다.
+ * `onCheckedChange = null`이 이미 그것을 비상호작용 상태로 만들어 자체 리플이 없기 때문이다 — 그
+ * `colors`만 주변 Material 스킴 대신 이 앱의 토큰에 고정하여, 그 스킴이 [teddReaderColors]에서
+ * 벗어나더라도 thumb와 track이 올바르게 유지되게 한다.
  *
- * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
- * @param checked Whether the switch is drawn on.
- * @param onCheckedChange Invoked with the new checked state when the row is tapped; not invoked
- * while [enabled] is false.
- * @param modifier Modifier applied to the row's root.
- * @param description A second line shown under [title] in a muted color; omitted when null.
- * @param enabled Whether the row responds to taps; false also switches the switch to disabled colors.
- * @param contentPadding Padding between the row's edge and its content; null means the theme's
- * screenPadding/small combination is used, so the row's horizontal inset lines up with
- * [TeddSection]'s screen padding instead of sitting 4dp inside it.
+ * @param title [teddReaderTypography]의 `settingTitle` 스타일로 표시되는 행의 주요 텍스트.
+ * @param checked 스위치를 켜진 상태로 그릴지 여부.
+ * @param onCheckedChange 행이 탭될 때 새 체크 상태와 함께 호출된다. [enabled]가 false인 동안에는
+ * 호출되지 않는다.
+ * @param modifier 행 루트에 적용되는 modifier.
+ * @param description [title] 아래 흐린 색상으로 표시되는 두 번째 줄. null이면 생략된다.
+ * @param enabled 행이 탭에 반응할지 여부. false이면 스위치도 비활성 색상으로 전환된다.
+ * @param contentPadding 행 가장자리와 콘텐츠 사이의 패딩. null이면 테마의 screenPadding/small
+ * 조합을 사용하여, 행의 가로 인셋이 그 안쪽 4dp에 놓이는 대신 [TeddSection]의 화면 패딩과
+ * 맞춰진다.
  */
 @Composable
 fun TeddSwitchRow(
@@ -105,7 +105,7 @@ fun TeddSwitchRow(
     }
 }
 
-/** Compose preview rendering [TeddSwitchRow] checked, with a title and description. */
+/** 제목과 설명을 갖춘 켜진 상태의 [TeddSwitchRow]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddSwitchRowPreview() {

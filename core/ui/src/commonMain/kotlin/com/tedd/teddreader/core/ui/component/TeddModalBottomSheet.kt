@@ -20,36 +20,36 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.consumeUnconsumedVerticalScroll
 
 /**
- * The app's modal bottom sheet chrome: a title/description header above [content], laid out on top
- * of Material's [ModalBottomSheet] with the app's spacing and typography. The header-plus-content
- * [Column] is also given [consumeUnconsumedVerticalScroll], because without it, vertical drag deltas
- * that [content] itself does not consume (e.g. a scrollable list that has reached its top or bottom,
- * or non-scrolling content at all) leak past this column into [ModalBottomSheet]'s own nested-scroll
- * handling and get interpreted as a drag to expand or dismiss the sheet — a real bug this app hit
- * where scrolling to the end of a sheet's content caused the sheet itself to jump closed. Consuming
- * the leftover here keeps sheet-drag and content-scroll gestures independent.
+ * 앱의 모달 바텀 시트 크롬: [content] 위에 제목/설명 헤더를 두고, Material의 [ModalBottomSheet]
+ * 위에 앱의 간격과 활자 설정으로 배치한다. 헤더와 콘텐츠를 함께 담는 [Column]에도
+ * [consumeUnconsumedVerticalScroll]이 지정되어 있는데, 이것이 없으면 [content] 자체가 소비하지 않는
+ * 수직 드래그 델타(예: 이미 위나 아래 끝에 도달한 스크롤 가능 목록, 또는 아예 스크롤되지 않는
+ * 콘텐츠)가 이 column을 지나 [ModalBottomSheet] 자체의 nested-scroll 처리로 새어 들어가 시트를
+ * 펼치거나 닫는 드래그로 해석되어 버리기 때문이다 — 시트 콘텐츠 끝까지 스크롤하면 시트 자체가 갑자기
+ * 닫혀 버리는, 이 앱이 실제로 겪었던 버그다. 여기서 남은 델타를 소비함으로써 시트 드래그와 콘텐츠
+ * 스크롤 제스처를 서로 독립적으로 유지한다.
  *
- * The expand/collapse state is remembered here rather than accepted as a parameter. Callers used to
- * create it and thread it down through every intermediate composable, but none of them ever called a
- * method on it — the state was pure pass-through to this composable. Owning it here removes that
- * parameter chain, and it keeps Material's experimental sheet-state API from leaking opt-in
- * requirements into every screen that shows a sheet, which a type alias could not do because Kotlin
- * expands an alias back to the annotated original.
+ * 펼침/접힘 상태는 파라미터로 받는 대신 여기서 remember된다. 예전에는 호출자가 이를 만들어 모든
+ * 중간 컴포저블을 통해 아래로 넘겼지만, 그중 어느 것도 그 위에서 메서드를 호출한 적이 없었다 — 그
+ * 상태는 이 컴포저블로 그냥 통과되는 것뿐이었다. 여기서 소유하면 그 파라미터 체인이 사라지고,
+ * Material의 실험적인 sheet-state API가 opt-in 요구사항을 시트를 보여주는 모든 화면으로 새어 나가지
+ * 않게 막는다. Kotlin이 타입 별칭을 주석이 달린 원래 타입으로 다시 펼쳐 버리기 때문에 type alias로는
+ * 이를 할 수 없었다.
  *
- * Sheets in this app open one at a time, so a per-sheet state behaves the same as the shared one it
- * replaced: only the sheet currently in composition has a state at all. Material's drag-handle slot
- * is deliberately disabled and the same visual handle is rendered as ordinary content instead: the
- * handle remains a swipe affordance without exposing Material's extra click-to-toggle action.
+ * 이 앱의 시트는 한 번에 하나만 열리므로, 시트마다 있는 상태는 그것이 대체한 공유 상태와 동일하게
+ * 동작한다: 현재 컴포지션에 있는 시트만 상태를 가진다. Material의 드래그 핸들 슬롯은 의도적으로
+ * 비활성화하고 같은 시각적 핸들을 일반 콘텐츠로 대신 렌더링한다: 이렇게 하면 핸들은 Material의
+ * 추가적인 탭-토글 액션을 노출하지 않으면서도 스와이프 어포던스로 남는다.
  *
- * @param title The sheet's header text, shown in [teddReaderTypography]'s `titleLarge` style.
- * @param onDismissRequest Invoked when the user dismisses the sheet (tap outside, swipe down, or
- * back gesture). This is the only way the sheet closes, so it must clear whatever state decides to
- * compose the sheet at all.
- * @param modifier Modifier applied to the underlying [ModalBottomSheet].
- * @param description A second header line shown under [title] in a muted color; omitted when null.
- * @param contentPadding Padding around [content], below the header; null means the theme's
- * sheetPadding/sheetPadding/large (start/end/bottom) combination is used.
- * @param content The sheet's body.
+ * @param title [teddReaderTypography]의 `titleLarge` 스타일로 표시되는 시트의 헤더 텍스트.
+ * @param onDismissRequest 사용자가 시트를 닫을 때(바깥 탭, 아래로 스와이프, 또는 뒤로 가기 제스처)
+ * 호출된다. 시트가 닫히는 유일한 방법이므로, 애초에 시트를 컴포즈할지 결정하는 상태를 반드시
+ * 초기화해야 한다.
+ * @param modifier 내부 [ModalBottomSheet]에 적용되는 modifier.
+ * @param description [title] 아래 흐린 색상으로 표시되는 두 번째 헤더 줄. null이면 생략된다.
+ * @param contentPadding 헤더 아래, [content] 주위의 패딩. null이면 테마의
+ * sheetPadding/sheetPadding/large(start/end/bottom) 조합을 사용한다.
+ * @param content 시트의 본문.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,7 +113,7 @@ fun TeddModalBottomSheet(
     }
 }
 
-/** Compose preview rendering [TeddModalBottomSheet] expanded, with one [TeddButton] as its content. */
+/** [TeddButton] 하나를 콘텐츠로 갖고 펼쳐진 [TeddModalBottomSheet]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddModalBottomSheetContentPreview() {

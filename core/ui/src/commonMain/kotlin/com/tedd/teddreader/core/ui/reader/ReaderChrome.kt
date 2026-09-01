@@ -24,23 +24,24 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
- * The surface the reader's own bars and sheets sit on, over the page.
+ * 리더 자체의 바와 시트가 페이지 위에 놓이는 서피스.
  *
- * Its colours come from the reader's style rather than from the app theme, because these controls float over
- * the *book's* paper: a sepia page needs sepia-tinted chrome, and app-themed chrome over it reads as another
- * app's window. Both the surface colour and the content colour are set here, so a caller cannot leave an icon
- * unreadable against the reader's own paper.
+ * 이 색상들은 앱 테마가 아니라 리더의 스타일에서 온다. 이 컨트롤들은 *책의* 종이 위에 떠 있기
+ * 때문이다: 세피아 페이지는 세피아 색조의 크롬이 필요하고, 그 위에 앱 테마의 크롬이 있으면 다른
+ * 앱의 창처럼 보인다. 서피스 색상과 콘텐츠 색상 둘 다 여기서 설정되므로, 호출자가 리더 자체의 종이
+ * 위에서 읽을 수 없는 아이콘을 남길 수 없다.
  *
- * The divider is drawn with `drawBehind` rather than as a `Divider` child, so the bar stays one layout node
- * and the line can sit on either edge without changing the layout.
+ * 구분선은 `Divider` 자식이 아니라 `drawBehind`로 그려져, 바가 하나의 레이아웃 노드로 남고 레이아웃을
+ * 바꾸지 않고도 선이 어느 가장자리에든 놓일 수 있다.
  *
- * @param style the reader's style, which supplies the control colours.
- * @param modifier applied to the surface; it fills its parent's width.
- * @param contentPadding inset around [content], inside the window insets.
- * @param windowInsets the system insets this bar has to keep clear — the status bar for a top bar, the
- * navigation bar for a bottom one. Zero by default so a preview needs none.
- * @param dividerAtTop true for a bottom bar, whose hairline belongs on its upper edge; false for a top bar.
- * @param content the bar's own controls, in the bar's box scope.
+ * @param style 컨트롤 색상을 공급하는 리더의 스타일.
+ * @param modifier 서피스에 적용된다; 부모의 너비를 채운다.
+ * @param contentPadding 윈도우 인셋 안쪽, [content] 주위의 인셋.
+ * @param windowInsets 이 바가 비워 두어야 하는 시스템 인셋 — 상단 바에는 상태 표시줄, 하단 바에는
+ * 내비게이션 바. 프리뷰가 필요 없도록 기본값은 0이다.
+ * @param dividerAtTop 하단 바에는 true. 그 머리카락 굵기 선은 위쪽 가장자리에 속한다; 상단 바에는
+ * false.
+ * @param content 바 자체의 컨트롤로, 바의 box scope 안에 있다.
  */
 @Composable
 fun ReaderChromeSurface(
@@ -80,7 +81,7 @@ fun ReaderChromeSurface(
     }
 }
 
-/** A top bar on day paper, with its hairline along the bottom edge. */
+/** 하단 가장자리를 따라 머리카락 굵기 선이 있는, 낮 종이 위의 상단 바. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderChromeSurfacePreview() {
@@ -99,7 +100,7 @@ private fun ReaderChromeSurfacePreview() {
     }
 }
 
-/** The same bar on night paper, where the hairline's alpha has to stay visible. */
+/** 밤 종이 위의 같은 바로, 머리카락 굵기 선의 알파가 계속 보여야 한다. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderChromeSurfaceDarkPreview() {
