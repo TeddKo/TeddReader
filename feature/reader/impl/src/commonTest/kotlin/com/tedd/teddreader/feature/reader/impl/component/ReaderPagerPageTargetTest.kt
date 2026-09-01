@@ -7,17 +7,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * Unit tests for the pure page-target math [ReaderPager.kt][com.tedd.teddreader.feature.reader.impl.component]
- * exposes: adjacent-page resolution for spreads, drag-to-target and tap-zone resolution for the
- * Foundation pager, and scroll-anchor mapping for the continuous-scroll pager. All of it is plain
- * arithmetic on page indices with no Compose dependency, so it is tested directly rather than
- * through a composable harness.
+ * [ReaderPager.kt][com.tedd.teddreader.feature.reader.impl.component]가 노출하는 순수 page-target 계산에
+ * 대한 단위 테스트다: spread를 위한 인접 페이지 해석, Foundation pager를 위한 drag-to-target과 tap 영역
+ * 해석, 연속 스크롤 pager를 위한 scroll-anchor 매핑. 전부 페이지 인덱스에 대한 순수 산술이며 Compose
+ * 의존성이 없으므로, composable 하네스를 거치지 않고 직접 테스트한다.
  */
 class ReaderPagerPageTargetTest {
     /**
-     * Verifies [readerPagerRequestedPage] resolves [ReaderPageMovement.Previous]/[ReaderPageMovement.Next]
-     * through the same two-page-step arithmetic and document bounds as [readerPagerAdjacentPage]
-     * does directly, including both null-at-the-edge cases.
+     * [readerPagerRequestedPage]가 [ReaderPageMovement.Previous]/[ReaderPageMovement.Next]를
+     * [readerPagerAdjacentPage]가 직접 쓰는 것과 같은 두 페이지 스텝 산술과 문서 경계로 해석하는지,
+     * 두 경계에서의 null 케이스를 포함해 검증한다.
      */
     @Test
     fun requestedMovementUsesTheSameSpreadStepAndBounds() {
@@ -29,10 +28,10 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * Verifies [readerPagerAdjacentPage]'s bounds and step handling for a two-page spread
-     * ([pageStep] 2): a normal step in either direction, a step clamped short at the start of the
-     * document, a target beyond the last page returning null, a zero offset returning the current
-     * page unchanged, and both document edges returning null in their respective direction.
+     * 두 페이지 spread([pageStep] 2)에 대한 [readerPagerAdjacentPage]의 경계와 스텝 처리를 검증한다:
+     * 양방향의 일반적인 스텝, 문서 시작에서 짧게 clamp되는 스텝, 마지막 페이지를 넘어서는 대상이 null을
+     * 반환하는 경우, offset이 0일 때 현재 페이지를 그대로 반환하는 경우, 그리고 문서 양쪽 경계가 각 방향
+     * 에서 null을 반환하는 경우.
      */
     @Test
     fun stepTwoMapsAdjacentPagesToBoundedSpreadAnchors() {
@@ -48,8 +47,8 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * Verifies [foundationPagerShouldBlockDrag] blocks a drag only when it points toward a
-     * direction with no adjacent page, in either direction, and never blocks a drag of zero delta.
+     * [foundationPagerShouldBlockDrag]가 인접 페이지가 없는 방향을 향할 때만, 양방향 모두에 대해 drag를
+     * 막으며, delta가 0인 drag는 절대 막지 않음을 검증한다.
      */
     @Test
     fun dragBoundaryBlocksOnlyMissingDirection() {
@@ -61,9 +60,9 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * Verifies [readerScrollPageAnchors] produces every page as its own anchor at step 1 and every
-     * other page at step 2, including an empty document, and that [readerScrollAnchorIndex]
-     * resolves a page number to the anchor that owns it.
+     * [readerScrollPageAnchors]가 step 1에서는 모든 페이지를 각자의 anchor로, step 2에서는 한 페이지
+     * 걸러 anchor로 만들어내는지 — 빈 문서 포함 — 그리고 [readerScrollAnchorIndex]가 페이지 번호를
+     * 그 페이지를 소유한 anchor로 해석하는지 검증한다.
      */
     @Test
     fun `scroll anchors cover whole document and map page to anchor index`() {
@@ -76,10 +75,9 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * Verifies [foundationPagerDragTargetOffset]'s fling/drag-distance thresholds: a slow, short
-     * drag settles back to 0; a fast fling or a long drag commits to the adjacent page in the
-     * matching direction; and a commit toward a missing page is clamped back to 0 instead of
-     * targeting a page that does not exist.
+     * [foundationPagerDragTargetOffset]의 fling/drag 거리 임계값을 검증한다: 느리고 짧은 drag는 0으로
+     * 되돌아가고, 빠른 fling이나 긴 drag는 대응하는 방향의 인접 페이지로 확정되며, 존재하지 않는 페이지를
+     * 향한 확정은 그 페이지를 목표로 삼는 대신 0으로 clamp된다.
      */
     @Test
     fun foundationPagerDragTargetOffsetFollowsManualFlingContract() {
@@ -263,16 +261,16 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * Verifies [foundationPagerTapAction]'s F16 fix: a tap at the start or end of a document, where
-     * there is no adjacent page to turn to, must fall through to toggling the controls rather than
-     * doing nothing at all. Five assertions in order:
-     * 1. The previous zone (below 25% of extent) turns back when there is a previous page.
-     * 2. The same zone with no previous page (first page of the document) falls through to the
-     *    middle zone's behaviour instead of doing nothing — the F16 fix itself.
-     * 3. The next zone (above 75% of extent) turns forward when there is a next page.
-     * 4. The same zone with no next page (last page of the document) falls through too — end of
-     *    book and a swallowed tap must be distinguishable.
-     * 5. The middle zone always toggles controls, regardless of which pages are available.
+     * [foundationPagerTapAction]의 F16 수정을 검증한다: 넘어갈 인접 페이지가 없는 문서의 시작이나
+     * 끝에서의 탭은 아무 일도 하지 않는 대신 controls 토글로 폴스루해야 한다. 순서대로 다섯 개의
+     * 단언:
+     * 1. 이전 영역(extent의 25% 아래)은 이전 페이지가 있으면 뒤로 넘어간다.
+     * 2. 이전 페이지가 없는(문서의 첫 페이지) 같은 영역은 아무 일도 하지 않는 대신 가운데 영역의
+     *    동작으로 폴스루한다 — F16 수정 그 자체.
+     * 3. 다음 영역(extent의 75% 위)은 다음 페이지가 있으면 앞으로 넘어간다.
+     * 4. 다음 페이지가 없는(문서의 마지막 페이지) 같은 영역도 폴스루한다 — 책의 끝과 삼켜진 탭은
+     *    구별되어야 한다.
+     * 5. 가운데 영역은 어떤 페이지를 쓸 수 있는지와 무관하게 항상 controls를 토글한다.
      */
     @Test
     fun tapZoneFallsThroughToToggleControlsWhenTheAdjacentPageIsMissing() {

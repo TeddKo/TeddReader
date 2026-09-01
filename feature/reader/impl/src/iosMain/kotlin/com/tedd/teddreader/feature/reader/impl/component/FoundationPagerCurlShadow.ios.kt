@@ -10,10 +10,10 @@ internal actual val foundationPagerRenderProfile = FoundationPagerRenderProfile(
 )
 
 /**
- * iOS's answer, since this target's [DrawScope] exposes no blurred-shadow primitive the way
- * Android's `Paint.setShadowLayer` does: the shadow is faked by drawing [polygon] several times,
- * each pass offset a little further along [shadowOffset] and a little more transparent, so the stack
- * of hard-edged passes reads as one soft-edged shadow.
+ * iOS의 해법이다 — 이 타깃의 [DrawScope]는 Android의 `Paint.setShadowLayer`처럼 블러 그림자 primitive를
+ * 제공하지 않으므로, [polygon]을 여러 번 그려서 그림자를 흉내 낸다. 매 회차를 [shadowOffset] 방향으로 조금씩
+ * 더 이동시키고 조금씩 더 투명하게 그려서, 딱딱한 가장자리를 가진 여러 겹이 쌓이면 하나의 부드러운 가장자리를
+ * 가진 그림자처럼 보이게 한다.
  */
 internal actual fun DrawScope.drawFoundationPagerCurlShadow(
     polygon: FoundationPagerCurlPolygon,

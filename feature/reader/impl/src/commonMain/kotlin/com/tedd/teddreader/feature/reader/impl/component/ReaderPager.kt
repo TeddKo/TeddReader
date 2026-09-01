@@ -45,53 +45,52 @@ import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * Dispatches to the pager implementation that matches [pageAnimation]: continuous scroll
- * ([ReaderScrollPager]), a Foundation `HorizontalPager`/`VerticalPager` with a custom transition
- * (`FoundationEffectPager`) for slide/fluid/circle-reveal/movie-carousel/page-flip, the pagecurl
- * state machine (`FoundationCurlPager`) for curl styles, or the plain cross-fade/no-animation path
- * implemented directly below for the remaining [PageAnimation] values.
+ * [pageAnimation]에 맞는 pager 구현으로 위임한다: 연속 스크롤([ReaderScrollPager]),
+ * slide/fluid/circle-reveal/movie-carousel/page-flip을 위한 커스텀 트랜지션이 적용된 Foundation
+ * `HorizontalPager`/`VerticalPager`(`FoundationEffectPager`), curl style을 위한 pagecurl 상태 머신
+ * (`FoundationCurlPager`), 또는 나머지 [PageAnimation] 값들을 위해 바로 아래 구현된 단순 크로스페이드/
+ * 무-애니메이션 경로.
  *
- * Whichever path handles the current [pageAnimation] owns its own gestures, page-move-request
- * consumption, and auto-scroll driving; the plain fallback path below (`fadeIn`/`fadeOut` via
- * [AnimatedContent]) is what backs [PageAnimation.NONE] and [PageAnimation.FADE].
+ * 현재 [pageAnimation]을 처리하는 경로가 무엇이든 자신만의 제스처, page-move-request 소비, 자동 스크롤
+ * 구동을 스스로 갖는다; 아래의 단순 폴백 경로([AnimatedContent]를 통한 `fadeIn`/`fadeOut`)는
+ * [PageAnimation.NONE]과 [PageAnimation.FADE]를 뒷받침한다.
  *
- * @param pageKey The current page index; the value this pager animates toward/from.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one turn advances — 1 for a single pane, 2 for a two-page spread.
- * @param pageTurnMode Whether pages turn along the horizontal or vertical axis.
- * @param pageAnimation The turn animation to render, which selects the delegate implementation.
- * @param canRequestNextPage Whether a text document at its known end should still forward a next
- *   request to the view model while pagination remains incomplete.
- * @param pageMoveRequest A pending programmatic page-move request (from the bottom bar's
- *   previous/next buttons), or null when none is outstanding.
- * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been acted on
- *   or found to have nowhere to go.
- * @param onPreviousPage Called to move one step toward the start of the document.
- * @param onNextPage Called to move one step toward the end of the document.
- * @param onPageSelected Called with a page index chosen directly (used by [ReaderScrollPager]'s
- *   anchor reporting).
- * @param onToggleControls Called when a tap lands outside both turn zones, or when any tap
- *   happens while auto-scroll is enabled.
- * @param onDoubleTap Called with the tap position on a double-tap; null disables double-tap
- *   handling (used for zoom in visual/PDF modes).
- * @param isAutoScrollEnabled Whether auto-scroll is currently driving page turns.
- * @param effectiveAutoScrollMode The auto-scroll mode to honor, already resolved for whether the
- *   content is text or visual (see `readerEffectiveAutoScrollMode`).
- * @param autoScrollSpeed The configured auto-scroll speed.
- * @param autoScrollLineHeightPx The current style's line height in pixels, used by line-mode
- *   auto-scroll.
- * @param autoScrollDensity The display density, used to convert auto-scroll speed into pixels.
- * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
- * @param onMovieTransitionProgressChanged Called with the movie-carousel transition's progress,
- *   for callers that dim content behind the animation.
- * @param modifier The modifier applied to the pager's root.
- * @param paneCount How many page panes are shown side by side (2 for a spread, 1 otherwise).
- * @param spreadGutter The gap drawn between panes in a spread.
- * @param spreadLeftWeight The fraction of a spread's width given to its left pane.
- * @param spreadModifier The modifier applied to a spread's row, forwarded only to the curl pager.
- * @param paneContent Renders one pane of a spread with its own modifier; null for a single pane
- *   or for delegate pagers that do not support spreads.
- * @param content Renders the page at the given index for non-spread delegates.
+ * @param pageKey 현재 페이지 인덱스; 이 pager가 이를 향해/이로부터 애니메이션하는 값.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지 — 단일 pane이면 1, 두 페이지 spread면 2.
+ * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
+ * @param pageAnimation 렌더링할 turn 애니메이션으로, 이것이 위임 구현을 고른다.
+ * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은 동안에도
+ *   view model에 다음 요청을 계속 전달해야 하는지 여부.
+ * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청(하단 바의 이전/다음 버튼에서 옴), 없으면
+ *   null.
+ * @param onPageMoveRequestConsumed [pageMoveRequest]의 id와 함께, 그것이 처리되었거나 갈 곳이 없다고
+ *   확인된 뒤 호출된다.
+ * @param onPreviousPage 문서 시작 쪽으로 한 걸음 이동하기 위해 호출된다.
+ * @param onNextPage 문서 끝 쪽으로 한 걸음 이동하기 위해 호출된다.
+ * @param onPageSelected 직접 선택된 페이지 인덱스와 함께 호출된다([ReaderScrollPager]의 앵커 보고에
+ *   쓰인다).
+ * @param onToggleControls 탭이 두 turn 영역 바깥에 떨어지거나, 자동 스크롤이 활성화된 동안 어떤 탭이든
+ *   발생하면 호출된다.
+ * @param onDoubleTap 더블 탭 시 탭 위치와 함께 호출된다; null이면 더블 탭 처리를 비활성화한다(visual/PDF
+ *   모드의 확대에 쓰인다).
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 페이지 넘김을 구동하고 있는지 여부.
+ * @param effectiveAutoScrollMode 따를 자동 스크롤 모드로, 콘텐츠가 텍스트인지 visual인지에 대해 이미
+ *   해석되어 있다(`readerEffectiveAutoScrollMode` 참고).
+ * @param autoScrollSpeed 설정된 자동 스크롤 속도.
+ * @param autoScrollLineHeightPx line 모드 자동 스크롤이 쓰는, 현재 style의 픽셀 단위 줄 높이.
+ * @param autoScrollDensity 자동 스크롤 속도를 픽셀로 환산하는 데 쓰이는 화면 밀도.
+ * @param onAutoScrollStop 자동 스크롤이 문서 끝에 닿아 멈춰야 할 때 호출된다.
+ * @param onMovieTransitionProgressChanged movie-carousel 트랜지션의 진행률과 함께 호출되며, 애니메이션
+ *   뒤 콘텐츠를 어둡게 하는 호출자를 위한 것이다.
+ * @param modifier pager의 루트에 적용되는 modifier.
+ * @param paneCount 몇 개의 페이지 pane이 나란히 보이는지(spread면 2, 그 외엔 1).
+ * @param spreadGutter spread에서 pane 사이에 그려지는 간격.
+ * @param spreadLeftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param spreadModifier spread의 row에 적용되는 modifier로, curl pager에만 전달된다.
+ * @param paneContent spread의 한 pane을 자신만의 modifier로 렌더링한다; 단일 pane이거나 spread를
+ *   지원하지 않는 위임 pager라면 null.
+ * @param content spread가 아닌 위임 구현을 위해 주어진 인덱스의 페이지를 렌더링한다.
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -298,44 +297,42 @@ internal fun ReaderPager(
 }
 
 /**
- * The continuous-scroll pager backing [PageAnimation.SCROLL]: a `LazyColumn`/`LazyRow` of page
- * anchors (see [readerScrollPageAnchors]) rather than a discrete `HorizontalPager`/`VerticalPager`,
- * so a spread's two panes scroll together as one continuously-flowing list item.
+ * [PageAnimation.SCROLL]을 뒷받침하는 연속 스크롤 pager: 별개의
+ * `HorizontalPager`/`VerticalPager` 대신 페이지 앵커([readerScrollPageAnchors] 참고)로 이루어진
+ * `LazyColumn`/`LazyRow`이며, 그래서 spread의 두 pane이 하나의 연속적으로 흐르는 리스트 항목처럼 함께
+ * 스크롤된다.
  *
- * The list's own scroll position is the source of truth for the current page while the user is
- * scrolling: [onPageSelected] is driven from `listState.firstVisibleItemIndex`, and [pageKey]
- * changes (a repagination, or a page move from elsewhere) are synced back onto the list only
- * after any fling in progress settles — waiting rather than abandoning the sync, because
- * repagination can land mid-scroll, and giving up here would leave the list parked on an item
- * index that belonged to the old pagination instead of the new one.
+ * 사용자가 스크롤하는 동안에는 리스트 자체의 스크롤 위치가 현재 페이지의 진실 공급원이다:
+ * [onPageSelected]는 `listState.firstVisibleItemIndex`로부터 구동되며, [pageKey] 변경(재
+ * 페이지 나누기, 또는 다른 곳에서의 페이지 이동)은 진행 중인 fling이 모두 가라앉은 뒤에만 리스트에
+ * 되돌려 동기화된다 — 동기화를 포기하는 대신 기다리는 이유는, 재 페이지 나누기가 스크롤 도중에 일어날
+ * 수 있고, 여기서 포기하면 리스트가 새 페이지 나누기가 아니라 이전 페이지 나누기에 속했던 항목
+ * 인덱스에 그대로 멈춰 있게 되기 때문이다.
  *
- * The anchor-reporting effect's `.drop(1)` exists for the same reason from the other direction:
- * `snapshotFlow { listState.firstVisibleItemIndex }` replays its current value immediately on
- * every restart, and when [anchors] itself just changed (a repagination), that replayed value is
- * the index the *previous* pagination left the list parked on. Reporting it through
- * [onPageSelected] would resolve an old index against the new anchors and send the reader to
- * whatever page happens to sit there — page one, in the worst case — so the first, stale value is
- * dropped and only a real scroll after that is ever reported.
+ * 앵커 보고 effect의 `.drop(1)`은 반대 방향에서 같은 이유로 존재한다:
+ * `snapshotFlow { listState.firstVisibleItemIndex }`는 재시작될 때마다 자신의 현재 값을 즉시
+ * 다시 흘려보내는데, [anchors] 자체가 방금 바뀌었을 때(재 페이지 나누기) 그 다시 흘러나온 값은
+ * *이전* 페이지 나누기가 리스트를 멈춰 두었던 인덱스다. 이를 [onPageSelected]로 보고하면 오래된
+ * 인덱스를 새 앵커에 대고 해석해 리더를 거기 우연히 있는 아무 페이지로나 보내게 된다 — 최악의 경우
+ * 첫 페이지로. 그래서 이 첫 번째의 낡은 값은 버려지고 그 이후의 진짜 스크롤만 보고된다.
  *
- * @param pageKey The current page index to keep the list scrolled to.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one scroll anchor advances — 1 for a single pane, 2 for a spread.
- * @param pageTurnMode Whether the list scrolls vertically or horizontally.
- * @param pageMoveRequest A pending programmatic page-move request, or null when none is
- *   outstanding.
- * @param onPageMoveRequestConsumed Called with [pageMoveRequest]'s id once it has been acted on.
- * @param onPageSelected Called with the page anchor the list has settled on after a scroll.
- * @param onToggleControls Called when a tap lands outside both turn zones, or during auto-scroll.
- * @param onDoubleTap Called with the tap position on a double-tap; null disables it.
- * @param isAutoScrollEnabled Whether auto-scroll is currently driving the list.
- * @param autoScrollMode The auto-scroll mode to honor.
- * @param autoScrollSpeed The configured auto-scroll speed.
- * @param autoScrollLineHeightPx The current style's line height in pixels, used by line-mode
- *   auto-scroll.
- * @param autoScrollDensity The display density, used to convert auto-scroll speed into pixels.
- * @param onAutoScrollStop Called when auto-scroll reaches the end of the document and must stop.
- * @param modifier The modifier applied to the list's root.
- * @param content Renders the page at a given anchor index.
+ * @param pageKey 리스트가 계속 스크롤되어 맞춰야 할 현재 페이지 인덱스.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 스크롤 앵커가 몇 페이지를 진행시키는지 — 단일 pane이면 1, spread면 2.
+ * @param pageTurnMode 리스트가 세로로 스크롤되는지 가로로 스크롤되는지.
+ * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
+ * @param onPageMoveRequestConsumed [pageMoveRequest]의 id와 함께, 그것이 처리된 뒤 호출된다.
+ * @param onPageSelected 스크롤 뒤 리스트가 멈춰 선 페이지 앵커와 함께 호출된다.
+ * @param onToggleControls 탭이 두 turn 영역 바깥에 떨어지거나 자동 스크롤 도중이면 호출된다.
+ * @param onDoubleTap 더블 탭 시 탭 위치와 함께 호출된다; null이면 이를 비활성화한다.
+ * @param isAutoScrollEnabled 자동 스크롤이 현재 리스트를 구동하고 있는지 여부.
+ * @param autoScrollMode 따를 자동 스크롤 모드.
+ * @param autoScrollSpeed 설정된 자동 스크롤 속도.
+ * @param autoScrollLineHeightPx line 모드 자동 스크롤이 쓰는, 현재 style의 픽셀 단위 줄 높이.
+ * @param autoScrollDensity 자동 스크롤 속도를 픽셀로 환산하는 데 쓰이는 화면 밀도.
+ * @param onAutoScrollStop 자동 스크롤이 문서 끝에 닿아 멈춰야 할 때 호출된다.
+ * @param modifier 리스트의 루트에 적용되는 modifier.
+ * @param content 주어진 앵커 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun ReaderScrollPager(
@@ -564,15 +561,15 @@ private fun ReaderScrollPager(
 }
 
 /**
- * Watches one gesture at a time for a swipe past [TouchSlopPx] and, once the gesture ends having
- * moved, turns it into a page change via [handleSwipe]. Used by the plain fade/no-animation pager
- * path, which has no pager widget of its own to detect drags for it.
+ * 한 번에 하나의 제스처를 지켜보며 [TouchSlopPx]를 넘는 스와이프인지 살피고, 이동한 채로 제스처가
+ * 끝나면 [handleSwipe]를 통해 이를 페이지 변경으로 바꾼다. 드래그를 감지할 자신만의 pager 위젯이 없는
+ * 단순 fade/무-애니메이션 pager 경로가 사용한다.
  *
- * @param pageTurnMode Which axis (horizontal/vertical) a swipe is measured along.
- * @param isAutoScrollEnabled Whether auto-scroll is running; a swipe is ignored entirely while it
- *   is, since a manual turn would race the automatic one.
- * @param onPreviousPage Called when the swipe resolves to a previous-page turn.
- * @param onNextPage Called when the swipe resolves to a next-page turn.
+ * @param pageTurnMode 스와이프를 측정하는 축(가로/세로).
+ * @param isAutoScrollEnabled 자동 스크롤이 실행 중인지 여부; 실행 중인 동안에는 수동 turn이 자동
+ *   turn과 경쟁하게 되므로 스와이프를 완전히 무시한다.
+ * @param onPreviousPage 스와이프가 이전 페이지 turn으로 해석되면 호출된다.
+ * @param onNextPage 스와이프가 다음 페이지 turn으로 해석되면 호출된다.
  */
 private suspend fun PointerInputScope.detectReaderSwipe(
     pageTurnMode: PageTurnMode,
@@ -605,14 +602,14 @@ private suspend fun PointerInputScope.detectReaderSwipe(
 }
 
 /**
- * Resolves a completed drag into a page turn, requiring the drag to clear [SwipeThresholdPx]
- * along the turn axis and to be more along that axis than across it, so a mostly-vertical drag on
- * a horizontal pager (or vice versa) is not misread as a turn.
+ * 완료된 드래그를 페이지 turn으로 해석하며, 드래그가 turn 축을 따라 [SwipeThresholdPx]를 넘어서고
+ * 가로지르는 방향보다 그 축을 따르는 방향으로 더 많이 움직였을 것을 요구한다, 그래야 가로 pager에서
+ * 대부분 세로로 움직인 드래그(또는 그 반대)가 turn으로 잘못 읽히지 않는다.
  *
- * @param pageTurnMode Which axis the drag is measured along.
- * @param drag The total drag offset accumulated over the gesture.
- * @param onPreviousPage Called when the drag resolves to a previous-page turn.
- * @param onNextPage Called when the drag resolves to a next-page turn.
+ * @param pageTurnMode 드래그를 측정하는 축.
+ * @param drag 제스처 동안 누적된 전체 드래그 오프셋.
+ * @param onPreviousPage 드래그가 이전 페이지 turn으로 해석되면 호출된다.
+ * @param onNextPage 드래그가 다음 페이지 turn으로 해석되면 호출된다.
  */
 private fun PointerInputScope.handleSwipe(
     pageTurnMode: PageTurnMode,
@@ -634,17 +631,16 @@ private fun PointerInputScope.handleSwipe(
 }
 
 /**
- * Resolves a tap on the plain fade/no-animation pager into a previous-page turn, a next-page
- * turn, or a controls toggle, based on which horizontal zone (see [PreviousTapZoneRatio],
- * [NextTapZoneRatio]) it landed in.
+ * 단순 fade/무-애니메이션 pager 위의 탭을, 어느 가로 영역([PreviousTapZoneRatio],
+ * [NextTapZoneRatio] 참고)에 떨어졌는지에 따라 이전 페이지 turn, 다음 페이지 turn, 또는 컨트롤 토글로
+ * 해석한다.
  *
- * @param position The tap position within the pager.
- * @param isAutoScrollEnabled Whether auto-scroll is running; every tap toggles controls while it
- *   is, rather than turning a page and racing the automatic turn.
- * @param onPreviousPage Called when the tap lands in the previous-page zone.
- * @param onNextPage Called when the tap lands in the next-page zone.
- * @param onToggleControls Called when the tap lands in the middle zone, or while auto-scroll is
- *   enabled.
+ * @param position pager 안에서의 탭 위치.
+ * @param isAutoScrollEnabled 자동 스크롤이 실행 중인지 여부; 실행 중인 동안에는 페이지를 넘겨 자동
+ *   turn과 경쟁하는 대신 모든 탭이 컨트롤을 토글한다.
+ * @param onPreviousPage 탭이 이전 페이지 영역에 떨어지면 호출된다.
+ * @param onNextPage 탭이 다음 페이지 영역에 떨어지면 호출된다.
+ * @param onToggleControls 탭이 가운데 영역에 떨어지거나 자동 스크롤이 활성화된 동안이면 호출된다.
  */
 private fun PointerInputScope.handleTap(
     position: Offset,
@@ -676,35 +672,34 @@ internal fun readerScrollShouldRequestNextOnOverscroll(
 }
 
 /**
- * Whether [pageTurnMode] lays pages out along the vertical axis (both the discrete vertical mode
- * and the always-vertical continuous-scroll mode) rather than horizontally.
+ * [pageTurnMode]가 페이지를 가로가 아니라 세로축을 따라 배치하는지 여부(별개의 세로 모드와, 항상
+ * 세로인 연속 스크롤 모드 둘 다 포함).
  *
- * @param pageTurnMode The page-turn mode to check.
- * @return True for [PageTurnMode.VERTICAL] or [PageTurnMode.CONTINUOUS].
+ * @param pageTurnMode 확인할 page-turn 모드.
+ * @return [PageTurnMode.VERTICAL] 또는 [PageTurnMode.CONTINUOUS]면 true.
  */
 private fun isVerticalMode(pageTurnMode: PageTurnMode): Boolean =
     pageTurnMode == PageTurnMode.VERTICAL || pageTurnMode == PageTurnMode.CONTINUOUS
 
 /**
- * The page reached by moving [pageOffset] page-steps of [pageStep] pages away from [currentPage],
- * bounded to `[0, pageCount)`, or null when there is no such page.
+ * [currentPage]에서 [pageStep] 페이지 단위로 [pageOffset]만큼 페이지 스텝을 이동했을 때 도달하는
+ * 페이지로, `[0, pageCount)` 범위로 제한되며, 그런 페이지가 없으면 null이다.
  *
- * Null is the load-bearing result here, not an edge case to special-case away: every caller
- * (`FoundationEffectPager`'s previous/next lookups, [readerPagerRequestedPage],
- * `foundationPagerTapAction`'s zone resolution) treats null as "no adjacent page in that
- * direction" and falls through to the same behavior a middle-zone tap gets — toggling the
- * controls — rather than doing nothing at all. A tap or drag must never be silently swallowed at
- * the start or end of a document, which is exactly the bug (F16) a non-null-only signal used to
- * allow.
+ * 여기서 null은 예외적으로 따로 처리해야 할 경계 케이스가 아니라 그 자체로 의미를 갖는 결과다: 모든
+ * 호출자(`FoundationEffectPager`의 이전/다음 조회, [readerPagerRequestedPage],
+ * `foundationPagerTapAction`의 영역 해석)는 null을 "그 방향에 인접 페이지가 없음"으로 취급하고
+ * 아무것도 하지 않는 대신 가운데 영역 탭이 받는 것과 같은 동작 — 컨트롤 토글 — 로 넘어간다. 탭이나
+ * 드래그는 문서의 시작이나 끝에서 결코 조용히 삼켜져서는 안 되는데, null이 아닌 신호만 쓰던 예전
+ * 방식은 정확히 이를 허용했다.
  *
- * @param currentPage The page to move from.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one page-offset step covers — 1 for a single pane, 2 for a
- *   two-page spread.
- * @param pageOffset How many page-steps to move, negative toward the start, positive toward the
- *   end; 0 returns [currentPage] itself (bounds-checked).
- * @return The target page index, or null when [currentPage] is out of bounds or the move would
- *   land outside `[0, pageCount)`.
+ * @param currentPage 이동을 시작할 페이지.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 page-offset 스텝이 몇 페이지를 아우르는지 — 단일 pane이면 1, 두 페이지
+ *   spread면 2.
+ * @param pageOffset 몇 페이지 스텝을 이동할지, 음수면 시작 쪽으로, 양수면 끝 쪽으로; 0이면
+ *   [currentPage] 자체를 반환한다(경계 검사됨).
+ * @return 목표 페이지 인덱스, 또는 [currentPage]가 범위를 벗어났거나 이동 결과가 `[0, pageCount)`
+ *   바깥으로 나가면 null.
  */
 internal fun readerPagerAdjacentPage(
     currentPage: Int,
@@ -726,15 +721,16 @@ internal fun readerPagerAdjacentPage(
 }
 
 /**
- * [readerPagerAdjacentPage] specialized to a [ReaderPageMovement] direction, used to resolve a
- * pending [ReaderPageMoveRequest] against pagination that is live when the move actually runs.
+ * [ReaderPageMovement] 방향에 특화된 [readerPagerAdjacentPage]로, 대기 중인
+ * [ReaderPageMoveRequest]를 이동이 실제로 실행되는 시점에 살아 있는 페이지 나누기에 대고 해석하는 데
+ * 쓰인다.
  *
- * @param currentPage The page to move from.
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one turn covers.
- * @param movement Which direction to move.
- * @return The target page index, or null when there is no page in that direction; see
- *   [readerPagerAdjacentPage] for what null means to callers.
+ * @param currentPage 이동을 시작할 페이지.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 turn이 몇 페이지를 아우르는지.
+ * @param movement 어느 방향으로 이동할지.
+ * @return 목표 페이지 인덱스, 또는 그 방향에 페이지가 없으면 null; null이 호출자에게 무엇을 의미하는지는
+ *   [readerPagerAdjacentPage]를 참고한다.
  */
 internal fun readerPagerRequestedPage(
     currentPage: Int,
@@ -770,13 +766,13 @@ internal fun readerPagerDisplayedPage(
 }
 
 /**
- * A single programmatic page-turn request (from the bottom bar's previous/next buttons), carried
- * through a pager's own state until it is consumed.
+ * 하나의 프로그래밍적 페이지 turn 요청(하단 바의 이전/다음 버튼에서 옴)으로, 소비될 때까지 pager
+ * 자신의 상태를 통해 실려 다닌다.
  *
- * @property id A request identity distinct from [movement] alone, so a second identical request
- *   (e.g. tapping "next" twice before the first turn finishes) is not silently ignored as a
- *   no-op repeat.
- * @property movement Which direction to move.
+ * @property id [movement]만으로는 구분되지 않는 요청 식별자로, 그래서 두 번째로 들어온 동일한
+ *   요청(예: 첫 turn이 끝나기 전에 "다음"을 두 번 탭하는 경우)이 아무 효과 없는 반복으로 조용히
+ *   무시되지 않는다.
+ * @property movement 어느 방향으로 이동할지.
  */
 internal data class ReaderPageMoveRequest(
     val id: Int,
@@ -784,10 +780,10 @@ internal data class ReaderPageMoveRequest(
 )
 
 /**
- * The two directions a programmatic page move can request.
+ * 프로그래밍적 페이지 이동이 요청할 수 있는 두 방향.
  *
- * @property pageOffset The signed page-step offset [movement] corresponds to, consumed directly
- *   by [readerPagerAdjacentPage]/[readerPagerRequestedPage].
+ * @property pageOffset [movement]가 대응하는, 부호 있는 page-step 오프셋으로,
+ *   [readerPagerAdjacentPage]/[readerPagerRequestedPage]가 직접 소비한다.
  */
 internal enum class ReaderPageMovement(val pageOffset: Int) {
     Previous(-1),
@@ -795,12 +791,13 @@ internal enum class ReaderPageMovement(val pageOffset: Int) {
 }
 
 /**
- * The page indices [ReaderScrollPager]'s list treats as scroll stops — every [pageStep]'th page,
- * starting at 0 — so a spread's two panes land on one shared list item instead of two.
+ * [ReaderScrollPager]의 리스트가 스크롤 정지 지점으로 취급하는 페이지 인덱스 — 0부터 시작해
+ * [pageStep] 번째마다 하나씩 — 그래서 spread의 두 pane이 두 개가 아니라 하나의 공유된 리스트 항목에
+ * 놓인다.
  *
- * @param pageCount The total number of pages known so far.
- * @param pageStep How many pages one scroll anchor covers.
- * @return The ascending list of anchor page indices; empty when [pageCount] is 0.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 스크롤 앵커가 몇 페이지를 아우르는지.
+ * @return 오름차순으로 정렬된 앵커 페이지 인덱스 목록; [pageCount]가 0이면 비어 있다.
  */
 internal fun readerScrollPageAnchors(pageCount: Int, pageStep: Int): List<Int> {
     if (pageCount <= 0) return emptyList()
@@ -809,13 +806,12 @@ internal fun readerScrollPageAnchors(pageCount: Int, pageStep: Int): List<Int> {
 }
 
 /**
- * The index into [anchors] that owns [page] — the last anchor at or before it — used to resolve a
- * page number into the list position [ReaderScrollPager] should be scrolled to.
+ * [page]를 소유하는 [anchors] 안의 인덱스 — 그것과 같거나 그 이전의 마지막 앵커 — 로, 페이지
+ * 번호를 [ReaderScrollPager]가 스크롤되어야 할 리스트 위치로 해석하는 데 쓰인다.
  *
- * @param page The page to resolve.
- * @param anchors The ascending anchor list from [readerScrollPageAnchors].
- * @return The owning anchor's index, or 0 when [anchors] is empty or [page] precedes every
- *   anchor.
+ * @param page 해석할 페이지.
+ * @param anchors [readerScrollPageAnchors]가 만든 오름차순 앵커 목록.
+ * @return 소유하는 앵커의 인덱스, 또는 [anchors]가 비어 있거나 [page]가 모든 앵커보다 앞서면 0.
  */
 internal fun readerScrollAnchorIndex(page: Int, anchors: List<Int>): Int {
     if (anchors.isEmpty()) return 0
@@ -824,14 +820,14 @@ internal fun readerScrollAnchorIndex(page: Int, anchors: List<Int>): Int {
         ?: 0
 }
 
-/** Minimum drag distance, in pixels, before [detectReaderSwipe] treats a gesture as a swipe. */
+/** [detectReaderSwipe]가 제스처를 스와이프로 취급하기까지 필요한 최소 드래그 거리(픽셀). */
 private const val TouchSlopPx = 8f
 
-/** Minimum drag distance, in pixels, along the turn axis before [handleSwipe] turns a page. */
+/** [handleSwipe]가 페이지를 넘기기까지 turn 축을 따라 필요한 최소 드래그 거리(픽셀). */
 private const val SwipeThresholdPx = 72f
 
-/** The fraction of the pager's extent, from its start edge, that [handleTap] treats as "previous." */
+/** pager 전체 길이 중, 시작 가장자리로부터 [handleTap]이 "이전"으로 취급하는 비율. */
 private const val PreviousTapZoneRatio = 0.28f
 
-/** The fraction of the pager's extent, from its start edge, beyond which [handleTap] treats a tap as "next." */
+/** pager 전체 길이 중, 시작 가장자리로부터 이 비율을 넘어서면 [handleTap]이 탭을 "다음"으로 취급한다. */
 private const val NextTapZoneRatio = 0.72f

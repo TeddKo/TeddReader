@@ -176,7 +176,7 @@ class EpubPageSurfaceTest {
         assertTrue(canMeasureEpubPage(page(), ReaderStyle(fontFamilyName = "serif")))
     }
 
-    /** Verifies recomposition can address one embedded image with the same memory-cache entry. */
+    /** 재구성이 같은 내장 이미지를 같은 메모리 캐시 항목으로 가리킬 수 있음을 검증한다. */
     @Test
     fun imageMemoryCacheKeyIsStableWithinDocumentAndHref() {
         val documentUri = "file:///library/book.epub"
@@ -188,7 +188,7 @@ class EpubPageSurfaceTest {
         )
     }
 
-    /** Verifies common EPUB hrefs cannot return a decoded bitmap from a different document. */
+    /** 흔히 겹치는 EPUB href라도 다른 문서의 디코딩된 비트맵을 반환할 수 없음을 검증한다. */
     @Test
     fun imageMemoryCacheKeySeparatesDocumentsSharingHref() {
         val imageHref = "OPS/images/cover.jpg"
@@ -199,7 +199,7 @@ class EpubPageSurfaceTest {
         )
     }
 
-    /** Verifies requests without both stable identities stay outside Coil's memory cache. */
+    /** 두 안정적인 식별자를 모두 갖추지 못한 요청은 Coil의 메모리 캐시 밖에 머무름을 검증한다. */
     @Test
     fun imageMemoryCacheKeyRequiresDocumentAndHref() {
         assertEquals(null, epubImageMemoryCacheKey(null, "OPS/images/cover.jpg"))

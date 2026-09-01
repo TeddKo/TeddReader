@@ -6,12 +6,11 @@ import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.runtime.Composable
 
 /**
- * Android's answer: `systemBarsIgnoringVisibility`, which reports the system bars' full size
- * regardless of whether they are currently drawn. Plain `WindowInsets.systemBars` reports zero for
- * a bar Android is momentarily hiding — for instance while a gesture-nav swipe is transiently
- * revealing a bar that is otherwise hidden, or under a fullscreen request — which would make the
- * reader's own reserved padding jump every time a bar's visibility toggles rather than only when
- * its actual size changes.
+ * Android의 해법은 `systemBarsIgnoringVisibility`이다. 이는 현재 실제로 그려지고 있는지와 무관하게 시스템 바의
+ * 전체 크기를 보고한다. 일반 `WindowInsets.systemBars`는 Android가 일시적으로 숨기고 있는 바에 대해 0을
+ * 보고한다 — 예를 들어 제스처 내비게이션 스와이프로 평소 숨겨진 바가 잠깐 드러나는 동안이나 전체 화면 요청 중에는
+ * 그런데, 이렇게 되면 실제 크기가 변할 때만이 아니라 바의 표시 여부가 바뀔 때마다 리더 자체의 예약된 패딩이
+ * 들썩이게 된다.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

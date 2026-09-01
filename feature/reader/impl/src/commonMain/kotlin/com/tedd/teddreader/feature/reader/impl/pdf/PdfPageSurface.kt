@@ -27,20 +27,19 @@ import com.tedd.teddreader.core.ui.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Renders one PDF page for the current platform, applying pinch-zoom and rotation as a
- * `graphicsLayer` transform on top of whatever [PlatformPdfPageSurface] draws — the platform
- * renderer itself never needs to know about zoom or rotation.
+ * 현재 플랫폼을 위해 PDF 페이지 한 장을 그리며, [PlatformPdfPageSurface]가 무엇을 그려내든 그 위에 핀치/확대와
+ * 회전을 `graphicsLayer` transform으로 얹는다 — 플랫폼 렌더러 자신은 확대나 회전에 대해 전혀 알 필요가 없다.
  *
- * @param pageIndex The page to render, and the total page count it is drawn against.
- * @param modifier Applied to the platform surface, before the zoom/rotation transform.
- * @param documentUri The document to render a page from; null falls through to the placeholder.
- * @param zoom Uniform scale factor layered on top of the rendered page.
- * @param rotationDegrees Clockwise rotation, in degrees, layered on top of the rendered page.
- * @param message Placeholder text shown when no real page can be rendered; defaults to a
- * "renderer not connected" message.
- * @param contentPadding Padding passed through to the platform surface around a rendered page.
- * @param placeholderContentPadding Padding passed through to the platform surface around
- * placeholder content; null resolves to the theme's `large` spacing on all sides.
+ * @param pageIndex 그릴 페이지와, 그 페이지가 매겨지는 전체 페이지 수.
+ * @param modifier zoom/회전 transform이 적용되기 전에 플랫폼 서피스에 적용된다.
+ * @param documentUri 페이지를 그려낼 문서. null이면 플레이스홀더로 대체된다.
+ * @param zoom 렌더링된 페이지 위에 얹히는 균일한 배율.
+ * @param rotationDegrees 렌더링된 페이지 위에 얹히는 시계 방향 회전(도).
+ * @param message 실제 페이지를 그릴 수 없을 때 표시되는 플레이스홀더 텍스트. 기본값은 "렌더러가 연결되지
+ * 않음" 메시지다.
+ * @param contentPadding 렌더링된 페이지 주변에 플랫폼 서피스로 그대로 전달되는 패딩.
+ * @param placeholderContentPadding 플레이스홀더 콘텐츠 주변에 플랫폼 서피스로 그대로 전달되는 패딩. null이면
+ * 테마의 `large` spacing이 사방에 적용된다.
  */
 @Composable
 fun PdfPageSurface(
@@ -124,18 +123,17 @@ private const val PdfLumaGreen = 0.7152f
 private const val PdfLumaBlue = 0.0722f
 
 /**
- * Platform hook that actually renders a PDF page, or falls back to [PdfPlaceholderSurface] with
- * [message] when it cannot. The Android actual loads the page through
- * `android.graphics.pdf.PdfRenderer`, which must be closed after use, and decodes it into a
- * bitmap on a background dispatcher before showing it; the iOS actual instead hosts a PDFKit
- * `PDFView` through `UIKitView` and lets PDFKit itself page to [pageIndex].
+ * 실제로 PDF 페이지를 렌더링하거나, 렌더링할 수 없을 때는 [message]와 함께 [PdfPlaceholderSurface]로
+ * 대체되는 플랫폼 훅이다. Android actual은 `android.graphics.pdf.PdfRenderer`를 통해 페이지를 로드하는데,
+ * 이는 사용 후 반드시 닫아야 하며, 보여주기 전에 백그라운드 디스패처에서 비트맵으로 디코드한다. iOS actual은
+ * 대신 `UIKitView`를 통해 PDFKit의 `PDFView`를 호스팅하고, PDFKit 스스로 [pageIndex]로 페이지를 넘기게 둔다.
  *
- * @param documentUri The document to render a page from; null renders the placeholder.
- * @param pageIndex The page to render, and the total page count it is drawn against.
- * @param modifier Applied to the rendered surface or placeholder.
- * @param message Shown by the placeholder when no real page can be rendered.
- * @param contentPadding Padding around a real rendered page.
- * @param placeholderContentPadding Padding around placeholder content.
+ * @param documentUri 페이지를 그려낼 문서. null이면 플레이스홀더를 그린다.
+ * @param pageIndex 그릴 페이지와, 그 페이지가 매겨지는 전체 페이지 수.
+ * @param modifier 렌더링된 서피스나 플레이스홀더에 적용된다.
+ * @param message 실제 페이지를 그릴 수 없을 때 플레이스홀더에 표시된다.
+ * @param contentPadding 실제로 렌더링된 페이지 주변 패딩.
+ * @param placeholderContentPadding 플레이스홀더 콘텐츠 주변 패딩.
  */
 @Composable
 internal expect fun PlatformPdfPageSurface(
@@ -148,16 +146,14 @@ internal expect fun PlatformPdfPageSurface(
 )
 
 /**
- * Fallback content shown in place of a real PDF page: a page-number readout and an explanatory
- * [message], used both while [PlatformPdfPageSurface] has nothing to render yet and when it
- * cannot render at all (a missing or unreadable document).
+ * 실제 PDF 페이지 대신 표시되는 대체 콘텐츠 — 페이지 번호 표시와 설명용 [message]로 이루어지며,
+ * [PlatformPdfPageSurface]가 아직 그릴 것이 없을 때와 아예 그릴 수 없을 때(문서가 없거나 읽을 수 없을 때)
+ * 모두에 쓰인다.
  *
- * @param pageIndex The page this placeholder stands in for, and the total page count it is shown
- * against.
- * @param modifier Applied to this placeholder's root.
- * @param message Explains to the user why no real page is shown.
- * @param contentPadding Padding around the placeholder's content; null resolves to the theme's
- * `large` spacing on all sides.
+ * @param pageIndex 이 플레이스홀더가 대신하는 페이지와, 함께 표시되는 전체 페이지 수.
+ * @param modifier 이 플레이스홀더의 루트에 적용된다.
+ * @param message 실제 페이지가 표시되지 않는 이유를 사용자에게 설명한다.
+ * @param contentPadding 플레이스홀더 콘텐츠 주변 패딩. null이면 테마의 `large` spacing이 사방에 적용된다.
  */
 @Composable
 internal fun PdfPlaceholderSurface(
@@ -195,7 +191,7 @@ internal fun PdfPlaceholderSurface(
     }
 }
 
-/** Compose preview of [PdfPageSurface] with a sample page index, for the IDE preview pane. */
+/** 표본 페이지 인덱스를 쓰는 [PdfPageSurface]의 Compose 미리보기로, IDE 미리보기 패널에 쓰인다. */
 @Preview
 @Composable
 private fun PdfPageSurfacePreview() {

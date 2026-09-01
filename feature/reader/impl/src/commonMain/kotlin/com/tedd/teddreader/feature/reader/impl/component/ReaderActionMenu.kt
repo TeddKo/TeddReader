@@ -23,18 +23,17 @@ import com.tedd.teddreader.feature.reader.impl.ReaderMenuAction
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The reader's top-bar overflow menu: a "more" icon button that, when tapped, opens a dropdown
- * grouped into navigation, appearance, and reading-tools sections, each rendered by
- * [ReaderMenuSection]. Every item forwards the [ReaderMenuAction] it represents to
- * [onActionSelected] and closes itself; this composable only presents the choices, it does not
- * interpret what an action means.
+ * 리더 상단 바의 overflow 메뉴: 탭하면 내비게이션, 외관, 읽기 도구 섹션으로 그룹화된 드롭다운을 여는
+ * "더보기" 아이콘 버튼이며, 각 섹션은 [ReaderMenuSection]이 그린다. 모든 항목은 자신이 나타내는
+ * [ReaderMenuAction]을 [onActionSelected]로 전달하고 스스로 닫힌다; 이 composable은 선택지를 보여줄
+ * 뿐이며 행동이 무엇을 의미하는지는 해석하지 않는다.
  *
- * @param expanded Whether the dropdown is currently open.
- * @param isCurrentPageSaved Whether the current page already has a saved place, used to pick the
- * "save"/"remove saved place" wording for the toggle action.
- * @param onExpandedChange Invoked when the menu should open or close.
- * @param onActionSelected Invoked with the action the user picked, after the menu has closed.
- * @param modifier Applied to the menu's anchor [Box].
+ * @param expanded 드롭다운이 현재 열려 있는지 여부.
+ * @param isCurrentPageSaved 현재 페이지에 이미 저장된 위치가 있는지 여부로, 토글 액션의 "저장"/"저장된
+ *   위치 삭제" 문구를 고르는 데 쓰인다.
+ * @param onExpandedChange 메뉴가 열리거나 닫혀야 할 때 호출된다.
+ * @param onActionSelected 메뉴가 닫힌 뒤, 사용자가 고른 액션과 함께 호출된다.
+ * @param modifier 메뉴의 앵커 [Box]에 적용된다.
  */
 @Composable
 fun ReaderActionMenu(
@@ -98,18 +97,18 @@ fun ReaderActionMenu(
 }
 
 /**
- * One titled group of menu items inside [ReaderActionMenu]'s dropdown: a section header followed
- * by one row per [ReaderMenuAction] in [actions], each labeled via [label].
+ * [ReaderActionMenu] 드롭다운 안의, 제목이 달린 메뉴 항목 그룹 하나: 섹션 헤더 뒤로 [actions]의
+ * [ReaderMenuAction]마다 한 행씩 이어지며, 각 행은 [label]을 통해 라벨이 붙는다.
  *
- * @param title The section's header text.
- * @param actions The actions to list, in display order.
- * @param isCurrentPageSaved Forwarded to [label] for whichever action's wording depends on it;
- * unused by actions that do not.
- * @param onActionSelected Invoked with the action the user tapped.
- * @param onDismiss Invoked alongside [onActionSelected] to close the parent dropdown.
- * @param modifier Applied to this section's column.
- * @param headerPadding Padding around the section header text; null resolves to the theme's
- * medium/small/xxSmall spacing.
+ * @param title 섹션의 헤더 텍스트.
+ * @param actions 표시 순서대로 나열할 액션들.
+ * @param isCurrentPageSaved 문구가 이 값에 좌우되는 액션을 위해 [label]로 전달된다; 그렇지 않은
+ *   액션에는 쓰이지 않는다.
+ * @param onActionSelected 사용자가 탭한 액션과 함께 호출된다.
+ * @param onDismiss 부모 드롭다운을 닫기 위해 [onActionSelected]와 함께 호출된다.
+ * @param modifier 이 섹션의 column에 적용된다.
+ * @param headerPadding 섹션 헤더 텍스트 주위의 padding; null이면 테마의 medium/small/xxSmall
+ *   간격으로 해석된다.
  */
 @Composable
 private fun ReaderMenuSection(
@@ -149,12 +148,12 @@ private fun ReaderMenuSection(
 }
 
 /**
- * The display label for this action in the reader's action menu.
+ * 리더 액션 메뉴에서 이 액션에 대해 표시할 라벨.
  *
- * @receiver The action to label.
- * @param isCurrentPageSaved Whether the current page already has a saved place; only
- * [ReaderMenuAction.ToggleSavedPlace] uses this to pick "save" vs. "remove" wording.
- * @return The localized label shown for this action.
+ * @receiver 라벨을 붙일 액션.
+ * @param isCurrentPageSaved 현재 페이지에 이미 저장된 위치가 있는지 여부; "저장" 대 "삭제" 문구를
+ *   고르는 데는 [ReaderMenuAction.ToggleSavedPlace]만 이 값을 사용한다.
+ * @return 이 액션에 대해 표시되는 지역화된 라벨.
  */
 @Composable
 private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (this) {
@@ -173,7 +172,7 @@ private fun ReaderMenuAction.label(isCurrentPageSaved: Boolean): String = when (
     ReaderMenuAction.DocumentInfo -> stringResource(Res.string.document_details)
 }
 
-/** Compose preview of [ReaderActionMenu] in its default, closed state, for the IDE preview pane. */
+/** IDE 미리보기 패널을 위한, 기본값인 닫힌 상태의 [ReaderActionMenu] Compose 미리보기. */
 @Preview
 @Composable
 private fun ReaderActionMenuPreview() {

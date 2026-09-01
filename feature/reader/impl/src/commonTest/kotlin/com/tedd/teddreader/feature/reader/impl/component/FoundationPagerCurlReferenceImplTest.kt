@@ -11,17 +11,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for the pure geometry behind [FoundationPagerCurlReferenceImpl]'s pagecurl
- * interaction: fold-edge construction, drag direction/completion thresholds, the spread-mode
- * leaf-offset scaling that maps full-viewport pointer travel onto the narrower folding leaf, and
- * tap-zone resolution. All of it is plain math with no Compose dependency, so it is tested
- * directly rather than through a composable harness.
+ * [FoundationPagerCurlReferenceImpl]의 pagecurl 인터랙션을 뒷받침하는 순수 기하 계산에 대한 단위
+ * 테스트다: 접힘 edge 구성, drag 방향/완료 임계값, 전체 viewport의 포인터 이동을 더 좁은 접히는 leaf로
+ * 매핑하는 spread 모드의 leaf-offset 스케일링, tap 영역 해석. 전부 Compose 의존성이 없는 순수 수학이므로,
+ * composable 하네스를 거치지 않고 직접 테스트한다.
  */
 class FoundationPagerCurlReferenceImplTest {
     /**
-     * Verifies [foundationReferenceCurlEdge] builds the fold's top/bottom edge points as the
-     * current pointer position plus and minus a vector rotated 90 degrees from the line to the
-     * viewport's near corner.
+     * [foundationReferenceCurlEdge]가 접힘의 위/아래 edge 점을, 현재 포인터 위치에 viewport의 가까운
+     * 모서리로 이어지는 선에서 90도 회전한 벡터를 더하고 뺀 값으로 만드는지 검증한다.
      */
     @Test
     fun defaultEdgeUsesCurrentPlusAndMinusRotatedVector() {
@@ -36,10 +34,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlDirection] reads direction purely from which way the
-     * pointer moved — leftward anywhere on the page means forward, rightward means backward —
-     * and returns null both when there is no movement and when the implied direction has no page
-     * to turn to.
+     * [foundationReferenceCurlDirection]이 방향을 오직 포인터가 움직인 쪽으로만 읽는지 — 페이지 어디서든
+     * 왼쪽으로 움직이면 forward, 오른쪽이면 backward — 그리고 움직임이 없을 때와 그 방향으로 넘어갈
+     * 페이지가 없을 때 둘 다 null을 반환하는지 검증한다.
      */
     @Test
     fun dragDirectionComesFromMovementAnywhereOnThePage() {
@@ -65,11 +62,10 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [spreadLeafOffset] (via [foundationReferenceCurlLeafOffset] in spread mode) maps
-     * the full viewport width onto the leaf's own narrower width: the far viewport edge in the
-     * fold's direction always means "fully folded" ([SpreadLeafWidth]) and the opposite edge
-     * always means "at rest" (0), regardless of which physical side of the viewport that is for
-     * forward vs. backward.
+     * [spreadLeafOffset](spread 모드에서 [foundationReferenceCurlLeafOffset]을 거친다)이 전체 viewport
+     * 너비를 leaf 자체의 더 좁은 너비로 매핑하는지 검증한다: 접힘 방향으로 먼 viewport 모서리는 항상
+     * "완전히 접힘"([SpreadLeafWidth])을 뜻하고, 반대쪽 모서리는 forward든 backward든 viewport의 물리적
+     * 어느 쪽이든 상관없이 항상 "정지 상태"(0)를 뜻한다.
      */
     @Test
     fun spreadSwipeSpansTheWholeViewportInBothDirections() {
@@ -83,13 +79,12 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the spread-mode leaf offset's fold progress (as a fraction of leaf width) matches
-     * exactly what a single-pane curl would report as a fraction of viewport width, at every
-     * pointer position tested — the scaling in [foundationReferenceCurlLeafOffset] must not
-     * change how much the page has folded for a given amount of pointer travel, only where that
-     * travel is measured. A backward swipe's progress is the forward swipe's complement, since
-     * the spread reuses forward curl geometry for a backward turn (see
-     * [foundationReferenceCurlGeometryDirection]).
+     * spread 모드 leaf offset의 접힘 진행도(leaf 너비에 대한 비율)가, 테스트한 모든 포인터 위치에서
+     * single-pane curl이 viewport 너비에 대한 비율로 보고하는 값과 정확히 일치하는지 검증한다 —
+     * [foundationReferenceCurlLeafOffset]의 스케일링은 주어진 포인터 이동량에 대해 페이지가 얼마나
+     * 접혔는지를 바꿔서는 안 되며, 그 이동을 어디서 측정하는지만 바꿔야 한다. backward 스와이프의
+     * 진행도는 forward 스와이프의 여집합이다 — spread가 backward 넘김에도 forward curl 기하를 재사용
+     * 하기 때문이다([foundationReferenceCurlGeometryDirection] 참고).
      */
     @Test
     fun spreadFoldProgressMatchesTheSinglePaneCurlAtEveryPointerPosition() {
@@ -117,10 +112,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlDragSucceeds] requires the same 20%-of-viewport
-     * directional travel to complete a spread swipe as it does a single-pane one, even though the
-     * spread's leaf itself is narrower — completion is measured against the full viewport the
-     * pointer actually travelled across, not the leaf's own width.
+     * [foundationReferenceCurlDragSucceeds]가 spread의 leaf 자체는 더 좁음에도 불구하고, spread 스와이프를
+     * 완료하는 데 single-pane과 같은 viewport 너비 20%의 방향성 이동을 요구하는지 검증한다 — 완료 여부는
+     * leaf 자체의 너비가 아니라 포인터가 실제로 가로지른 전체 viewport를 기준으로 측정된다.
      */
     @Test
     fun spreadSwipeCompletesAtTheSameViewportTravelAsTheSinglePaneCurl() {
@@ -141,9 +135,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlGeometryDirection] reuses forward curl geometry for a
-     * spread's backward (previous-page) swipe, since the spread's only folding leaf is the one on
-     * the right, while a single-pane backward swipe keeps its own backward geometry.
+     * [foundationReferenceCurlGeometryDirection]이 spread의 backward(이전 페이지) 스와이프에도 forward
+     * curl 기하를 재사용하는지 검증한다 — spread에서 접히는 leaf는 오른쪽 하나뿐이기 때문이다. 반면
+     * single-pane의 backward 스와이프는 자신의 backward 기하를 그대로 유지한다.
      */
     @Test
     fun spreadPreviousSwipeReusesForwardCurlGeometry() {
@@ -164,9 +158,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceVisibleCurlEdge] shows the resting edge, not the animated
-     * one, once [pageKey] has moved on but [renderedPageKey] has not yet caught up — the window
-     * between a turn completing and the reset effect running for the new page.
+     * [foundationReferenceVisibleCurlEdge]가, [pageKey]는 이미 넘어갔지만 [renderedPageKey]가 아직
+     * 따라잡지 못한 상태 — 넘김이 완료된 시점과 새 페이지에 대한 reset 효과가 실행되는 시점 사이의
+     * 구간 — 에서 애니메이션 중인 edge가 아니라 정지 edge를 보여주는지 검증한다.
      */
     @Test
     fun changedPageKeyUsesRestingEdgesBeforeTheResetEffectRuns() {
@@ -182,9 +176,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlDragSucceeds] on the horizontal axis requires at least 20%
-     * of the viewport width of directional travel, in either direction, just under that threshold
-     * failing and just at or over it succeeding.
+     * horizontal axis에서 [foundationReferenceCurlDragSucceeds]가 양방향 모두 viewport 너비의 최소
+     * 20%에 해당하는 방향성 이동을 요구하는지, 그 임계값 바로 아래는 실패하고 그 값이거나 그 이상은
+     * 성공하는지 검증한다.
      */
     @Test
     fun horizontalDragCompletesAtTwentyPercentDirectionalTravel() {
@@ -229,9 +223,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlDragSucceeds] on the vertical axis measures its 20%
-     * threshold against the shorter of the viewport's two sides, in both portrait and landscape
-     * orientations, rather than always against one fixed dimension.
+     * vertical axis에서 [foundationReferenceCurlDragSucceeds]가 20% 임계값을, 항상 고정된 한 치수가
+     * 아니라 portrait와 landscape 방향 모두에서 viewport의 두 변 중 더 짧은 쪽을 기준으로 측정하는지
+     * 검증한다.
      */
     @Test
     fun verticalDragUsesTwentyPercentOfTheShorterViewportSide() {
@@ -277,9 +271,8 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlZIndex] ranks the previous page above the current page,
-     * and the current page above the next page, so the folding leaf's stacking order matches a
-     * real book's page order.
+     * [foundationReferenceCurlZIndex]가 이전 페이지를 현재 페이지보다 위로, 현재 페이지를 다음 페이지보다
+     * 위로 배치하여, 접히는 leaf의 쌓임 순서가 실제 책의 페이지 순서와 일치하는지 검증한다.
      */
     @Test
     fun previousCurlPageIsLayeredAboveCurrentPage() {
@@ -288,9 +281,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlTapAction] always resolves to toggling the controls while
-     * auto-scroll is enabled, regardless of which zone was tapped or which pages are available —
-     * a manual tap must not compete with the automatic turn.
+     * auto-scroll이 활성화된 동안에는 [foundationReferenceCurlTapAction]이 어느 영역을 탭했든, 어떤
+     * 페이지를 쓸 수 있든 상관없이 항상 controls 토글로 귀결되는지 검증한다 — 수동 탭이 자동 넘김과
+     * 경쟁해서는 안 된다.
      */
     @Test
     fun autoScrollTapsAlwaysToggleControlsRegardlessOfZoneOrAvailablePages() {
@@ -332,10 +325,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies [foundationReferenceCurlTapAction]'s quarter-zone resolution along the primary
-     * axis for both orientations, including the F16 fix: a tap in a zone with no page to turn to
-     * (start or end of the book) falls through to toggling the controls instead of doing nothing
-     * at all, the same as the middle zone.
+     * [foundationReferenceCurlTapAction]이 두 방향 모두에서 주축을 따라 1/4씩 영역을 나눠 해석하는지,
+     * F16 수정을 포함해 검증한다: 넘어갈 페이지가 없는 영역(책의 시작이나 끝)에서의 탭은 아무 일도 하지
+     * 않는 대신, 가운데 영역과 마찬가지로 controls 토글로 폴스루한다.
      */
     @Test
     fun tapsUsePrimaryAxisQuarterZonesAndRespectAvailablePages() {
@@ -368,8 +360,8 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the Play Books-style 3D curl always resolves to the horizontal axis, while the
-     * standard curl continues to honor the reader's configured vertical direction.
+     * Play Books 스타일 3D curl은 항상 horizontal axis로 귀결되고, standard curl은 리더에 설정된
+     * vertical 방향을 계속 따르는지 검증한다.
      */
     @Test
     fun threeDimensionalCurlAlwaysUsesHorizontalSwipeAxis() {
@@ -389,7 +381,7 @@ class FoundationPagerCurlReferenceImplTest {
         )
     }
 
-    /** Drag tracking is direct state, not a spring animation queued behind pointer events. */
+    /** drag 추적은 포인터 이벤트 뒤에 대기하는 spring 애니메이션이 아니라 직접적인 state다. */
     @Test
     fun dragUpdateUsesTheLatestPointerEdgeImmediately() {
         val size = IntSize(100, 200)
@@ -405,8 +397,8 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the 3D curl accepts only horizontal-dominant movement and fixes forward/backward
-     * from the X direction, so a mostly vertical drag cannot start a page turn.
+     * 3D curl이 horizontal 방향이 우세한 움직임만 받아들이고 forward/backward를 X 방향에서 고정하여,
+     * 대체로 vertical한 drag는 페이지 넘김을 시작할 수 없음을 검증한다.
      */
     @Test
     fun threeDimensionalCurlRejectsVerticalDominantDrag() {
@@ -439,9 +431,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the 3D curl derives its rolling crease from X alone: changing pointer Y leaves the
-     * edge unchanged, its interior crease remains non-degenerate, and both endpoints exactly match
-     * the existing flat rest edges used by the renderer's early returns.
+     * 3D curl이 말리는 crease를 오직 X만으로 도출하는지 검증한다: 포인터 Y를 바꿔도 edge는 그대로이며,
+     * 내부 crease는 퇴화하지 않고, 양 끝점은 renderer의 조기 반환이 쓰는 기존의 평평한 정지 edge와
+     * 정확히 일치한다.
      */
     @Test
     fun threeDimensionalCurlRollingEdgeIgnoresPointerY() {
@@ -456,9 +448,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies an accepted 3D drag begins at its direction's flat rest edge regardless of where the
-     * finger touched: a small rightward backward drag reveals only that small displacement instead
-     * of jumping to the pointer's absolute X position, and forward mirrors the same rule.
+     * 받아들여진 3D drag가 손가락이 어디를 터치했든 상관없이 해당 방향의 평평한 정지 edge에서 시작하는지
+     * 검증한다: 작은 오른쪽 방향의 backward drag는 포인터의 절대 X 위치로 건너뛰는 대신 그 작은 변위만을
+     * 드러내며, forward도 같은 규칙을 그대로 따른다.
      */
     @Test
     fun threeDimensionalCurlDragStartsFromRestByDisplacement() {
@@ -481,9 +473,9 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the PlayLikeCurl profile uses its reference 25-column sinusoidal texture mesh, leaves every
-     * interval unwarped at rest, keeps projected boundaries monotonic and contiguous while bent, and moves
-     * the completed page fully beyond the start edge without reversed strips that can tear text.
+     * PlayLikeCurl 프로파일이 기준이 되는 25열 sinusoidal texture mesh를 사용하는지, 정지 상태에서는
+     * 모든 구간이 뒤틀리지 않는지, 굽어진 상태에서는 투영된 경계가 단조롭고 연속적으로 유지되는지, 완료된
+     * 페이지가 텍스트를 찢을 수 있는 뒤집힌 strip 없이 시작 edge를 완전히 벗어나 이동하는지 검증한다.
      */
     @Test
     fun threeDimensionalCurlUsesSinusoidalTextureMesh() {
@@ -508,8 +500,8 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Verifies the 3D curl's front/back/rim/cast lighting exists only while the leaf is bent,
-     * peaks at a quarter turn, and vanishes again at both flat orientations.
+     * 3D curl의 front/back/rim/cast 조명이 leaf가 굽어 있는 동안에만 존재하고, 1/4 회전 지점에서
+     * 정점을 찍으며, 양쪽 평평한 방향에서 다시 사라지는지 검증한다.
      */
     @Test
     fun threeDimensionalCurlLightingPeaksWhileLeafIsBent() {
@@ -533,13 +525,13 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Builds the spread-mode leaf offset a pointer at viewport x-coordinate [x] maps to, for
-     * [direction], using this test file's fixed [SpreadViewportWidth]/[SpreadLeafWidth] — the
-     * shared setup behind the spread-scaling assertions above.
+     * 이 테스트 파일에 고정된 [SpreadViewportWidth]/[SpreadLeafWidth]를 사용해, viewport x좌표 [x]에
+     * 있는 포인터가 [direction]에 대해 매핑되는 spread 모드 leaf offset을 만든다 — 위의 spread 스케일링
+     * 단언들이 공유하는 준비 과정이다.
      *
-     * @param x The pointer's x position within the full viewport.
-     * @param direction Which fold direction the offset is being computed for.
-     * @return The corresponding offset in the folding leaf's own coordinate space.
+     * @param x 전체 viewport 안에서 포인터의 x 위치.
+     * @param direction offset을 계산할 접힘 방향.
+     * @return 접히는 leaf 자신의 좌표 공간에서의 대응 offset.
      */
     private fun spreadLeafOffset(
         x: Float,
@@ -554,10 +546,10 @@ class FoundationPagerCurlReferenceImplTest {
     )
 
     private companion object {
-        /** The fixed full-viewport width used by every spread-mode assertion in this class. */
+        /** 이 클래스의 모든 spread 모드 단언에서 쓰이는, 고정된 전체 viewport 너비. */
         const val SpreadViewportWidth = 1000f
 
-        /** The fixed folding-leaf width (half the viewport) used by every spread-mode assertion. */
+        /** 모든 spread 모드 단언에서 쓰이는, 고정된 접히는 leaf 너비(viewport의 절반). */
         const val SpreadLeafWidth = 500f
     }
 }

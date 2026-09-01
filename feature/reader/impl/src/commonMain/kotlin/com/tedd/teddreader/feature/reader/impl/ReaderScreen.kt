@@ -132,34 +132,32 @@ import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
 /**
- * Entry point that wires [ReaderViewModel] into [ReaderScreen]. Like [ReaderScreen] and
- * [ReaderContent] below it, this composable is a pure state-and-callback pass-through to the view
- * model: it collects [ReaderUiState], forwards every user action back as a view model call or an
- * [ReaderMenuAction] branch, and holds no document data of its own.
+ * [ReaderViewModel]을 [ReaderScreen]에 연결하는 진입점. 아래의 [ReaderScreen], [ReaderContent]와
+ * 마찬가지로 이 composable은 view model에 대한 순수한 상태·콜백 전달자다: [ReaderUiState]를 수집하고,
+ * 모든 사용자 동작을 view model 호출이나 [ReaderMenuAction] 분기로 되돌려 전달하며, 자체적인 문서
+ * 데이터는 전혀 보유하지 않는다.
  *
- * The `rememberSaveable` values declared here (`goToPageText`, `brightnessDraft`, `fontSizeDraft`,
- * `lineHeightPercentDraft`, `autoScrollSpeedDraft`, `bottomSliderValue`,
- * `isActionMenuExpanded`) are drafts: they hold a slider's or text field's value while the user's
- * gesture is still in progress — before it is committed back to the view model — and survive
- * configuration changes on their own, so a drag or a typed digit mid-gesture is not lost. They are
- * not the source of truth once a gesture ends; the view model's own committed state is.
- * `goToPageText`, `brightnessDraft`, `fontSizeDraft`, `lineHeightPercentDraft`, and
- * `autoScrollSpeedDraft` are each keyed on their corresponding committed value, so a committed
- * change from outside the gesture (e.g. settings restored on a different device) resets the draft
- * to match; `bottomSliderValue` is instead kept in sync by an effect inside `ReaderContent`, and
- * `isActionMenuExpanded` is plain per-document UI state with no committed counterpart at all.
+ * 여기서 선언된 `rememberSaveable` 값들(`goToPageText`, `brightnessDraft`, `fontSizeDraft`,
+ * `lineHeightPercentDraft`, `autoScrollSpeedDraft`, `bottomSliderValue`, `isActionMenuExpanded`)은
+ * 초안(draft)이다: 사용자의 제스처가 view model에 확정되기 전, 진행 중인 동안 슬라이더나 텍스트 필드의
+ * 값을 담아두며, 스스로 configuration 변경을 견뎌내어 제스처 도중의 드래그나 입력된 숫자가 사라지지
+ * 않도록 한다. 제스처가 끝나면 이들은 더 이상 진실의 원천이 아니며, view model 자체의 확정된 상태가
+ * 그것이다. `goToPageText`, `brightnessDraft`, `fontSizeDraft`, `lineHeightPercentDraft`,
+ * `autoScrollSpeedDraft`는 각각 대응하는 확정 값에 키가 걸려 있어서, 제스처 바깥에서 온 확정 변경(예:
+ * 다른 기기에서 복원된 설정)이 있으면 초안이 그에 맞게 리셋된다; `bottomSliderValue`는 대신
+ * `ReaderContent` 내부의 effect가 동기화하며, `isActionMenuExpanded`는 대응하는 확정 값이 전혀 없는
+ * 순수한 문서별 UI 상태다.
  *
- * @param documentId The document to open; changing it re-triggers [ReaderViewModel.openDocument].
- * @param onBack Invoked when the user asks to leave the reader.
- * @param modifier Applied to the resulting [ReaderScreen].
- * @param onSearchClick Invoked when the user picks search from the action menu.
- * @param onBookmarksClick Invoked when the user picks saved places from the action menu.
- * @param onDocumentInfoClick Invoked when the user picks document info from the action menu.
- * @param jumpLocation A location to navigate to once, e.g. from a deep link or a saved place tap;
- * consumed via [onJumpLocationConsumed] so it does not re-fire on recomposition.
- * @param onJumpLocationConsumed Invoked once [jumpLocation] has been applied, so the caller can
- * clear it.
- * @param viewModel The reader's view model; defaults to one resolved through Koin.
+ * @param documentId 열려는 문서; 바뀌면 [ReaderViewModel.openDocument]를 다시 트리거한다.
+ * @param onBack 사용자가 리더를 떠나려 할 때 호출된다.
+ * @param modifier 결과로 나오는 [ReaderScreen]에 적용된다.
+ * @param onSearchClick 사용자가 액션 메뉴에서 검색을 선택하면 호출된다.
+ * @param onBookmarksClick 사용자가 액션 메뉴에서 저장된 위치를 선택하면 호출된다.
+ * @param onDocumentInfoClick 사용자가 액션 메뉴에서 문서 정보를 선택하면 호출된다.
+ * @param jumpLocation 한 번 이동할 위치(예: 딥링크나 저장된 위치 탭에서 옴); [onJumpLocationConsumed]를
+ * 통해 소비되어 recomposition에서 다시 실행되지 않는다.
+ * @param onJumpLocationConsumed [jumpLocation]이 적용되고 나면 호출되어, 호출자가 이를 지울 수 있게 한다.
+ * @param viewModel 리더의 view model; 기본값은 Koin으로 해석된 것.
  */
 @Composable
 fun ReaderRouteScreen(
@@ -175,11 +173,11 @@ fun ReaderRouteScreen(
 ) {
     val persistedUiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // A style set to follow the system keeps light page colours in storage, because the system setting
-    // it defers to can change long after the choice was made. Resolving it here, once, means every
-    // colour the reader draws with agrees with the app chrome around it — without this the page stayed
-    // light while the chrome went dark. Only colours move, and page layout is keyed on type rather than
-    // colour, so no pagination is invalidated.
+    // 시스템을 따르도록 설정된 style은 저장소에는 밝은 페이지 색상을 유지하는데, 그것이 따르는 시스템
+    // 설정은 선택이 이루어진 후 한참 지나서도 바뀔 수 있기 때문이다. 여기서 한 번 이를 해석해 두면 리더가
+    // 그리는 모든 색상이 주변 앱 chrome과 일치하게 된다 — 이렇게 하지 않으면 chrome은 어두워지는데
+    // 페이지는 밝은 채로 남아 있었다. 색상만 바뀌고 페이지 레이아웃은 색상이 아니라 활자 설정을 기준으로
+    // 하므로 페이지 나누기는 무효화되지 않는다.
     val systemInDarkTheme = isSystemInDarkTheme()
     val uiState = remember(persistedUiState, systemInDarkTheme) {
         persistedUiState.copy(
@@ -295,58 +293,56 @@ fun ReaderRouteScreen(
 }
 
 /**
- * Chooses which of the reader's three top-level states to show — a loading indicator while
- * [ReaderUiState.isLoading], an error message when [ReaderUiState.errorMessage] is set, or the real
- * [ReaderContent] otherwise — and passes every other parameter straight through unchanged. Like
- * [ReaderRouteScreen], this composable is a pure state-and-callback pass-through to the view model:
- * it holds no reader state of its own.
+ * 리더의 세 가지 최상위 상태 중 무엇을 보여줄지 선택한다 — [ReaderUiState.isLoading]인 동안은 로딩
+ * 인디케이터, [ReaderUiState.errorMessage]가 설정되어 있으면 에러 메시지, 그 외에는 실제 [ReaderContent]
+ * — 그리고 나머지 모든 파라미터는 변경 없이 그대로 전달한다. [ReaderRouteScreen]과 마찬가지로 이
+ * composable은 view model에 대한 순수한 상태·콜백 전달자다: 자체적인 리더 상태를 전혀 보유하지 않는다.
  *
- * @param uiState The reader's current state, as published by the view model.
- * @param onBack Invoked when the user asks to leave the reader.
- * @param onToggleControls Invoked when the user taps to show or hide the reading controls.
- * @param onPreviousPage Invoked with the number of panes to step back when the user turns back.
- * @param onNextPage Invoked with the number of panes to step forward when the user turns the page.
- * @param onFavoriteToggle Invoked when the user toggles the favorite/bookmark star.
- * @param onActionSelected Invoked with the action menu's chosen item.
- * @param onOptionSheetSelected Invoked to open one of the option bottom sheets.
- * @param onDismissSheet Invoked when the active option sheet or drawer is dismissed.
- * @param onKeepScreenOnChange Invoked when the keep-screen-on setting is toggled.
- * @param onFullscreenChange Invoked when the fullscreen setting is toggled.
- * @param onShowProgressChange Invoked when the show-progress setting is toggled.
- * @param onFontSizeChange Invoked when the font size is committed.
- * @param onLineHeightChange Invoked when the line height multiplier is committed.
- * @param onFontFamilyChange Invoked when the font family is changed; null selects the default.
- * @param onFontWeightChange Invoked when the font weight is changed, to one of 300, 400, 500, or 600.
- * @param onThemeModeChange Invoked when the reader theme is changed.
- * @param onPageTurnModeChange Invoked when the page-turn direction is changed.
- * @param onPageAnimationChange Invoked when the page-turn animation is changed.
- * @param onAutoScrollEnabledChange Invoked when auto-scroll is turned on or off.
- * @param onAutoScrollModeChange Invoked when the auto-scroll mode is changed.
- * @param onAutoScrollSpeedChange Invoked when the auto-scroll speed is committed.
- * @param onAutoScrollToggle Invoked from the bottom bar's auto-scroll toggle.
- * @param onGoToPage Invoked with a zero-based page index to jump to.
- * @param onMoveToLocation Invoked with a location to jump to, e.g. from the table of contents.
- * @param onBrightnessOverlayAlphaChange Invoked when the brightness overlay's alpha is committed.
- * @param onPageBreakerChanged Invoked once a pane has measured its text area and produced a page
- * breaker for the current style and viewport; defaults to a no-op.
- * @param goToPageText The "go to page" sheet's current text field value.
- * @param onGoToPageTextChange Invoked as the user types in the "go to page" field.
- * @param brightnessDraft The brightness slider's in-progress value, before it is committed.
- * @param onBrightnessDraftChange Invoked as the brightness slider is dragged.
- * @param fontSizeDraft The font size slider's in-progress value, before it is committed.
- * @param onFontSizeDraftChange Invoked as the font size slider is dragged.
- * @param lineHeightPercentDraft The line height slider's in-progress value, as a percentage.
- * @param onLineHeightPercentDraftChange Invoked as the line height slider is dragged.
- * @param autoScrollSpeedDraft The auto-scroll speed slider's in-progress value.
- * @param onAutoScrollSpeedDraftChange Invoked as the auto-scroll speed slider is dragged.
- * @param bottomSliderValue The bottom page-progress slider's current value.
- * @param onBottomSliderValueChange Invoked as the bottom page-progress slider is dragged.
- * @param isActionMenuExpanded Whether the top bar's overflow action menu is open.
- * @param onActionMenuExpandedChange Invoked when the action menu is opened or dismissed.
- * @param activeSheetScrollState Scroll state for the active option sheet's content.
- * @param batteryPercent The device's battery percentage, shown in the status footer, or null if
- * unavailable.
- * @param modifier Applied to whichever of the three states is shown.
+ * @param uiState view model이 발행하는, 리더의 현재 상태.
+ * @param onBack 사용자가 리더를 떠나려 할 때 호출된다.
+ * @param onToggleControls 사용자가 탭하여 읽기 컨트롤을 보이거나 숨길 때 호출된다.
+ * @param onPreviousPage 사용자가 뒤로 넘길 때, 되돌아갈 pane 수와 함께 호출된다.
+ * @param onNextPage 사용자가 페이지를 넘길 때, 앞으로 나아갈 pane 수와 함께 호출된다.
+ * @param onFavoriteToggle 사용자가 즐겨찾기/책갈피 별표를 토글하면 호출된다.
+ * @param onActionSelected 액션 메뉴에서 선택된 항목과 함께 호출된다.
+ * @param onOptionSheetSelected 옵션 바텀 시트 중 하나를 열도록 호출된다.
+ * @param onDismissSheet 활성 옵션 시트나 드로어가 닫히면 호출된다.
+ * @param onKeepScreenOnChange 화면 항상 켜기 설정이 토글되면 호출된다.
+ * @param onFullscreenChange 전체 화면 설정이 토글되면 호출된다.
+ * @param onShowProgressChange 진행률 표시 설정이 토글되면 호출된다.
+ * @param onFontSizeChange 활자 크기가 확정되면 호출된다.
+ * @param onLineHeightChange 줄 간격 배율이 확정되면 호출된다.
+ * @param onFontFamilyChange 활자 패밀리가 바뀌면 호출된다; null은 기본값을 선택한다.
+ * @param onFontWeightChange 활자 굵기가 300, 400, 500, 600 중 하나로 바뀌면 호출된다.
+ * @param onThemeModeChange 리더 테마가 바뀌면 호출된다.
+ * @param onPageTurnModeChange 페이지 넘김 방향이 바뀌면 호출된다.
+ * @param onPageAnimationChange 페이지 넘김 애니메이션이 바뀌면 호출된다.
+ * @param onAutoScrollEnabledChange 자동 스크롤이 켜지거나 꺼지면 호출된다.
+ * @param onAutoScrollModeChange 자동 스크롤 모드가 바뀌면 호출된다.
+ * @param onAutoScrollSpeedChange 자동 스크롤 속도가 확정되면 호출된다.
+ * @param onAutoScrollToggle 하단 바의 자동 스크롤 토글에서 호출된다.
+ * @param onGoToPage 0-기반 페이지 인덱스와 함께 호출되어 그 페이지로 이동한다.
+ * @param onMoveToLocation 목차 등에서 이동할 위치와 함께 호출된다.
+ * @param onBrightnessOverlayAlphaChange 밝기 오버레이의 alpha가 확정되면 호출된다.
+ * @param onPageBreakerChanged pane이 텍스트 영역을 측정하여 현재 style과 viewport에 대한 page breaker를
+ * 만들어내면 호출된다; 기본값은 아무 동작도 하지 않는다.
+ * @param goToPageText "페이지로 이동" 시트의 현재 텍스트 필드 값.
+ * @param onGoToPageTextChange 사용자가 "페이지로 이동" 필드에 입력하는 동안 호출된다.
+ * @param brightnessDraft 밝기 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onBrightnessDraftChange 밝기 슬라이더가 드래그되는 동안 호출된다.
+ * @param fontSizeDraft 활자 크기 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onFontSizeDraftChange 활자 크기 슬라이더가 드래그되는 동안 호출된다.
+ * @param lineHeightPercentDraft 줄 간격 슬라이더의, 백분율로 나타낸 진행 중인 값.
+ * @param onLineHeightPercentDraftChange 줄 간격 슬라이더가 드래그되는 동안 호출된다.
+ * @param autoScrollSpeedDraft 자동 스크롤 속도 슬라이더의 진행 중인 값.
+ * @param onAutoScrollSpeedDraftChange 자동 스크롤 속도 슬라이더가 드래그되는 동안 호출된다.
+ * @param bottomSliderValue 하단 페이지 진행률 슬라이더의 현재 값.
+ * @param onBottomSliderValueChange 하단 페이지 진행률 슬라이더가 드래그되는 동안 호출된다.
+ * @param isActionMenuExpanded 상단 바의 오버플로 액션 메뉴가 열려 있는지 여부.
+ * @param onActionMenuExpandedChange 액션 메뉴가 열리거나 닫히면 호출된다.
+ * @param activeSheetScrollState 활성 옵션 시트 콘텐츠의 스크롤 상태.
+ * @param batteryPercent 상태 표시줄에 표시되는 기기 배터리 퍼센트, 사용할 수 없으면 null.
+ * @param modifier 세 상태 중 표시되는 것에 적용된다.
  */
 @Composable
 fun ReaderScreen(
@@ -457,66 +453,63 @@ fun ReaderScreen(
 }
 
 /**
- * Renders the actual reading surface once [ReaderScreen] has decided the document is ready: the
- * page pager, the top/bottom control bars, the status footer, the table-of-contents drawer, the
- * brightness overlay, and whichever option sheet is active. Like [ReaderScreen] above it, this
- * composable is a pure state-and-callback pass-through to the view model — the local `remember`s
- * here (pinch/zoom transform, drag gesture state, the page-move request queue) are transient
- * gesture bookkeeping, not a second copy of reader state.
+ * [ReaderScreen]이 문서가 준비되었다고 판단한 뒤 실제 읽기 화면을 렌더링한다: 페이지 pager, 상단/하단
+ * 컨트롤 바, 상태 표시줄, 목차 드로어, 밝기 오버레이, 그리고 활성화된 옵션 시트. 위의 [ReaderScreen]과
+ * 마찬가지로 이 composable은 view model에 대한 순수한 상태·콜백 전달자다 — 여기 있는 로컬 `remember`들
+ * (핀치/확대 transform, 드래그 제스처 상태, 페이지 이동 요청 큐)은 일시적인 제스처 관리용일 뿐, 리더
+ * 상태의 두 번째 사본이 아니다.
  *
- * The local `movePrevious`/`moveNext` lambdas only forward the step size (the locally computed
- * `paneCount`) to [onPreviousPage]/[onNextPage]; they never resolve a target page index themselves.
- * The view model resolves the step against whichever pagination is live when the move actually
- * runs, so a repagination that lands between the tap and the move being processed cannot cause the
- * wrong page to be selected.
+ * 로컬 `movePrevious`/`moveNext` 람다는 (로컬에서 계산된 `paneCount`인) 이동 폭만
+ * [onPreviousPage]/[onNextPage]로 전달할 뿐, 목표 페이지 인덱스를 직접 결정하지 않는다. view model은
+ * 이동이 실제로 실행될 때 그 시점에 유효한 페이지 나누기를 기준으로 이동 폭을 해석하므로, 탭과 이동 처리
+ * 사이에 재페이지 나누기가 끼어들어도 잘못된 페이지가 선택되는 일이 없다.
  *
- * @param uiState The reader's current state, as published by the view model.
- * @param onBack Invoked when the user asks to leave the reader.
- * @param onToggleControls Invoked when the user taps to show or hide the reading controls.
- * @param onPreviousPage Invoked with the number of panes to step back when the user turns back.
- * @param onNextPage Invoked with the number of panes to step forward when the user turns the page.
- * @param onFavoriteToggle Invoked when the user toggles the favorite/bookmark star.
- * @param onActionSelected Invoked with the action menu's chosen item.
- * @param onOptionSheetSelected Invoked to open one of the option bottom sheets.
- * @param onDismissSheet Invoked when the active option sheet or drawer is dismissed.
- * @param onKeepScreenOnChange Invoked when the keep-screen-on setting is toggled.
- * @param onFullscreenChange Invoked when the fullscreen setting is toggled.
- * @param onShowProgressChange Invoked when the show-progress setting is toggled.
- * @param onFontSizeChange Invoked when the font size is committed.
- * @param onLineHeightChange Invoked when the line height multiplier is committed.
- * @param onFontFamilyChange Invoked when the font family is changed; null selects the default.
- * @param onFontWeightChange Invoked when the font weight is changed, to one of 300, 400, 500, or 600.
- * @param onThemeModeChange Invoked when the reader theme is changed.
- * @param onPageTurnModeChange Invoked when the page-turn direction is changed.
- * @param onPageAnimationChange Invoked when the page-turn animation is changed.
- * @param onAutoScrollEnabledChange Invoked when auto-scroll is turned on or off.
- * @param onAutoScrollModeChange Invoked when the auto-scroll mode is changed.
- * @param onAutoScrollSpeedChange Invoked when the auto-scroll speed is committed.
- * @param onAutoScrollToggle Invoked from the bottom bar's auto-scroll toggle.
- * @param onGoToPage Invoked with a zero-based page index to jump to.
- * @param onMoveToLocation Invoked with a location to jump to, e.g. from the table of contents.
- * @param onBrightnessOverlayAlphaChange Invoked when the brightness overlay's alpha is committed.
- * @param onPageBreakerChanged Invoked once a pane has measured its text area and produced a page
- * breaker for the current style and viewport.
- * @param goToPageText The "go to page" sheet's current text field value.
- * @param onGoToPageTextChange Invoked as the user types in the "go to page" field.
- * @param brightnessDraft The brightness slider's in-progress value, before it is committed.
- * @param onBrightnessDraftChange Invoked as the brightness slider is dragged.
- * @param fontSizeDraft The font size slider's in-progress value, before it is committed.
- * @param onFontSizeDraftChange Invoked as the font size slider is dragged.
- * @param lineHeightPercentDraft The line height slider's in-progress value, as a percentage.
- * @param onLineHeightPercentDraftChange Invoked as the line height slider is dragged.
- * @param autoScrollSpeedDraft The auto-scroll speed slider's in-progress value.
- * @param onAutoScrollSpeedDraftChange Invoked as the auto-scroll speed slider is dragged.
- * @param bottomSliderValue The bottom page-progress slider's current value.
- * @param onBottomSliderValueChange Invoked as the bottom page-progress slider is dragged, and by
- * this composable's own effect whenever the underlying page index changes.
- * @param isActionMenuExpanded Whether the top bar's overflow action menu is open.
- * @param onActionMenuExpandedChange Invoked when the action menu is opened or dismissed.
- * @param activeSheetScrollState Scroll state for the active option sheet's content.
- * @param batteryPercent The device's battery percentage, shown in the status footer, or null if
- * unavailable.
- * @param modifier Applied to the root of the reading surface.
+ * @param uiState view model이 발행하는, 리더의 현재 상태.
+ * @param onBack 사용자가 리더를 떠나려 할 때 호출된다.
+ * @param onToggleControls 사용자가 탭하여 읽기 컨트롤을 보이거나 숨길 때 호출된다.
+ * @param onPreviousPage 사용자가 뒤로 넘길 때, 되돌아갈 pane 수와 함께 호출된다.
+ * @param onNextPage 사용자가 페이지를 넘길 때, 앞으로 나아갈 pane 수와 함께 호출된다.
+ * @param onFavoriteToggle 사용자가 즐겨찾기/책갈피 별표를 토글하면 호출된다.
+ * @param onActionSelected 액션 메뉴에서 선택된 항목과 함께 호출된다.
+ * @param onOptionSheetSelected 옵션 바텀 시트 중 하나를 열도록 호출된다.
+ * @param onDismissSheet 활성 옵션 시트나 드로어가 닫히면 호출된다.
+ * @param onKeepScreenOnChange 화면 항상 켜기 설정이 토글되면 호출된다.
+ * @param onFullscreenChange 전체 화면 설정이 토글되면 호출된다.
+ * @param onShowProgressChange 진행률 표시 설정이 토글되면 호출된다.
+ * @param onFontSizeChange 활자 크기가 확정되면 호출된다.
+ * @param onLineHeightChange 줄 간격 배율이 확정되면 호출된다.
+ * @param onFontFamilyChange 활자 패밀리가 바뀌면 호출된다; null은 기본값을 선택한다.
+ * @param onFontWeightChange 활자 굵기가 300, 400, 500, 600 중 하나로 바뀌면 호출된다.
+ * @param onThemeModeChange 리더 테마가 바뀌면 호출된다.
+ * @param onPageTurnModeChange 페이지 넘김 방향이 바뀌면 호출된다.
+ * @param onPageAnimationChange 페이지 넘김 애니메이션이 바뀌면 호출된다.
+ * @param onAutoScrollEnabledChange 자동 스크롤이 켜지거나 꺼지면 호출된다.
+ * @param onAutoScrollModeChange 자동 스크롤 모드가 바뀌면 호출된다.
+ * @param onAutoScrollSpeedChange 자동 스크롤 속도가 확정되면 호출된다.
+ * @param onAutoScrollToggle 하단 바의 자동 스크롤 토글에서 호출된다.
+ * @param onGoToPage 0-기반 페이지 인덱스와 함께 호출되어 그 페이지로 이동한다.
+ * @param onMoveToLocation 목차 등에서 이동할 위치와 함께 호출된다.
+ * @param onBrightnessOverlayAlphaChange 밝기 오버레이의 alpha가 확정되면 호출된다.
+ * @param onPageBreakerChanged pane이 텍스트 영역을 측정하여 현재 style과 viewport에 대한 page breaker를
+ * 만들어내면 호출된다.
+ * @param goToPageText "페이지로 이동" 시트의 현재 텍스트 필드 값.
+ * @param onGoToPageTextChange 사용자가 "페이지로 이동" 필드에 입력하는 동안 호출된다.
+ * @param brightnessDraft 밝기 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onBrightnessDraftChange 밝기 슬라이더가 드래그되는 동안 호출된다.
+ * @param fontSizeDraft 활자 크기 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onFontSizeDraftChange 활자 크기 슬라이더가 드래그되는 동안 호출된다.
+ * @param lineHeightPercentDraft 줄 간격 슬라이더의, 백분율로 나타낸 진행 중인 값.
+ * @param onLineHeightPercentDraftChange 줄 간격 슬라이더가 드래그되는 동안 호출된다.
+ * @param autoScrollSpeedDraft 자동 스크롤 속도 슬라이더의 진행 중인 값.
+ * @param onAutoScrollSpeedDraftChange 자동 스크롤 속도 슬라이더가 드래그되는 동안 호출된다.
+ * @param bottomSliderValue 하단 페이지 진행률 슬라이더의 현재 값.
+ * @param onBottomSliderValueChange 하단 페이지 진행률 슬라이더가 드래그되는 동안, 그리고 이
+ * composable 자체의 effect가 밑바탕 페이지 인덱스가 바뀔 때마다 호출한다.
+ * @param isActionMenuExpanded 상단 바의 오버플로 액션 메뉴가 열려 있는지 여부.
+ * @param onActionMenuExpandedChange 액션 메뉴가 열리거나 닫히면 호출된다.
+ * @param activeSheetScrollState 활성 옵션 시트 콘텐츠의 스크롤 상태.
+ * @param batteryPercent 상태 표시줄에 표시되는 기기 배터리 퍼센트, 사용할 수 없으면 null.
+ * @param modifier 읽기 화면의 루트에 적용된다.
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -600,9 +593,9 @@ private fun ReaderContent(
             }
         }
     }
-    // Keep loaded publisher families attached to the file set, not to a transient live/draw font
-    // choice. A font override can then switch back to publisher type without one fallback-font
-    // measurement escaping before the real families are ready.
+    // 로드된 퍼블리셔 패밀리는 일시적인 live/draw 활자 선택이 아니라 파일 집합에 묶어 둔다. 그러면 활자
+    // 오버라이드가 퍼블리셔 활자 설정으로 다시 전환되더라도, 실제 패밀리가 준비되기 전에 대체 활자 측정
+    // 결과가 새어 나가는 일이 없다.
     val resolvedEmbeddedFontFamilies by produceState<Pair<Map<String, String>, Map<String, FontFamily>>?>(
         initialValue = null,
         uiState.embeddedFontFiles,
@@ -1029,71 +1022,63 @@ private fun ReaderContent(
 }
 
 /**
- * Renders one page of the document in whatever mode the current format calls for — PDF page,
- * comic/image page, EPUB page, or plain text page — for the page index given by [page]. A page
- * outside the current pagination's range (e.g. the trailing pane in a two-up spread past the last
- * page) draws only the reader background and returns immediately, rather than asking any page
- * surface to render nothing.
+ * 현재 형식이 요구하는 어떤 모드로든 — PDF 페이지, 만화/이미지 페이지, EPUB 페이지, 또는 순수 텍스트 페이지
+ * — [page]로 주어진 페이지 인덱스에 대해 문서의 페이지 한 장을 렌더링한다. 현재 페이지 나누기 범위 밖의
+ * 페이지(예: 마지막 페이지를 넘어선 2단 spread의 후행 pane)는 어떤 페이지 서피스에도 아무것도 그리라고
+ * 요청하지 않고, 리더 배경만 그리고 즉시 반환한다.
  *
- * For the plain-text/EPUB path, this is the only place a measured layout size ever reaches the view
- * model. The pane's own measured text area is the size pagination is keyed off of directly, instead
- * of estimating glyph advances and line counts, so pages break exactly where this pane really
- * renders them. The reporting effect below is keyed on that measured size *and* the page breaker
- * together, not the breaker alone: keying on the breaker alone let the effect for the very first
- * pass — before the pane had been measured, when the breaker still held a zero size — run again
- * after the real measurement had landed, and it then announced that stale zero-size breaker paired
- * with the real size. Every page fell back to the estimate as a result, and because the estimate
- * cannot know the line height a book's own stylesheet sets, pages were packed with half again as
- * many lines as they actually draw, clipping the rest. Keying on both together guarantees the
- * breaker reported is always the one actually built for the size reported alongside it.
+ * 순수 텍스트/EPUB 경로에서는, 여기가 측정된 레이아웃 크기가 view model에 도달하는 유일한 곳이다. 글리프
+ * 전진폭과 줄 수를 추정하는 대신, 이 pane 자체가 측정한 텍스트 영역이 페이지 나누기가 직접 기준으로 삼는
+ * 크기이며, 그래서 페이지는 정확히 이 pane이 실제로 렌더링하는 지점에서 나뉜다. 아래의 보고 effect는
+ * breaker 하나만이 아니라 그 측정된 크기 *와* page breaker를 함께 키로 삼는다. breaker만 키로 삼으면, pane이
+ * 아직 측정되기 전 breaker가 여전히 크기 0을 가지고 있던 첫 번째 패스의 effect가, 실제 측정값이 도착한 뒤
+ * 다시 실행되어 그 낡은 크기 0짜리 breaker를 실제 크기와 짝지어 알리는 문제가 생겼다. 그 결과 모든 페이지가
+ * 추정값으로 대체됐는데, 추정값은 책 자체 스타일시트가 설정한 줄 높이를 알 수 없으므로 페이지에는 실제로
+ * 그려지는 것보다 절반이나 더 많은 줄이 채워져 나머지가 잘려나갔다. 둘을 함께 키로 삼으면 보고되는 breaker가
+ * 항상 함께 보고되는 크기에 대해 실제로 만들어진 것임이 보장된다.
  *
- * Pagination and the stored page-layout entity's `viewportWidthPx`/`viewportHeightPx` columns both
- * key on **sp**, not px, despite the column names — so the width/height sent to
- * [onPageBreakerChanged] are converted to sp before being sent. A second, separate [ViewportSize]
- * carrying the real measured pixel box is sent alongside them, used only to let the view model
- * recognise a report it has already answered (its dedupe guard), never for layout math itself.
- * Reporting fires from exactly this one effect now: two separate reports used to fire off of a
- * single resize — this effect, plus a second viewport callback from `onSizeChanged` — each launching
- * its own reload, and `Job.cancel()` could not stop the first reload's database read once it was
- * already in flight, so both landed and the stored page layout was restored from storage twice.
- * Reporting once here removes the race instead of trying to cancel it faster.
+ * 페이지 나누기와 저장된 page-layout 엔티티의 `viewportWidthPx`/`viewportHeightPx` 컬럼은 컬럼 이름과
+ * 달리 둘 다 px가 아니라 **sp**를 기준으로 한다 — 그래서 [onPageBreakerChanged]로 보내는 너비/높이는
+ * 보내기 전에 sp로 변환된다. 실제 측정된 픽셀 박스를 담은 두 번째, 별도의 [ViewportSize]도 함께 보내지는데,
+ * 이는 오직 view model이 이미 응답한 보고를 알아차리게(중복 제거 가드) 하는 용도일 뿐 레이아웃 계산 자체에는
+ * 쓰이지 않는다. 보고는 이제 정확히 이 effect 하나에서만 발생한다: 예전에는 하나의 리사이즈에 대해 두 개의
+ * 별도 보고 — 이 effect와, `onSizeChanged`에서 오는 두 번째 viewport 콜백 — 가 각자 자신의 reload를
+ * 실행했고, `Job.cancel()`은 첫 reload의 데이터베이스 읽기가 이미 진행 중이면 이를 멈출 수 없었기 때문에
+ * 둘 다 반영되어 저장된 page layout이 저장소에서 두 번 복원되곤 했다. 여기서 한 번만 보고하는 것이 경쟁을
+ * 더 빨리 취소하려 애쓰는 대신 그 경쟁 자체를 없앤다.
  *
- * The chapter title is deliberately not drawn as a running head above the body text here: it is the
- * heading the chapter's own text already carries, and pagination starts every section on a fresh
- * page (see `TextPageLayoutEngine.paginate`), so that heading already lands at the top of the page
- * by itself. Drawing nothing extra above the body is what keeps that rule from producing a
- * duplicated title.
+ * 챕터 제목은 의도적으로 여기서 본문 위에 running head로 그리지 않는다: 그것은 챕터 자체 텍스트가 이미
+ * 담고 있는 표제이며, 페이지 나누기는 모든 섹션을 새 페이지에서 시작하므로(`TextPageLayoutEngine.paginate`
+ * 참고) 그 표제는 이미 스스로 페이지 맨 위에 자리 잡는다. 본문 위에 추가로 아무것도 그리지 않는 것이 바로
+ * 그 규칙이 제목 중복을 만들어내지 않도록 지켜준다.
  *
- * Two different styles matter here, and they must not be swapped. [ReaderUiState.style] — read
- * directly, never through [ReaderUiState.pageDrawStyle] — is what [rememberReaderPageBreaker]
- * measures against, what [onPageBreakerChanged] reports, and what the padding around the text area
- * below is computed from: it is the only style whose change can ever end the stale-slice window
- * [ReaderUiState.pageDrawStyle] exists to paper over, and it is what defines `textAreaPx`, the box the
- * breaker actually measures — pinning either to the drawn style would mean no new breaker is ever
- * built for a changed setting (the reader stuck on the old font permanently) or would report a
- * measurement for a box the reader never draws into. Only the two page surfaces this function renders
- * — [EpubPageSurface] and `ReaderPageSurface` — draw with [ReaderUiState.pageDrawStyle], so the
- * slices they draw are never a step ahead of the type they were actually cut for.
+ * 여기서는 서로 다른 두 가지 style이 중요하며, 이 둘을 절대 바꿔 쓰면 안 된다. [ReaderUiState.style] —
+ * [ReaderUiState.pageDrawStyle]을 거치지 않고 직접 읽는다 — 은 [rememberReaderPageBreaker]가 측정하는
+ * 기준이고, [onPageBreakerChanged]가 보고하는 것이며, 아래 텍스트 영역 주변 padding이 계산되는 기준이다:
+ * 이것이 바로 [ReaderUiState.pageDrawStyle]이 감춰주는 낡은 조각 창(stale-slice window)을 끝낼 수 있는
+ * 유일한 style이며, breaker가 실제로 측정하는 박스인 `textAreaPx`를 정의하는 것이다 — 둘 중 하나라도
+ * drawn style에 고정하면 바뀐 설정에 대해 새 breaker가 절대 만들어지지 않거나(리더가 예전 활자에 영구히
+ * 갇힘), 리더가 절대 그리지 않는 박스에 대한 측정값을 보고하게 된다. 이 함수가 렌더링하는 두 페이지 서피스
+ * — [EpubPageSurface]와 `ReaderPageSurface` — 만이 [ReaderUiState.pageDrawStyle]로 그리므로, 이들이 그리는
+ * 조각은 실제로 잘려나간 활자 설정보다 절대 한 발짝 앞서지 않는다.
  *
- * Embedded publisher families are retained by file set above this function rather than keyed to
- * either style. When the live style switches back to publisher type, measurement stays closed until
- * those exact files have produced families; [ReaderUiState.pageDrawStyle] can therefore keep drawing
- * the old override while the new breaker waits, without a fallback-font page layout escaping.
+ * 내장 퍼블리셔 패밀리는 이 함수 위쪽에서 둘 중 어느 style에도 키를 걸지 않고 파일 집합 기준으로 유지된다.
+ * live style이 퍼블리셔 활자 설정으로 다시 전환되면, 바로 그 파일들이 패밀리를 만들어낼 때까지 측정은 닫힌
+ * 채로 유지된다; 그래서 [ReaderUiState.pageDrawStyle]은 새 breaker가 기다리는 동안에도 대체 활자 페이지
+ * 레이아웃이 새어 나가는 일 없이 예전 오버라이드를 계속 그릴 수 있다.
  *
- * @param uiState The reader's current state; supplies the style, format, and page content this pane
- * renders.
- * @param page The zero-based page index this pane should show.
- * @param onPageBreakerChanged Invoked once this pane has measured a non-zero text area, with the
- * style and viewport sizes (in sp, then the real pixel box) the measurement was taken at, and the
- * resulting page breaker.
- * @param reportViewportSize Whether this pane is the one that should report its measured size to
- * [onPageBreakerChanged] at all; false for a spread's non-primary pane, which shares the primary
- * pane's pagination rather than measuring and reporting its own.
- * @param windowInsets Insets applied around this pane's content.
- * @param contentPadding Padding applied inside [windowInsets], around the rendered page content;
- * null resolves to the theme's `readerPageHorizontal` horizontal and `readerPageVertical`
- * vertical insets (see `TeddReaderSpacing`), the reader text-page contract `DESIGN.md` specifies.
- * @param modifier Applied to this pane's root.
+ * @param uiState 리더의 현재 상태; 이 pane이 렌더링하는 style, format, 페이지 콘텐츠를 제공한다.
+ * @param page 이 pane이 보여줘야 할 0-기반 페이지 인덱스.
+ * @param onPageBreakerChanged 이 pane이 0이 아닌 텍스트 영역을 측정하고 나면, 측정이 이루어진 style과
+ * viewport 크기(sp, 그다음 실제 픽셀 박스), 그리고 결과로 나온 page breaker와 함께 호출된다.
+ * @param reportViewportSize 이 pane이 측정한 크기를 [onPageBreakerChanged]에 보고해야 하는 pane인지
+ * 여부; spread의 주(primary)가 아닌 pane은 자신의 것을 측정하고 보고하는 대신 주 pane의 페이지 나누기를
+ * 공유하므로 false다.
+ * @param windowInsets 이 pane의 콘텐츠 주위에 적용되는 inset.
+ * @param contentPadding [windowInsets] 안쪽, 렌더링된 페이지 콘텐츠 주위에 적용되는 padding; null이면
+ * 리더 텍스트 페이지 계약 `DESIGN.md`가 명시하는 테마의 `readerPageHorizontal` 가로 inset과
+ * `readerPageVertical` 세로 inset으로 해석된다(`TeddReaderSpacing` 참고).
+ * @param modifier 이 pane의 루트에 적용된다.
  */
 internal fun readerPagePaneShouldMeasure(reportViewportSize: Boolean): Boolean = reportViewportSize
 
@@ -1150,8 +1135,9 @@ private fun ReaderPagePane(
                     heightPx = textAreaPx.height,
                     embeddedFontFamiliesByHref = embeddedFontFamiliesByHref,
                     canMeasure = if (uiState.documentFormat == DocumentFormat.EPUB) {
-                        // The breaker measures the whole book, so the gate carries the whole book's fonts —
-                        // a page-local check let a fontless cover page open the gate for every styled page.
+                        // breaker는 책 전체를 측정하므로 게이트는 책 전체의 폰트를 함께 짊어진다 —
+                        // 페이지 단위로만 검사하면 폰트가 없는 표지 페이지가 style이 적용된 모든
+                        // 페이지의 게이트를 열어버릴 수 있었다.
                         embeddedFontResolutionComplete && (
                             currentSlot == null ||
                                 canMeasureEpubPage(currentSlot, uiState.style, embeddedFontFamiliesByHref, failedResolvedFontHrefs)
@@ -1218,15 +1204,15 @@ private fun ReaderPagePane(
 }
 
 /**
- * These margins as padding, with one em taken to be the reader's own type size.
+ * 리더 자체의 활자 크기를 1em으로 삼아 이 여백을 padding으로 나타낸 것.
  *
- * A book states its page margins in em, which is relative to the type it is set in — so a reader that grows
- * its font grows the margins with it, exactly as the book's own stylesheet would in a browser.
+ * 책은 페이지 여백을 em 단위로 명시하는데, 이는 조판에 쓰인 활자 크기에 상대적이다 — 그래서 활자를 키우는
+ * 리더는 브라우저에서 책 자체 스타일시트가 그렇게 하듯 여백도 함께 키운다.
  *
- * @receiver the margins to convert.
- * @param fontSizeSp the reader's type size, which one em is worth.
- * @param fontScale the system's own text scaling, which is what turns that size in sp into one in dp.
- * @return the padding to apply around the text area.
+ * @receiver 변환할 여백.
+ * @param fontSizeSp 리더의 활자 크기로, 1em에 해당하는 값.
+ * @param fontScale 시스템 자체의 텍스트 배율로, 그 크기를 sp에서 dp로 바꾸는 데 쓰인다.
+ * @return 텍스트 영역 주위에 적용할 padding.
  */
 private fun ReaderPageMarginsEm.toPaddingValues(fontSizeSp: Float, fontScale: Float): PaddingValues {
     val em = fontSizeSp * fontScale
@@ -1239,22 +1225,20 @@ private fun ReaderPageMarginsEm.toPaddingValues(fontSizeSp: Float, fontScale: Fl
 }
 
 /**
- * Drives auto-scroll's page-turn cadence: while auto-scroll is enabled and the current mode/
- * animation combination advances by turning whole pages rather than by pixel or line scrolling
- * (see [readerAutoScrollPageMovement]), waits [autoScrollPageDelayMillis] and then requests the next
- * page turn. Stops itself via [onStop] once there is no next page to advance to, rather than
- * requesting a move that would have nowhere to go. Restarts its wait whenever any of the effect's
- * keys change, so a speed change or a page turn already in progress does not fire two moves close
- * together.
+ * 자동 스크롤의 페이지 넘김 주기를 구동한다: 자동 스크롤이 켜져 있고 현재 모드/애니메이션 조합이 픽셀이나
+ * 줄 단위 스크롤이 아니라 페이지 전체를 넘겨서 진행하는 동안([readerAutoScrollPageMovement] 참고),
+ * [autoScrollPageDelayMillis]만큼 기다린 뒤 다음 페이지 넘김을 요청한다. 더 나아갈 다음 페이지가 없어지면
+ * 갈 곳 없는 이동을 요청하는 대신 [onStop]으로 스스로 멈춘다. effect의 키 중 하나라도 바뀌면 대기를
+ * 재시작하므로, 속도 변경이나 이미 진행 중인 페이지 넘김이 두 번의 이동을 가깝게 연달아 일으키지 않는다.
  *
- * @param uiState The reader's current state; supplies the active auto-scroll config and page index.
- * @param paneCount How many panes are shown per page turn (1 in single-page mode, 2 in a spread).
- * @param effectiveMode The auto-scroll mode actually in effect, after [readerEffectiveAutoScrollMode]
- * has resolved any mode this format cannot support.
- * @param pageAnimation The active page-turn animation, which determines whether pixel/line
- * auto-scroll modes fall back to page-by-page turning.
- * @param onRequestPageMove Invoked with the page movement to perform when it is time to turn.
- * @param onStop Invoked to turn auto-scroll off once there is no further page to advance to.
+ * @param uiState 리더의 현재 상태; 활성 자동 스크롤 설정과 페이지 인덱스를 제공한다.
+ * @param paneCount 페이지 넘김마다 보이는 pane 수(단일 페이지 모드에서는 1, spread에서는 2).
+ * @param effectiveMode [readerEffectiveAutoScrollMode]가 이 형식이 지원할 수 없는 모드를 해석하고 난 뒤,
+ * 실제로 적용 중인 자동 스크롤 모드.
+ * @param pageAnimation 활성 페이지 넘김 애니메이션으로, 픽셀/줄 자동 스크롤 모드가 페이지 단위 넘김으로
+ * 대체되는지를 결정한다.
+ * @param onRequestPageMove 넘길 시점이 되면 수행할 페이지 이동과 함께 호출된다.
+ * @param onStop 더 나아갈 페이지가 없어지면 자동 스크롤을 끄도록 호출된다.
  */
 @Composable
 private fun ReaderAutoScrollEffect(
@@ -1288,44 +1272,43 @@ private fun ReaderAutoScrollEffect(
 }
 
 /**
- * Hosts whichever reader option sheet is currently open, in a shared [TeddModalBottomSheet], and
- * dispatches to the one sheet composable matching [sheet]. Every parameter beyond
- * [sheet]/[uiState]/[onDismiss] belongs to one specific sheet and is forwarded straight through to
- * it; this composable does not otherwise interpret them.
+ * 현재 열려 있는 리더 옵션 시트가 무엇이든 공유되는 [TeddModalBottomSheet] 안에 담아 호스팅하고,
+ * [sheet]와 일치하는 시트 composable 하나로 분배한다. [sheet]/[uiState]/[onDismiss]를 제외한 모든
+ * 파라미터는 특정 시트 하나에 속하며 그대로 전달될 뿐, 이 composable이 별도로 해석하지 않는다.
  *
- * @param sheet Which option sheet to show.
- * @param uiState The reader's current state, read by every individual sheet.
- * @param onDismiss Invoked to close the sheet.
- * @param onKeepScreenOnChange Forwarded to [ViewOptionsSheet].
- * @param onFullscreenChange Forwarded to [ViewOptionsSheet].
- * @param onShowProgressChange Forwarded to [ViewOptionsSheet] and [ControlOptionsSheet].
- * @param pdfZoom Forwarded to [ViewOptionsSheet].
- * @param onPdfZoomChange Forwarded to [ViewOptionsSheet].
- * @param onFontSizeChange Forwarded to [FontOptionsSheet].
- * @param onLineHeightChange Forwarded to [FontOptionsSheet].
- * @param onFontFamilyChange Forwarded to [FontOptionsSheet].
- * @param onFontWeightChange Forwarded to [FontOptionsSheet].
- * @param onThemeModeChange Forwarded to [ThemeOptionsSheet].
- * @param onPageTurnModeChange Forwarded to [PageTurnOptionsSheet].
- * @param onPageAnimationChange Forwarded to [PageTurnOptionsSheet].
- * @param onAutoScrollEnabledChange Forwarded to [AutoScrollOptionsSheet].
- * @param onAutoScrollModeChange Forwarded to [AutoScrollOptionsSheet].
- * @param onAutoScrollSpeedChange Forwarded to [AutoScrollOptionsSheet].
- * @param onGoToPage Forwarded to [GoToPageSheet].
- * @param onMoveToLocation Forwarded to [TableOfContentsSheet].
- * @param onBrightnessOverlayAlphaChange Forwarded to [BrightnessOptionsSheet].
- * @param goToPageText Forwarded to [GoToPageSheet].
- * @param onGoToPageTextChange Forwarded to [GoToPageSheet].
- * @param brightnessDraft Forwarded to [BrightnessOptionsSheet].
- * @param onBrightnessDraftChange Forwarded to [BrightnessOptionsSheet].
- * @param fontSizeDraft Forwarded to [FontOptionsSheet].
- * @param onFontSizeDraftChange Forwarded to [FontOptionsSheet].
- * @param lineHeightPercentDraft Forwarded to [FontOptionsSheet].
- * @param onLineHeightPercentDraftChange Forwarded to [FontOptionsSheet].
- * @param autoScrollSpeedDraft Forwarded to [AutoScrollOptionsSheet].
- * @param onAutoScrollSpeedDraftChange Forwarded to [AutoScrollOptionsSheet].
- * @param scrollState Scroll state for the sheet's content column.
- * @param modifier Applied to the sheet's content column.
+ * @param sheet 어떤 옵션 시트를 보여줄지.
+ * @param uiState 리더의 현재 상태로, 각 개별 시트가 읽는다.
+ * @param onDismiss 시트를 닫도록 호출된다.
+ * @param onKeepScreenOnChange [ViewOptionsSheet]로 전달된다.
+ * @param onFullscreenChange [ViewOptionsSheet]로 전달된다.
+ * @param onShowProgressChange [ViewOptionsSheet]와 [ControlOptionsSheet]로 전달된다.
+ * @param pdfZoom [ViewOptionsSheet]로 전달된다.
+ * @param onPdfZoomChange [ViewOptionsSheet]로 전달된다.
+ * @param onFontSizeChange [FontOptionsSheet]로 전달된다.
+ * @param onLineHeightChange [FontOptionsSheet]로 전달된다.
+ * @param onFontFamilyChange [FontOptionsSheet]로 전달된다.
+ * @param onFontWeightChange [FontOptionsSheet]로 전달된다.
+ * @param onThemeModeChange [ThemeOptionsSheet]로 전달된다.
+ * @param onPageTurnModeChange [PageTurnOptionsSheet]로 전달된다.
+ * @param onPageAnimationChange [PageTurnOptionsSheet]로 전달된다.
+ * @param onAutoScrollEnabledChange [AutoScrollOptionsSheet]로 전달된다.
+ * @param onAutoScrollModeChange [AutoScrollOptionsSheet]로 전달된다.
+ * @param onAutoScrollSpeedChange [AutoScrollOptionsSheet]로 전달된다.
+ * @param onGoToPage [GoToPageSheet]로 전달된다.
+ * @param onMoveToLocation [TableOfContentsSheet]로 전달된다.
+ * @param onBrightnessOverlayAlphaChange [BrightnessOptionsSheet]로 전달된다.
+ * @param goToPageText [GoToPageSheet]로 전달된다.
+ * @param onGoToPageTextChange [GoToPageSheet]로 전달된다.
+ * @param brightnessDraft [BrightnessOptionsSheet]로 전달된다.
+ * @param onBrightnessDraftChange [BrightnessOptionsSheet]로 전달된다.
+ * @param fontSizeDraft [FontOptionsSheet]로 전달된다.
+ * @param onFontSizeDraftChange [FontOptionsSheet]로 전달된다.
+ * @param lineHeightPercentDraft [FontOptionsSheet]로 전달된다.
+ * @param onLineHeightPercentDraftChange [FontOptionsSheet]로 전달된다.
+ * @param autoScrollSpeedDraft [AutoScrollOptionsSheet]로 전달된다.
+ * @param onAutoScrollSpeedDraftChange [AutoScrollOptionsSheet]로 전달된다.
+ * @param scrollState 시트 콘텐츠 컬럼의 스크롤 상태.
+ * @param modifier 시트 콘텐츠 컬럼에 적용된다.
  */
 @Composable
 private fun ReaderActiveSheet(
@@ -1445,13 +1428,13 @@ private fun ReaderActiveSheet(
 
 
 /**
- * The table of contents rendered as a side drawer's content, shown by [ReaderContent] via a
- * `ModalNavigationDrawer` while `uiState.activeSheet == ReaderOptionSheet.TableOfContents`. Shows a
- * heading and, when there is nothing to show, an explanatory message in place of an empty list.
+ * 사이드 드로어의 콘텐츠로 렌더링되는 목차로, `uiState.activeSheet == ReaderOptionSheet.TableOfContents`인
+ * 동안 [ReaderContent]가 `ModalNavigationDrawer`를 통해 보여준다. 표제를 보여주고, 보여줄 것이 없으면 빈
+ * 목록 대신 설명 메시지를 보여준다.
  *
- * @param uiState The reader's current state; supplies the outline entries to list.
- * @param onLocationClick Invoked with the location to jump to when an entry is tapped.
- * @param modifier Applied to the drawer's content list.
+ * @param uiState 리더의 현재 상태; 목록으로 나열할 아웃라인 항목을 제공한다.
+ * @param onLocationClick 항목이 탭되면 이동할 위치와 함께 호출된다.
+ * @param modifier 드로어의 콘텐츠 목록에 적용된다.
  */
 @Composable
 private fun TableOfContentsDrawerContent(
@@ -1503,15 +1486,14 @@ private fun TableOfContentsDrawerContent(
 }
 
 /**
- * The table of contents rendered as bottom-sheet content, dispatched from
- * [ReaderActiveSheet]'s `when (sheet)` branch for [ReaderOptionSheet.TableOfContents]. `ReaderContent`
- * currently opens the table of contents as a drawer via [TableOfContentsDrawerContent] instead, and
- * filters `ReaderOptionSheet.TableOfContents` out before calling [ReaderActiveSheet] at all, so this
- * composable's dispatch branch does not currently run in practice.
+ * 바텀 시트 콘텐츠로 렌더링되는 목차로, [ReaderOptionSheet.TableOfContents]에 대해
+ * [ReaderActiveSheet]의 `when (sheet)` 분기에서 호출된다. `ReaderContent`는 현재 대신
+ * [TableOfContentsDrawerContent]를 통해 목차를 드로어로 열며, [ReaderActiveSheet]를 호출하기도 전에
+ * `ReaderOptionSheet.TableOfContents`를 걸러내므로, 이 composable의 분기는 실제로는 현재 실행되지 않는다.
  *
- * @param uiState The reader's current state; supplies the outline entries to list.
- * @param onLocationClick Invoked with the location to jump to when an entry is tapped.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; 목록으로 나열할 아웃라인 항목을 제공한다.
+ * @param onLocationClick 항목이 탭되면 이동할 위치와 함께 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun TableOfContentsSheet(
@@ -1550,23 +1532,23 @@ private fun TableOfContentsSheet(
     }
 }
 
-/** Matches a generic, unlocalized page title such as "Page 12" that an outline entry can carry
- * instead of a real label; [displayTitle] replaces a match with today's localized page label so an
- * outline holding one of these still reads naturally in the user's language. */
+/** 아웃라인 항목이 실제 라벨 대신 가질 수 있는 "Page 12"와 같은 일반적인, 지역화되지 않은 페이지 제목과
+ * 일치한다; [displayTitle]은 일치하는 항목을 오늘의 지역화된 페이지 라벨로 대체하여, 이런 제목을 가진
+ * 아웃라인도 사용자의 언어로 자연스럽게 읽히도록 한다. */
 private val legacyPageOutlineTitlePattern = Regex("^Page \\d+$")
 
-/** Matches a generic, unlocalized section title such as "Section 3" that an outline entry can
- * carry instead of a real label; [displayTitle] replaces a match with today's localized section
- * label, extracting the section number to fill in. */
+/** 아웃라인 항목이 실제 라벨 대신 가질 수 있는 "Section 3"과 같은 일반적인, 지역화되지 않은 섹션 제목과
+ * 일치한다; [displayTitle]은 일치하는 항목을 오늘의 지역화된 섹션 라벨로 대체하며, 채워 넣을 섹션 번호를
+ * 추출한다. */
 private val legacySectionOutlineTitlePattern = Regex("^Section \\d+$")
 
 /**
- * The title to show for this outline entry: a generic legacy title (see
- * [legacyPageOutlineTitlePattern] and [legacySectionOutlineTitlePattern]) is replaced with today's
- * localized label so old and new outlines read consistently; any other title is shown as written by
- * the document itself or a newer import pass.
+ * 이 아웃라인 항목에 표시할 제목: 일반적인 레거시 제목([legacyPageOutlineTitlePattern]과
+ * [legacySectionOutlineTitlePattern] 참고)은 오늘의 지역화된 라벨로 대체되어 오래된 아웃라인과 새
+ * 아웃라인이 일관되게 읽히도록 한다; 그 외의 제목은 문서 자체나 더 최근의 import 과정이 작성한 그대로
+ * 표시된다.
  *
- * @receiver The outline entry whose title is being resolved for display.
+ * @receiver 표시를 위해 제목이 해석되고 있는 아웃라인 항목.
  */
 @Composable
 private fun ReaderOutlineItem.displayTitle(): String = when {
@@ -1582,12 +1564,11 @@ private fun ReaderOutlineItem.displayTitle(): String = when {
 }
 
 /**
- * A localized, human-readable label for this location, used by [displayTitle] to stand in for a
- * generic legacy outline title. Each format's location carries a different underlying address (a
- * PDF page index, a plain-text character offset, an EPUB spine index), so the label is built
- * per-variant rather than from one shared field.
+ * 이 위치에 대한, 지역화된 사람이 읽을 수 있는 라벨로, 일반적인 레거시 아웃라인 제목을 대신하기 위해
+ * [displayTitle]이 사용한다. 각 형식의 위치는 서로 다른 종류의 실제 주소(PDF 페이지 인덱스, 순수 텍스트
+ * 문자 오프셋, EPUB spine 인덱스)를 가지므로, 라벨은 하나의 공유 필드가 아니라 종류별로 만들어진다.
  *
- * @receiver The location to describe.
+ * @receiver 설명할 위치.
  */
 @Composable
 private fun com.tedd.teddreader.core.common.model.ReaderLocation.displayLabel(): String = when (this) {
@@ -1597,16 +1578,15 @@ private fun com.tedd.teddreader.core.common.model.ReaderLocation.displayLabel():
 }
 
 /**
- * The "go to page" sheet: a text field for a 1-based page number plus a Go button, enabled only
- * while the typed text resolves to a page within range. Converts the entered 1-based page back to
- * the 0-based index [onGoToPage] expects.
+ * "페이지로 이동" 시트: 1-기반 페이지 번호를 위한 텍스트 필드와 이동 버튼으로, 입력된 텍스트가 범위 안의
+ * 페이지로 해석될 때만 활성화된다. 입력된 1-기반 페이지를 [onGoToPage]가 기대하는 0-기반 인덱스로 다시
+ * 변환한다.
  *
- * @param uiState The reader's current state; supplies the total page count for the range shown and
- * used to clamp the entry.
- * @param pageText The field's current text, owned by the caller so it survives sheet re-opens.
- * @param onPageTextChange Invoked as the user types.
- * @param onGoToPage Invoked with the resolved zero-based page index when Go is tapped.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; 표시되는 범위와 입력값 clamp에 쓰이는 전체 페이지 수를 제공한다.
+ * @param pageText 필드의 현재 텍스트로, 시트가 다시 열려도 유지되도록 호출자가 소유한다.
+ * @param onPageTextChange 사용자가 입력하는 동안 호출된다.
+ * @param onGoToPage 이동 버튼이 탭되면 해석된 0-기반 페이지 인덱스와 함께 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun GoToPageSheet(
@@ -1650,17 +1630,15 @@ private fun GoToPageSheet(
 }
 
 /**
- * The brightness sheet: a single slider that darkens the reader with a black overlay rather than
- * touching the device's own screen brightness. The slider ranges 20-100% so the page can never be
- * dimmed to full black; the overlay alpha is derived from the *committed* percentage only when the
- * drag finishes, not on every intermediate value, and is clamped to 0.8 so some page content always
- * stays visible even at the darkest setting.
+ * 밝기 시트: 기기 자체의 화면 밝기를 건드리지 않고 검은 오버레이로 리더를 어둡게 하는 슬라이더 하나.
+ * 슬라이더는 20~100% 범위여서 페이지가 완전한 검정으로 어두워지는 일이 절대 없다; 오버레이 alpha는 매
+ * 중간값이 아니라 드래그가 끝났을 때 *확정된* 퍼센트에서만 유도되며, 가장 어두운 설정에서도 페이지
+ * 콘텐츠 일부가 항상 보이도록 0.8로 clamp된다.
  *
- * @param brightnessDraft The slider's in-progress value, before it is committed.
- * @param onBrightnessDraftChange Invoked as the slider is dragged.
- * @param onBrightnessOverlayAlphaChange Invoked with the resulting overlay alpha once the drag
- * finishes.
- * @param modifier Applied to the sheet's content group.
+ * @param brightnessDraft 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onBrightnessDraftChange 슬라이더가 드래그되는 동안 호출된다.
+ * @param onBrightnessOverlayAlphaChange 드래그가 끝나면 결과로 나온 오버레이 alpha와 함께 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun BrightnessOptionsSheet(
@@ -1688,17 +1666,16 @@ private fun BrightnessOptionsSheet(
 }
 
 /**
- * The display sheet: the keep-screen-on, fullscreen, and show-progress toggles that apply to every
- * format, plus a zoom slider that only appears in visual (PDF/image) mode, where zoom is a page
- * transform rather than a text-layout concern.
+ * 화면 표시 시트: 모든 형식에 적용되는 화면 항상 켜기, 전체 화면, 진행률 표시 토글, 그리고 확대가
+ * 텍스트 레이아웃 문제가 아니라 페이지 transform인 visual(PDF/이미지) 모드에서만 나타나는 확대 슬라이더.
  *
- * @param uiState The reader's current state; determines whether visual mode is active.
- * @param pdfZoom The current visual-mode zoom level, shown and adjusted by the slider.
- * @param onPdfZoomChange Invoked as the zoom slider is dragged.
- * @param onKeepScreenOnChange Invoked when the keep-screen-on switch is toggled.
- * @param onFullscreenChange Invoked when the fullscreen switch is toggled.
- * @param onShowProgressChange Invoked when the show-progress switch is toggled.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; visual 모드가 활성인지를 결정한다.
+ * @param pdfZoom 현재 visual 모드 확대 수준으로, 슬라이더로 표시되고 조정된다.
+ * @param onPdfZoomChange 확대 슬라이더가 드래그되는 동안 호출된다.
+ * @param onKeepScreenOnChange 화면 항상 켜기 스위치가 토글되면 호출된다.
+ * @param onFullscreenChange 전체 화면 스위치가 토글되면 호출된다.
+ * @param onShowProgressChange 진행률 표시 스위치가 토글되면 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun ViewOptionsSheet(
@@ -1729,24 +1706,20 @@ private fun ViewOptionsSheet(
 }
 
 /**
- * The typography sheet: font size and line height sliders, a font family choice, and a live preview
- * built from the in-progress draft values rather than the committed style, so the user sees the
- * result while still dragging instead of only after releasing the slider.
+ * 활자 설정 시트: 활자 크기와 줄 간격 슬라이더, 활자 패밀리 선택, 그리고 확정된 style이 아니라 진행 중인
+ * 초안 값으로 만들어지는 실시간 미리보기 — 그래서 사용자는 슬라이더를 놓은 뒤가 아니라 드래그하는 동안
+ * 결과를 볼 수 있다.
  *
- * @param uiState The reader's current state; supplies the committed style everything but the
- * preview is based on.
- * @param fontSizeDraft The font size slider's in-progress value, before it is committed.
- * @param onFontSizeDraftChange Invoked as the font size slider is dragged.
- * @param lineHeightPercentDraft The line height slider's in-progress value, as a percentage.
- * @param onLineHeightPercentDraftChange Invoked as the line height slider is dragged.
- * @param onFontSizeChange Invoked with the committed font size once the slider drag finishes.
- * @param onLineHeightChange Invoked with the committed line height multiplier once the slider drag
- * finishes.
- * @param onFontFamilyChange Invoked when a font family radio option is chosen; null selects the
- * default.
- * @param onFontWeightChange Invoked when a font weight radio option is chosen, with one of 300, 400,
- * 500, or 600.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; 미리보기를 제외한 모든 것의 기준이 되는 확정된 style을 제공한다.
+ * @param fontSizeDraft 활자 크기 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onFontSizeDraftChange 활자 크기 슬라이더가 드래그되는 동안 호출된다.
+ * @param lineHeightPercentDraft 줄 간격 슬라이더의, 백분율로 나타낸 진행 중인 값.
+ * @param onLineHeightPercentDraftChange 줄 간격 슬라이더가 드래그되는 동안 호출된다.
+ * @param onFontSizeChange 슬라이더 드래그가 끝나면 확정된 활자 크기와 함께 호출된다.
+ * @param onLineHeightChange 슬라이더 드래그가 끝나면 확정된 줄 간격 배율과 함께 호출된다.
+ * @param onFontFamilyChange 활자 패밀리 라디오 옵션이 선택되면 호출된다; null은 기본값을 선택한다.
+ * @param onFontWeightChange 활자 굵기 라디오 옵션이 300, 400, 500, 600 중 하나로 선택되면 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun FontOptionsSheet(
@@ -1850,7 +1823,7 @@ private fun FontOptionsSheet(
     }
 }
 
-/** The first theme row adapts to the format instead of duplicating document and system fallback modes. */
+/** 첫 번째 테마 행은 document와 system 대체 모드를 중복시키는 대신 형식에 맞춰 적응한다. */
 internal fun readerThemeModeOptions(documentFormat: DocumentFormat): List<ReaderThemeMode> = listOf(
     if (documentFormat.hasPublisherAppearance) ReaderThemeMode.PUBLISHER else ReaderThemeMode.SYSTEM,
     ReaderThemeMode.LIGHT,
@@ -1858,7 +1831,7 @@ internal fun readerThemeModeOptions(documentFormat: DocumentFormat): List<Reader
     ReaderThemeMode.SEPIA,
 )
 
-/** Normalizes legacy document/system values to the single adaptive mode supported by this format. */
+/** 레거시 document/system 값을 이 형식이 지원하는 단일 적응형 모드로 정규화한다. */
 internal fun readerStyleForDocumentFormat(style: ReaderStyle, documentFormat: DocumentFormat): ReaderStyle =
     if (style.themeMode == ReaderThemeMode.PUBLISHER || style.themeMode == ReaderThemeMode.SYSTEM) {
         style.withThemeMode(
@@ -1883,8 +1856,8 @@ internal fun readerEmbeddedFontsReadyForMeasurement(
         ))
 
 /**
- * The theme sheet: a live preview of the current style followed by the choices supported by this
- * document format. [ReaderThemeMode.CUSTOM] remains a stored state, not a selectable option.
+ * 테마 시트: 현재 style의 실시간 미리보기와 그 뒤로 이어지는, 이 문서 형식이 지원하는 선택지들.
+ * [ReaderThemeMode.CUSTOM]은 선택 가능한 옵션이 아니라 저장된 상태로만 남는다.
  */
 @Composable
 private fun ThemeOptionsSheet(
@@ -1915,16 +1888,15 @@ private fun ThemeOptionsSheet(
 }
 
 /**
- * The page-movement sheet: three independent radio groups for the turn direction
- * ([readerPageTurnModeOptions]), the default transition ([readerDefaultTransitionOptions]), and the
- * page-turn effects ([readerPageEffectOptions]) — the second and third groups both write
- * [ReaderUiState.pageAnimation], since a "default transition" and a "page effect" are the same
- * underlying setting presented as two different pickers.
+ * 페이지 넘김 시트: 넘김 방향([readerPageTurnModeOptions]), 기본 전환([readerDefaultTransitionOptions]),
+ * 페이지 넘김 효과([readerPageEffectOptions])를 위한 세 개의 독립된 라디오 그룹 — 두 번째와 세 번째
+ * 그룹은 둘 다 [ReaderUiState.pageAnimation]에 쓰는데, "기본 전환"과 "페이지 효과"가 서로 다른 두
+ * 선택기로 제시되는 같은 밑바탕 설정이기 때문이다.
  *
- * @param uiState The reader's current state; supplies the active direction and animation.
- * @param onPageTurnModeChange Invoked when a direction radio option is chosen.
- * @param onPageAnimationChange Invoked when a transition or effect radio option is chosen.
- * @param modifier Applied to the sheet's content column.
+ * @param uiState 리더의 현재 상태; 활성 방향과 애니메이션을 제공한다.
+ * @param onPageTurnModeChange 방향 라디오 옵션이 선택되면 호출된다.
+ * @param onPageAnimationChange 전환이나 효과 라디오 옵션이 선택되면 호출된다.
+ * @param modifier 시트의 콘텐츠 컬럼에 적용된다.
  */
 @Composable
 private fun PageTurnOptionsSheet(
@@ -1965,20 +1937,18 @@ private fun PageTurnOptionsSheet(
 }
 
 /**
- * The auto-scroll sheet: an enabled switch, a mode radio group, and a speed slider. The
- * [AutoScrollMode.LINE] option is disabled in visual (PDF/image) mode, since line-by-line scrolling
- * is a text-layout concept that a visual page has no equivalent of; see
- * [readerEffectiveAutoScrollMode] for how that case is actually handled when it is already active
- * rather than merely offered.
+ * 자동 스크롤 시트: 활성화 스위치, 모드 라디오 그룹, 속도 슬라이더. [AutoScrollMode.LINE] 옵션은
+ * visual(PDF/이미지) 모드에서 비활성화되는데, 줄 단위 스크롤은 텍스트 레이아웃 개념이라 visual 페이지에는
+ * 대응하는 것이 없기 때문이다; 그 케이스가 단지 제시되는 게 아니라 이미 활성 상태일 때 실제로 어떻게
+ * 처리되는지는 [readerEffectiveAutoScrollMode]를 참고한다.
  *
- * @param uiState The reader's current state; supplies the active config and whether visual mode is
- * active.
- * @param speedDraft The speed slider's in-progress value, before it is committed.
- * @param onSpeedDraftChange Invoked as the speed slider is dragged.
- * @param onEnabledChange Invoked when the enabled switch is toggled.
- * @param onModeChange Invoked when a mode radio option is chosen.
- * @param onSpeedChange Invoked with the committed speed once the slider drag finishes.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; 활성 설정과 visual 모드 활성 여부를 제공한다.
+ * @param speedDraft 속도 슬라이더의, 아직 확정되지 않은 진행 중인 값.
+ * @param onSpeedDraftChange 속도 슬라이더가 드래그되는 동안 호출된다.
+ * @param onEnabledChange 활성화 스위치가 토글되면 호출된다.
+ * @param onModeChange 모드 라디오 옵션이 선택되면 호출된다.
+ * @param onSpeedChange 슬라이더 드래그가 끝나면 확정된 속도와 함께 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun AutoScrollOptionsSheet(
@@ -2013,12 +1983,11 @@ private fun AutoScrollOptionsSheet(
 }
 
 /**
- * The bottom-bar sheet: currently a single switch for whether the reading-progress indicator shows
- * in the bottom action bar.
+ * 하단 바 시트: 현재는 읽기 진행률 표시가 하단 액션 바에 보이는지 여부를 위한 스위치 하나뿐이다.
  *
- * @param uiState The reader's current state; supplies whether progress is currently shown.
- * @param onShowProgressChange Invoked when the show-progress switch is toggled.
- * @param modifier Applied to the sheet's content group.
+ * @param uiState 리더의 현재 상태; 진행률이 현재 표시되고 있는지를 제공한다.
+ * @param onShowProgressChange 진행률 표시 스위치가 토글되면 호출된다.
+ * @param modifier 시트의 콘텐츠 그룹에 적용된다.
  */
 @Composable
 private fun ControlOptionsSheet(
@@ -2035,37 +2004,34 @@ private fun ControlOptionsSheet(
     }
 }
 
-/** The `Slider` `steps` value for [FontOptionsSheet]'s font size slider, sized so the slider snaps
- * to whole-sp increments across [ReaderPinchFontSizeRange] rather than an arbitrary continuous
- * value. */
+/** [FontOptionsSheet]의 활자 크기 슬라이더에 쓰이는 `Slider`의 `steps` 값으로, 임의의 연속값이 아니라
+ * [ReaderPinchFontSizeRange] 전체에 걸쳐 슬라이더가 정수 sp 단위로 스냅되도록 크기를 정했다. */
 private const val FontSizeSliderSteps = 71
 
-/** How coarsely the line-height percentage draft is rounded while dragging, so the committed value
- * always lands on a multiple of 5% instead of an arbitrary fraction. */
+/** 드래그하는 동안 줄 간격 백분율 초안이 얼마나 거칠게 반올림되는지로, 확정값이 임의의 소수가 아니라
+ * 항상 5%의 배수에 놓이도록 한다. */
 private const val LineHeightStepPercent = 5f
 
-/** The `Slider` `steps` value for [FontOptionsSheet]'s line height slider, matching
- * [LineHeightStepPercent] across the slider's 100-300% range so the visual snap points agree with
- * the draft rounding. */
+/** [FontOptionsSheet]의 줄 간격 슬라이더에 쓰이는 `Slider`의 `steps` 값으로, 슬라이더의 100~300% 범위
+ * 전체에 걸쳐 [LineHeightStepPercent]와 일치시켜 시각적 스냅 지점이 초안 반올림과 일치하도록 한다. */
 private const val LineHeightSliderSteps = 39
 
-/** The `Slider` `steps` value for [AutoScrollOptionsSheet]'s speed slider, sized so the slider
- * snaps to hundredths across [AutoScrollConfig]'s speed range, matching the precision
- * [Float.roundToHundredths] commits at. */
+/** [AutoScrollOptionsSheet]의 속도 슬라이더에 쓰이는 `Slider`의 `steps` 값으로, [AutoScrollConfig]의
+ * 속도 범위 전체에 걸쳐 [Float.roundToHundredths]가 확정하는 정밀도와 일치하는 100분의 1 단위로
+ * 슬라이더가 스냅되도록 크기를 정했다. */
 private const val SpeedSliderSteps = 98
 
-/** The turn-direction choices [PageTurnOptionsSheet] offers. [PageTurnMode.CONTINUOUS] exists as a
- * mode a style can hold but is deliberately not offered here as a choice — [pageTurnLabel] renders
- * it identically to [PageTurnMode.VERTICAL], so this list sticks to the two the user actually picks
- * between. */
+/** [PageTurnOptionsSheet]가 제공하는 넘김 방향 선택지들. [PageTurnMode.CONTINUOUS]는 style이 가질 수
+ * 있는 모드로 존재하지만 여기서는 의도적으로 선택지로 제공되지 않는다 — [pageTurnLabel]이 이를
+ * [PageTurnMode.VERTICAL]과 동일하게 렌더링하므로, 이 목록은 사용자가 실제로 선택하는 둘로 한정한다. */
 internal val readerPageTurnModeOptions: List<PageTurnMode> = listOf(
     PageTurnMode.HORIZONTAL,
     PageTurnMode.VERTICAL,
 )
 
-/** The plain, non-decorative transitions [PageTurnOptionsSheet] offers under "default transition" —
- * the animations a reader is unlikely to find distracting for everyday page turns. See
- * [readerPageEffectOptions] for the showier alternatives offered alongside these. */
+/** [PageTurnOptionsSheet]가 "기본 전환" 아래 제공하는, 꾸밈없는 비장식적 전환들 — 평소 페이지를 넘길 때
+ * 리더가 거슬려할 가능성이 낮은 애니메이션들이다. 이들과 함께 제공되는 더 화려한 대안은
+ * [readerPageEffectOptions]를 참고한다. */
 internal val readerDefaultTransitionOptions: List<PageAnimation> = listOf(
     PageAnimation.NONE,
     PageAnimation.SLIDE,
@@ -2073,9 +2039,9 @@ internal val readerDefaultTransitionOptions: List<PageAnimation> = listOf(
     PageAnimation.SCROLL,
 )
 
-/** The decorative page-turn effects [PageTurnOptionsSheet] offers under "page effects" — kept
- * separate from [readerDefaultTransitionOptions] so the sheet can group everyday transitions apart
- * from novelty ones, even though both groups write the same [ReaderUiState.pageAnimation]. */
+/** [PageTurnOptionsSheet]가 "페이지 효과" 아래 제공하는 장식적 페이지 넘김 효과들 — 두 그룹 모두 같은
+ * [ReaderUiState.pageAnimation]에 쓰지만, 시트가 평범한 전환과 특별한 효과를 구분해 묶을 수 있도록
+ * [readerDefaultTransitionOptions]와 별도로 둔다. */
 internal val readerPageEffectOptions: List<PageAnimation> = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
@@ -2085,59 +2051,57 @@ internal val readerPageEffectOptions: List<PageAnimation> = listOf(
     PageAnimation.PAGE_FLIP,
 )
 
-/** Every [PageAnimation] offered anywhere in the reader's UI: [readerDefaultTransitionOptions] and
- * [readerPageEffectOptions] combined, in that order. */
+/** 리더 UI 어디서든 제공되는 모든 [PageAnimation]: [readerDefaultTransitionOptions]와
+ * [readerPageEffectOptions]를 그 순서로 합친 것. */
 internal val readerPageAnimationOptions: List<PageAnimation> =
     readerDefaultTransitionOptions + readerPageEffectOptions
 
 /**
- * Snaps this speed to the nearest hundredth and clamps it into [AutoScrollConfig]'s valid range, so
- * a drag gesture's raw float never gets committed as a speed with more precision than the slider's
- * [SpeedSliderSteps] can actually represent, and never outside the range the model accepts.
+ * 이 속도를 가장 가까운 100분의 1로 스냅하고 [AutoScrollConfig]의 유효 범위로 clamp하여, 드래그 제스처의
+ * 원시 float 값이 슬라이더의 [SpeedSliderSteps]가 실제로 표현할 수 있는 것보다 더 높은 정밀도로 확정되는
+ * 일도, 모델이 받아들이는 범위 밖으로 확정되는 일도 없도록 한다.
  *
- * @receiver The raw, in-progress speed value from a slider drag.
+ * @receiver 슬라이더 드래그에서 온, 확정되지 않은 원시 속도값.
  */
 private fun Float.roundToHundredths(): Float =
     (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
 /**
- * The page index [paneCount] panes ahead of [currentPage], or null if that would run past the end
- * of the document — the shared range check every "is there a next page" decision in the reader
- * (auto-scroll stopping, the bottom bar's next button, swipe gestures) is built from.
+ * [currentPage]에서 [paneCount] pane만큼 앞선 페이지 인덱스, 문서 끝을 넘어가게 되면 null — 리더에서 "다음
+ * 페이지가 있는가"를 판단하는 모든 결정(자동 스크롤 정지, 하단 바의 다음 버튼, 스와이프 제스처)이 이
+ * 공유된 범위 검사로부터 만들어진다.
  *
- * @param currentPage The zero-based page currently shown.
- * @param totalPages The document's total page count.
- * @param paneCount How many pages a single turn advances by; coerced to at least 1.
- * @return The next page index, or null if there is none.
+ * @param currentPage 현재 표시 중인 0-기반 페이지.
+ * @param totalPages 문서의 전체 페이지 수.
+ * @param paneCount 한 번의 넘김이 몇 페이지씩 나아가는지; 최소 1로 coerce된다.
+ * @return 다음 페이지 인덱스, 없으면 null.
  */
 internal fun readerNextPage(currentPage: Int, totalPages: Int, paneCount: Int): Int? =
     (currentPage + paneCount.coerceAtLeast(1)).takeIf { it in 0 until totalPages }
 
 /**
- * Downgrades [AutoScrollMode.LINE] to [AutoScrollMode.PAGE] in visual (PDF/image) mode, since
- * line-by-line scrolling is a text-layout concept a visual page has no notion of; any other mode
- * passes through unchanged. Used to decide what auto-scroll actually does, as distinct from
- * [AutoScrollOptionsSheet], which decides what modes are even offered as a choice.
+ * visual(PDF/이미지) 모드에서는 [AutoScrollMode.LINE]을 [AutoScrollMode.PAGE]로 격하시킨다. 줄 단위
+ * 스크롤은 텍스트 레이아웃 개념이라 visual 페이지에는 그런 개념이 없기 때문이다; 그 외의 모드는 그대로
+ * 통과한다. 어떤 모드가 선택지로조차 제공되는지를 결정하는 [AutoScrollOptionsSheet]와 달리, 자동 스크롤이
+ * 실제로 무엇을 할지를 결정하는 데 쓰인다.
  *
- * @param mode The mode as configured/selected by the user.
- * @param isVisualMode Whether the current document is in PDF/image (as opposed to text/EPUB) mode.
- * @return The mode auto-scroll should actually run with.
+ * @param mode 사용자가 설정/선택한 모드.
+ * @param isVisualMode 현재 문서가 (텍스트/EPUB이 아니라) PDF/이미지 모드인지 여부.
+ * @return 자동 스크롤이 실제로 실행되어야 할 모드.
  */
 internal fun readerEffectiveAutoScrollMode(mode: AutoScrollMode, isVisualMode: Boolean): AutoScrollMode =
     if (isVisualMode && mode == AutoScrollMode.LINE) AutoScrollMode.PAGE else mode
 
 /**
- * Whether [ReaderAutoScrollEffect] should drive auto-scroll by requesting whole-page turns for the
- * given mode/animation combination, and if so, which direction. Returns null for [AutoScrollMode.PIXEL]/
- * [AutoScrollMode.LINE] paired with an animation that already scrolls or turns continuously on its
- * own (e.g. [PageAnimation.SCROLL] or a curl/flip effect) — those animations drive their own
- * continuous auto-scroll internally, and requesting a page-turn on top of that would double it up.
+ * 주어진 모드/애니메이션 조합에 대해 [ReaderAutoScrollEffect]가 페이지 전체 넘김을 요청해서 자동 스크롤을
+ * 구동해야 하는지, 그렇다면 어느 방향인지. 이미 자체적으로 계속 스크롤되거나 넘어가는 애니메이션(예:
+ * [PageAnimation.SCROLL]이나 curl/flip 효과)과 짝지어진 [AutoScrollMode.PIXEL]/[AutoScrollMode.LINE]에
+ * 대해서는 null을 반환한다 — 그런 애니메이션은 내부적으로 자체 연속 자동 스크롤을 구동하며, 그 위에 페이지
+ * 넘김을 또 요청하면 두 배로 겹치게 된다.
  *
- * @param mode The effective auto-scroll mode, after [readerEffectiveAutoScrollMode] has resolved
- * it.
- * @param pageAnimation The active page-turn animation.
- * @return The page movement to request, or null if this combination should not drive whole-page
- * turns at all.
+ * @param mode [readerEffectiveAutoScrollMode]가 해석하고 난, 실제 적용되는 자동 스크롤 모드.
+ * @param pageAnimation 활성 페이지 넘김 애니메이션.
+ * @return 요청할 페이지 이동, 이 조합이 페이지 전체 넘김을 전혀 구동하면 안 되면 null.
  */
 internal fun readerAutoScrollPageMovement(
     mode: AutoScrollMode,
@@ -2166,27 +2130,23 @@ internal fun readerAutoScrollPageMovement(
 }
 
 /**
- * How long [ReaderAutoScrollEffect] should wait before requesting the next whole-page turn in
- * [AutoScrollMode.PAGE], inversely proportional to [speed] so a higher speed setting means a
- * shorter wait between turns.
+ * [AutoScrollMode.PAGE]에서 [ReaderAutoScrollEffect]가 다음 페이지 전체 넘김을 요청하기 전에 얼마나
+ * 기다려야 하는지. [speed]에 반비례하여, 속도 설정이 높을수록 넘김 사이 대기 시간이 짧아진다.
  *
- * @param speed The configured auto-scroll speed; clamped to [AutoScrollConfig]'s valid range before
- * use.
- * @return The delay in milliseconds.
+ * @param speed 설정된 자동 스크롤 속도; 사용 전에 [AutoScrollConfig]의 유효 범위로 clamp된다.
+ * @return 지연 시간(밀리초).
  */
 internal fun autoScrollPageDelayMillis(speed: Float): Long =
     (1_000f / AutoScrollConfig.clampSpeed(speed)).toLong()
 
 /**
- * How many pixels a continuous [AutoScrollMode.PIXEL] scroll should advance over one frame's
- * elapsed time, scaled by [density] so the same [speed] setting scrolls a visually consistent
- * distance regardless of screen density.
+ * 연속적인 [AutoScrollMode.PIXEL] 스크롤이 한 프레임 경과 시간 동안 몇 픽셀 나아가야 하는지. [density]로
+ * 스케일되어, 같은 [speed] 설정이 화면 밀도와 무관하게 시각적으로 일관된 거리만큼 스크롤되도록 한다.
  *
- * @param speed The configured auto-scroll speed; clamped to [AutoScrollConfig]'s valid range before
- * use.
- * @param density The display's pixel density.
- * @param elapsedMillis Time elapsed since the last frame.
- * @return The distance to scroll, in pixels.
+ * @param speed 설정된 자동 스크롤 속도; 사용 전에 [AutoScrollConfig]의 유효 범위로 clamp된다.
+ * @param density 디스플레이의 픽셀 밀도.
+ * @param elapsedMillis 마지막 프레임 이후 경과한 시간.
+ * @return 스크롤할 거리(픽셀).
  */
 internal fun autoScrollDistancePx(speed: Float, density: Float, elapsedMillis: Long): Float =
     200f *
@@ -2195,28 +2155,27 @@ internal fun autoScrollDistancePx(speed: Float, density: Float, elapsedMillis: L
         (elapsedMillis.coerceAtLeast(0L) / 1_000f)
 
 /**
- * How long to wait between line-by-line jumps in [AutoScrollMode.LINE], derived from
- * [autoScrollDistancePx]'s per-second pixel rate so a line's height is crossed in the same time a
- * pixel scroll at the same [speed] would take to cross it, keeping the two modes' perceived speed
- * consistent.
+ * [AutoScrollMode.LINE]에서 줄 단위 점프 사이에 얼마나 기다릴지. [autoScrollDistancePx]의 초당 픽셀
+ * 속도로부터 유도되어, 같은 [speed]의 픽셀 스크롤이 한 줄 높이를 가로지르는 데 걸리는 것과 같은 시간에
+ * 한 줄을 가로지르도록 하여, 두 모드의 체감 속도를 일관되게 유지한다.
  *
- * @param lineHeightPx The height of one line, in pixels.
- * @param pixelsPerSecond The pixel scroll rate to match, from [autoScrollDistancePx] over one
- * second; coerced to at least 1 to avoid dividing by zero.
- * @return The delay in milliseconds.
+ * @param lineHeightPx 한 줄의 높이(픽셀).
+ * @param pixelsPerSecond 맞춰야 할 픽셀 스크롤 속도로, [autoScrollDistancePx]의 초당 값; 0으로 나누지
+ * 않도록 최소 1로 coerce된다.
+ * @return 지연 시간(밀리초).
  */
 internal fun autoScrollLineDelayMillis(lineHeightPx: Float, pixelsPerSecond: Float): Long =
     ((lineHeightPx.coerceAtLeast(0f) / pixelsPerSecond.coerceAtLeast(1f)) * 1_000f).toLong()
 
 /**
- * Converts a raw page index/total into the spread (i.e. group-of-[paneCount]-pages) index/total the
- * bottom bar and status footer actually display, so a two-up spread is numbered and progressed
- * through as one unit instead of the reader appearing to skip every other page number.
+ * 원시 페이지 인덱스/합계를, 하단 바와 상태 표시줄이 실제로 표시하는 spread(즉 [paneCount]페이지씩 묶은
+ * 그룹) 인덱스/합계로 변환하여, 2단 spread가 리더가 페이지 번호를 하나 걸러 건너뛰는 것처럼 보이는 대신
+ * 하나의 단위로 번호가 매겨지고 진행되도록 한다.
  *
- * @param currentPage The zero-based raw page currently shown.
- * @param totalPages The document's total raw page count.
- * @param paneCount How many raw pages make up one spread.
- * @return The current/total spread index, or an all-zero [PageIndex] if there are no pages yet.
+ * @param currentPage 현재 표시 중인 0-기반 원시 페이지.
+ * @param totalPages 문서의 전체 원시 페이지 수.
+ * @param paneCount 한 spread를 이루는 원시 페이지 수.
+ * @return 현재/전체 spread 인덱스, 아직 페이지가 없으면 모두 0인 [PageIndex].
  */
 internal fun readerSpreadPageIndex(currentPage: Int, totalPages: Int, paneCount: Int): PageIndex {
     if (totalPages <= 0) return PageIndex(current = 0, total = 0)
@@ -2229,14 +2188,14 @@ internal fun readerSpreadPageIndex(currentPage: Int, totalPages: Int, paneCount:
 }
 
 /**
- * The inverse of [readerSpreadPageIndex]: converts a spread index the user picked on the bottom
- * bar's slider back into the raw page to actually jump to, so dragging the slider lands on the
- * first raw page of the chosen spread rather than an index the pagination has no page at.
+ * [readerSpreadPageIndex]의 역함수: 사용자가 하단 바 슬라이더에서 고른 spread 인덱스를, 실제로 이동할
+ * 원시 페이지로 다시 변환하여, 슬라이더를 드래그하면 페이지 나누기에 해당 인덱스가 없는 지점이 아니라
+ * 선택된 spread의 첫 원시 페이지에 도달하도록 한다.
  *
- * @param selectedSpread The spread index chosen on the slider; clamped into range.
- * @param totalPages The document's total raw page count.
- * @param paneCount How many raw pages make up one spread.
- * @return The raw page index to jump to, or 0 if there are no pages yet.
+ * @param selectedSpread 슬라이더에서 선택된 spread 인덱스; 범위로 clamp된다.
+ * @param totalPages 문서의 전체 원시 페이지 수.
+ * @param paneCount 한 spread를 이루는 원시 페이지 수.
+ * @return 이동할 원시 페이지 인덱스, 아직 페이지가 없으면 0.
  */
 internal fun readerSpreadAnchorPage(selectedSpread: Int, totalPages: Int, paneCount: Int): Int {
     if (totalPages <= 0) return 0
@@ -2271,13 +2230,12 @@ private fun ReaderLoadingState(
 }
 
 /**
- * The percentage shown by [ReaderStatusFooter]'s progress readout for text documents, based on the
- * absolute text offset of the current location rather than on a still-growing page total.
+ * 텍스트 문서에 대해 [ReaderStatusFooter]의 진행률 표시가 보여주는 백분율로, 계속 늘어나는 페이지 합계가
+ * 아니라 현재 위치의 절대 텍스트 오프셋을 기준으로 한다.
  *
- * @param location The current absolute reading location, if one is known.
- * @param characterCount The final document character count, or null while import is incomplete.
- * @param currentPercent The already-published progress to keep when the final count is still
- *   unknown.
+ * @param location 현재의 절대 읽기 위치, 알려져 있다면.
+ * @param characterCount 최종 문서 문자 수, import가 아직 끝나지 않았으면 null.
+ * @param currentPercent 최종 문자 수가 아직 알려지지 않았을 때 유지할, 이미 발행된 진행률.
  */
 internal fun readerReadProgressPercent(
     location: ReaderLocation?,
@@ -2292,7 +2250,7 @@ internal fun readerReadProgressPercent(
         .coerceIn(0, 100)
 }
 
-/** The percentage shown by [ReaderStatusFooter] for visual page formats, still page-based. */
+/** visual 페이지 형식에 대해 [ReaderStatusFooter]가 보여주는 백분율로, 여전히 페이지 기준이다. */
 internal fun readerVisualReadProgressPercent(pageIndex: PageIndex): Int =
     if (pageIndex.total == 0) {
         0
@@ -2301,13 +2259,13 @@ internal fun readerVisualReadProgressPercent(pageIndex: PageIndex): Int =
     }
 
 /**
- * Looks up the rendered content for the given page across the explicit [ReaderUiState.pageSlots]
- * list first, then the previous/current/next single-page cache — so a caller does not need to know
- * which of those the current document format or loading state happens to be using.
+ * 주어진 페이지의 렌더링된 콘텐츠를 먼저 명시적인 [ReaderUiState.pageSlots] 목록에서, 그다음
+ * 이전/현재/다음 단일 페이지 캐시에서 찾는다 — 그래서 호출자는 현재 문서 형식이나 로딩 상태가 마침
+ * 그중 어느 것을 쓰고 있는지 알 필요가 없다.
  *
- * @receiver The reader's current state.
- * @param page The zero-based page index to look up.
- * @return The page's content, or null if nothing loaded covers this index yet.
+ * @receiver 리더의 현재 상태.
+ * @param page 조회할 0-기반 페이지 인덱스.
+ * @return 페이지의 콘텐츠, 이 인덱스를 아직 아무것도 로드하지 않았으면 null.
  */
 internal fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? =
     pageSlots.firstOrNull { it.page == page }
@@ -2319,12 +2277,12 @@ internal fun ReaderUiState.pageSlot(page: Int): ReaderPageUi? =
         }
 
 /**
- * Reinterprets [page] as the *current* page of a [PageIndex] carrying this state's total, clamped
- * into range — used where a pane needs a [PageIndex] describing itself rather than the reader as a
- * whole (e.g. handing a specific page to [PdfPageSurface]).
+ * [page]를, 이 상태의 합계를 담은 [PageIndex]의 *현재* 페이지로 다시 해석한다. 범위로 clamp된다 — 리더
+ * 전체가 아니라 자기 자신을 나타내는 [PageIndex]가 필요한 pane에서 쓰인다(예: [PdfPageSurface]에 특정
+ * 페이지를 건네줄 때).
  *
- * @receiver The reader's current state; supplies the total page count.
- * @param page The zero-based page index to describe.
+ * @receiver 리더의 현재 상태; 전체 페이지 수를 제공한다.
+ * @param page 나타낼 0-기반 페이지 인덱스.
  */
 private fun ReaderUiState.pageIndexFor(page: Int): PageIndex {
     if (pageIndex.total <= 0) return pageIndex
@@ -2335,14 +2293,13 @@ private fun ReaderUiState.pageIndexFor(page: Int): PageIndex {
 }
 
 /**
- * The plain text to show for the given page: [pageSlot]'s text when there is one, otherwise the
- * reader's currently-loaded [ReaderUiState.pageText] if this *is* the current page (with a
- * placeholder string for a genuinely empty page), or an empty string for any other page not yet
- * loaded into a slot.
+ * 주어진 페이지에 대해 표시할 순수 텍스트: [pageSlot]에 텍스트가 있으면 그것, 아니면 이 페이지가 *현재*
+ * 페이지라면 리더가 현재 로드해 둔 [ReaderUiState.pageText](진짜로 빈 페이지에는 플레이스홀더 문자열을
+ * 사용), 슬롯에 아직 로드되지 않은 다른 페이지라면 빈 문자열.
  *
- * @receiver The reader's current state.
- * @param page The zero-based page index to look up.
- * @return The page's text, or an empty string if nothing is loaded for it yet.
+ * @receiver 리더의 현재 상태.
+ * @param page 조회할 0-기반 페이지 인덱스.
+ * @return 페이지의 텍스트, 아직 아무것도 로드되지 않았으면 빈 문자열.
  */
 @Composable
 private fun ReaderUiState.pageTextFor(page: Int): String {
@@ -2356,11 +2313,11 @@ private fun ReaderUiState.pageTextFor(page: Int): String {
 }
 
 /**
- * The localized label [ThemeOptionsSheet] shows for this theme mode. [ReaderThemeMode.CUSTOM] has a
- * label here even though the sheet never offers it as a choice, so this function stays total over
- * the enum rather than needing a caller-side fallback.
+ * [ThemeOptionsSheet]가 이 테마 모드에 대해 보여주는 지역화된 라벨. [ReaderThemeMode.CUSTOM]은 시트가
+ * 선택지로 제공하는 일이 절대 없어도 여기서 라벨을 가지는데, 그래야 이 함수가 호출자 쪽 대체값을 필요로
+ * 하는 대신 enum 전체에 대해 total하게 유지되기 때문이다.
  *
- * @receiver The theme mode to label.
+ * @receiver 라벨을 붙일 테마 모드.
  */
 @Composable
 private fun ReaderThemeMode.themeLabel(): String = when (this) {
@@ -2374,12 +2331,11 @@ private fun ReaderThemeMode.themeLabel(): String = when (this) {
 }
 
 /**
- * The localized label [PageTurnOptionsSheet] shows for this direction. [PageTurnMode.CONTINUOUS]
- * shares [PageTurnMode.VERTICAL]'s label rather than getting its own, since it is not offered as a
- * separate choice in [readerPageTurnModeOptions] and a user should never actually see this branch
- * taken.
+ * [PageTurnOptionsSheet]가 이 방향에 대해 보여주는 지역화된 라벨. [PageTurnMode.CONTINUOUS]는 자기만의
+ * 라벨을 갖는 대신 [PageTurnMode.VERTICAL]의 라벨을 공유하는데, [readerPageTurnModeOptions]에서 별도
+ * 선택지로 제공되지 않으며 사용자가 실제로 이 분기를 보게 되는 일이 절대 없어야 하기 때문이다.
  *
- * @receiver The page-turn direction to label.
+ * @receiver 라벨을 붙일 페이지 넘김 방향.
  */
 @Composable
 private fun PageTurnMode.pageTurnLabel(): String = when (this) {
@@ -2390,13 +2346,12 @@ private fun PageTurnMode.pageTurnLabel(): String = when (this) {
 }
 
 /**
- * The localized label [PageTurnOptionsSheet] shows for this animation. Several enum values
- * deliberately share one label — [PageAnimation.SLIDE]/[PageAnimation.SHEET_FLIP] both read as
- * "slide," [PageAnimation.BOOK_CURL]/[PageAnimation.CURL_PAGER] both read as "curl" — because they
- * are two implementations of what a user experiences as the same visual effect, not two options
- * worth distinguishing by name.
+ * [PageTurnOptionsSheet]가 이 애니메이션에 대해 보여주는 지역화된 라벨. 여러 enum 값이 의도적으로 하나의
+ * 라벨을 공유한다 — [PageAnimation.SLIDE]/[PageAnimation.SHEET_FLIP]은 둘 다 "slide"로,
+ * [PageAnimation.BOOK_CURL]/[PageAnimation.CURL_PAGER]는 둘 다 "curl"로 읽힌다 — 사용자가 같은 시각
+ * 효과로 경험하는 것의 서로 다른 두 구현일 뿐, 이름으로 구분할 가치가 있는 두 선택지가 아니기 때문이다.
  *
- * @receiver The page-turn animation to label.
+ * @receiver 라벨을 붙일 페이지 넘김 애니메이션.
  */
 @Composable
 private fun PageAnimation.pageAnimationLabel(): String = when (this) {
@@ -2417,9 +2372,9 @@ private fun PageAnimation.pageAnimationLabel(): String = when (this) {
 }
 
 /**
- * The localized label [AutoScrollOptionsSheet] shows for this mode.
+ * [AutoScrollOptionsSheet]가 이 모드에 대해 보여주는 지역화된 라벨.
  *
- * @receiver The auto-scroll mode to label.
+ * @receiver 라벨을 붙일 자동 스크롤 모드.
  */
 @Composable
 private fun AutoScrollMode.autoScrollLabel(): String = when (this) {
@@ -2429,9 +2384,9 @@ private fun AutoScrollMode.autoScrollLabel(): String = when (this) {
 }
 
 /**
- * The localized title [ReaderActiveSheet] gives the shared bottom sheet's title bar for this sheet.
+ * [ReaderActiveSheet]가 이 시트에 대해 공유 바텀 시트의 타이틀 바에 붙이는 지역화된 제목.
  *
- * @receiver The sheet to title.
+ * @receiver 제목을 붙일 시트.
  */
 @Composable
 private fun ReaderOptionSheet.title(): String = when (this) {
@@ -2447,11 +2402,11 @@ private fun ReaderOptionSheet.title(): String = when (this) {
 }
 
 /**
- * The reader's error state: a centered message shown by [ReaderScreen] instead of the reading
- * surface whenever [ReaderUiState.errorMessage] is set.
+ * 리더의 에러 상태: [ReaderUiState.errorMessage]가 설정되어 있을 때마다 읽기 화면 대신 [ReaderScreen]이
+ * 보여주는, 가운데 정렬된 메시지.
  *
- * @param message The error text to show, as already resolved/localized by the view model.
- * @param modifier Applied to the message's container.
+ * @param message 표시할 에러 텍스트로, view model이 이미 해석/지역화해 둔 것.
+ * @param modifier 메시지의 컨테이너에 적용된다.
  */
 @Composable
 private fun ReaderError(
@@ -2467,16 +2422,15 @@ private fun ReaderError(
 }
 
 /**
- * A minimal [ReaderUiState] builder for the `@Preview` composables below, so each preview only has
- * to name the handful of fields it wants to vary instead of constructing the full state by hand.
- * Defaults to bilingual sample text so both Latin and Hangul glyph rendering are visible in a
- * preview without extra setup.
+ * 아래 `@Preview` composable들을 위한 최소한의 [ReaderUiState] 빌더로, 각 미리보기가 전체 상태를 직접
+ * 구성하는 대신 바꾸고 싶은 몇몇 필드의 이름만 대면 되도록 한다. 별도 설정 없이도 미리보기에서 라틴
+ * 문자와 한글 글리프 렌더링이 모두 보이도록 기본값은 두 언어를 섞은 예시 텍스트다.
  *
- * @param documentTitle Shown in the top bar and status footer.
- * @param pageText The current page's plain text.
- * @param style The reader style (theme, font, etc.) to preview.
- * @param isControlsVisible Whether the top/bottom control bars should be shown.
- * @param activeSheet An option sheet to show already open, or null for none.
+ * @param documentTitle 상단 바와 상태 표시줄에 표시된다.
+ * @param pageText 현재 페이지의 순수 텍스트.
+ * @param style 미리 볼 리더 style(테마, 활자 등).
+ * @param isControlsVisible 상단/하단 컨트롤 바를 보여줘야 하는지 여부.
+ * @param activeSheet 이미 열려 있는 것으로 보여줄 옵션 시트, 없으면 null.
  */
 private fun previewReaderUiState(
     documentTitle: String = "Preview Book",
@@ -2495,25 +2449,23 @@ private fun previewReaderUiState(
 )
 
 /**
- * Hides the reading controls as soon as a drag gesture clears the touch slop, so swiping to turn a
- * page or pan a zoomed view also dismisses the top/bottom bars in the same motion, instead of
- * requiring a separate tap. Only ever *hides* controls on a drag — it never shows them, and it never
- * acts once [gestureBlocked] reports another gesture (e.g. a pinch/zoom) is already handling this
- * pointer sequence, so the two gesture handlers do not fight over the same touch. Uses
- * [PointerEventPass.Initial] so this observation happens before the pager's own swipe/tap detection
- * downstream, without consuming the event and blocking that detection from also seeing it.
+ * 드래그 제스처가 touch slop을 넘어서는 순간 읽기 컨트롤을 숨겨서, 페이지를 넘기거나 확대된 화면을
+ * 이동시키려는 스와이프가 같은 동작 안에서 상단/하단 바도 함께 사라지게 한다. 별도의 탭이 필요 없다.
+ * 드래그에서는 항상 컨트롤을 *숨기기만* 한다 — 절대 보여주지 않으며, [gestureBlocked]가 다른
+ * 제스처(예: 핀치/확대)가 이미 이 포인터 시퀀스를 처리하고 있다고 알리면 전혀 동작하지 않아서, 두
+ * 제스처 핸들러가 같은 터치를 두고 다투지 않는다. [PointerEventPass.Initial]을 사용하여 이 관찰이
+ * pager 자체의 하위 스와이프/탭 감지보다 먼저 일어나며, 이벤트를 소비하여 그 감지가 이벤트를 보지
+ * 못하게 막지 않는다.
  *
- * A `@Composable` factory rather than `Modifier.composed { }` for the same reason as
- * [readerPinchZoomGesture]: `composed` is opaque to modifier comparison, so this segment was
- * re-materialized on every recomposition of the page content rather than reused.
+ * [readerPinchZoomGesture]와 같은 이유로 `Modifier.composed { }`가 아니라 `@Composable` factory이다:
+ * `composed`는 modifier 비교에 불투명해서, 이 구간이 재사용되는 대신 페이지 콘텐츠가
+ * recomposition될 때마다 다시 구체화됐을 것이다.
  *
- * @receiver The modifier to chain this pointer input onto.
- * @param controlsVisible Whether the controls are visible right now; read fresh at the start of
- * each gesture via [rememberUpdatedState] so a value captured by an earlier, still-running gesture
- * closure cannot go stale.
- * @param gestureBlocked Whether another gesture handler is already active and this one should stand
- * down.
- * @param onToggleControls Invoked to hide the controls once the drag clears the touch slop.
+ * @receiver 이 포인터 입력을 이어붙일 modifier.
+ * @param controlsVisible 컨트롤이 지금 보이고 있는지 여부; 이전의, 여전히 실행 중인 제스처 클로저가
+ * 캡처한 값이 낡아버리지 않도록 [rememberUpdatedState]를 통해 각 제스처가 시작될 때마다 새로 읽는다.
+ * @param gestureBlocked 다른 제스처 핸들러가 이미 활성 상태여서 이 핸들러가 물러나야 하는지 여부.
+ * @param onToggleControls 드래그가 touch slop을 넘어서면 컨트롤을 숨기도록 호출된다.
  */
 @Composable
 private fun Modifier.readerControlsDragObserver(
@@ -2551,10 +2503,10 @@ private fun Modifier.readerControlsDragObserver(
 }
 
 /**
- * Previews the reader at a compact phone width (360x720) with the controls visible and a long,
- * mixed Korean/English document title — worth previewing on its own because a long bilingual title
- * is exactly where top-bar title truncation and mixed-script line metrics are most likely to break,
- * and neither shows up at all with a short, single-script placeholder title.
+ * 컨트롤이 보이는 상태로, 좁은 폰 너비(360x720)에서 한글/영문이 섞인 긴 문서 제목으로 리더를 미리
+ * 본다 — 두 언어가 섞인 긴 제목이야말로 상단 바 제목 잘림과 혼합 스크립트 줄 측정이 가장 깨지기 쉬운
+ * 지점이며, 짧은 단일 스크립트 자리표시자 제목으로는 둘 다 전혀 드러나지 않으므로 별도로 미리 볼 가치가
+ * 있다.
  */
 @Preview(widthDp = 360, heightDp = 720)
 @Composable
@@ -2611,11 +2563,10 @@ private fun ReaderScreenCompactPreview() {
 }
 
 /**
- * Previews the reader with the top/bottom control bars and status footer hidden
- * (`isControlsVisible = false`) — worth previewing on its own because that is the reader's default
- * reading state once a user taps to dismiss the chrome, and it is easy for a layout change made
- * against the controls-visible preview to accidentally leave the page content misaligned once the
- * space those bars occupied is given back.
+ * 상단/하단 컨트롤 바와 상태 표시줄을 숨긴(`isControlsVisible = false`) 상태로 리더를 미리 본다 — 이는
+ * 사용자가 chrome을 닫으려고 탭하고 나면 리더의 기본 읽기 상태이며, 컨트롤이 보이는 미리보기를 기준으로
+ * 만든 레이아웃 변경이 그 바들이 차지하던 공간이 되돌려졌을 때 페이지 콘텐츠를 실수로 어긋나게 두기
+ * 쉬우므로 별도로 미리 볼 가치가 있다.
  */
 @Preview(widthDp = 360, heightDp = 720)
 @Composable
@@ -2669,10 +2620,10 @@ private fun ReaderScreenHiddenChromePreview() {
 }
 
 /**
- * Previews the reader in [darkReaderStyle] under a dark [TeddReaderTheme] — worth previewing on its
- * own because the reader's text/background colors come from the reader style, not the app theme, so
- * a dark-mode regression there (e.g. a hardcoded light color slipping into a new composable) would
- * not show up in any of the other previews here, which all use the light default style.
+ * 다크 [TeddReaderTheme] 아래에서 [darkReaderStyle]로 리더를 미리 본다 — 리더의 텍스트/배경 색상은 앱
+ * 테마가 아니라 리더 style에서 오므로, 여기 다른 모든 미리보기가 사용하는 라이트 기본 style에서는 그런
+ * 다크 모드 회귀(예: 새 composable에 하드코딩된 밝은 색상이 슬쩍 끼어드는 경우)가 전혀 드러나지 않아서
+ * 별도로 미리 볼 가치가 있다.
  */
 @Preview(widthDp = 360, heightDp = 720)
 @Composable
@@ -2726,11 +2677,10 @@ private fun ReaderScreenDarkPreview() {
 }
 
 /**
- * Previews the reader at Compose Preview's own default device size, rather than the fixed
- * 360x720 phone size the other previews above pin, with a plain English baseline [ReaderUiState]
- * built directly instead of through [previewReaderUiState] — worth keeping separate so a future
- * change to that helper's defaults cannot silently remove coverage of the reader's fully default
- * configuration at a different, unpinned device size.
+ * 위의 다른 미리보기들이 고정한 360x720 폰 크기가 아니라 Compose Preview 자체의 기본 기기 크기에서,
+ * [previewReaderUiState]를 거치지 않고 직접 만든 순수 영문 기본 [ReaderUiState]로 리더를 미리 본다 —
+ * 그 헬퍼의 기본값이 나중에 바뀌더라도 고정되지 않은 다른 기기 크기에서의 완전한 기본 구성에 대한
+ * 커버리지가 조용히 사라지지 않도록 별도로 유지할 가치가 있다.
  */
 @Preview
 @Composable
