@@ -34,34 +34,32 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
 /**
- * The reader settings screen's content: app language, reading appearance (font, line height, font
- * family, font weight, theme), page-turn direction, transition and page-effect animation, and hands-free
- * auto-scroll options, laid out as a scrolling column of [TeddOptionGroup]s beneath a live
- * [ReaderOptionPreview]. This composable is a pure state-and-callback pass-through to the settings
- * view model — it renders [uiState] and reports every change back through one of the six
- * callbacks below, holding no committed setting of its own. While
- * [ReaderSettingsUiState.isLoading] is true it shows a loading indicator instead and returns
- * before any of the settings groups are built.
+ * 리더 설정 화면의 콘텐츠다. 앱 언어, 읽기 모양새(글꼴, 줄 높이, 글꼴 모음, 글꼴 굵기, 테마),
+ * 페이지 넘김 방향, 전환 및 페이지 효과 애니메이션, 핸즈프리 자동 스크롤 옵션을 실시간
+ * [ReaderOptionPreview] 아래에서 [TeddOptionGroup]의 스크롤 가능한 열로 배치한다. 이 컴포저블은
+ * 설정 뷰 모델에 상태와 콜백을 그대로 전달한다. 자체적으로 확정된 설정을 보관하지 않고
+ * [uiState]를 렌더링하며, 모든 변경을 아래 6개 콜백 중 하나로 다시 알린다.
+ * [ReaderSettingsUiState.isLoading]이 true이면 설정 그룹을 만들기 전에 로딩 표시기를 대신
+ * 보여주고 반환한다.
  *
- * `fontSizeDraft`, `lineHeightPercentDraft`, and `autoScrollSpeedDraft` are drafts: each is
- * `remember`ed keyed on its own committed value from [uiState], so it snaps back to match whenever
- * that committed value changes from outside the current gesture, and in between it holds the
- * corresponding slider's in-progress drag value — [uiState] itself is left untouched until the
- * drag ends and `onValueChangeFinished` commits the draft through [onStyleChange] or
- * [onAutoScrollConfigChange]. `previewStyle` is built from the two style drafts so the live preview
- * above the sliders tracks the drag before either draft is committed.
+ * `fontSizeDraft`, `lineHeightPercentDraft`, `autoScrollSpeedDraft`는 임시 값이다. 각각 [uiState]의
+ * 확정된 해당 값을 키로 사용해 `remember`하므로 현재 제스처 외부에서 확정값이 바뀔 때마다
+ * 그 값에 다시 맞춰진다. 그 사이에는 해당 슬라이더를 드래그 중인 값을 보관한다. 드래그가 끝나
+ * `onValueChangeFinished`가 [onStyleChange] 또는 [onAutoScrollConfigChange]로 임시 값을 확정할
+ * 때까지 [uiState] 자체는 그대로 유지된다. `previewStyle`은 두 스타일 임시 값으로 만들어지므로
+ * 어느 값도 확정되기 전에 슬라이더 위의 실시간 미리보기가 드래그를 따라간다.
  *
- * @param uiState The settings screen's current state, as published by the view model.
- * @param onStyleChange Invoked with the reader style to commit once a style-affecting control
- * (font size, line height, font family, or theme) settles on a value.
- * @param onPageTurnModeChange Invoked when the page-direction radio row is changed.
- * @param onPageAnimationChange Invoked when either the default-transition or page-effects radio
- * row is changed; both groups write the same [ReaderSettingsUiState.pageAnimation].
- * @param onAutoScrollConfigChange Invoked when the auto-scroll enabled switch or mode is changed,
- * or when the speed slider settles on a value.
- * @param onAppLanguageChange Invoked when the app-language radio row is changed.
- * @param modifier Applied to the root [Column], or to the loading indicator while
- * [ReaderSettingsUiState.isLoading] is true.
+ * @param uiState 뷰 모델이 게시한 설정 화면의 현재 상태.
+ * @param onStyleChange 스타일에 영향을 주는 컨트롤(글꼴 크기, 줄 높이, 글꼴 모음, 테마)의 값이
+ * 확정되면 저장할 리더 스타일과 함께 호출할 콜백.
+ * @param onPageTurnModeChange 페이지 방향 라디오 행이 변경될 때 호출할 콜백.
+ * @param onPageAnimationChange 기본 전환 또는 페이지 효과 라디오 행이 변경될 때 호출할 콜백.
+ * 두 그룹 모두 같은 [ReaderSettingsUiState.pageAnimation]을 기록한다.
+ * @param onAutoScrollConfigChange 자동 스크롤 활성화 스위치나 모드가 변경되거나 속도 슬라이더의
+ * 값이 확정될 때 호출할 콜백.
+ * @param onAppLanguageChange 앱 언어 라디오 행이 변경될 때 호출할 콜백.
+ * @param modifier 루트 [Column]에 적용하며, [ReaderSettingsUiState.isLoading]이 true이면 로딩
+ * 표시기에 적용할 값.
  */
 @Composable
 fun ReaderSettingsSheet(
@@ -301,26 +299,26 @@ fun ReaderSettingsSheet(
     }
 }
 
-/** The `Slider` `steps` value for this sheet's font size slider, sized so it snaps to whole-sp
- * increments across the slider's 8-80sp range rather than an arbitrary continuous value. */
+/** 이 시트의 글꼴 크기 슬라이더에 사용하는 `Slider`의 `steps` 값이다. 임의의 연속 값이
+ * 아니라 슬라이더의 8-80sp 범위에서 정수 sp 단위로 맞춰지도록 정한다. */
 private const val FontSizeSliderSteps = 71
 
-/** How coarsely the line-height percentage draft is rounded while dragging, so the committed value
- * always lands on a multiple of 5% instead of an arbitrary fraction. */
+/** 드래그 중 줄 높이 백분율 임시 값을 반올림하는 간격이다. 확정값이 임의의 소수가 아니라
+ * 항상 5%의 배수가 되도록 한다. */
 private const val LineHeightStepPercent = 5f
 
-/** The `Slider` `steps` value for this sheet's line height slider, matching [LineHeightStepPercent]
- * across the slider's 100-300% range so the visual snap points agree with the draft rounding. */
+/** 이 시트의 줄 높이 슬라이더에 사용하는 `Slider`의 `steps` 값이다. 시각적 맞춤 지점과 임시 값의
+ * 반올림이 일치하도록 슬라이더의 100-300% 범위에서 [LineHeightStepPercent]에 맞춘다. */
 private const val LineHeightSliderSteps = 39
 
-/** The `Slider` `steps` value for this sheet's auto-scroll speed slider, sized so it snaps to
- * hundredths across [AutoScrollConfig]'s speed range, matching the precision
- * [Float.roundToHundredths] commits at. */
+/** 이 시트의 자동 스크롤 속도 슬라이더에 사용하는 `Slider`의 `steps` 값이다.
+ * [Float.roundToHundredths]가 확정하는 정밀도에 맞춰 [AutoScrollConfig]의 속도 범위에서
+ * 0.01 단위로 맞춰지도록 정한다. */
 private const val SpeedSliderSteps = 98
 
-/** The plain, non-decorative transitions offered under the "default transition" option group —
- * animations a reader is unlikely to find distracting for everyday page turns. See
- * [settingsPageEffectOptions] for the showier alternatives offered in the group below. */
+/** "기본 전환" 옵션 그룹에서 제공하는 단순하고 장식 없는 전환 목록이다. 일상적인 페이지 넘김에서
+ * 독자의 주의를 분산시킬 가능성이 낮은 애니메이션을 담는다. 아래 그룹에서 제공하는 더 화려한
+ * 대안은 [settingsPageEffectOptions]를 참고한다. */
 private val settingsDefaultTransitionOptions = listOf(
     PageAnimation.NONE,
     PageAnimation.SLIDE,
@@ -328,9 +326,9 @@ private val settingsDefaultTransitionOptions = listOf(
     PageAnimation.SCROLL,
 )
 
-/** The decorative page-turn effects offered under the "page effects" option group, kept separate
- * from [settingsDefaultTransitionOptions] so everyday transitions are grouped apart from novelty
- * ones, even though both groups write the same [ReaderSettingsUiState.pageAnimation]. */
+/** "페이지 효과" 옵션 그룹에서 제공하는 장식적인 페이지 넘김 효과 목록이다. 두 그룹이 같은
+ * [ReaderSettingsUiState.pageAnimation]을 기록하더라도 일상적인 전환과 색다른 효과를 별도로
+ * 묶기 위해 [settingsDefaultTransitionOptions]와 분리한다. */
 private val settingsPageEffectOptions = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
@@ -341,13 +339,12 @@ private val settingsPageEffectOptions = listOf(
 )
 
 /**
- * The label shown for this language in the app-language radio group. [AppLanguage.ENGLISH] and
- * [AppLanguage.KOREAN] are hardcoded literals rather than string resources because a language
- * names itself the same way regardless of which locale the app is currently displaying in; only
- * [AppLanguage.SYSTEM] describes a choice rather than naming a language, so only it needs
- * translation.
+ * 앱 언어 라디오 그룹에서 이 언어에 표시할 라벨이다. 언어 이름은 앱이 현재 표시하는 로케일과
+ * 무관하게 그 언어 자체에서 항상 같은 방식으로 표기되므로 [AppLanguage.ENGLISH]와
+ * [AppLanguage.KOREAN]은 문자열 리소스 대신 하드코딩한 리터럴을 사용한다. 언어 이름이 아니라
+ * 선택지를 설명하는 [AppLanguage.SYSTEM]만 번역이 필요하다.
  *
- * @receiver The language to label.
+ * @receiver 라벨을 표시할 언어.
  */
 @Composable
 private fun AppLanguage.displayName(): String = when (this) {
@@ -357,11 +354,11 @@ private fun AppLanguage.displayName(): String = when (this) {
 }
 
 /**
- * The label shown for this theme mode in the reading-appearance group's theme radio rows.
- * [ReaderThemeMode.CUSTOM] has a label here even though that group never offers it as a choice, so
- * this function stays total over the enum rather than needing a caller-side fallback.
+ * 읽기 모양새 그룹의 테마 라디오 행에서 이 테마 모드에 표시할 라벨이다. 해당 그룹은
+ * [ReaderThemeMode.CUSTOM]을 선택지로 제공하지 않지만 여기에는 그 라벨도 정의한다. 따라서
+ * 호출 측의 대체 처리 없이 이 함수가 열거형의 모든 값에 대한 결과를 제공한다.
  *
- * @receiver The theme mode to label.
+ * @receiver 라벨을 표시할 테마 모드.
  */
 @Composable
 private fun ReaderThemeMode.displayName(): String = when (this) {
@@ -375,12 +372,12 @@ private fun ReaderThemeMode.displayName(): String = when (this) {
 }
 
 /**
- * The label shown for this direction in the page-direction radio group. [PageTurnMode.CONTINUOUS]
- * shares [PageTurnMode.VERTICAL]'s label rather than getting its own, since the page-direction
- * group above only offers [PageTurnMode.HORIZONTAL] and [PageTurnMode.VERTICAL] as choices and a
- * user should never actually see this branch taken.
+ * 페이지 방향 라디오 그룹에서 이 방향에 표시할 라벨이다. 위의 페이지 방향 그룹은
+ * [PageTurnMode.HORIZONTAL]과 [PageTurnMode.VERTICAL]만 선택지로 제공하므로 사용자가 실제로
+ * 이 분기를 볼 일은 없다. 이에 따라 [PageTurnMode.CONTINUOUS]에는 별도 라벨을 두지 않고
+ * [PageTurnMode.VERTICAL]의 라벨을 함께 사용한다.
  *
- * @receiver The page-turn direction to label.
+ * @receiver 라벨을 표시할 페이지 넘김 방향.
  */
 @Composable
 private fun PageTurnMode.displayName(): String = when (this) {
@@ -391,13 +388,13 @@ private fun PageTurnMode.displayName(): String = when (this) {
 }
 
 /**
- * The label shown for this animation across both the default-transition and page-effects radio
- * groups. Several enum values deliberately share one label — [PageAnimation.SLIDE] and
- * [PageAnimation.SHEET_FLIP] both read as "slide," [PageAnimation.BOOK_CURL] and
- * [PageAnimation.CURL_PAGER] both read as "curl" — because they are two implementations of what a
- * user experiences as the same visual effect, not two options worth distinguishing by name.
+ * 기본 전환과 페이지 효과 라디오 그룹 모두에서 이 애니메이션에 표시할 라벨이다. 여러 열거형 값은
+ * 의도적으로 같은 라벨을 사용한다. [PageAnimation.SLIDE]와 [PageAnimation.SHEET_FLIP]은 모두
+ * "슬라이드"로, [PageAnimation.BOOK_CURL]과 [PageAnimation.CURL_PAGER]는 모두 "컬"로 표시한다.
+ * 사용자가 같은 시각 효과로 경험하는 두 구현이므로 이름으로 구분할 가치가 있는 별도 선택지가
+ * 아니기 때문이다.
  *
- * @receiver The page-turn animation to label.
+ * @receiver 라벨을 표시할 페이지 넘김 애니메이션.
  */
 @Composable
 private fun PageAnimation.displayName(): String = when (this) {
@@ -418,9 +415,9 @@ private fun PageAnimation.displayName(): String = when (this) {
 }
 
 /**
- * The label shown for this mode in the hands-free reading group's auto-scroll radio rows.
+ * 핸즈프리 읽기 그룹의 자동 스크롤 라디오 행에서 이 모드에 표시할 라벨이다.
  *
- * @receiver The auto-scroll mode to label.
+ * @receiver 라벨을 표시할 자동 스크롤 모드.
  */
 @Composable
 private fun AutoScrollMode.displayName(): String = when (this) {
@@ -430,18 +427,18 @@ private fun AutoScrollMode.displayName(): String = when (this) {
 }
 
 /**
- * Snaps this speed to the nearest hundredth and clamps it into [AutoScrollConfig]'s valid range, so
- * a drag gesture's raw float never gets committed as a speed with more precision than the slider's
- * [SpeedSliderSteps] can actually represent, and never outside the range the model accepts.
+ * 이 속도를 가장 가까운 0.01 단위에 맞추고 [AutoScrollConfig]의 유효 범위로 제한한다. 따라서
+ * 드래그 제스처의 가공되지 않은 부동소수점 값이 슬라이더의 [SpeedSliderSteps]로 실제 표현할 수 있는 것보다
+ * 정밀한 속도나 모델이 허용하는 범위 밖의 속도로 확정되지 않는다.
  *
- * @receiver The raw, in-progress speed value from a slider drag.
+ * @receiver 슬라이더 드래그에서 받은 가공되지 않은 진행 중 속도 값.
  */
 private fun Float.roundToHundredths(): Float =
     (this * 100f).roundToInt().div(100f).coerceIn(AutoScrollConfig.MIN_SPEED, AutoScrollConfig.MAX_SPEED)
 
 /**
- * Preview of [ReaderSettingsSheet] at three widths, exercising the compact, default, and wide
- * layouts the sheet's content can render at.
+ * 시트 콘텐츠가 렌더링할 수 있는 컴팩트, 기본, 와이드 레이아웃을 확인하는 세 가지 너비의
+ * [ReaderSettingsSheet] 미리보기다.
  */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
