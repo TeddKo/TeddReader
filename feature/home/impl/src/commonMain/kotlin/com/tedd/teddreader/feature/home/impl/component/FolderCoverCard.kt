@@ -51,25 +51,23 @@ import kotlinx.collections.immutable.ImmutableMap
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * A folder tile in the home library grid: a mosaic of its own documents' covers, its name and
- * document count, and — when the caller allows either action — an overflow menu to rename or
- * delete the folder.
+ * 홈 라이브러리 그리드의 폴더 타일이다. 폴더 문서의 표지 모자이크, 폴더 이름과 문서 수를 표시하고 호출자가
+ * 두 작업 중 하나라도 허용하면 폴더 이름을 바꾸거나 삭제하는 더보기 메뉴도 제공한다.
  *
- * @param folder the folder this card represents.
- * @param previewDocuments the leading documents to render as this folder's cover mosaic.
- * @param remainingDocumentCount how many more documents the folder holds beyond [previewDocuments];
- *   shown as a count overlay on the mosaic's last tile when greater than zero.
- * @param documentCoverImages cover image bytes keyed by document id, looked up for each preview tile.
- * @param onClick invoked when the card itself is tapped, to open the folder.
- * @param singleClick whether this tap joins the app-wide single-click navigation guard (see
- *   `teddClickable`'s own `singleClick` parameter). Opening a folder is a destination push with no
- *   toggle counterpart the way a document card's tap has, so every caller of this card can safely
- *   pass true.
- * @param modifier applied to the outer [Column].
- * @param onRenameClick invoked to start renaming this folder, or null to omit the rename menu entry;
- *   together with [onDeleteClick] being null, this also hides the overflow menu button entirely.
- * @param onDeleteClick invoked to delete this folder, or null to omit the delete menu entry.
- * @param onLoadCover invoked for preview documents that are visible without cached cover bytes yet.
+ * @param folder 이 카드가 나타내는 폴더.
+ * @param previewDocuments 폴더의 표지 모자이크에 표시할 앞쪽 문서.
+ * @param remainingDocumentCount [previewDocuments] 외에 폴더에 더 있는 문서 수. 0보다 크면 모자이크의
+ *   마지막 타일에 개수 overlay로 표시한다.
+ * @param documentCoverImages 문서 id를 키로 하는 표지 이미지 바이트. 각 미리보기 타일에서 조회한다.
+ * @param onClick 카드 자체를 눌러 폴더를 열 때 호출한다.
+ * @param singleClick 이 tap이 앱 전체 단일 클릭 navigation guard에 참여할지 여부
+ *   (`teddClickable`의 `singleClick` 매개변수 참고). 폴더 열기는 문서 카드의 tap과 달리 전환 동작이 없는
+ *   destination push이므로 이 카드의 모든 호출자는 안전하게 true를 전달할 수 있다.
+ * @param modifier 바깥쪽 [Column]에 적용할 modifier.
+ * @param onRenameClick 폴더 이름 변경을 시작할 때 호출한다. null이면 이름 변경 메뉴 항목을 생략한다.
+ *   [onDeleteClick]도 null이면 더보기 메뉴 button 자체를 숨긴다.
+ * @param onDeleteClick 폴더를 삭제할 때 호출한다. null이면 삭제 메뉴 항목을 생략한다.
+ * @param onLoadCover 캐시된 표지 바이트 없이 표시 중인 미리보기 문서에 대해 호출한다.
  */
 @Composable
 fun FolderCoverCard(
@@ -178,15 +176,14 @@ fun FolderCoverCard(
 }
 
 /**
- * The grid of cover thumbnails [FolderCoverCard] shows for one folder: up to four documents laid
- * out into a 1x1, 2xN, or 4xN grid depending on how many there are, sized to fit the available
- * constraints while keeping each tile's own cover aspect ratio.
+ * [FolderCoverCard]가 폴더 하나에 표시하는 표지 썸네일 그리드다. 문서 수에 따라 최대 4개를 1x1, 2xN 또는
+ * 4xN 그리드로 배치하며, 각 타일 자체의 표지 종횡비를 유지하면서 가용 제약에 맞는 크기로 만든다.
  *
- * @param previewDocuments the documents to render as tiles, in order.
- * @param remainingDocumentCount how many further documents exist beyond [previewDocuments]; drawn
- *   as a translucent count overlay on the last tile when greater than zero.
- * @param documentCoverImages cover image bytes keyed by document id.
- * @param modifier applied to the outer [BoxWithConstraints].
+ * @param previewDocuments 타일로 표시할 문서. 표시 순서대로 전달한다.
+ * @param remainingDocumentCount [previewDocuments] 외에 더 있는 문서 수. 0보다 크면 마지막 타일 위에 반투명
+ *   개수 overlay로 그린다.
+ * @param documentCoverImages 문서 id를 키로 하는 표지 이미지 바이트.
+ * @param modifier 바깥쪽 [BoxWithConstraints]에 적용할 modifier.
  */
 @Composable
 private fun FolderCoverMosaic(
