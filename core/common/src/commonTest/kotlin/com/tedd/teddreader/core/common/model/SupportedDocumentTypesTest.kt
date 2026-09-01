@@ -6,9 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins that the picker filters and the format list still cover all four kinds of document this reader
- * opens — reflowable text, fixed pages, comics, raster images — so adding a format cannot silently leave
- * the file pickers unable to select it.
+ * 선택기 필터와 형식 목록이 이 리더가 여는 네 종류, 즉 재배치 가능 텍스트, 고정 페이지, 만화, 래스터 이미지를 계속 포함하도록 고정한다. 형식을 추가했을 때 파일 선택기에서 조용히 선택할 수 없게 되는 일을 막는다.
  */
 class SupportedDocumentTypesTest {
     @Test

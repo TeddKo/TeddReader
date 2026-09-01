@@ -4,15 +4,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins the word-counting contract of [String.wordCount]: any run of whitespace characters separates
- * words, leading/trailing whitespace is ignored, and the result is the number of non-blank tokens
- * in the text. These tests cover boundary cases, mixed-whitespace runs, and Unicode whitespace
- * characters so that any implementation change is constrained to preserve observable behaviour.
+ * [String.wordCount]의 단어 수 계약을 고정한다. 모든 연속 공백 문자는 단어를 구분하고, 앞뒤 공백은 무시하며, 결과는 텍스트에서 공백이 아닌 토큰의 수이다. 구현 변경이 관찰 가능한 동작을 유지하도록 경계 사례, 여러 공백이 섞인 구간, Unicode 공백 문자를 다룬다.
  *
- * The original implementation used `trim().split(Regex("\\s+"))` which carried two costs: a full
- * intermediate `String` allocation for the trim, and an `O(n)` list of substrings for the split.
- * The replacement scans characters in a single pass with `O(1)` extra memory — these tests ensure
- * the transition introduces no semantic regression.
+ * 기존 구현은 `trim().split(Regex("\\s+"))`을 사용하여 정리 결과 전체의 중간 `String` 할당과 분할 결과 부분 문자열의 `O(n)` 목록이라는 두 비용이 있었다. 대체 구현은 `O(1)` 추가 메모리로 문자를 한 번 순회한다. 이 테스트는 전환에 의미론적 회귀가 없음을 보장한다.
  */
 class WordCountTest {
 
