@@ -53,14 +53,14 @@ class BookmarksViewModel(
     }
 
     /**
-     * Persists [note] onto the bookmark currently being edited and closes the editor.
+     * 현재 편집 중인 북마크에 [note]를 저장하고 편집기를 닫는다.
      *
-     * The write is guarded because a Room failure here — a full disk, a constraint violation — used to
-     * escape the launched coroutine uncaught and take the process down while the user was only editing
-     * a note. On failure the editor stays open, so the text the user typed is not thrown away along
-     * with the failed save, and the reason is published to [BookmarksUiState.errorMessage].
+     * 디스크 공간 부족이나 제약 조건 위반 같은 Room 쓰기 실패가 실행 중인 코루틴 밖으로 처리되지 않은 채
+     * 빠져나가, 사용자가 메모만 편집하던 중에도 프로세스를 종료하던 문제를 막기 위해 쓰기를 보호한다.
+     * 실패하면 편집기를 열린 상태로 유지하므로 저장 실패와 함께 사용자가 입력한 텍스트가 사라지지 않으며,
+     * 실패 원인은 [BookmarksUiState.errorMessage]로 게시된다.
      *
-     * @param note The note text to store; blank is stored as no note at all rather than an empty string.
+     * @param note 저장할 메모 텍스트이다. 공백뿐인 값은 빈 문자열 대신 메모 없음으로 저장된다.
      */
     fun saveNote(note: String) {
         val bookmark = _uiState.value.editingBookmark ?: return
@@ -78,14 +78,13 @@ class BookmarksViewModel(
     }
 
     /**
-     * Removes [bookmark] from storage.
+     * 저장소에서 [bookmark]를 삭제한다.
      *
-     * Guarded for the same reason as [saveNote]: an unguarded delete let a storage failure crash the
-     * process. The list itself is not touched here — it refreshes from
-     * [BookmarkRepository.observeBookmarks], so a failed delete simply leaves the bookmark visible,
-     * which is the honest outcome.
+     * 보호되지 않은 삭제 작업에서는 저장소 실패로 프로세스가 종료될 수 있으므로 [saveNote]와 같은 이유로
+     * 보호한다. 여기서는 목록 자체를 변경하지 않고 [BookmarkRepository.observeBookmarks]에서 새로 고치므로,
+     * 삭제가 실패하면 실제 결과를 그대로 반영해 북마크가 화면에 남는다.
      *
-     * @param bookmark The bookmark to delete; only its id is used.
+     * @param bookmark 삭제할 북마크이며, id만 사용한다.
      */
     fun deleteBookmark(bookmark: Bookmark) {
         viewModelScope.launch {
