@@ -38,24 +38,24 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Verifies that the legacy embedded-font-href scan in [DocumentRepositoryImpl.getReferencedEmbeddedFontHrefs]
- * correctly reads every section's blocks via [SectionBlocksCache.snapshotAllBlocks] and then trims the
- * published cache back to 24 entries, so pagination's working-set bound is never permanently inflated by
- * a one-time full-document scan.
+ * [DocumentRepositoryImpl.getReferencedEmbeddedFontHrefs]의 레거시 임베드 폰트 href 스캔이
+ * [SectionBlocksCache.snapshotAllBlocks]를 통해 모든 섹션의 블록을 올바르게 읽은 뒤 공개 캐시를 24개
+ * 항목으로 다시 잘라내어, 페이지네이션의 작업 집합 상한이 일회성 전체 문서 스캔으로 인해 영구히
+ * 부풀려지지 않음을 검증한다.
  *
- * The test seeds 30 sections — more than the cache's 24-entry retention limit — with distinct font hrefs
- * distributed across all of them, so full-scan accuracy requires reading every section atomically. After
- * the scan, a subsequent [DocumentRepositoryImpl.warmSectionBlocks] for an early section must fetch from
- * the DAO again (proving the cache trimmed it), while the scan itself must have found every font href
- * (proving the snapshot was complete before trimming).
+ * 이 테스트는 30개 섹션 — 캐시의 24개 항목 유지 한도보다 많다 — 을 서로 다른 폰트 href로 모든 섹션에
+ * 분산시켜 씨딩하므로, 전체 스캔의 정확성은 모든 섹션을 원자적으로 읽어야만 확보된다. 스캔 후, 앞쪽
+ * 섹션에 대한 이후의 [DocumentRepositoryImpl.warmSectionBlocks]는 DAO에서 다시 가져와야 하고(캐시가
+ * 그것을 잘라냈음을 증명), 스캔 자체는 모든 폰트 href를 찾아냈어야 한다(잘라내기 전에 스냅샷이
+ * 완전했음을 증명).
  */
 class SectionBlocksCacheRetentionTest {
 
     /**
-     * A document with 30 sections, each carrying one block whose style references a unique font href.
-     * The legacy path (null `embeddedFontHrefsJson`) must scan all 30, find all 30 font hrefs, backfill
-     * the index, and trim the published cache to 24 — so section 0 through 5 are evicted and a
-     * subsequent warm for section 0 must hit the DAO again.
+     * 30개 섹션을 가진 문서. 각 섹션은 스타일이 고유한 폰트 href를 참조하는 블록 하나를 담고 있다. 레거시
+     * 경로(null `embeddedFontHrefsJson`)는 30개 전부를 스캔해 30개 폰트 href를 모두 찾고, 인덱스를
+     * 백필한 뒤 공개 캐시를 24개로 잘라내야 한다 — 그래서 섹션 0부터 5까지 축출되고, 섹션 0에 대한 이후
+     * warm 호출은 DAO를 다시 쳐야 한다.
      */
     @Test
     fun legacyFontScanReadsAllSectionsThenTrimsPublishedCacheTo24() = runTest {
@@ -134,9 +134,9 @@ class SectionBlocksCacheRetentionTest {
     }
 
     /**
-     * Verifies that span-level font hrefs — not just block-level ones — are captured by the legacy
-     * full-document scan. A span's [ReaderSpanStyle.fontHref] must appear in the returned set even when
-     * the enclosing block's style carries no font href of its own.
+     * 블록 레벨 폰트 href뿐 아니라 스팬 레벨 폰트 href도 레거시 전체 문서 스캔이 포착하는지 검증한다.
+     * 감싸는 블록의 스타일이 자신만의 폰트 href를 갖고 있지 않아도, 스팬의 [ReaderSpanStyle.fontHref]는
+     * 반환된 집합에 나타나야 한다.
      */
     @Test
     fun legacyFontScanCapturesSpanLevelFontHrefs() = runTest {
@@ -218,10 +218,10 @@ class SectionBlocksCacheRetentionTest {
 }
 
 /**
- * Minimal [DocumentDao] for cache-retention tests: stores a single document and tracks
- * [updateEmbeddedFontHrefsJson] writes so a test can verify backfill happened.
+ * 캐시 유지 테스트용 최소한의 [DocumentDao]: 문서 하나를 저장하고 [updateEmbeddedFontHrefsJson] 쓰기를
+ * 추적해, 테스트가 백필이 일어났는지 검증할 수 있게 한다.
  *
- * @property document The single document stored, mutated by update calls.
+ * @property document 저장된 단일 문서. update 호출로 변경된다.
  */
 private class RetentionTestDocumentDao(
     var document: DocumentEntity? = null,
@@ -276,16 +276,16 @@ private class RetentionTestDocumentDao(
 }
 
 /**
- * Minimal [SearchIndexDao] for cache-retention tests: pre-seeded with entries and counts
- * [getSectionBlocksJson] calls so a test can verify eviction and re-fetch behavior.
+ * 캐시 유지 테스트용 최소한의 [SearchIndexDao]: 항목들로 미리 씨딩되어 있고 [getSectionBlocksJson] 호출
+ * 횟수를 세어, 테스트가 축출과 재조회 동작을 검증할 수 있게 한다.
  *
- * @property entries The pre-seeded search index entries.
+ * @property entries 미리 씨딩된 검색 인덱스 항목들.
  */
 private class RetentionTestSearchIndexDao(
     private val entries: List<SearchIndexEntity>,
 ) : SearchIndexDao {
 
-    /** How many times [getSectionBlocksJson] has been called. */
+    /** [getSectionBlocksJson]이 호출된 횟수. */
     var blocksJsonCallCount = 0
 
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) = Unit
@@ -326,7 +326,7 @@ private class RetentionTestSearchIndexDao(
 }
 
 /**
- * No-op [PageLayoutDao] for tests that don't exercise page layout storage.
+ * 페이지 레이아웃 저장소를 검증하지 않는 테스트용 no-op [PageLayoutDao].
  */
 private class RetentionTestPageLayoutDao : PageLayoutDao {
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit

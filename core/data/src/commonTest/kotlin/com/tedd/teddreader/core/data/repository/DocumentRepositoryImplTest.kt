@@ -65,29 +65,29 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Pins [DocumentRepositoryImpl]'s behavior end to end, against fakes standing in for Room
- * ([FakeDocumentDao], [FakeMultiDocumentDao], [FakeDocumentSearchIndexDao], [FakePageLayoutDao]) and for
- * file access ([FakeDocumentFileSource]), so a real database or filesystem is never needed to prove the
- * repository's contract.
+ * [DocumentRepositoryImpl]의 동작을 처음부터 끝까지 고정한다. Room을 대신하는 페이크
+ * ([FakeDocumentDao], [FakeMultiDocumentDao], [FakeDocumentSearchIndexDao], [FakePageLayoutDao])와
+ * 파일 접근을 대신하는 페이크([FakeDocumentFileSource])를 사용하므로, 저장소의 계약을 증명하는 데
+ * 실제 데이터베이스나 파일시스템이 전혀 필요하지 않다.
  *
- * The suite pins, in particular: that importing a format persists it and indexes its sections; that
- * opening a book already on the shelf reuses its stored text and layout instead of re-importing
- * (AGENTS.md's "reading position survives" invariant depends on this); that a stored page layout is
- * restored rather
- * than re-measured when its `characterCount` and viewport/style key still match, and discarded the
- * moment either one doesn't; that `pageIndex.total` only ever grows as more sections are measured or
- * imported, never shrinks and never reads zero once the first section is known (the "`pageIndex.total`
- * never shrinks" invariant); that a page already published keeps its exact text boundaries once later
- * sections are appended or measured; that progressive EPUB import persists only phase 0 at first and
- * catches up the rest through [DocumentRepositoryImpl.importNextSections] without skipping, duplicating,
- * or losing a section, even across a simulated process crash; that concurrent continuation/import passes
- * measure each section exactly once instead of racing each other into duplicate work; and that a cover
- * once cached is never re-extracted from the whole file.
+ * 이 스위트가 특히 고정하는 것들: 어떤 포맷을 임포트하면 그것이 저장되고 섹션이 색인된다는 것;
+ * 이미 서재에 있는 책을 열면 재임포트 대신 저장된 텍스트와 레이아웃을 재사용한다는 것
+ * (AGENTS.md의 "읽던 위치가 유지된다" 불변식이 여기에 의존한다); 저장된 페이지 레이아웃은
+ * `characterCount`와 뷰포트/스타일 키가 여전히 일치할 때는 재측정 대신 복원되며, 둘 중 하나라도
+ * 일치하지 않는 순간 폐기된다는 것; `pageIndex.total`은 더 많은 섹션이 측정되거나 임포트될수록
+ * 커지기만 할 뿐 절대 줄어들지 않고, 첫 섹션이 알려진 이후로는 절대 0을 읽지 않는다는 것
+ * ("`pageIndex.total`은 절대 줄어들지 않는다" 불변식); 이미 발행된 페이지는 이후 섹션이
+ * 추가되거나 측정되더라도 정확한 텍스트 경계를 그대로 유지한다는 것; 점진적 EPUB 임포트는 처음에는
+ * 0단계만 저장하고 나머지는 [DocumentRepositoryImpl.importNextSections]를 통해 건너뛰거나
+ * 중복하거나 잃어버리는 일 없이 따라잡는다는 것(시뮬레이션된 프로세스 크래시를 겪더라도); 동시에
+ * 진행되는 이어하기/임포트 패스는 서로 경합해 중복 작업을 만드는 대신 각 섹션을 정확히 한 번씩만
+ * 측정한다는 것; 그리고 한 번 캐시된 표지는 전체 파일에서 다시 추출되지 않는다는 것.
  *
- * Many of these tests exist because a specific bug shipped — each such test's own KDoc says which.
+ * 이 테스트들 중 다수는 실제로 발생했던 특정 버그 때문에 존재한다 — 각 테스트 자신의 KDoc에 어떤
+ * 버그인지 적혀 있다.
  */
 class DocumentRepositoryImplTest {
-    /** A single-visual-page import (an image) must be recognised and paginated as exactly one page. */
+    /** 단일 시각 페이지 임포트(이미지)는 정확히 한 페이지로 인식되고 페이지가 나뉘어야 한다. */
     @Test
     fun importsImageAsSingleVisualPage() = runTest {
         val location = DocumentLocation(
@@ -118,8 +118,8 @@ class DocumentRepositoryImplTest {
         assertEquals(1, document.pageCount)
     }
 
-    /** A TXT document has no cover concept, so [DocumentRepositoryImpl.getDocumentCover] must answer
-     * null. */
+    /** TXT 문서에는 표지 개념이 없으므로 [DocumentRepositoryImpl.getDocumentCover]는 null을
+     * 반환해야 한다. */
     @Test
     fun getDocumentCoverReturnsNullForTxtDocuments() = runTest {
         val repository = DocumentRepositoryImpl(
@@ -150,7 +150,7 @@ class DocumentRepositoryImplTest {
         assertEquals(null, repository.getDocumentCover(DocumentId("file:///book.txt")))
     }
 
-    /** Importing a TXT document must save its shelf entry and index its (single) section. */
+    /** TXT 문서를 임포트하면 서재 항목을 저장하고 그 (단일) 섹션을 색인해야 한다. */
     @Test
     fun importsTxtDocumentAndIndexesSections() = runTest {
         val documentDao = FakeDocumentDao()
@@ -186,9 +186,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Re-importing a book already fully on the shelf (the "open with"/share path landing on
-     * [DocumentRepositoryImpl.importDocument] again) must not clobber an [DocumentMetadata]-level edit
-     * made in between — here, a favourite toggle survives the second import.
+     * 이미 서재에 완전히 올라와 있는 책을 재임포트하는 경우("다른 앱으로 열기"/공유 경로가 다시
+     * [DocumentRepositoryImpl.importDocument]에 도달하는 상황) 그 사이에 이뤄진
+     * [DocumentMetadata] 수준의 편집을 덮어써서는 안 된다 — 여기서는 즐겨찾기 토글이 두 번째
+     * 임포트 이후에도 살아남는지 확인한다.
      */
     @Test
     fun reimportPreservesDocumentBookmark() = runTest {
@@ -224,12 +225,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.upsertDocument] (an ordinary metadata edit, like toggling a favourite)
-     * must not carry the domain model's missing `importCompletedAtEpochMillis` field back into the
-     * database as null and erase the timestamp a later progressive-import step needs to trust. The
-     * `DocumentEntity` upserted directly below stands in for a row already backfilled by
-     * `TeddReaderMigration7To8` (or completed by a later progressive import): imported completely, well
-     * before this ordinary metadata edit.
+     * [DocumentRepositoryImpl.upsertDocument](즐겨찾기 토글 같은 평범한 메타데이터 편집)는 도메인
+     * 모델에 없는 `importCompletedAtEpochMillis` 필드를 데이터베이스에 null로 되돌려 써서, 나중의
+     * 점진적 임포트 단계가 믿어야 할 타임스탬프를 지워버려서는 안 된다. 바로 아래에서 upsert하는
+     * `DocumentEntity`는 `TeddReaderMigration7To8`이 이미 채워 넣은(또는 이후 점진적 임포트로
+     * 완료된) 행을 대신한다: 이 평범한 메타데이터 편집이 있기 훨씬 전에 완전히 임포트된 상태다.
      */
     @Test
     fun metadataUpsertPreservesImportCompletedTimestamp() = runTest {
@@ -270,8 +270,8 @@ class DocumentRepositoryImplTest {
         assertEquals(1_000L, documentDao.saved?.importCompletedAtEpochMillis)
     }
 
-    /** A CP949-encoded Korean TXT file must decode to real Korean text, both in the parsed document and
-     * in what gets indexed — not replacement characters or mojibake. */
+    /** CP949로 인코딩된 한국어 TXT 파일은, 파싱된 문서에서든 색인되는 내용에서든, 대체 문자나
+     * 깨진 문자가 아니라 실제 한국어 텍스트로 디코딩되어야 한다. */
     @Test
     fun importsCp949TxtDocumentWithoutBreakingKorean() = runTest {
         val documentDao = FakeDocumentDao()
@@ -311,8 +311,8 @@ class DocumentRepositoryImplTest {
         assertEquals("안녕하세요", searchIndexDao.entries.single().text)
     }
 
-    /** An unrecognised format must throw before anything is persisted — no shelf row, no search index
-     * entry left behind for a document that was never actually imported. */
+    /** 인식되지 않는 포맷은 무언가 저장되기 전에 예외를 던져야 한다 — 실제로는 임포트되지 않은
+     * 문서에 대해 서재 행도, 검색 색인 항목도 남아 있어서는 안 된다. */
     @Test
     fun importDocumentRejectsUnknownFormatBeforePersistence() = runTest {
         val documentDao = FakeDocumentDao()
@@ -351,10 +351,9 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.loadReaderDocument]'s TXT repair path: stored text containing replacement
-     * characters (see [hasBrokenText]) must trigger a re-read of the original bytes via
-     * [DocumentFileSource], and the repaired text must also be re-written to the search index rather
-     * than only handed back in memory.
+     * [DocumentRepositoryImpl.loadReaderDocument]의 TXT 복구 경로: 대체 문자가 포함된 저장된
+     * 텍스트(참고: [hasBrokenText])는 [DocumentFileSource]를 통한 원본 바이트 재읽기를 촉발해야
+     * 하고, 복구된 텍스트는 메모리상으로만 반환되는 게 아니라 검색 색인에도 다시 기록되어야 한다.
      */
     @Test
     fun getReaderDocumentRepairsBrokenStoredTxtFromSourceBytes() = runTest {
@@ -415,8 +414,8 @@ class DocumentRepositoryImplTest {
         assertEquals("안녕하세요", searchIndexDao.entries.single().text)
     }
 
-    /** [DocumentRepositoryImpl.getReaderDocument] must rebuild a document's title, format, and section
-     * text/range faithfully from the search index, matching what was actually imported. */
+    /** [DocumentRepositoryImpl.getReaderDocument]는 검색 색인으로부터 문서의 제목, 포맷, 섹션
+     * 텍스트/범위를 실제로 임포트된 내용과 일치하게 충실히 재구성해야 한다. */
     @Test
     fun getReaderDocumentRebuildsStoredSectionsFromSearchIndex() = runTest {
         val documentDao = FakeDocumentDao()
@@ -454,8 +453,9 @@ class DocumentRepositoryImplTest {
         assertEquals(TextRange(0, 20), document?.sections?.single()?.range)
     }
 
-    /** Importing a CBZ with no bytes in hand must stream it via [DocumentFileSource.copyTo] rather than
-     * [DocumentFileSource.readBytes] — a whole-file read into memory is exactly what this path avoids. */
+    /** 손에 바이트가 없는 상태로 CBZ를 임포트할 때는 [DocumentFileSource.readBytes]가 아니라
+     * [DocumentFileSource.copyTo]로 스트리밍해야 한다 — 이 경로가 정확히 피하려는 것이 전체 파일을
+     * 메모리로 읽어들이는 일이다. */
     @Test
     fun importsCbzFromLocationOnlyUsingCopyTo() = runTest {
         val location = DocumentLocation(
@@ -490,11 +490,12 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Requesting several page windows of the same CBZ must stream the archive to a scratch copy exactly
-     * once and open exactly one [ComicArchive] over it — the whole point of the scratch/open-archive
-     * cache — while every page window still decodes the correct bytes. `copyCount == 1` proves the
-     * whole-file copy is paid once, `openArchiveCount == 1` proves the ZIP index (list + natural sort)
-     * is built once, and the per-page assertions prove the reuse did not corrupt the answers.
+     * 같은 CBZ의 여러 페이지 윈도우를 요청해도 아카이브를 스크래치 사본으로 정확히 한 번만
+     * 스트리밍하고 그 위에서 [ComicArchive]를 정확히 한 번만 열어야 한다 — 이것이 바로
+     * 스크래치/열린 아카이브 캐시가 존재하는 이유다 — 그러면서도 모든 페이지 윈도우가 여전히
+     * 올바른 바이트를 디코딩해야 한다. `copyCount == 1`은 전체 파일 복사 비용이 한 번만 지불됨을,
+     * `openArchiveCount == 1`은 ZIP 인덱스(목록 + 자연 정렬)가 한 번만 구축됨을 증명하며,
+     * 페이지별 단언들은 이 재사용이 결과를 손상시키지 않았음을 증명한다.
      */
     @Test
     fun cbzPageWindowsReuseOneScratchCopyAndOneArchiveIndexAcrossManyRequests() = runTest {
@@ -553,9 +554,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Switching to a different CBZ must replace the previously-held scratch copy and its open archive:
-     * the second document is copied on its first request (`copyCount == 2` total) and re-opened
-     * (`openArchiveCount == 2` total), and its pages decode from its own bytes, not the first document's.
+     * 다른 CBZ로 전환하면 이전에 보관하던 스크래치 사본과 그 열린 아카이브를 교체해야 한다:
+     * 두 번째 문서는 첫 요청 시점에 복사되고(총 `copyCount == 2`) 다시 열리며(총
+     * `openArchiveCount == 2`), 그 페이지들은 첫 번째 문서가 아니라 자신의 바이트에서
+     * 디코딩된다.
      */
     @Test
     fun switchingToADifferentCbzReplacesThePreviousScratchAndArchive() = runTest {
@@ -617,9 +619,9 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * After [DocumentRepositoryImpl.deleteDocument] tears the CBZ cache down, a later request for the
-     * same id (re-added to the shelf) must rebuild the scratch copy and re-open the archive rather than
-     * serve a stale, already-deleted one.
+     * [DocumentRepositoryImpl.deleteDocument]가 CBZ 캐시를 허문 뒤, 같은 id에 대한 나중 요청은
+     * (서재에 다시 추가되었더라도) 이미 삭제된 낡은 것을 그대로 내어주는 대신 스크래치 사본을
+     * 다시 구축하고 아카이브를 다시 열어야 한다.
      */
     @Test
     fun cbzArchiveIsRebuiltAfterDeleteInvalidatesTheCache() = runTest {
@@ -670,9 +672,9 @@ class DocumentRepositoryImplTest {
         assertEquals(2, parser.openArchiveCount, "a delete/invalidate must force the next request to re-open the archive")
     }
 
-    /** [DocumentRepositoryImpl.getPageWindows] must lay out pages from the document actually stored for
-     * this id, not some other or default document — the first page's location and index must anchor at
-     * the book's real start. */
+    /** [DocumentRepositoryImpl.getPageWindows]는 다른 문서나 기본 문서가 아니라 이 id에 실제로
+     * 저장된 문서로부터 페이지를 배치해야 한다 — 첫 페이지의 위치와 인덱스는 책의 실제 시작
+     * 지점에 고정되어야 한다. */
     @Test
     fun getPageWindowsUsesStoredReaderDocument() = runTest {
         val documentDao = FakeDocumentDao()
@@ -712,8 +714,8 @@ class DocumentRepositoryImplTest {
         assertEquals(pages.size, pages.first().pageIndex.total)
     }
 
-    /** The same re-import guarantee as [reimportPreservesDocumentBookmark], for folder membership
-     * (`folderId`/`folderName`) instead of the favourite flag. */
+    /** [reimportPreservesDocumentBookmark]와 동일한 재임포트 보장을, 즐겨찾기 플래그 대신 폴더
+     * 소속(`folderId`/`folderName`)에 대해 검증한다. */
     @Test
     fun reimportPreservesDocumentFolderMembership() = runTest {
         val documentDao = FakeDocumentDao()
@@ -752,10 +754,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A fresh [DocumentRepositoryImpl] instance has no in-memory cache at all, only the persisted
-     * layout — so its second [DocumentRepositoryImpl.getPageWindows] call can only succeed without
-     * measuring (the `poisonBreaker` below fails the test if it is ever invoked) if it actually restores
-     * the layout the first instance measured and stored.
+     * 새로 만든 [DocumentRepositoryImpl] 인스턴스는 메모리 캐시가 전혀 없고 저장된 레이아웃만
+     * 있다 — 그러므로 이 인스턴스의 두 번째 [DocumentRepositoryImpl.getPageWindows] 호출이 측정
+     * 없이 성공하려면(아래 `poisonBreaker`는 호출되기만 하면 테스트를 실패시킨다) 첫 번째
+     * 인스턴스가 측정해 저장한 레이아웃을 실제로 복원해야만 한다.
      */
     @Test
     fun getPageWindowsRestoresFromStorageWithoutMeasuringOnColdCache() = runTest {
@@ -807,9 +809,10 @@ class DocumentRepositoryImplTest {
         assertEquals(firstPages, secondPages)
     }
 
-    /** A stored layout must never be handed to a caller asking at a different font size or a different
-     * viewport — [DocumentRepositoryImpl.restorePageWindows] keying on the exact style/viewport is what
-     * this guards; either kind of mismatch must fall through to a fresh measurement instead. */
+    /** 저장된 레이아웃은 다른 글꼴 크기나 다른 뷰포트로 요청하는 호출자에게 절대 넘겨져서는 안
+     * 된다 — [DocumentRepositoryImpl.restorePageWindows]가 정확한 스타일/뷰포트를 키로 사용하는
+     * 이유가 바로 이것이며, 이 검증은 그 점을 지킨다; 둘 중 어느 쪽이 어긋나든 대신 새로운
+     * 측정으로 넘어가야 한다. */
     @Test
     fun getPageWindowsDoesNotRestoreWhenLayoutKeyOrViewportChanges() = runTest {
         val documentDao = FakeDocumentDao()
@@ -874,15 +877,14 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Step 6 regression guard: `openDocument` used to seed [DocumentRepositoryImpl.getPageWindows] with
-     * a hardcoded guessed viewport that almost never matched a stored row, so this is the failing case
-     * the fix targets — given a layout stored at a viewport `V1` and no page breaker, a null
-     * `viewportSize` must resolve exactly that row, not fall through to a fresh estimate pass. The first
-     * call below measures and stores that `V1` layout with a fresh instance, exactly like an earlier
-     * open of this book on this device; the `expected`/`actual` calls that follow both use fresh
-     * instances again, with no in-memory cache, so nothing but the stored row itself can answer either
-     * one — the `actual` call's null `viewportSize` has to resolve `V1` on its own rather than measuring
-     * against some other guess.
+     * 6단계 회귀 방지: 예전 `openDocument`는 [DocumentRepositoryImpl.getPageWindows]에 하드코딩된
+     * 추측 뷰포트를 심어 넣었는데, 이는 저장된 행과 거의 절대 일치하지 않았다 — 그래서 이것이
+     * 이번 수정이 겨냥하는 실패 케이스다. 뷰포트 `V1`으로 저장된 레이아웃이 있고 페이지
+     * 브레이커가 없을 때, null `viewportSize`는 새 추정 패스로 넘어가는 게 아니라 정확히 그 행을
+     * 해결해내야 한다. 아래 첫 호출은 이 기기에서 이 책을 예전에 열었을 때와 똑같이 새 인스턴스로
+     * 그 `V1` 레이아웃을 측정해 저장한다; 뒤이은 `expected`/`actual` 호출도 둘 다 메모리 캐시가
+     * 없는 새 인스턴스를 사용하므로, 저장된 행 자체 말고는 어느 쪽도 답을 낼 수 없다 — `actual`
+     * 호출의 null `viewportSize`는 다른 추측으로 측정하는 대신 스스로 `V1`을 해결해내야 한다.
      */
     @Test
     fun getPageWindowsWithNullViewportRestoresTheNewestStoredLayoutForTheStyle() = runTest {
@@ -937,12 +939,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * The null-`viewportSize` resolution
-     * [getPageWindowsWithNullViewportRestoresTheNewestStoredLayoutForTheStyle] proves works must still
-     * refuse a mismatch on either axis: a stored row measured at `fontSizeSp =
-     * 20` must not be picked up for a `null`-viewport query at `fontSizeSp = 24` (a different layout
-     * key), and a row stored at one viewport (`V1`) must not be picked up for a different, explicit
-     * viewport either — both must fall through to a fresh measurement instead.
+     * [getPageWindowsWithNullViewportRestoresTheNewestStoredLayoutForTheStyle]가 증명하는
+     * null-`viewportSize` 해결 로직도 두 축 중 어느 쪽이 어긋나든 여전히 거부해야 한다: `fontSizeSp =
+     * 20`으로 측정되어 저장된 행은 `fontSizeSp = 24`(다른 레이아웃 키)의 `null` 뷰포트 질의에는
+     * 채택되어서는 안 되고, 어떤 뷰포트(`V1`)에 저장된 행 역시 다른 명시적 뷰포트에는 채택되어서는
+     * 안 된다 — 둘 다 대신 새로운 측정으로 넘어가야 한다.
      */
     @Test
     fun getPageWindowsWithNullViewportDoesNotRestoreALayoutStoredForADifferentStyleOrViewport() = runTest {
@@ -1007,11 +1008,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Regression guard for commit f33313b at the repository layer: a freshly imported book has no
-     * stored layout and no breaker yet, so a null `viewportSize` must still fall back to the same
-     * default guess a concrete caller used to pass (see [DefaultViewportSize]), not an empty list —
-     * otherwise nothing would ever measure the pane that is the only way pagination could improve on
-     * this guess.
+     * 저장소 계층에서의 회귀 방지: 갓 임포트된 책은 저장된 레이아웃도 브레이커도
+     * 아직 없으므로, null `viewportSize`는 빈 목록이 아니라 실제 호출자가 예전에 넘기던 것과 같은
+     * 기본 추측값으로 폴백해야 한다(참고: [DefaultViewportSize]) — 그러지 않으면 이 추측을
+     * 개선할 유일한 방법인 페이지 측정 자체가 결코 일어나지 않을 것이다.
      */
     @Test
     fun getPageWindowsWithNullViewportAndNoStoredLayoutStillReturnsAnEstimatedPagination() = runTest {
@@ -1049,11 +1049,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Another app handing over a book that is already here — "open with", a share — lands on
-     * [DocumentRepositoryImpl.importDocument] every time. Re-importing used to throw away the text and
-     * the measured layout of a book the reader was in the middle of, so a second import of a
-     * fully-imported document must be an open, not a re-import: neither the stored page layout nor the
-     * stored sections may change.
+     * 다른 앱이 이미 여기 있는 책을 넘겨주는 경우 — "다른 앱으로 열기", 공유 — 는 매번
+     * [DocumentRepositoryImpl.importDocument]에 도달한다. 재임포트는 예전에는 독자가 읽던 중이던
+     * 책의 텍스트와 측정된 레이아웃을 버려버렸으므로, 완전히 임포트된 문서의 두 번째 임포트는
+     * 재임포트가 아니라 열기여야 한다: 저장된 페이지 레이아웃도 저장된 섹션도 바뀌어서는 안 된다.
      */
     @Test
     fun openingADocumentAlreadyOnTheShelfKeepsItsStoredTextAndLayout() = runTest {
@@ -1109,11 +1108,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A re-parse — the one a parser-version bump sends every older book through — can move every
-     * character offset in the book, and a layout written before it now describes pages that are not
-     * there. [DocumentRepositoryImpl.restorePageWindows]' `characterCount` check is what keeps such a
-     * row (the one upserted directly below, with a `characterCount` far from the real document's) from
-     * being handed to the reader as if it still fit.
+     * 재파싱 — 파서 버전이 올라갈 때 모든 예전 책이 거치게 되는 그 과정 — 은 책 안의 모든 문자
+     * 오프셋을 옮겨버릴 수 있어서, 그 이전에 기록된 레이아웃은 이제 존재하지 않는 페이지들을
+     * 가리키게 된다. [DocumentRepositoryImpl.restorePageWindows]의 `characterCount` 검사는
+     * 바로 그런 행(아래에서 실제 문서와 동떨어진 `characterCount`로 직접 upsert하는 행)이 마치
+     * 여전히 맞는 것처럼 독자에게 넘겨지는 것을 막아준다.
      */
     @Test
     fun storedLayoutWrittenForADifferentCharacterCountIsDiscardedAndMeasuredAgain() = runTest {
@@ -1171,10 +1170,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A section above the engine's bounded measurement limit yields usable estimated pages for the
-     * current open, but those starts must never survive as a final measured row. The pre-seeded row
-     * models a layout written by an older build that could not distinguish this estimate from a real
-     * breaker result; opening must delete it, and the replacement estimate must remain memory-only.
+     * 엔진의 측정 한도를 넘는 섹션은 현재 열기에서 쓸 만한 추정 페이지들을 내놓지만, 그 시작
+     * 지점들이 최종 측정 행으로 살아남아서는 절대 안 된다. 미리 심어둔 행은 이 추정치를 실제
+     * 브레이커 결과와 구분하지 못했던 예전 빌드가 기록한 레이아웃을 모사한다; 열기는 그 행을
+     * 삭제해야 하고, 대체 추정치는 메모리에만 남아 있어야 한다.
      */
     @Test
     fun oversizedTxtEstimateIsNeitherRestoredNorStoredAsMeasuredLayout() = runTest {
@@ -1237,21 +1236,20 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * The same restore guarantee as [getPageWindowsRestoresFromStorageWithoutMeasuringOnColdCache], but
-     * across five sections (written straight into the search index below, the way a real book's
-     * chapters are stored) instead of one — enough that an on-demand restore only building the pages it
-     * is asked for is the interesting case, not an accident of there being just one section to begin
-     * with. `finishPagination` drives a full measurement to completion the same way a background
-     * continuation loop would; a fresh instance's restore must reproduce every one of those pages
-     * byte-for-byte.
+     * [getPageWindowsRestoresFromStorageWithoutMeasuringOnColdCache]와 동일한 복원 보장을,
+     * 하나가 아니라 다섯 섹션(아래에서 실제 책의 챕터가 저장되는 방식대로 검색 색인에 직접
+     * 기록됨)에 걸쳐 검증한다 — 그래야 요청받은 페이지만 만드는 온디맨드 복원이 진짜 흥미로운
+     * 케이스가 되며, 섹션이 하나뿐인 우연한 상황이 아니게 된다. `finishPagination`은 백그라운드
+     * 이어하기 루프와 똑같은 방식으로 전체 측정을 완료까지 밀어붙인다; 새 인스턴스의 복원은 그
+     * 페이지들 하나하나를 바이트 단위로 그대로 재현해야 한다.
      *
-     * The `DocumentEntity` upserted below is written directly, bypassing `importDocument`/
-     * `persistParsedDocument`, to stand in for a plain TXT document already fully on the shelf — not one
-     * progressively importing. Its `importCompletedAtEpochMillis` is deliberately non-null: leaving it
-     * null would say the opposite, and [DocumentRepositoryImpl.getPageWindows] refuses to persist a
-     * layout for a document [DocumentRepositoryImpl.isImportComplete] reports as still incomplete (see
-     * `DocumentEntity`'s own doc on that column). Several later tests in this suite build the same
-     * stand-in for the same reason.
+     * 아래에서 upsert하는 `DocumentEntity`는 `importDocument`/`persistParsedDocument`를 우회해
+     * 직접 기록되며, 점진적으로 임포트되는 중이 아니라 이미 서재에 완전히 올라와 있는 평범한 TXT
+     * 문서를 대신한다. `importCompletedAtEpochMillis`는 의도적으로 null이 아니다: null로 두면
+     * 정반대를 의미하게 되고, [DocumentRepositoryImpl.getPageWindows]는
+     * [DocumentRepositoryImpl.isImportComplete]가 아직 미완료라고 보고하는 문서에 대해서는
+     * 레이아웃 저장을 거부한다(그 컬럼에 관한 `DocumentEntity` 자신의 문서 참고). 이 스위트의
+     * 뒤이은 여러 테스트도 같은 이유로 동일한 대역을 만든다.
      */
     @Test
     fun getPageWindowsOnDemandRestoreMatchesEagerMeasurementAcrossManySections() = runTest {
@@ -1324,11 +1322,12 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [encodePageStartsBlob]/[decodePageStartsBlob]'s little-endian `Int32`-per-offset round trip must
-     * hold at large offsets, not just the small ones other tests here use — the 200,000-character `text`
-     * below pushes page starts well past the small numbers other tests use, the same territory a real
-     * multi-hundred-thousand-character book measures into, including offset 0 for the first page. Only
-     * the blob [DocumentRepositoryImpl.storePageWindows] writes can answer a fresh instance's restore.
+     * [encodePageStartsBlob]/[decodePageStartsBlob]의 오프셋당 리틀엔디언 `Int32` 왕복 변환은,
+     * 이 파일의 다른 테스트들이 쓰는 작은 값뿐 아니라 큰 오프셋에서도 성립해야 한다 — 아래의
+     * 200,000자짜리 `text`는 페이지 시작 지점을 다른 테스트들이 쓰는 작은 숫자를 훌쩍 넘는
+     * 영역으로 밀어 넣는데, 이는 실제 수십만 자짜리 책이 측정되는 영역과 같으며, 첫 페이지의
+     * 오프셋 0도 포함한다. [DocumentRepositoryImpl.storePageWindows]가 기록하는 블롭만이 새
+     * 인스턴스의 복원 질의에 답할 수 있다.
      */
     @Test
     fun storeThenRestorePreservesPageWindowTextRangesAtLargeOffsets() = runTest {
@@ -1384,11 +1383,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.importDocument] must write the cover file for an EPUB that has one, and
-     * [DocumentRepositoryImpl.getDocumentCover] must then serve that cached file instead of re-reading
-     * the whole document. Import reads bytes straight from `DocumentImportSource`, not from the file
-     * source, so the cover file has to exist before `getDocumentCover` is ever called for this to be a
-     * real test of the cache rather than of the fallback path.
+     * [DocumentRepositoryImpl.importDocument]는 표지가 있는 EPUB이라면 표지 파일을 기록해야
+     * 하고, 그러면 [DocumentRepositoryImpl.getDocumentCover]는 전체 문서를 다시 읽는 대신 그
+     * 캐시된 파일을 내어줘야 한다. 임포트는 파일 소스가 아니라 `DocumentImportSource`에서 곧바로
+     * 바이트를 읽으므로, 이것이 폴백 경로가 아니라 캐시에 대한 진짜 테스트가 되려면
+     * `getDocumentCover`가 호출되기 전에 표지 파일이 이미 존재해야 한다.
      */
     @Test
     fun importingAnEpubWithACoverCachesItSoGetDocumentCoverNeverRereadsTheWholeFile() = runTest {
@@ -1435,16 +1434,16 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A book with no cached cover file — `documentDao` below stands in for a book imported before cover
-     * caching existed: a document row and search index exist, but nothing ever wrote a cover file for
-     * it, the only way that happens today — must fall back to extracting the cover on the first
-     * [DocumentRepositoryImpl.getDocumentCover] call, and must cache the result on the way out so a
-     * second call does not touch the source file again.
+     * 캐시된 표지 파일이 없는 책 — 아래 `documentDao`는 표지 캐싱이 생기기 전에 임포트된 책을
+     * 대신한다: 문서 행과 검색 색인은 존재하지만 표지 파일은 한 번도 기록된 적이 없다, 오늘날
+     * 이런 일이 발생하는 유일한 경로다 — 은 첫 [DocumentRepositoryImpl.getDocumentCover] 호출에서
+     * 표지 추출로 폴백해야 하고, 두 번째 호출이 원본 파일을 다시 건드리지 않도록 결과를 캐시해야
+     * 한다.
      *
-     * The fallback streams the book to a temporary file instead of reading it into a [ByteArray], so
-     * this also asserts `readCount` stays at zero: buffering the whole book charged its full size to the
-     * heap to reach a single image, which is what could exhaust a low-memory device on an illustrated
-     * book of a few hundred megabytes.
+     * 이 폴백은 책을 [ByteArray]로 읽어들이는 대신 임시 파일로 스트리밍하므로, 이 테스트는
+     * `readCount`가 0으로 유지되는지도 함께 단언한다: 책 전체를 버퍼링하면 이미지 하나를 얻기
+     * 위해 그 전체 크기만큼 힙에 부담을 지우게 되는데, 이는 수백 메가바이트짜리 삽화가 많은 책에서
+     * 저사양 메모리 기기를 고갈시킬 수 있는 일이다.
      */
     @Test
     fun getDocumentCoverFallsBackForABookImportedBeforeCoverCachingThenCachesItForNextTime() = runTest {
@@ -1501,8 +1500,9 @@ class DocumentRepositoryImplTest {
         )
     }
 
-    /** [DocumentRepositoryImpl.deleteDocument] must also remove the cached cover file — see
-     * `invalidateCaches`/`coverFilePath`'s own doc for why deleting the shelf row alone is not enough. */
+    /** [DocumentRepositoryImpl.deleteDocument]는 캐시된 표지 파일도 함께 제거해야 한다 — 서재
+     * 행만 지우는 것으로는 왜 충분하지 않은지는 `invalidateCaches`/`coverFilePath` 자신의 문서를
+     * 참고. */
     @Test
     fun deleteDocumentRemovesTheCachedCoverFile() = runTest {
         val location = DocumentLocation(
@@ -1538,7 +1538,8 @@ class DocumentRepositoryImplTest {
         assertFalse(systemFileSystem().exists(coverPath), "deleteDocument must remove the cached cover file.")
     }
 
-    /** Deletion must snapshot the stored location before removing the only row that can identify its app-owned file. */
+    /** 삭제는 앱 소유 파일을 식별할 수 있는 유일한 행을 지우기 전에 저장된 위치를 스냅샷으로
+     * 남겨둬야 한다. */
     @Test
     fun deleteDocumentRemovesItsMaterializedSource() = runTest {
         val location = DocumentLocation(
@@ -1569,7 +1570,7 @@ class DocumentRepositoryImplTest {
         assertEquals(listOf(location), fileSource.deletedMaterializedLocations)
     }
 
-    /** Batch deletion must retain every location before Room removes all selected rows together. */
+    /** 일괄 삭제는 Room이 선택된 모든 행을 한꺼번에 제거하기 전에 모든 위치를 남겨둬야 한다. */
     @Test
     fun deleteDocumentsRemovesEveryMaterializedSource() = runTest {
         val first = DocumentLocation(
@@ -1609,11 +1610,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [coverFilePath]'s hash of the document id must give two different books two different cover
-     * paths, so importing both and reading each cover back must not cross-contaminate. Neither the
-     * import path nor a cache hit ever calls `readBytes`/`copyTo` here (the cover comes from the bytes
-     * passed to `importDocument` directly), so one fake standing in for "the file source" is enough —
-     * only its shared `appPrivateDirectory()` matters for this test.
+     * [coverFilePath]가 문서 id를 해시한 값은 서로 다른 두 책에 서로 다른 표지 경로를 줘야
+     * 하므로, 둘 다 임포트하고 각 표지를 다시 읽었을 때 서로 뒤섞여서는 안 된다. 임포트 경로도
+     * 캐시 적중도 여기서는 `readBytes`/`copyTo`를 전혀 호출하지 않으므로(표지는 `importDocument`에
+     * 직접 넘긴 바이트에서 나온다), "파일 소스" 하나를 대신하는 페이크 하나로 충분하다 — 이
+     * 테스트에서 중요한 건 오직 공유되는 `appPrivateDirectory()`뿐이다.
      */
     @Test
     fun twoDocumentsWithDifferentIdsDoNotCollideOnTheSameCoverFile() = runTest {
@@ -1659,15 +1660,17 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Step 8 regression guard: opening used to `SELECT *` every section's blocksJson before a single
-     * page was built. A restore must now only ever fetch section 0's — cover detection needs it eagerly
-     * (see `TextPageLayoutEngine.findCoverSection`) — not the other four sections' blocks. This is the
-     * fact [SectionBlocksCache]'s own doc calls out as what makes a lazy restore cheap.
+     * 8단계 회귀 방지: 예전에는 열기가 페이지 하나 만들기도 전에 모든 섹션의 blocksJson을
+     * `SELECT *`로 가져왔다. 이제 복원은 오직 섹션 0의 것만 가져와야 한다 — 표지 감지가 이를
+     * 즉시(eagerly) 필요로 하기 때문이다(참고: `TextPageLayoutEngine.findCoverSection`) — 나머지
+     * 네 섹션의 블록은 가져오지 않는다. 이것이 바로 [SectionBlocksCache] 자신의 문서가 지연 복원을
+     * 저렴하게 만드는 요인으로 지목하는 사실이다.
      *
-     * The `DocumentEntity` upserted below is written directly, bypassing `importDocument`/
-     * `persistParsedDocument`, to stand in for a plain TXT document already fully on the shelf, with
-     * `importCompletedAtEpochMillis` set for the same reason given in
-     * [getPageWindowsOnDemandRestoreMatchesEagerMeasurementAcrossManySections]'s own doc.
+     * 아래에서 upsert하는 `DocumentEntity`는 `importDocument`/`persistParsedDocument`를 우회해
+     * 직접 기록되며, 이미 서재에 완전히 올라와 있는 평범한 TXT 문서를 대신한다.
+     * `importCompletedAtEpochMillis`가 설정된 이유는
+     * [getPageWindowsOnDemandRestoreMatchesEagerMeasurementAcrossManySections] 자신의 문서에
+     * 나온 것과 같다.
      */
     @Test
     fun getPageWindowsRestoringFromStorageOnlyFetchesBlocksJsonForSectionZero() = runTest {
@@ -1727,11 +1730,12 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.warmSectionBlocks] on a genuine miss (section 2, after a restore that
-     * only auto-prewarms section 0) must decode and report exactly the missed section, not the rest of
-     * the book, and must not re-fetch a section already decoded on a second call — reporting 0 newly
-     * decoded that time, the return value `ReaderViewModel.continueBlockWarmIfIncomplete` relies on to
-     * skip re-publishing when a warm changed nothing.
+     * 진짜 미스(섹션 0만 자동으로 미리 준비하는 복원 이후의 섹션 2)에 대한
+     * [DocumentRepositoryImpl.warmSectionBlocks]는 책의 나머지가 아니라 정확히 그 놓친 섹션만
+     * 디코딩하고 보고해야 하며, 두 번째 호출에서는 이미 디코딩된 섹션을 다시 가져오지 않아야
+     * 한다 — 그때는 새로 디코딩한 것이 0개라고 보고해야 하고, 이 반환값은 워밍이 아무것도 바꾸지
+     * 않았을 때 재발행을 건너뛰기 위해 `ReaderViewModel.continueBlockWarmIfIncomplete`가 의존하는
+     * 값이다.
      */
     @Test
     fun warmSectionBlocksOnAMissFetchesExactlyThatSectionAndNoOthers() = runTest {
@@ -1795,11 +1799,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Warming 25 sections in bounded batches of 5 — the shape that replaces warming every section in a
-     * single call, which risked the flagged SQLite variable-limit in
-     * `ReaderViewModel.continueBlockWarmIfIncomplete`'s own doc — must query no more sections than each
-     * batch itself asked for, one query per batch rather than one for the whole book, and must decode
-     * exactly what a single whole-book warm (`allAtOnce` below, standing in for the old call) would.
+     * 25개 섹션을 5개씩 제한된 배치로 워밍하는 것 — 이는 모든 섹션을 한 번의 호출로 워밍하던 방식을
+     * 대체하는 형태다, 그 방식은 `ReaderViewModel.continueBlockWarmIfIncomplete` 자신의 문서에
+     * 언급된 SQLite 변수 개수 제한 문제를 안고 있었다 — 은 각 배치 자신이 요청한 것보다 많은
+     * 섹션을 질의해서는 안 되고, 책 전체에 대해 하나가 아니라 배치당 하나의 질의여야 하며, 단일
+     * 책 전체 워밍(아래 `allAtOnce`, 예전 호출을 대신함)과 정확히 같은 것을 디코딩해야 한다.
      */
     @Test
     fun warmSectionBlocksInBoundedBatchesMatchesOneBigWarm() = runTest {
@@ -1873,12 +1877,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A progressive import batch that appends later sections must not drop the active phase-0
-     * section-block cache before completion: a caller that already cached the phase-0 document but has
-     * not warmed one of its sections yet still needs that same cache object to decode from after the
-     * batch. Section 1 below is chapter 1 from phase 0; the added batch imports chapter 2, but warming
-     * chapter 1 afterward must still decode from the pre-existing cache rather than reporting 0 until a
-     * full reload rebuilds it.
+     * 나중 섹션을 덧붙이는 점진적 임포트 배치는 완료 전까지 활성 상태인 0단계 섹션-블록 캐시를
+     * 떨어뜨려서는 안 된다: 이미 0단계 문서를 캐시했지만 아직 그 섹션 중 하나를 워밍하지 않은
+     * 호출자는 배치 이후에도 여전히 같은 캐시 객체로 디코딩해야 한다. 아래 섹션 1은 0단계에서 온
+     * 챕터 1이다; 추가된 배치는 챕터 2를 임포트하지만, 그 이후 챕터 1을 워밍하면 완전한 재로드가
+     * 다시 구축할 때까지 기다리지 않고 여전히 기존 캐시에서 디코딩해야 한다.
      */
     @Test
     fun importNextSectionsKeepsCachedPhase0SectionsWarmableUntilCompletion() = runTest {
@@ -1929,10 +1932,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [warmSectionBlocks] only warms the cache object this repository instance is currently holding.
-     * An eager cache drop through `importDocument -> persistParsedDocument -> invalidateCaches` must
-     * therefore make the next warm a no-op until something reloads the document and rebuilds that
-     * cache.
+     * [warmSectionBlocks]는 이 저장소 인스턴스가 현재 보유한 캐시 객체만 워밍한다.
+     * `importDocument -> persistParsedDocument -> invalidateCaches`를 통한 즉각적인 캐시 폐기는
+     * 따라서 무언가가 문서를 다시 로드해 그 캐시를 재구축하기 전까지는 다음 워밍을 아무 효과 없는
+     * 동작으로 만들어야 한다.
      */
     @Test
     fun warmSectionBlocksReportsNothingWhileNoDocumentIsLoaded() = runTest {
@@ -2046,11 +2049,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * The same byte-for-byte restore guarantee as
-     * [getPageWindowsOnDemandRestoreMatchesEagerMeasurementAcrossManySections], for an EPUB with a real
-     * synthetic cover section rather than plain TXT sections. `restoringRepository` below, once every
-     * section is warmed, stands in for "every section's blocks were loaded eagerly" — the way
-     * `SELECT *` used to hand every row's blocksJson over before a single page was built.
+     * [getPageWindowsOnDemandRestoreMatchesEagerMeasurementAcrossManySections]와 동일한 바이트
+     * 단위 복원 보장을, 평범한 TXT 섹션이 아니라 실제 합성 표지 섹션이 있는 EPUB에 대해
+     * 검증한다. 아래 `restoringRepository`는 모든 섹션이 워밍된 뒤에는 "모든 섹션의 블록이 즉시
+     * 로드되었던" 상태를 대신한다 — 예전에 `SELECT *`가 페이지 하나 만들기도 전에 모든 행의
+     * blocksJson을 넘겨주던 방식과 같다.
      */
     @Test
     fun getPageWindowsOnDemandRestoreMatchesEagerMeasurementForDocumentWithACoverSection() = runTest {
@@ -2106,13 +2109,13 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A page built before its own section's blocks arrive must render as "not yet" (empty `blocks`,
-     * with four ten-character pages per forty-character section and no cover, page 4 is section 1's
-     * first page — a genuine miss right now since only section 0 is prewarmed automatically), then, once
-     * [DocumentRepositoryImpl.warmSectionBlocks] fills that section in, complete its blocks without ever
-     * moving its `textRange`. A later, unrelated background fill for the rest of the book must not
-     * disturb it again — this is the guarantee [SectionBlocksCache]'s own doc calls "a page already
-     * shown keeps its text and its blocks."
+     * 자신의 섹션 블록이 도착하기 전에 만들어진 페이지는 "아직"으로 렌더링되어야 한다(빈
+     * `blocks`, 40자 섹션당 10자짜리 페이지 네 개에 표지가 없는 구성에서 페이지 4는 섹션 1의 첫
+     * 페이지다 — 지금은 섹션 0만 자동으로 미리 준비되므로 진짜 미스다), 그런 다음
+     * [DocumentRepositoryImpl.warmSectionBlocks]가 그 섹션을 채워 넣으면 `textRange`는 전혀
+     * 움직이지 않은 채 블록을 완성해야 한다. 나중에 책의 나머지에 대해 이뤄지는 무관한 백그라운드
+     * 채우기는 그것을 다시 건드려서는 안 된다 — 이것이 바로 [SectionBlocksCache] 자신의 문서가
+     * "이미 보여진 페이지는 자신의 텍스트와 블록을 유지한다"라고 부르는 보장이다.
      */
     @Test
     fun livePaginationPagesRebuildAfterWarmWhenAnEvictedMeasuredSectionReturns() = runTest {
@@ -2228,19 +2231,19 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * The first test of progressive EPUB import (step 9): written first, before
-     * [DocumentRepositoryImpl.importEpubPhase0]/[DocumentRepositoryImpl.importNextSections] existed,
-     * this is the test that had to fail to compile against the pre-change `DocumentRepository`
-     * interface, since neither [DocumentRepositoryImpl.isImportComplete] nor
-     * [DocumentRepositoryImpl.importNextSections] existed for it to call. It pins phase 0 itself: a
-     * long enough EPUB must not be complete after phase 0/1's bounded read-ahead alone,
-     * `characterCount` must stay null until the import completes, and only that initial prefix of
-     * sections must be persisted, not the rest of the spine.
+     * 점진적 EPUB 임포트의 첫 테스트(9단계): [DocumentRepositoryImpl.importEpubPhase0]/
+     * [DocumentRepositoryImpl.importNextSections]가 존재하기 전에 먼저 작성되었으며, 변경 전
+     * `DocumentRepository` 인터페이스에는 이 테스트가 호출할
+     * [DocumentRepositoryImpl.isImportComplete]도 [DocumentRepositoryImpl.importNextSections]도
+     * 존재하지 않았으므로 컴파일에 실패해야 했던 테스트다. 이것은 0단계 자체를 고정한다: 충분히
+     * 긴 EPUB은 0/1단계의 제한된 선행 읽기만으로는 완료되어서는 안 되고, `characterCount`는
+     * 임포트가 완료될 때까지 null로 남아 있어야 하며, 나머지 스파인이 아니라 그 초반 섹션들만
+     * 저장되어야 한다.
      *
-     * `bytes=null` is what exercises the phased path in [DocumentRepositoryImpl.importDocument]: it
-     * treats a non-null `bytes` argument as "the caller already has everything, just do the old
-     * one-shot parse," and this suite (every progressive-import test below) is specifically testing the
-     * case where it does not — a picked file streamed straight from `fileSource` instead.
+     * `bytes=null`은 [DocumentRepositoryImpl.importDocument]의 단계적 경로를 실행시키는
+     * 요소다: null이 아닌 `bytes` 인자는 "호출자가 이미 모든 것을 가지고 있으니 예전 방식의
+     * 단발성 파싱만 하면 된다"로 취급되며, 이 스위트(아래의 모든 점진적 임포트 테스트)는 특히
+     * 그렇지 않은 경우 — `fileSource`에서 직접 스트리밍되는 선택된 파일 — 를 테스트한다.
      */
     @Test
     fun importDocumentForMultiChapterEpubOnlyPersistsPhase0SectionsAndLeavesImportIncomplete() = runTest {
@@ -2470,11 +2473,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * `characterCount` must stay null through every incomplete batch of
-     * [DocumentRepositoryImpl.importNextSections] and only become the real total once the whole book
-     * has imported — see
-     * [importDocumentForMultiChapterEpubOnlyPersistsPhase0SectionsAndLeavesImportIncomplete] for why
-     * `bytes=null` is used here.
+     * `characterCount`는 [DocumentRepositoryImpl.importNextSections]의 미완료 배치를 거치는
+     * 내내 null로 남아 있어야 하고, 책 전체가 임포트를 마쳤을 때에만 실제 총합이 되어야 한다 —
+     * 여기서 왜 `bytes=null`을 쓰는지는
+     * [importDocumentForMultiChapterEpubOnlyPersistsPhase0SectionsAndLeavesImportIncomplete] 참고.
      */
     @Test
     fun characterCountStaysNullUntilImportNextSectionsCompletesTheBook() = runTest {
@@ -2522,10 +2524,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Driving [DocumentRepositoryImpl.importNextSections] to completion, one section per call, must
-     * finish the book and produce stored text/titles identical to a direct, one-shot
-     * [EpubDocumentParser.parse] of the same bytes — progressive import must not lose, reorder, or
-     * corrupt anything relative to the non-progressive path.
+     * [DocumentRepositoryImpl.importNextSections]를 호출마다 섹션 하나씩 완료까지 진행시키면
+     * 책을 끝마쳐야 하고, 같은 바이트를 직접 단발성으로 [EpubDocumentParser.parse]한 것과 동일한
+     * 저장된 텍스트/제목을 만들어내야 한다 — 점진적 임포트는 점진적이지 않은 경로에 비해 아무것도
+     * 잃거나, 순서를 바꾸거나, 손상시켜서는 안 된다.
      */
     @Test
     fun repeatedImportNextSectionsCompletesNavigationWithoutRestartFallback() = runTest {
@@ -2560,28 +2562,29 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Reproduces the first of two cache-invalidation ordering bugs in
-     * [DocumentRepositoryImpl.finishEpubImport]: it used to stamp
-     * `documents.importCompletedAtEpochMillis` (what [DocumentRepositoryImpl.isImportComplete] reads)
-     * several statements before it invalidated the document cache, leaving a window where a reader
-     * already holding this book open — its [DocumentRepositoryImpl.getReaderDocument] cache primed while
-     * the import was still running — saw [DocumentRepositoryImpl.isImportComplete] answer true while
-     * [DocumentRepositoryImpl.getReaderDocument] kept serving the pre-completion document, whose
-     * navigation is always empty until this exact step resolves it. Nothing else ever invalidates that
-     * cache entry afterwards, so the empty table of contents this produced stuck until the next app
-     * relaunch — the same user-visible symptom `fix/outline-after-import` closed by a different route.
+     * [DocumentRepositoryImpl.finishEpubImport]에 있었던 두 가지 캐시 무효화 순서 버그 중 첫
+     * 번째를 재현한다: 예전에는 `documents.importCompletedAtEpochMillis`(
+     * [DocumentRepositoryImpl.isImportComplete]가 읽는 값)를 문서 캐시를 무효화하기 몇 문장
+     * 전에 찍어버렸는데, 이는 이미 이 책을 열어두고 있던 독자 — 임포트가 여전히 진행 중인
+     * 동안 그 [DocumentRepositoryImpl.getReaderDocument] 캐시가 채워져 있던 — 가
+     * [DocumentRepositoryImpl.isImportComplete]가 true를 답하는 걸 보면서도
+     * [DocumentRepositoryImpl.getReaderDocument]는 여전히 완료 전 문서를 내어주는 창구를
+     * 남겼다. 그 문서의 내비게이션은 바로 이 단계가 해결하기 전까지는 항상 비어 있다. 이후로는
+     * 그 캐시 항목을 무효화하는 것이 아무것도 없어서, 이렇게 생겨난 빈 목차는 다음 앱 재실행까지
+     * 그대로 남았다 — `fix/outline-after-import`가 다른 경로로 해결한 것과 같은, 사용자에게
+     * 보이는 증상이다.
      *
-     * [FakeDocumentDao.completionStampGate] parks the writer's completion-stamping write at exactly the
-     * point the bug lived: after the stamp is visible in storage, before
-     * [DocumentRepositoryImpl.finishEpubImport] goes on to invalidate the cache. A fixed
-     * [DocumentRepositoryImpl.finishEpubImport] invalidates the cache before writing that stamp at all, so
-     * by the time the write reaches the gate the cache has already been cleared and the concurrent
-     * [DocumentRepositoryImpl.getReaderDocument] call below is forced to reload with the resolved
-     * navigation already in hand — which is what this test asserts.
+     * [FakeDocumentDao.completionStampGate]는 작성자의 완료 스탬프 쓰기를 정확히 버그가
+     * 살아있던 지점에 멈춰 세운다: 스탬프가 저장소에 보이게 된 뒤, 그리고
+     * [DocumentRepositoryImpl.finishEpubImport]가 캐시를 무효화하러 넘어가기 전. 고쳐진
+     * [DocumentRepositoryImpl.finishEpubImport]는 그 스탬프를 아예 쓰기 전에 캐시를
+     * 무효화하므로, 쓰기가 게이트에 도달할 즈음에는 캐시가 이미 비워져 있고, 아래의 동시
+     * [DocumentRepositoryImpl.getReaderDocument] 호출은 이미 해결된 내비게이션을 손에 쥔 채로
+     * 강제로 다시 로드하게 된다 — 이것이 바로 이 테스트가 단언하는 내용이다.
      *
-     * The completing [importNextSections] call below asks for `count = 30`, covering every section
-     * phase 0 could possibly have left unread for this 30-chapter book, so that one call is guaranteed
-     * to be the batch that finishes the import and reaches [completionStampGate].
+     * 아래의 완료시키는 [importNextSections] 호출은 `count = 30`을 요청하는데, 이는 이
+     * 30챕터짜리 책에서 0단계가 남겨두었을 수 있는 모든 섹션을 커버하는 값이므로, 그 한 번의
+     * 호출이 임포트를 마치고 [completionStampGate]에 도달하는 배치임이 보장된다.
      */
     @Test
     fun aReaderCaughtBetweenTheCompletionStampAndTheCacheInvalidationMustNotSeeStaleNavigation() = runTest {
@@ -2648,22 +2651,22 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Reproduces the second cache-invalidation bug: [DocumentRepositoryImpl.getReaderDocument] loads a
-     * document outside `documentCacheLock` on purpose, so one slow load never serialises every other
-     * document read behind it (see that lock's own doc), then re-acquires the lock only to publish the
-     * result. A load that started before some other write invalidated the cache, but that only reaches
-     * its own publishing step after the invalidation already ran, used to write its pre-invalidation
-     * snapshot straight back into the cache — silently undoing the invalidation it straddled.
+     * 두 번째 캐시 무효화 버그를 재현한다: [DocumentRepositoryImpl.getReaderDocument]는 의도적으로
+     * `documentCacheLock` 바깥에서 문서를 로드한다, 그래야 느린 로드 하나가 다른 모든 문서
+     * 읽기를 그 뒤로 직렬화시키지 않는다(그 락 자신의 문서 참고), 그런 다음 결과를 발행하기
+     * 위해서만 락을 다시 획득한다. 다른 쓰기가 캐시를 무효화하기 전에 시작됐지만 그 무효화가
+     * 이미 실행된 이후에야 자신의 발행 단계에 도달하는 로드는, 예전에는 무효화 이전 스냅샷을
+     * 그대로 캐시에 다시 써넣어버렸다 — 자신이 걸쳐 있던 무효화를 조용히 되돌려버린 셈이다.
      *
-     * [FakeDocumentSearchIndexDao.getDocumentSectionsWithoutBlocksGate] parks a
-     * [DocumentRepositoryImpl.getReaderDocument] load right after it has read the document's rows (while
-     * it still exists) but before it returns them. While it is parked,
-     * [DocumentRepositoryImpl.deleteDocument] removes the document entirely, which must invalidate the
-     * cache. Releasing the gate then lets the parked load finish and try to publish its now-stale
-     * snapshot. A fixed cache refuses that publish because the invalidation bumped
-     * `documentCacheGeneration` while the load was in flight, so the subsequent
-     * [DocumentRepositoryImpl.getReaderDocument] call below must see the deletion — not the stale
-     * snapshot a buggy cache would otherwise have kept alive indefinitely.
+     * [FakeDocumentSearchIndexDao.getDocumentSectionsWithoutBlocksGate]는
+     * [DocumentRepositoryImpl.getReaderDocument] 로드를 문서의 행을 읽은 직후(그 문서가 아직
+     * 존재하는 동안)이지만 그것을 반환하기 전에 멈춰 세운다. 멈춰 있는 동안
+     * [DocumentRepositoryImpl.deleteDocument]가 그 문서를 완전히 제거하는데, 이는 캐시를
+     * 무효화해야 한다. 게이트를 풀어주면 멈춰 있던 로드가 끝나면서 이제는 낡아버린 스냅샷을
+     * 발행하려 시도한다. 고쳐진 캐시는 로드가 진행되는 동안 무효화가
+     * `documentCacheGeneration`을 올렸기 때문에 그 발행을 거부하므로, 아래의 뒤이은
+     * [DocumentRepositoryImpl.getReaderDocument] 호출은 — 버그가 있는 캐시라면 무기한 살려두었을
+     * 낡은 스냅샷이 아니라 — 그 삭제를 봐야 한다.
      */
     @Test
     fun aLoadThatStraddlesAnInvalidationMustNotLeaveItsStaleSnapshotCached() = runTest {
@@ -2711,31 +2714,31 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Reproduces the third cache-invalidation bug, the mirror image of the second one above:
-     * [DocumentRepositoryImpl.persistParsedDocument] invalidates the document cache *before* it
-     * rewrites a document's stored rows, not after. `documentDao.upsertDocument` makes the row (and
-     * `isImportComplete`) visible immediately, but `searchIndexDao.deleteSearchIndex` then empties
-     * every section row, and they are not written back until `searchIndexDao.upsertSearchIndex`
-     * finishes. A [DocumentRepositoryImpl.getReaderDocument] load that starts in that window reads
-     * zero sections; without a second invalidation after the rewrite, nothing would ever clear that
-     * torn snapshot back out of the cache, so it would stick until the next app relaunch — the
-     * original bug reopened through the writer instead of the reader.
+     * 위 두 번째 것과 거울처럼 대칭되는, 세 번째 캐시 무효화 버그를 재현한다:
+     * [DocumentRepositoryImpl.persistParsedDocument]는 문서의 저장된 행들을 다시 쓴 *이후*가
+     * 아니라 다시 쓰기 *전에* 문서 캐시를 무효화한다. `documentDao.upsertDocument`는 그 행(과
+     * `isImportComplete`)을 즉시 보이게
+     * 만들지만, 그 뒤 `searchIndexDao.deleteSearchIndex`는 모든 섹션 행을 비워버리고, 이들은
+     * `searchIndexDao.upsertSearchIndex`가 끝날 때까지 다시 기록되지 않는다. 그 사이 창구에서
+     * 시작되는 [DocumentRepositoryImpl.getReaderDocument] 로드는 섹션이 0개인 상태를 읽는다;
+     * 다시 쓰기 이후의 두 번째 무효화가 없다면 그 찢긴 스냅샷을 캐시에서 다시 지워줄 것이
+     * 아무것도 없으므로, 다음 앱 재실행까지 그대로 남을 것이다 — 원래 버그가 독자가 아니라
+     * 작성자를 통해 다시 열린 셈이다.
      *
-     * [FakeDocumentSearchIndexDao.upsertSearchIndexGate] parks the writer's
-     * [DocumentRepositoryImpl.persistParsedDocument] call right after `deleteSearchIndex` has emptied
-     * the document's rows but before the freshly parsed rows are written back. This repository is
-     * built with no `documentFileSource`, so the TXT repair
-     * [DocumentRepositoryImpl.loadReaderDocument] would otherwise attempt on seeing zero sections
-     * bails out immediately instead of re-parsing (`DocumentRepositoryImpl.repairTxtDocument` returns
-     * null the moment its own file source is missing) — keeping the racing read a single,
-     * deterministic load instead of a second concurrent rewrite. That racing
-     * [DocumentRepositoryImpl.getReaderDocument] call is made directly, not launched, once the writer
-     * is parked, so it publishes the torn, empty snapshot synchronously before the writer resumes. A
-     * fixed [DocumentRepositoryImpl.persistParsedDocument] invalidates the cache again after its
-     * rewrite completes, clearing that wrongly-published entry; an unfixed one leaves it cached
-     * forever, so the [DocumentRepositoryImpl.getReaderDocument] call made below — after the writer has
-     * finished and the real rows are in storage — would still return the empty snapshot instead of
-     * reloading.
+     * [FakeDocumentSearchIndexDao.upsertSearchIndexGate]는 작성자의
+     * [DocumentRepositoryImpl.persistParsedDocument] 호출을 `deleteSearchIndex`가 문서의 행을
+     * 비운 직후, 그러나 새로 파싱된 행이 다시 기록되기 전에 멈춰 세운다. 이 저장소는
+     * `documentFileSource` 없이 만들어졌으므로, 섹션이 0개인 것을 보고
+     * [DocumentRepositoryImpl.loadReaderDocument]가 시도했을 TXT 복구는 재파싱 대신 즉시
+     * 포기한다(`DocumentRepositoryImpl.repairTxtDocument`는 자신의 파일 소스가 없는 순간 null을
+     * 반환한다) — 이는 경합하는 읽기를 두 번째 동시 다시쓰기가 아니라 단일하고 결정적인
+     * 로드로 유지해준다. 그 경합하는 [DocumentRepositoryImpl.getReaderDocument] 호출은 작성자가
+     * 멈춰 있는 동안 launch가 아니라 직접 이뤄지므로, 작성자가 재개되기 전에 찢기고 빈 스냅샷을
+     * 동기적으로 발행한다. 고쳐진 [DocumentRepositoryImpl.persistParsedDocument]는 다시쓰기가
+     * 끝난 뒤 캐시를 다시 무효화해 그 잘못 발행된 항목을 지운다; 고치지 않은 것은 그걸 영원히
+     * 캐시에 남겨두므로, 작성자가 끝나고 실제 행이 저장소에 들어간 뒤 아래에서 이뤄지는
+     * [DocumentRepositoryImpl.getReaderDocument] 호출은 다시 로드하는 대신 여전히 빈 스냅샷을
+     * 반환할 것이다.
      */
     @Test
     fun aLoadRacingPersistParsedDocumentsRewriteMustNotLeaveTheCacheHoldingTheTornSnapshot() = runTest {
@@ -2838,10 +2841,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A "crash": nothing survives but what's in `documentDao`/`searchIndexDao` — every call after the
-     * first two below uses a brand-new [DocumentRepositoryImpl] instance, with none of the previous
-     * ones' in-memory state, and must still finish the book correctly by reading only the stored rows,
-     * with no section skipped or duplicated across the simulated crash.
+     * "크래시": `documentDao`/`searchIndexDao`에 있는 것 말고는 아무것도 살아남지 않는다 — 아래
+     * 첫 두 호출 이후의 모든 호출은 이전 것들의 메모리 상태를 전혀 가지지 않는 완전히 새로운
+     * [DocumentRepositoryImpl] 인스턴스를 사용하며, 시뮬레이션된 크래시를 거쳐도 저장된 행만
+     * 읽어 책을 올바르게 끝마쳐야 하고, 어떤 섹션도 건너뛰거나 중복해서는 안 된다.
      */
     @Test
     fun importNextSectionsResumesFromStoredRowsAloneAfterASimulatedCrash() = runTest {
@@ -2891,15 +2894,15 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A page already published (from the cover-plus-chapter-1 measurement `importDocument`'s phase 0
-     * leaves behind) must keep its exact boundaries once [DocumentRepositoryImpl.importNextSections]
-     * appends more sections. Writing a layout while the import is unfinished is exactly what
-     * [DocumentRepositoryImpl.getPageWindows]' own `isImportComplete` guard refuses, so growth is not
-     * visible from a second, bare `getPageWindows` call the moment more sections land — it takes the
-     * same continuation `finishPagination` stands in for elsewhere in this suite. Re-seeding with
-     * `getPageWindows` first measures the anchor section against the now-complete book, then
-     * `finishPagination` walks the rest, the same two steps `openDocument` +
-     * `continuePaginationIfIncomplete` take.
+     * (표지+챕터1 측정에서 나온, `importDocument`의 0단계가 남기는) 이미 발행된 페이지는
+     * [DocumentRepositoryImpl.importNextSections]가 더 많은 섹션을 덧붙이더라도 정확한 경계를
+     * 유지해야 한다. 임포트가 끝나지 않은 동안 레이아웃을 쓰는 것은 정확히
+     * [DocumentRepositoryImpl.getPageWindows] 자신의 `isImportComplete` 가드가 거부하는
+     * 일이므로, 더 많은 섹션이 도착하는 순간 두 번째의 순수한 `getPageWindows` 호출만으로는
+     * 성장이 보이지 않는다 — 이 스위트의 다른 곳에서 `finishPagination`이 대신하는 것과 같은
+     * 이어하기 과정이 필요하다. `getPageWindows`로 다시 씨앗을 뿌리면 먼저 이제 완료된 책을
+     * 대상으로 앵커 섹션을 측정하고, 그다음 `finishPagination`이 나머지를 훑는다 —
+     * `openDocument` + `continuePaginationIfIncomplete`가 거치는 것과 같은 두 단계다.
      */
     @Test
     fun pageTextRangeIsUnchangedAfterImportNextSectionsAppendsMoreSections() = runTest {
@@ -2952,9 +2955,9 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A bounded first measurement must not persist an incomplete session. Once background continuation
-     * has measured the current prefix, progressive import may store and append a partial row; after both
-     * import and pagination finish, that row must remain available as the promoted final layout.
+     * 범위가 제한된 첫 측정은 미완료 세션을 저장해서는 안 된다. 백그라운드 이어하기가 현재
+     * 접두부를 측정하고 나면 점진적 임포트는 부분 행을 저장하고 덧붙일 수 있다; 임포트와 페이지
+     * 측정이 둘 다 끝난 뒤에는 그 행이 승격된 최종 레이아웃으로 계속 사용 가능해야 한다.
      */
     @Test
     fun incompletePaginationSessionIsNotStoredBeforeItsPrefixFinishes() = runTest {
@@ -3011,11 +3014,12 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A stored layout [DocumentRepositoryImpl.appendMeasuredPageStarts] finds but cannot extend must be
-     * deleted, not left stale for [DocumentRepositoryImpl.restorePageWindows] to trip over later. The
-     * row upserted below stands in for one left over from an app version before partial prefix layouts;
-     * after deleting it the repository measures the current prefix and stores a version-matched partial
-     * replacement so the following batch can append without rebuilding that prefix again.
+     * [DocumentRepositoryImpl.appendMeasuredPageStarts]가 찾았지만 확장할 수 없는 저장된
+     * 레이아웃은 삭제되어야 하며, 나중에 [DocumentRepositoryImpl.restorePageWindows]가 걸려
+     * 넘어지도록 낡은 채로 남겨져서는 안 된다. 아래에서 upsert하는 행은 부분 접두부 레이아웃이
+     * 생기기 전 앱 버전이 남긴 것을 대신한다; 그것을 삭제한 뒤 저장소는 현재 접두부를 측정해
+     * 버전이 맞는 부분 대체본을 저장하므로, 다음 배치는 그 접두부를 다시 구축하지 않고도 덧붙일
+     * 수 있다.
      */
     @Test
     fun importNextSectionsReplacesAnUnextendableStaleLayoutWithTheCurrentPrefix() = runTest {
@@ -3070,13 +3074,13 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Step 10: section-relative block storage. Every section's stored `blocksJson` — from both call
-     * sites that write it, [DocumentRepositoryImpl.persistParsedDocument] (phase 0's cover and chapter
-     * 1) and [DocumentRepositoryImpl.importNextSections] (chapter 2, the one with the bold span, at a
-     * non-zero absolute offset) — must shift back to the original absolute block *and* span ranges once
-     * re-absolutized by adding the section's own start back on; both call sites rebase before writing,
-     * so both have to be exercised here. `bytes=null` drives phase 0 then the progressive-import loop so
-     * both call sites actually run.
+     * 10단계: 섹션 상대 블록 저장. 각 섹션의 저장된 `blocksJson` — 이를 쓰는 두 호출 지점,
+     * [DocumentRepositoryImpl.persistParsedDocument](0단계의 표지와 챕터 1)와
+     * [DocumentRepositoryImpl.importNextSections](0이 아닌 절대 오프셋에 있는, 굵은 글씨 스팬이
+     * 있는 챕터 2) 모두로부터 — 는 섹션 자신의 시작을 다시 더해 재절대화하면 원래의 절대 블록
+     * *및* 스팬 범위로 되돌아가야 한다; 두 호출 지점 모두 쓰기 전에 리베이스하므로, 여기서는
+     * 둘 다 검증되어야 한다. `bytes=null`은 0단계와 그 이후 점진적 임포트 루프를 모두 구동시켜
+     * 두 호출 지점이 실제로 실행되게 한다.
      */
     @Test
     fun everySectionsBlocksRoundTripToTheirOriginalAbsoluteRangesAcrossPhase0AndProgressiveImport() = runTest {
@@ -3147,13 +3151,13 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Step 11: progressive pagination for a type that has never been measured. Opening with no stored
-     * layout must measure the resumed section first (via `anchorOffset`), plus only the bounded local
-     * neighborhood needed for the first backward turn and initial forward-page budget, not the whole book — the
-     * 6.4s/13.0s-measured cost [DocumentRepositoryImpl.getPageWindows]' own doc describes.
-     * Every fixture section's text is distinct ("aaaa...", "bbbb...", ...), so the breaker's own
-     * argument (`countingBreaker` below) proves which section it was called for, not just how many
-     * times.
+     * 11단계: 아직 한 번도 측정된 적 없는 유형에 대한 점진적 페이지 측정. 저장된 레이아웃이
+     * 없는 상태로 열면 (`anchorOffset`을 통해) 이어할 섹션을 먼저 측정해야 하고, 책 전체가
+     * 아니라 첫 뒤로 넘기기와 초기 앞으로 넘기기 예산에 필요한 제한된 국소 이웃만 측정해야
+     * 한다 — 이는 [DocumentRepositoryImpl.getPageWindows] 자신의 문서가 설명하는 6.4초/13.0초
+     * 측정 비용이다. 각 픽스처 섹션의 텍스트는 서로 구별되므로("aaaa...", "bbbb...", ...),
+     * 브레이커 자신의 인자(아래 `countingBreaker`)는 몇 번 호출되었는지뿐 아니라 어떤 섹션에
+     * 대해 호출되었는지도 증명한다.
      */
     @Test
     fun openingWithNoStoredLayoutMeasuresOnlyTheResumedSectionBeforePublishing() = runTest {
@@ -3221,11 +3225,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Measuring one section at a time via [DocumentRepositoryImpl.continuePagination] (driven to
-     * completion the same way a background continuation loop would) must produce byte-identical pages
-     * to the reference answer — every section laid out in one pass via a direct
-     * [TextPageLayoutEngine.paginate] call, the way `getPageWindows` used to before incremental
-     * pagination existed — for a book that has a cover section.
+     * [DocumentRepositoryImpl.continuePagination]을 통해(백그라운드 이어하기 루프와 똑같은
+     * 방식으로 완료까지 진행시키며) 한 번에 한 섹션씩 측정하면, 표지 섹션이 있는 책에 대해
+     * 기준 답안 — [TextPageLayoutEngine.paginate]를 직접 한 번 호출해 모든 섹션을 한 패스로
+     * 배치한 것, 증분 페이지 측정이 생기기 전 `getPageWindows`가 하던 방식과 같다 — 과 바이트
+     * 단위로 동일한 페이지들을 만들어내야 한다.
      */
     @Test
     fun incrementalPaginationIsByteIdenticalToWholeDocumentMeasurementWithACoverSection() = runTest {
@@ -3284,10 +3288,11 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.restorePageWindows]' strictly-ascending check must discard a stored row
-     * whose page starts walk backwards partway through — even though its `characterCount` still matches
-     * and it decodes cleanly — and measure fresh instead. The row upserted below (`longArrayOf(0L, 10L,
-     * 20L, 10L, 20L)`) is what a writer bug that appended the same section twice would leave behind.
+     * [DocumentRepositoryImpl.restorePageWindows]의 엄격한 오름차순 검사는 페이지 시작
+     * 지점이 도중에 뒤로 걷는 저장된 행을 — 그 `characterCount`가 여전히 일치하고 깔끔하게
+     * 디코딩되더라도 — 폐기하고 대신 새로 측정해야 한다. 아래에서 upsert하는 행
+     * (`longArrayOf(0L, 10L, 20L, 10L, 20L)`)은 같은 섹션을 두 번 덧붙인 작성자 버그가 남겼을
+     * 법한 것이다.
      */
     @Test
     fun storedLayoutWhosePageStartsDoNotAscendIsDiscardedAndMeasuredAgain() = runTest {
@@ -3359,13 +3364,14 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.paginationContinuationLock]'s reason to exist: a style change starts one
-     * continuation pass from `updateStyle` and another from the pane's first breaker report for the new
-     * style, so two of them genuinely run at once (see `ReaderViewModel.refreshPaginationCompleteness`).
-     * Without the lock, both used to read the same `lowPosition`, measure the same section, and append
-     * it twice, leaving a finished pass holding — and storing — up to twice the book's pages. Four
-     * concurrent drivers of [DocumentRepositoryImpl.continuePagination] below must still measure each
-     * section exactly once, matching a whole-document reference pass.
+     * [DocumentRepositoryImpl.paginationContinuationLock]가 존재하는 이유: 스타일 변경은
+     * `updateStyle`에서 이어하기 패스를 하나 시작하고, 새 스타일에 대한 패널의 첫 브레이커
+     * 보고에서 또 하나를 시작하므로, 실제로 둘이 동시에 실행된다(참고:
+     * `ReaderViewModel.refreshPaginationCompleteness`). 락이 없으면 예전에는 둘 다 같은
+     * `lowPosition`을 읽고, 같은 섹션을 측정하고, 그것을 두 번 덧붙여서, 완료된 패스가 책 페이지
+     * 수의 최대 두 배를 들고(그리고 저장하고) 있게 되었다. 아래의 네 개의 동시
+     * [DocumentRepositoryImpl.continuePagination] 실행자는 그래도 각 섹션을 정확히 한 번씩만
+     * 측정해서, 전체 문서 기준 패스와 일치해야 한다.
      */
     @Test
     fun overlappingContinuationPassesMeasureEachSectionExactlyOnce() = runTest {
@@ -3439,9 +3445,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * AGENTS.md's "`pageIndex.total` never shrinks while a document stays open" invariant, at the
-     * repository layer: once the first section is measured, `pageIndex.total` must never read 0, and as
-     * [DocumentRepositoryImpl.continuePagination] measures further sections it must never shrink either.
+     * 저장소 계층에서의 AGENTS.md "문서가 열려 있는 동안 `pageIndex.total`은 절대 줄어들지
+     * 않는다" 불변식: 첫 섹션이 측정되고 나면 `pageIndex.total`은 절대 0을 읽어서는 안 되고,
+     * [DocumentRepositoryImpl.continuePagination]이 더 많은 섹션을 측정하는 동안에도 절대
+     * 줄어들어서는 안 된다.
      */
     @Test
     fun paginationTotalNeverShrinksAndNeverReadsZeroOnceTheFirstSectionIsMeasured() = runTest {
@@ -3502,11 +3509,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * The page shown at open must still exist, with its boundaries unchanged, once the rest of the book
-     * is measured progressively. Resuming into the middle section
-     * (`anchorOffset = sections[2].startOffset`) exercises both directions
-     * [DocumentRepositoryImpl.continuePagination] extends in: sections 0-1 get measured backward,
-     * sections 3-4 forward, around this one already-shown page.
+     * 책의 나머지가 점진적으로 측정되고 나서도 열 때 보여준 페이지는 경계가 바뀌지 않은 채
+     * 여전히 존재해야 한다. 중간 섹션으로 이어하기(`anchorOffset = sections[2].startOffset`)는
+     * [DocumentRepositoryImpl.continuePagination]이 확장하는 두 방향을 모두 검증한다: 섹션
+     * 0-1은 뒤로 측정되고, 섹션 3-4는 앞으로 측정되며, 이미 보여진 이 한 페이지를 둘러싼다.
      */
     @Test
     fun pageTextRangeIsUnchangedAfterFurtherSectionsAreMeasuredProgressively() = runTest {
@@ -3619,16 +3625,17 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * [DocumentRepositoryImpl.loadReaderDocument]'s EPUB repair path, gated by `parserVersion` alone
-     * here (the `searchIndexDao` fixture's non-blank `navigationJson` keeps the other gate
-     * `loadReaderDocument` also checks from firing, so only the parserVersion gate is under test).
-     * `fileSource.copyCount` reaching exactly 1 and `readCount` staying 0 is what proves the repair
-     * takes the phased import route, streaming from one copy of the file instead of reading the whole
-     * book into memory — the absence of a whole-file read is itself the thing worth asserting. Whatever
-     * the repair leaves for the background must finish the way a fresh import's remainder does, ending
-     * with the whole book at the current version — not only the chapter shown first — and a second open
-     * (a fresh [DocumentRepositoryImpl] instance, so only what the repair actually wrote, not an
-     * in-memory document cache, can explain it) must not repair again.
+     * [DocumentRepositoryImpl.loadReaderDocument]의 EPUB 복구 경로를, 여기서는 오직
+     * `parserVersion`만으로 게이팅해 검증한다(`searchIndexDao` 픽스처의 비어 있지 않은
+     * `navigationJson`은 `loadReaderDocument`가 확인하는 또 다른 게이트가 발동하지 않게 막아주므로,
+     * parserVersion 게이트만 테스트 대상이 된다). `fileSource.copyCount`가 정확히 1에 도달하고
+     * `readCount`가 0으로 유지되는 것이 복구가 단계적 임포트 경로를 타서 책 전체를 메모리로
+     * 읽어들이는 대신 파일 사본 하나에서 스트리밍한다는 것을 증명한다 — 전체 파일 읽기가 없다는
+     * 사실 자체가 단언할 가치가 있는 것이다. 복구가 백그라운드에 남긴 것은 무엇이든 갓 임포트한
+     * 것의 나머지가 끝나는 방식대로 끝나야 하며, 처음 보여준 챕터뿐 아니라 책 전체가 현재
+     * 버전이 되어야 한다 — 그리고 두 번째 열기(새 [DocumentRepositoryImpl] 인스턴스이므로 메모리
+     * 문서 캐시가 아니라 복구가 실제로 기록한 것만이 설명할 수 있다)는 다시 복구를 해서는 안
+     * 된다.
      */
     @Test
     fun bookStoredAtAnOlderParserVersionIsRepairedExactlyOnceOnNextOpen() = runTest {
@@ -3715,10 +3722,10 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A real breaker that arrives while progressive import is still running must finish the existing
-     * prefix session once and append every later section once. The promoted row must then restore the
-     * same page ranges as an independent whole-document measurement; counting by section text makes
-     * either remeasuring the prefix or falling back to a completion-time full pass fail this test.
+     * 점진적 임포트가 여전히 진행 중인 동안 도착하는 실제 브레이커는 기존 접두부 세션을 한 번
+     * 끝내고 이후의 모든 섹션을 한 번씩 덧붙여야 한다. 승격된 행은 그런 다음 독립적인 전체 문서
+     * 측정과 같은 페이지 범위를 복원해야 한다; 섹션 텍스트로 세는 방식은 접두부를 다시
+     * 측정하거나 완료 시점의 전체 패스로 폴백하는 어느 쪽이든 이 테스트를 실패시킨다.
      */
     @Test
     fun progressivePartialLayoutMeasuresEachSectionOnceAndRestoresFinalPages() = runTest {
@@ -3798,9 +3805,9 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * A document interrupted before schema version 9 has null accumulators even though prefix sections
-     * already exist. Its first resumed batch must reconstruct that prefix once instead of starting from
-     * zero, otherwise completion publishes counts for only the post-upgrade suffix.
+     * 스키마 버전 9 이전에 중단된 문서는 접두부 섹션이 이미 존재함에도 누산기가 null이다. 그
+     * 문서의 첫 재개 배치는 0부터 시작하는 대신 그 접두부를 한 번 재구성해야 한다, 그러지
+     * 않으면 완료 시 업그레이드 이후 접미부에 대한 카운트만 발행하게 된다.
      */
     @Test
     fun legacyIncompleteEpubRebuildsPrefixAccumulatorsBeforeAppending() = runTest {
@@ -3854,14 +3861,15 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * Drives the exact interleaving ReaderViewModel puts a progressively-imported EPUB through in one
-     * reading session: openDocument's own two calls (no breaker yet, then the pane's first real report),
-     * continueImportIfIncomplete reloading pages after every batch, then continuePaginationIfIncomplete
-     * reloading pages after every section it finishes measuring. The page count the reader was actually
-     * shown during that live session (whatever the last getPageWindows call returned) must equal what a
-     * brand-new repository instance — the same stored rows, none of the in-memory caches — restores for
-     * the same style and viewport once the session ends. A device that shows one number live and a
-     * different, larger one after a force-stop and reopen is this test failing.
+     * ReaderViewModel이 한 번의 읽기 세션에서 점진적으로 임포트되는 EPUB을 거치게 만드는
+     * 인터리빙을 정확히 재현한다: openDocument 자신의 두 호출(아직 브레이커 없음, 그다음 패널의
+     * 첫 실제 보고), 매 배치 후 페이지를 다시 로드하는 continueImportIfIncomplete, 그다음
+     * 측정을 마친 섹션마다 페이지를 다시 로드하는 continuePaginationIfIncomplete. 그 라이브
+     * 세션 동안 독자에게 실제로 보여진 페이지 수(마지막 getPageWindows 호출이 무엇을
+     * 반환했든)는, 세션이 끝난 뒤 완전히 새로운 저장소 인스턴스 — 같은 저장된 행들, 메모리
+     * 캐시는 하나도 없는 — 가 같은 스타일과 뷰포트에 대해 복원하는 것과 같아야 한다. 기기가
+     * 라이브 상태에서는 어떤 숫자를 보여주다가 강제 종료 후 재열기하면 더 큰 다른 숫자를
+     * 보여준다면 이 테스트가 실패한 것이다.
      */
     @Test
     fun liveSessionPageCountMatchesWhatALaterRestoreProduces() = runTest {
@@ -4081,35 +4089,38 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * ReaderViewModel.refreshPaginationCompleteness starts continuePaginationIfIncomplete whenever
-     * isPaginationComplete is false — it does not wait for isImportComplete first (see its own doc,
-     * which only speaks to updatePageBreaker's dedupe, not to import). A pane that reports its breaker
-     * a second time (a legitimate, undeduplicated report — the dedupe key is measuredSizePx, which a
-     * live layout pass can easily perturb by a pixel) while continueImportIfIncomplete is still running
-     * would therefore start a *second*, concurrent driver of the same pagination/import machinery:
-     * continuePagination extending [PaginationSession] section by section while importNextSections is
-     * still calling invalidateDocumentCache (which nulls out that same paginationSession) and
-     * appendMeasuredPageStarts on every batch — and neither loop holds a lock against the other. This
-     * regression test drives exactly that interleaving, and checks the result against an independent
-     * whole-document reference pass: whatever order the two loops interleave in, what ends up stored
-     * must be one measurement of the book, not a duplicate of any section and not a fraction of it.
-     * The pagination loop below can only retire once the import has stopped moving, which is the same
-     * thing isPaginationComplete now guarantees for the ViewModel's own driver — a loop allowed to
-     * retire mid-import leaves the last-created session unwalked and the total pinned to one section.
+     * ReaderViewModel.refreshPaginationCompleteness는 isPaginationComplete가 false이기만 하면
+     * continuePaginationIfIncomplete를 시작한다 — 먼저 isImportComplete를 기다리지 않는다(자신의
+     * 문서를 참고, 거기서는 updatePageBreaker의 중복 제거만 이야기하지 임포트는 언급하지
+     * 않는다). continueImportIfIncomplete가 여전히 실행 중인 동안 패널이 자신의 브레이커를 두
+     * 번째로 보고하면(합법적이고 중복 제거되지 않은 보고다 — 중복 제거 키는 measuredSizePx인데,
+     * 라이브 레이아웃 패스가 픽셀 하나로 쉽게 흔들 수 있다) 따라서 같은 페이지 측정/임포트
+     * 기계장치의 *두 번째*, 동시 구동자가 시작될 것이다: continuePagination이
+     * [PaginationSession]을 섹션 단위로 확장하는 동안 importNextSections는 여전히 매 배치마다
+     * invalidateDocumentCache(같은 paginationSession을 null로 만드는)와
+     * appendMeasuredPageStarts를 호출하고 있다 — 그리고 어느 루프도 서로에 대해 락을 쥐고
+     * 있지 않다. 이 회귀 테스트는 정확히 그 인터리빙을 구동하고, 결과를 독립적인 전체 문서
+     * 기준 패스와 비교한다: 두 루프가 어떤 순서로 인터리빙되든 최종적으로 저장된 것은 책의
+     * 측정 하나여야 하며, 어느 섹션의 중복도 그 일부도 아니어야 한다. 아래의 페이지 측정 루프는
+     * 임포트가 움직임을 멈춘 뒤에만 물러날 수 있는데, 이는 지금 isPaginationComplete가
+     * ViewModel 자신의 구동자에게 보장하는 것과 같다 — 임포트 도중에 물러나는 것이 허용된
+     * 루프는 마지막으로 생성된 세션을 훑지 않은 채로, 총합을 섹션 하나에 고정된 채로 남길
+     * 것이다.
      *
-     * `drainPagination` below stands in for `continuePaginationIfIncomplete`'s own loop: a batch that
-     * just nulled the session leaves it with nothing to measure for a moment, so it yields rather than
-     * spinning — the ViewModel gets that for free by being cancelled and restarted per batch (see
-     * `continueImportIfIncomplete`). It is called once more after the two concurrent launches, standing
-     * in for the import's own last act of restarting the continuation once the import has finished (see
-     * `ReaderViewModel.continueImportIfIncomplete`'s `refreshPaginationCompleteness(isImportComplete =
-     * true)` on the completing batch) — because the concurrent driver is allowed to retire the instant
-     * both flags read true, which can be the moment before the import's final reload creates one more
-     * single-section session that nothing else would ever walk. The ground-truth reference pass requires
-     * `warmSectionBlocks` first: `ReaderDocument.blocks` is a `LazyFlattenedBlocks` over
-     * [SectionBlocksCache], which answers empty for any section nothing has prewarmed yet, so an
-     * un-warmed reference would silently find no cover block at all and disagree with the real code's
-     * own always-prewarmed paths.
+     * 아래 `drainPagination`은 `continuePaginationIfIncomplete` 자신의 루프를 대신한다: 방금
+     * 세션을 null로 만든 배치는 잠깐 측정할 것이 없는 상태로 남으므로, 스핀하는 대신
+     * yield한다 — ViewModel은 배치마다 취소되고 재시작됨으로써(참고: `continueImportIfIncomplete`)
+     * 이를 공짜로 얻는다. 두 개의 동시 launch 이후에 한 번 더 호출되는데, 이는 임포트가 끝난
+     * 뒤 이어하기를 재시작하는 임포트 자신의 마지막 동작을 대신한다(참고:
+     * `ReaderViewModel.continueImportIfIncomplete`가 완료 배치에서 호출하는
+     * `refreshPaginationCompleteness(isImportComplete = true)`) — 왜냐하면 동시 구동자는 두
+     * 플래그가 모두 true를 읽는 순간 물러나는 것이 허용되는데, 그 순간이 임포트의 마지막
+     * 재로드가 그 밖의 아무것도 훑지 않을 단일 섹션 세션을 하나 더 만들기 직전일 수 있기
+     * 때문이다. 진짜 정답 기준 패스는 먼저 `warmSectionBlocks`를 필요로 한다:
+     * `ReaderDocument.blocks`는 [SectionBlocksCache] 위의 `LazyFlattenedBlocks`인데, 아직
+     * 아무도 미리 준비하지 않은 섹션에 대해서는 비어 있는 답을 내놓으므로, 워밍되지 않은
+     * 기준은 표지 블록을 전혀 찾지 못한 채 조용히 실제 코드 자신의 항상-미리준비되는 경로와
+     * 어긋나게 될 것이다.
      */
     @Test
     fun continuePaginationRacingImportNextSectionsStillStoresTheTruePageCount() = runTest {
@@ -4198,15 +4209,15 @@ class DocumentRepositoryImplTest {
     }
 
     /**
-     * isPaginationComplete answered from the pagination session alone said "complete" for every moment
-     * a running import had just nulled that session (see invalidateDocumentCache), and every caller
-     * asks it to decide whether to keep the continuation running — so that answer retired the only
-     * thing that grows the page count while the book was still being parsed underneath it, leaving the
-     * total pinned to whatever single section the last reload measured (see
-     * ReaderViewModel.refreshPaginationCompleteness, which starts nothing when this reads true). This
-     * test imports only phase 0 — far enough to open and no further, exactly the window in which no
-     * pagination session exists yet — and checks that [DocumentRepositoryImpl.isPaginationComplete]
-     * still reads false.
+     * 페이지 측정 세션만으로 답한 isPaginationComplete는, 실행 중인 임포트가 방금 그 세션을
+     * null로 만든 모든 순간에 대해 "완료"라고 말했었다(참고: invalidateDocumentCache), 그리고
+     * 모든 호출자는 이어하기를 계속 실행할지 결정하기 위해 그것을 확인한다 — 그래서 그 답은
+     * 그 밑에서 책이 여전히 파싱되는 동안 페이지 수를 키우는 유일한 것을 물러나게 만들어서,
+     * 총합을 마지막 재로드가 측정한 어떤 단일 섹션에 고정된 채로 남겼다(참고:
+     * ReaderViewModel.refreshPaginationCompleteness, 이는 이 값이 true를 읽으면 아무것도
+     * 시작하지 않는다). 이 테스트는 0단계만 임포트한다 — 열기에 충분할 만큼만이고 그 이상은
+     * 아니다, 정확히 아직 페이지 측정 세션이 존재하지 않는 창구다 — 그리고
+     * [DocumentRepositoryImpl.isPaginationComplete]가 여전히 false를 읽는지 확인한다.
      */
     @Test
     fun estimateOnlyOpenDoesNotReportPaginationCompleteUntilARealMeasurementRuns() = runTest {
@@ -4277,30 +4288,31 @@ class DocumentRepositoryImplTest {
 }
 
 /**
- * A [DocumentFileSource] that always hands back the same [bytes], counting how many times each method
- * was actually called — the counts most tests here assert on to prove a whole-file read was, or was
- * not, paid for.
+ * 항상 같은 [bytes]를 돌려주면서, 각 메서드가 실제로 몇 번 호출되었는지 세는
+ * [DocumentFileSource] — 이 파일의 대부분의 테스트가 전체 파일 읽기가 발생했는지 아닌지를
+ * 증명하기 위해 단언하는 카운트다.
  *
- * @property expectedLocation The location every call must be made with; a mismatch fails the test via
- *   `assertEquals` inside [readBytes]/[copyTo] rather than answering wrong data silently.
- * @property bytes The bytes to hand back from [readBytes] and to write in [copyTo].
+ * @property expectedLocation 모든 호출이 사용해야 하는 위치; 일치하지 않으면 잘못된 데이터로
+ *   조용히 답하는 대신 [readBytes]/[copyTo] 내부의 `assertEquals`를 통해 테스트가 실패한다.
+ * @property bytes [readBytes]에서 돌려주고 [copyTo]에 쓸 바이트.
  */
 private class FakeDocumentFileSource(
     private val expectedLocation: DocumentLocation,
     private val bytes: ByteArray,
 ) : DocumentFileSource {
-    /** How many times [readBytes] has been called. */
+    /** [readBytes]가 호출된 횟수. */
     var readCount: Int = 0
 
-    /** How many times [copyTo] has been called. */
+    /** [copyTo]가 호출된 횟수. */
     var copyCount: Int = 0
 
-    /** Locations the repository requested to remove after deleting their shelf rows. */
+    /** 서재 행 삭제 이후 저장소가 제거를 요청한 위치들. */
     val deletedMaterializedLocations = mutableListOf<DocumentLocation>()
 
     /**
-     * Unique per fake instance so one test's cached cover file can never be left over for the next —
-     * a real device's covers directory is one shared place, but a test's should not be.
+     * 페이크 인스턴스마다 고유하므로 한 테스트의 캐시된 표지 파일이 다음 테스트에 절대 남아
+     * 있을 수 없다 — 실제 기기의 표지 디렉터리는 공유되는 한 곳이지만, 테스트의 것은 그래서는
+     * 안 된다.
      */
     private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
         "tedd-reader-test-${Random.nextLong().toString(16)}"
@@ -4319,7 +4331,7 @@ private class FakeDocumentFileSource(
         }
     }
 
-    /** Records the location a production file source would remove from app-owned storage. */
+    /** 프로덕션 파일 소스라면 앱 소유 저장소에서 제거했을 위치를 기록한다. */
     override suspend fun deleteMaterialized(location: DocumentLocation) {
         assertEquals(expectedLocation, location)
         deletedMaterializedLocations += location
@@ -4329,12 +4341,12 @@ private class FakeDocumentFileSource(
 }
 
 /**
- * A [ComicBookDocumentParser] that counts how many times an archive was opened, so a test can prove the
- * CBZ scratch/open-archive cache builds the ZIP index (list + natural sort) exactly once per document
- * and reuses it across every later page/cover request.
+ * 아카이브가 몇 번 열렸는지 세는 [ComicBookDocumentParser] — 테스트가 CBZ 스크래치/열린
+ * 아카이브 캐시가 문서당 정확히 한 번만 ZIP 인덱스(목록 + 자연 정렬)를 구축하고 이후의
+ * 모든 페이지/표지 요청에서 그것을 재사용한다는 것을 증명할 수 있게 해준다.
  */
 private class CountingComicBookDocumentParser : ComicBookDocumentParser() {
-    /** How many times [openArchive] has been called — one per distinct scratch copy the cache opened. */
+    /** [openArchive]가 호출된 횟수 — 캐시가 연 서로 다른 스크래치 사본마다 한 번씩. */
     var openArchiveCount: Int = 0
 
     override fun openArchive(path: Path): ComicArchive {
@@ -4344,22 +4356,23 @@ private class CountingComicBookDocumentParser : ComicBookDocumentParser() {
 }
 
 /**
- * A [DocumentFileSource] backed by a per-location byte map, so a test switching between two CBZs gets
- * each document's own bytes while still counting total [copyTo] calls across both — the count that
- * proves switching documents copies the new one afresh rather than reusing the previous scratch.
+ * 위치별 바이트 맵을 뒷받침하는 [DocumentFileSource] — 두 CBZ 사이를 전환하는 테스트가 각
+ * 문서 자신의 바이트를 받으면서도 둘에 걸친 총 [copyTo] 호출 수를 계속 셀 수 있게 해준다 —
+ * 이 카운트가 문서 전환이 이전 스크래치를 재사용하는 게 아니라 새 것을 새로 복사한다는 것을
+ * 증명한다.
  *
- * @property bytesByLocation Each document's bytes, keyed by its `sourceUri`.
+ * @property bytesByLocation 각 문서의 바이트, `sourceUri`를 키로 사용.
  */
 private class MultiLocationDocumentFileSource(
     private val bytesByLocation: Map<String, ByteArray>,
 ) : DocumentFileSource {
-    /** How many times [readBytes] has been called across every location. */
+    /** 모든 위치에 걸쳐 [readBytes]가 호출된 횟수. */
     var readCount: Int = 0
 
-    /** How many times [copyTo] has been called across every location. */
+    /** 모든 위치에 걸쳐 [copyTo]가 호출된 횟수. */
     var copyCount: Int = 0
 
-    /** Locations the repository requested to remove after batch deletion. */
+    /** 일괄 삭제 이후 저장소가 제거를 요청한 위치들. */
     val deletedMaterializedLocations = mutableListOf<DocumentLocation>()
 
     private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
@@ -4377,7 +4390,7 @@ private class MultiLocationDocumentFileSource(
         }
     }
 
-    /** Records each location a production file source would remove from app-owned storage. */
+    /** 프로덕션 파일 소스라면 앱 소유 저장소에서 제거했을 각 위치를 기록한다. */
     override suspend fun deleteMaterialized(location: DocumentLocation) {
         deletedMaterializedLocations += location
     }
@@ -4386,10 +4399,10 @@ private class MultiLocationDocumentFileSource(
 }
 
 /**
- * A ZIP archive (the shape a CBZ file is) containing [entries] verbatim, in order.
+ * [entries]를 순서대로 그대로 담고 있는 ZIP 아카이브(CBZ 파일의 형태).
  *
- * @param entries Each entry's archive path paired with its raw bytes.
- * @return The encoded ZIP archive's bytes.
+ * @param entries 각 항목의 아카이브 경로와 그 원시 바이트의 쌍.
+ * @return 인코딩된 ZIP 아카이브의 바이트.
  */
 private fun comicZipBytes(vararg entries: Pair<String, ByteArray>): ByteArray =
     java.io.ByteArrayOutputStream().use { output ->
@@ -4404,12 +4417,12 @@ private fun comicZipBytes(vararg entries: Pair<String, ByteArray>): ByteArray =
     }
 
 /**
- * A minimal EPUB whose cover is declared purely through the manifest's `cover-image` property — no
- * dedicated cover.xhtml page — so the cover bytes exist independently of whether the reader visits it
- * as a section.
+ * 표지가 오직 매니페스트의 `cover-image` 속성만으로 선언되는 최소한의 EPUB — 전용 cover.xhtml
+ * 페이지는 없다 — 그래서 표지 바이트는 독자가 그것을 섹션으로 방문하는지 여부와 무관하게
+ * 존재한다.
  *
- * @param coverBytes The bytes to store as the cover image.
- * @return The encoded EPUB's bytes: one cover image and one chapter.
+ * @param coverBytes 표지 이미지로 저장할 바이트.
+ * @return 인코딩된 EPUB의 바이트: 표지 이미지 하나와 챕터 하나.
  */
 private fun sampleEpubBytesWithCover(
     coverBytes: ByteArray = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2, 3),
@@ -4458,13 +4471,13 @@ private fun sampleEpubBytesWithCover(
 }
 
 /**
- * [chapterCount] ordinary chapters behind a manifest-declared cover, the same shape as
- * [sampleEpubBytesWithCover] but with enough sections that a lazy restore touching one of them must
- * not touch the rest — the cover always synthesizes as section 0 (see `EpubDocumentParser.parseWithCover`),
- * the chapters become sections 1..[chapterCount].
+ * 매니페스트로 선언된 표지 뒤에 [chapterCount]개의 평범한 챕터를 두는, [sampleEpubBytesWithCover]와
+ * 같은 형태지만 그중 하나를 건드리는 지연 복원이 나머지를 건드려서는 안 될 만큼 충분한
+ * 섹션을 갖는다 — 표지는 항상 섹션 0으로 합성되고(참고:
+ * `EpubDocumentParser.parseWithCover`), 챕터들은 섹션 1..[chapterCount]가 된다.
  *
- * @param chapterCount How many chapters to generate.
- * @return The encoded EPUB's bytes.
+ * @param chapterCount 생성할 챕터 수.
+ * @return 인코딩된 EPUB의 바이트.
  */
 private fun sampleMultiChapterEpubBytesWithCover(chapterCount: Int): ByteArray =
     java.io.ByteArrayOutputStream().use { output ->
@@ -4783,12 +4796,12 @@ private fun sampleEpubBytesWithImageAndShortFrontMatter(): ByteArray =
     }
 
 /**
- * Cover + two chapters, chapter two carrying a `<b>` span — enough to prove a block's spans, not just
- * its own range, round-trip through section-relative storage correctly, at a section whose absolute
- * start is not 0 (unlike the cover; see
+ * 표지 + 두 챕터, 챕터 2가 `<b>` 스팬을 가지고 있다 — 절대 시작이 0이 아닌 섹션(표지와 달리)에서
+ * 블록 자신의 범위뿐 아니라 그 스팬들도 섹션 상대 저장을 올바르게 왕복한다는 것을 증명하기에
+ * 충분하다(참고:
  * [everySectionsBlocksRoundTripToTheirOriginalAbsoluteRangesAcrossPhase0AndProgressiveImport]).
  *
- * @return The encoded EPUB's bytes.
+ * @return 인코딩된 EPUB의 바이트.
  */
 private fun epubBytesWithBoldSpanInChapterTwo(): ByteArray =
     java.io.ByteArrayOutputStream().use { output ->
@@ -4842,18 +4855,19 @@ private fun epubBytesWithBoldSpanInChapterTwo(): ByteArray =
     }
 
 /**
- * Drives [DocumentRepositoryImpl.continuePagination] to completion on the same instance that started
- * a progressive pagination pass — the same idiom the progressive-*import* tests already use with
- * `isImportComplete`/`importNextSections` — then hands back the fully-measured pages. The final
- * [DocumentRepositoryImpl.getPageWindows] call is a cache hit (continuePagination already wrote the
- * finished list into the same in-memory cache getPageWindows reads), not a re-measurement.
+ * 점진적 페이지 측정 패스를 시작한 것과 같은 인스턴스에서
+ * [DocumentRepositoryImpl.continuePagination]을 완료까지 진행시킨다 — 점진적 *임포트* 테스트가
+ * `isImportComplete`/`importNextSections`로 이미 사용하는 것과 같은 관용구다 — 그런 다음 완전히
+ * 측정된 페이지들을 돌려준다. 마지막 [DocumentRepositoryImpl.getPageWindows] 호출은 재측정이
+ * 아니라 캐시 적중이다(continuePagination이 이미 getPageWindows가 읽는 것과 같은 메모리
+ * 캐시에 완성된 목록을 써넣었다).
  *
- * @receiver The repository with an in-flight pagination session for [documentId]/[style]/[viewportSize].
- * @param documentId The document to finish paginating.
- * @param style The style the in-flight session must match.
- * @param viewportSize The viewport the in-flight session must match.
- * @param pageBreaker The real page-breaking measurement to finish measuring with.
- * @return Every page window now known for the document.
+ * @receiver [documentId]/[style]/[viewportSize]에 대해 진행 중인 페이지 측정 세션을 가진 저장소.
+ * @param documentId 페이지 측정을 끝마칠 문서.
+ * @param style 진행 중인 세션이 일치해야 하는 스타일.
+ * @param viewportSize 진행 중인 세션이 일치해야 하는 뷰포트.
+ * @param pageBreaker 측정을 끝마치는 데 쓸 실제 페이지 나누기 측정.
+ * @return 이제 이 문서에 대해 알려진 모든 페이지 윈도우.
  */
 private suspend fun DocumentRepositoryImpl.finishPagination(
     documentId: DocumentId,
@@ -4871,16 +4885,17 @@ private suspend fun DocumentRepositoryImpl.finishPagination(
 }
 
 /**
- * Five ordinary TXT sections written straight into the search index, each carrying one real
- * [ReaderBlockKind.PARAGRAPH] block over its own text — enough sections, with real blocksJson, to tell
- * a genuine on-demand fetch apart from an eagerly-loaded one.
+ * 검색 색인에 직접 기록된 다섯 개의 평범한 TXT 섹션, 각각 자신의 텍스트에 걸친 실제
+ * [ReaderBlockKind.PARAGRAPH] 블록 하나를 가지고 있다 — 실제 blocksJson과 함께, 진짜 온디맨드
+ * 가져오기와 즉시 로드된 것을 구별하기에 충분한 섹션 수다.
  *
- * The block is stored relative to the section's own start (range 0..text.length), matching what
- * `persistParsedDocument`/`importNextSections` now actually write — a fixture standing in for "already
- * in storage" has to agree with the real writer or a decode reads the block at the wrong offset.
+ * 블록은 섹션 자신의 시작을 기준으로 상대적으로 저장되며(범위 0..text.length),
+ * `persistParsedDocument`/`importNextSections`가 지금 실제로 쓰는 것과 일치한다 — "이미 저장소에
+ * 있는" 것을 대신하는 픽스처는 실제 작성자와 일치해야 하며 그러지 않으면 디코딩이 블록을 잘못된
+ * 오프셋에서 읽는다.
  *
- * @param documentId The document these sections belong to.
- * @return The five sections, ready to upsert into a [FakeDocumentSearchIndexDao].
+ * @param documentId 이 섹션들이 속한 문서.
+ * @return upsert할 준비가 된 다섯 섹션([FakeDocumentSearchIndexDao]에 upsert).
  */
 private fun fiveTxtSectionsWithBlocks(documentId: String): List<SearchIndexEntity> {
     val json = Json
@@ -4904,12 +4919,12 @@ private fun fiveTxtSectionsWithBlocks(documentId: String): List<SearchIndexEntit
 }
 
 /**
- * Like [fiveTxtSectionsWithBlocks], but for however many sections a test needs — used to exercise
- * warming across more than one batch.
+ * [fiveTxtSectionsWithBlocks]와 비슷하지만, 테스트가 필요로 하는 만큼의 섹션 수에 대응한다 —
+ * 워밍을 하나 이상의 배치에 걸쳐 검증할 때 사용한다.
  *
- * @param documentId The document these sections belong to.
- * @param count How many sections to generate.
- * @return The generated sections, ready to upsert into a [FakeDocumentSearchIndexDao].
+ * @param documentId 이 섹션들이 속한 문서.
+ * @param count 생성할 섹션 수.
+ * @return upsert할 준비가 된 생성된 섹션들([FakeDocumentSearchIndexDao]에 upsert).
  */
 private fun manyTxtSectionsWithBlocks(documentId: String, count: Int): List<SearchIndexEntity> {
     val json = Json
@@ -4933,30 +4948,31 @@ private fun manyTxtSectionsWithBlocks(documentId: String, count: Int): List<Sear
 }
 
 /**
- * A [DocumentDao] that deliberately models only one document at a time: [saved] is a single slot, not
- * a map, so upserting a second document silently replaces the first. This is the right shape for most
- * tests here, which import exactly one book, but it also means a test that imports two books and needs
- * both to still resolve cannot use this fake — see [FakeMultiDocumentDao] for that case.
+ * 한 번에 오직 하나의 문서만 의도적으로 모델링하는 [DocumentDao]: [saved]는 맵이 아니라 단일
+ * 슬롯이므로, 두 번째 문서를 upsert하면 첫 번째를 조용히 대체한다. 이는 정확히 책 하나만
+ * 임포트하는 이 파일 대부분의 테스트에 맞는 형태지만, 두 책을 임포트하고 둘 다 여전히
+ * 해석되어야 하는 테스트는 이 페이크를 쓸 수 없다는 뜻이기도 하다 — 그런 경우는
+ * [FakeMultiDocumentDao] 참고.
  */
 private class FakeDocumentDao : DocumentDao {
-    /** The one document currently "stored", or null once [deleteDocument] removes it. */
+    /** 현재 "저장된" 그 하나의 문서, 또는 [deleteDocument]가 제거한 뒤에는 null. */
     var saved: DocumentEntity? = null
 
     /**
-     * Awaited by [upsertDocument], but only for the specific write that stamps
-     * [DocumentEntity.importCompletedAtEpochMillis] for the first time — the write
-     * [DocumentRepositoryImpl.finishEpubImport]/[DocumentRepositoryImpl.finishNonProgressiveEpubImport]
-     * make. Parks that write right after it becomes visible in [saved], so a test can assert what
-     * [DocumentRepositoryImpl.isImportComplete] and [DocumentRepositoryImpl.getReaderDocument] answer in
-     * the gap before the caller's next statement runs (see
+     * [upsertDocument]가 기다리지만, 오직 처음으로
+     * [DocumentEntity.importCompletedAtEpochMillis]를 찍는 특정 쓰기에 대해서만 그렇다 —
+     * [DocumentRepositoryImpl.finishEpubImport]/[DocumentRepositoryImpl.finishNonProgressiveEpubImport]가
+     * 만드는 쓰기다. 그 쓰기가 [saved]에서 보이게 된 직후에 멈춰 세우므로, 테스트는 호출자의
+     * 다음 문장이 실행되기 전 그 창구에서 [DocumentRepositoryImpl.isImportComplete]와
+     * [DocumentRepositoryImpl.getReaderDocument]가 무엇을 답하는지 단언할 수 있다(참고:
      * [DocumentRepositoryImplTest.aReaderCaughtBetweenTheCompletionStampAndTheCacheInvalidationMustNotSeeStaleNavigation]).
-     * Null (the default) means every write proceeds without pausing.
+     * null(기본값)은 모든 쓰기가 멈추지 않고 진행됨을 의미한다.
      */
     var completionStampGate: CompletableDeferred<Unit>? = null
 
     /**
-     * Completed by [upsertDocument] the instant it reaches [completionStampGate], so a test can await
-     * this instead of guessing how long the write takes to arrive at the gate.
+     * [upsertDocument]가 [completionStampGate]에 도달하는 순간 완료되므로, 테스트는 쓰기가
+     * 게이트에 도달하는 데 얼마나 걸릴지 추측하는 대신 이것을 기다릴 수 있다.
      */
     var completionStampReached: CompletableDeferred<Unit>? = null
 
@@ -5043,11 +5059,11 @@ private class FakeDocumentDao : DocumentDao {
 }
 
 /**
- * Unlike [FakeDocumentDao], keeps every document ever upserted — needed only where a test imports more
- * than one book and needs both to still resolve afterwards.
+ * [FakeDocumentDao]와 달리, 지금까지 upsert된 모든 문서를 보관한다 — 테스트가 두 권 이상의
+ * 책을 임포트하고 이후 둘 다 여전히 해석되어야 할 때만 필요하다.
  */
 private class FakeMultiDocumentDao : DocumentDao {
-    /** Every document upserted so far, keyed by id. */
+    /** 지금까지 upsert된 모든 문서, id를 키로 사용. */
     private val documents = mutableMapOf<String, DocumentEntity>()
 
     override suspend fun upsertDocument(document: DocumentEntity) {
@@ -5123,47 +5139,47 @@ private class FakeMultiDocumentDao : DocumentDao {
     }
 }
 /**
- * An in-memory [SearchIndexDao] backed by a plain list of [entries], with no per-column projection the
- * way Room's real query would apply — every override filters or maps [entries] directly, which is what
- * lets [getDocumentSectionsWithoutBlocks] and [getSectionBlocksJson] stay faithful to the real
- * split between section metadata and block JSON despite storing both in the same row.
+ * [entries]의 평범한 리스트를 뒷받침으로 사용하는 메모리 내 [SearchIndexDao]이며, Room의 실제
+ * 쿼리가 적용할 컬럼별 프로젝션은 없다 — 모든 오버라이드는 [entries]를 직접 필터링하거나
+ * 매핑하는데, 이것이 [getDocumentSectionsWithoutBlocks]와 [getSectionBlocksJson]이 같은 행에
+ * 둘 다 저장되어 있음에도 불구하고 섹션 메타데이터와 블록 JSON 사이의 실제 분리에 충실하게
+ * 남아 있게 해준다.
  */
 private class FakeDocumentSearchIndexDao : SearchIndexDao {
-    /** Every section upserted so far, across every document — filtered by `documentId` per call. */
+    /** 모든 문서에 걸쳐 지금까지 upsert된 모든 섹션 — 호출마다 `documentId`로 필터링됨. */
     val entries = mutableListOf<SearchIndexEntity>()
 
     /**
-     * Every [getSectionBlocksJson] call's `sectionIndexes` argument, recorded verbatim in call order,
-     * so a test can assert exactly which sections a fetch touched — "count fetches" alone would miss a
-     * call that asked for the wrong sections.
+     * [getSectionBlocksJson]의 각 호출의 `sectionIndexes` 인자를 호출 순서 그대로 기록한다,
+     * 그래서 테스트는 가져오기가 정확히 어떤 섹션을 건드렸는지 단언할 수 있다 — "가져오기
+     * 횟수"만으로는 잘못된 섹션을 요청한 호출을 놓칠 것이다.
      */
     val blocksJsonQueries = mutableListOf<List<Int>>()
 
     /**
-     * Awaited by [getDocumentSectionsWithoutBlocks] after it has already taken its snapshot of
-     * [entries], so the value it eventually returns is whatever was stored at call time even though the
-     * return itself is delayed — modelling a [DocumentRepositoryImpl.getReaderDocument] load that read
-     * the pre-rewrite rows but has not yet reached its own cache-publishing step when a concurrent writer
-     * rewrites the document (see
+     * [getDocumentSectionsWithoutBlocks]가 이미 [entries]의 스냅샷을 뜬 뒤에 기다리므로, 반환
+     * 자체는 지연되더라도 결국 반환하는 값은 호출 시점에 저장되어 있던 것이다 — 다시쓰기 이전
+     * 행을 읽었지만 동시 작성자가 문서를 다시 쓸 때 아직 자신의 캐시 발행 단계에 도달하지
+     * 않은 [DocumentRepositoryImpl.getReaderDocument] 로드를 모델링한다(참고:
      * [DocumentRepositoryImplTest.aLoadThatStraddlesAnInvalidationMustNotLeaveItsStaleSnapshotCached]).
-     * Null (the default) means every call returns immediately.
+     * null(기본값)은 모든 호출이 즉시 반환됨을 의미한다.
      */
     var getDocumentSectionsWithoutBlocksGate: CompletableDeferred<Unit>? = null
 
-    /** Completed by [getDocumentSectionsWithoutBlocks] the instant it reaches [getDocumentSectionsWithoutBlocksGate]. */
+    /** [getDocumentSectionsWithoutBlocks]가 [getDocumentSectionsWithoutBlocksGate]에 도달하는 순간 완료된다. */
     var getDocumentSectionsWithoutBlocksReached: CompletableDeferred<Unit>? = null
 
     /**
-     * Awaited by [upsertSearchIndex] before it writes its rows into [entries], modelling
-     * `DocumentRepositoryImpl.persistParsedDocument`'s write window: by the time this call is made,
-     * `deleteSearchIndex` has already emptied every row for the document, and none of the fresh rows
-     * are visible until this gate releases (see
+     * [upsertSearchIndex]가 자신의 행을 [entries]에 쓰기 전에 기다린다,
+     * `DocumentRepositoryImpl.persistParsedDocument`의 쓰기 창구를 모델링한다: 이 호출이
+     * 이뤄질 즈음에는 `deleteSearchIndex`가 이미 그 문서의 모든 행을 비워버렸고, 이 게이트가
+     * 풀릴 때까지는 새 행 중 어느 것도 보이지 않는다(참고:
      * [DocumentRepositoryImplTest.aLoadRacingPersistParsedDocumentsRewriteMustNotLeaveTheCacheHoldingTheTornSnapshot]).
-     * Null (the default) means every call writes immediately.
+     * null(기본값)은 모든 호출이 즉시 기록됨을 의미한다.
      */
     var upsertSearchIndexGate: CompletableDeferred<Unit>? = null
 
-    /** Completed by [upsertSearchIndex] the instant it reaches [upsertSearchIndexGate], before writing. */
+    /** [upsertSearchIndex]가 기록하기 전, [upsertSearchIndexGate]에 도달하는 순간 완료된다. */
     var upsertSearchIndexReached: CompletableDeferred<Unit>? = null
 
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) {
@@ -5242,11 +5258,11 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
 }
 
 /**
- * [SearchIndexEntity] projected down to [SearchIndexSectionEntry] — every column except `blocksJson` —
- * matching what the real `SearchIndexDao.getDocumentSectionsWithoutBlocks` query selects.
+ * [SearchIndexEntity]를 [SearchIndexSectionEntry]로 투영한다 — `blocksJson`을 제외한 모든
+ * 컬럼 — 실제 `SearchIndexDao.getDocumentSectionsWithoutBlocks` 쿼리가 선택하는 것과 일치한다.
  *
- * @receiver The stored entity to project.
- * @return The entity's non-block columns.
+ * @receiver 투영할 저장된 엔티티.
+ * @return 그 엔티티의 블록이 아닌 컬럼들.
  */
 private fun SearchIndexEntity.toSectionEntry() = SearchIndexSectionEntry(
     sectionIndex = sectionIndex,
@@ -5260,12 +5276,12 @@ private fun SearchIndexEntity.toSectionEntry() = SearchIndexSectionEntry(
 )
 
 /**
- * An in-memory [PageLayoutDao], upserting by the same (document, style, viewport) key Room's real
- * unique index enforces (see [hasSameKeyAs]), so a test can inspect [stored] directly to assert what a
- * real upsert would have replaced or kept.
+ * Room의 실제 고유 인덱스가 강제하는 것과 같은 (문서, 스타일, 뷰포트) 키로 upsert하는 메모리 내
+ * [PageLayoutDao](참고: [hasSameKeyAs]), 그래서 테스트는 실제 upsert가 무엇을 대체하거나
+ * 유지했을지 단언하기 위해 [stored]를 직접 검사할 수 있다.
  */
 private class FakePageLayoutDao : PageLayoutDao {
-    /** Every page layout row currently "stored", at most one per (document, style, viewport) key. */
+    /** 현재 "저장된" 모든 페이지 레이아웃 행, (문서, 스타일, 뷰포트) 키당 최대 하나. */
     val stored = mutableListOf<PageLayoutEntity>()
 
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) {
@@ -5313,12 +5329,13 @@ private class FakePageLayoutDao : PageLayoutDao {
     }
 
     /**
-     * Whether this row and [other] share the same (document, style, viewport) identity — the key
-     * [upsertPageLayout] replaces on, matching Room's real unique index for this table.
+     * 이 행과 [other]가 같은 (문서, 스타일, 뷰포트) 정체성을 공유하는지 여부 —
+     * [upsertPageLayout]이 대체 기준으로 삼는 키이며, 이 테이블에 대한 Room의 실제 고유
+     * 인덱스와 일치한다.
      *
-     * @receiver One row to compare.
-     * @param other The other row to compare.
-     * @return True when every key column matches.
+     * @receiver 비교할 한 행.
+     * @param other 비교 대상이 되는 다른 행.
+     * @return 모든 키 컬럼이 일치하면 true.
      */
     private fun PageLayoutEntity.hasSameKeyAs(other: PageLayoutEntity): Boolean =
         documentId == other.documentId &&

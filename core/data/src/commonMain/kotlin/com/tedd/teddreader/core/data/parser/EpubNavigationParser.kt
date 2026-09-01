@@ -1,14 +1,13 @@
 package com.tedd.teddreader.core.data.parser
 
 /**
- * An EPUB's table of contents, read from either its EPUB3 nav document or its EPUB2 NCX, before it is
- * resolved against the book's actual spine and section offsets. Only carrying what the two very
- * different source formats agree on — an optional heading and a flat, indent-tagged list of entries —
- * keeps [parseEpubNavDocument] and [parseNcxDocument] returning the same shape regardless of which
- * table-of-contents format the book actually shipped with.
+ * EPUB의 목차. EPUB3 nav 문서든 EPUB2 NCX든 원본 소스에서 읽어온 것으로, 책의 실제 스파인과 섹션
+ * 오프셋에 맞춰 해석되기 전 단계다. 아주 다른 두 소스 포맷이 공통으로 갖는 것 — 선택적 제목과
+ * 평평하고 들여쓰기 태그가 붙은 항목 목록 — 만 담아두어, 어느 목차 포맷으로 책이 만들어졌든
+ * [parseEpubNavDocument]와 [parseNcxDocument]가 같은 형태를 반환하게 한다.
  *
- * @property heading The TOC's own heading text (e.g. "Contents"), if the source markup had one.
- * @property entries The TOC's entries, in document order.
+ * @property heading 원본 마크업에 제목이 있었다면 그 목차 자체의 제목 텍스트(예: "Contents").
+ * @property entries 문서 순서대로의 목차 항목들.
  */
 internal data class ParsedNavigation(
     val heading: String? = null,
@@ -16,14 +15,13 @@ internal data class ParsedNavigation(
 )
 
 /**
- * One entry in an EPUB's table of contents, before its `href` has been resolved to a section index
- * and character offset in the parsed book.
+ * EPUB 목차의 항목 하나. `href`가 파싱된 책의 섹션 인덱스와 문자 오프셋으로 아직 해석되기 전 단계다.
  *
- * @property title The entry's display text.
- * @property level Nesting depth, starting at 1 for a top-level entry; deeper for an entry nested
- *   inside an EPUB3 `<ol>` or an NCX `navPoint`.
- * @property href The link target this entry points at, as written in the source markup — a path to a
- *   spine document, optionally with a `#fragment` anchor into it.
+ * @property title 항목의 표시 텍스트.
+ * @property level 중첩 깊이. 최상위 항목은 1부터 시작하며, EPUB3 `<ol>`이나 NCX `navPoint` 안에
+ *   중첩된 항목일수록 더 깊어진다.
+ * @property href 이 항목이 가리키는 링크 대상. 원본 마크업에 쓰인 그대로 — 스파인 문서 경로,
+ *   선택적으로 `#fragment` 앵커가 붙는다.
  */
 internal data class ParsedNavigationEntry(
     val title: String,
@@ -32,20 +30,19 @@ internal data class ParsedNavigationEntry(
 )
 
 /**
- * Reads an EPUB3 navigation document's table of contents: the `<nav>` element whose `epub:type` (or
- * `type`/`role`, both seen in books that predate the `epub:type` attribute) contains `toc`, among
- * possibly several `<nav>` elements for landmarks or a page list.
+ * EPUB3 내비게이션 문서의 목차를 읽는다: `epub:type`(또는 `epub:type` 속성이 생기기 전 시절의 책에서
+ * 보이는 `type`/`role`)에 `toc`가 포함된 `<nav>` 요소를, 랜드마크나 페이지 목록용으로 여러 개 있을 수
+ * 있는 `<nav>` 요소들 중에서 찾는다.
  *
- * The body is walked as a flat token stream rather than parsed as a DOM, tracking `<ol>` nesting depth
- * for [ParsedNavigationEntry.level] and, inside each `<a>`, collecting its text content as the title —
- * falling back to an inner `<img>`'s `alt` or `title` attribute for a link that carries a cover
- * thumbnail instead of text, which some books use as their only chapter label. An entry with no `href`
- * or an empty title is dropped rather than added with a placeholder.
+ * 본문은 DOM으로 파싱되지 않고 평평한 토큰 스트림으로 순회된다. [ParsedNavigationEntry.level]을 위해
+ * `<ol>` 중첩 깊이를 추적하고, 각 `<a>` 안에서는 텍스트 콘텐츠를 제목으로 모으되 — 텍스트 대신 표지
+ * 썸네일을 담은(일부 책이 유일한 챕터 라벨로 쓰는 방식) 링크를 위해 내부 `<img>`의 `alt`나 `title`
+ * 속성으로 폴백한다. `href`가 없거나 제목이 빈 항목은 자리표시자를 넣는 대신 그냥 버려진다.
  *
- * @param xhtml The nav document's raw markup.
- * @return The heading and entries found, or an empty [ParsedNavigation] if no `toc`-typed `<nav>`
- *   exists, or its opening tag has no matching close (malformed markup never throws here — it just
- *   yields nothing to show).
+ * @param xhtml nav 문서의 원시 마크업.
+ * @return 찾은 제목과 항목들, 또는 `toc` 타입의 `<nav>`가 없거나 그 여는 태그에 대응하는 닫는 태그가
+ *   없다면 빈 [ParsedNavigation](잘못된 마크업이라도 여기서 예외를 던지는 일은 없다 — 그저 보여줄
+ *   것이 없다는 결과만 낼 뿐이다).
  */
 internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
     val navMatch = NavOpenTagRegex
@@ -110,14 +107,14 @@ internal fun parseEpubNavDocument(xhtml: String): ParsedNavigation {
 }
 
 /**
- * Reads an EPUB2 NCX document's table of contents — the legacy format still shipped alongside, or
- * instead of, an EPUB3 nav document by books produced with older tooling. `docTitle`/`text` supplies
- * the heading, and nested `navPoint` elements ([parseNcxNavPoints]) supply the entries, with an
- * entry's nesting depth becoming its [ParsedNavigationEntry.level].
+ * EPUB2 NCX 문서의 목차를 읽는다 — 예전 도구로 만들어진 책들이 EPUB3 nav 문서와 함께, 또는 그 대신
+ * 여전히 담고 있는 레거시 포맷. `docTitle`/`text`가 제목을 제공하고, 중첩된 `navPoint` 요소들
+ * ([parseNcxNavPoints])이 항목들을 제공하며, 항목의 중첩 깊이가 그대로 그 항목의
+ * [ParsedNavigationEntry.level]이 된다.
  *
- * @param xml The NCX document's raw markup.
- * @return The heading and entries found; entries is empty if the document has no `navPoint`s or they
- *   are malformed enough that none can be matched.
+ * @param xml NCX 문서의 원시 마크업.
+ * @return 찾은 제목과 항목들; 문서에 `navPoint`가 없거나 매칭할 수 없을 만큼 손상되어 있다면
+ *   entries는 비어 있다.
  */
 internal fun parseNcxDocument(xml: String): ParsedNavigation {
     val heading = NcxDocTitleRegex
@@ -132,15 +129,15 @@ internal fun parseNcxDocument(xml: String): ParsedNavigation {
 }
 
 /**
- * Recursively collects [ParsedNavigationEntry] from every `navPoint` in [xml] into [entries], in
- * document order, descending into each `navPoint`'s own body to find the ones nested inside it at
- * [level] + 1. A `navPoint` missing either a `navLabel`/`text` title or a `content` `src` is skipped —
- * its children are still visited — rather than added with a blank title or href.
+ * [xml] 안의 모든 `navPoint`에서 [ParsedNavigationEntry]를 문서 순서대로 [entries]에 재귀적으로
+ * 모은다. 각 `navPoint`의 본문 안으로 내려가 [level] + 1에 중첩된 것들을 찾는다. `navLabel`/`text`
+ * 제목이나 `content`의 `src`가 없는 `navPoint`는 건너뛴다 — 그 자식들은 여전히 방문하되, 빈 제목이나
+ * href로 추가하지는 않는다.
  *
- * @param xml The markup to scan for `navPoint` elements at this level; either the whole NCX document
- *   or the body of one `navPoint`, when called recursively.
- * @param level Nesting depth to assign to entries found directly in [xml].
- * @param entries The list entries are appended to, shared across the whole recursive walk.
+ * @param xml 이 레벨에서 `navPoint` 요소를 찾기 위해 스캔할 마크업; NCX 문서 전체이거나, 재귀
+ *   호출일 때는 어느 `navPoint`의 본문이다.
+ * @param level [xml]에서 직접 발견된 항목들에 부여할 중첩 깊이.
+ * @param entries 항목이 추가되는 목록. 재귀 순회 전체에서 공유된다.
  */
 private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<ParsedNavigationEntry>) {
     var index = 0
@@ -169,25 +166,23 @@ private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<Pars
     }
 }
 
-/** Span of a closing tag [findMatchingEndTag] found, from its `<` through its `>` inclusive. */
+/** [findMatchingEndTag]가 찾은 닫는 태그의 범위. `<`부터 `>`까지 포함한다. */
 private data class EndTagRange(val start: Int, val end: Int)
 
 /**
- * Finds the closing tag that matches the element opened at [startIndex], accounting for other
- * same-named elements nested inside it (an `<ol>` inside an `<ol>`, say) and for self-closing tags,
- * which never increase nesting depth in the first place.
+ * [startIndex]에서 열린 요소에 대응하는 닫는 태그를 찾는다. 그 안에 중첩된 같은 이름의 다른 요소들
+ * (예: `<ol>` 안의 `<ol>`)과, 애초에 중첩 깊이를 늘리지 않는 자체 닫힘 태그를 함께 고려한다.
  *
- * Takes the tag pattern already compiled rather than an element name, because
- * [parseNcxNavPoints] calls this once per `navPoint` while walking a book's whole table of contents
- * and recursing into each entry's children — building the pattern from a name here charged a regex
- * compilation to every entry at every nesting level.
+ * 요소 이름 대신 이미 컴파일된 태그 패턴을 받는 이유는, [parseNcxNavPoints]가 책의 전체 목차를
+ * 순회하며 각 항목의 자식들로 재귀하는 동안 `navPoint`마다 이 함수를 한 번씩 호출하기 때문이다 —
+ * 여기서 이름으로부터 패턴을 만들면 모든 중첩 레벨의 모든 항목마다 정규식 컴파일 비용이 청구되었다.
  *
- * @param text The markup to scan.
- * @param startIndex Position of (at or before) the opening tag's own `<`.
- * @param tagPair Pattern matching both the opening and closing form of the element, capturing `/` in
- *   group 1 for the closing form, i.e. [NavTagPairRegex] or [NcxNavPointTagPairRegex].
- * @return The matching close tag's range, or `null` if [text] has no balanced close for it — markup
- *   this parser treats as malformed and gives up on for that element, rather than guessing.
+ * @param text 스캔할 마크업.
+ * @param startIndex 여는 태그 자신의 `<`의 위치(그 위치이거나 그 이전).
+ * @param tagPair 요소의 여는 형태와 닫는 형태를 모두 매칭하는 패턴. 닫는 형태에서는 그룹 1에 `/`를
+ *   캡처한다. 즉 [NavTagPairRegex]나 [NcxNavPointTagPairRegex].
+ * @return 매칭된 닫는 태그의 범위, 또는 [text]에 그것에 대응하는 균형 잡힌 닫힘이 없다면 `null` —
+ *   추측하지 않고 그 요소에 대해서는 포기하는, 이 파서가 잘못된 마크업으로 취급하는 경우다.
  */
 private fun findMatchingEndTag(text: String, startIndex: Int, tagPair: Regex): EndTagRange? {
     var depth = 0
@@ -207,12 +202,11 @@ private fun findMatchingEndTag(text: String, startIndex: Int, tagPair: Regex): E
 }
 
 /**
- * Parses one already-isolated tag string (e.g. `<a href="ch1.xhtml">` or `</ol>`) from
- * [parseEpubNavDocument]'s token stream into its name, attributes, and open/close state.
+ * [parseEpubNavDocument]의 토큰 스트림에서 이미 분리된 태그 문자열 하나(예: `<a href="ch1.xhtml">`나
+ * `</ol>`)를 그 이름, 속성, 열림/닫힘 상태로 파싱한다.
  *
- * @param raw The raw tag text, including its enclosing `<`/`>` and, for a self-closing tag, its `/`.
- * @return The parsed [NavToken]; a closing tag always has an empty attribute map, since a close tag
- *   carries none.
+ * @param raw 감싸는 `<`/`>`와, 자체 닫힘 태그라면 그 `/`까지 포함한 원시 태그 텍스트.
+ * @return 파싱된 [NavToken]; 닫는 태그는 속성이 없으므로 속성 맵이 항상 비어 있다.
  */
 private fun parseNavToken(raw: String): NavToken {
     val body = raw.removePrefix("<").removeSuffix(">").removeSuffix("/")
@@ -227,11 +221,12 @@ private fun parseNavToken(raw: String): NavToken {
 }
 
 /**
- * One tag from [parseEpubNavDocument]'s token stream, decomposed enough to drive its state machine.
+ * [parseEpubNavDocument]의 토큰 스트림에서 나온 태그 하나. 상태 머신을 구동할 수 있을 만큼만 분해된
+ * 형태.
  *
- * @property name The tag's element name, lowercased.
- * @property attributes The tag's attributes; always empty for a closing tag.
- * @property isClosing Whether this is a `</name>` closing tag rather than an opening or self-closing one.
+ * @property name 소문자화된 태그의 요소 이름.
+ * @property attributes 태그의 속성들; 닫는 태그에서는 항상 비어 있다.
+ * @property isClosing 여는/자체 닫힘 태그가 아니라 `</name>` 닫는 태그인지 여부.
  */
 private data class NavToken(
     val name: String,
@@ -240,12 +235,11 @@ private data class NavToken(
 )
 
 /**
- * Removes every tag from an HTML/XML fragment, decodes the entities in what remains, and collapses
- * whitespace — turning a heading's or label's markup into the plain text it displays as.
+ * HTML/XML 조각에서 모든 태그를 제거하고, 남은 부분의 엔티티를 디코딩하고, 공백을 축약한다 —
+ * 제목이나 라벨의 마크업을 화면에 표시되는 그대로의 평문으로 바꾼다.
  *
- * @param value The markup fragment to strip.
- * @return The fragment's text content with all runs of whitespace collapsed to a single space and
- *   leading/trailing whitespace removed.
+ * @param value 벗겨낼 마크업 조각.
+ * @return 모든 연속 공백이 하나의 스페이스로 축약되고 앞뒤 공백이 제거된, 조각의 텍스트 콘텐츠.
  */
 internal fun stripMarkup(value: String): String = buildString {
     MarkupTokenRegex.findAll(value).forEach { token ->
@@ -254,13 +248,12 @@ internal fun stripMarkup(value: String): String = buildString {
 }.replace(WhitespaceRunRegex, " ").trim()
 
 /**
- * The lowercase, whitespace-split token set carried by a `<nav>` tag's `epub:type` attribute — or,
- * for books written before that attribute existed, its `type` or `role` attribute instead — which
- * [parseEpubNavDocument] checks for the `toc` token to find the right `<nav>` among possibly several.
+ * `<nav>` 태그의 `epub:type` 속성이 담는, 소문자화되고 공백으로 분리된 토큰 집합 — 또는 그 속성이
+ * 생기기 전에 작성된 책이라면 대신 `type`이나 `role` 속성이 담는 것. [parseEpubNavDocument]는
+ * 여러 개 있을 수 있는 `<nav>` 중 올바른 것을 찾기 위해 여기서 `toc` 토큰을 확인한다.
  *
- * @param attributes The tag's parsed attributes.
- * @return The tokens found across whichever of `epub:type`, `type`, and `role` are present; empty if
- *   none of them are.
+ * @param attributes 태그의 파싱된 속성들.
+ * @return `epub:type`, `type`, `role` 중 존재하는 것들에서 찾은 토큰들; 어느 것도 없다면 비어 있다.
  */
 private fun navTypeTokens(attributes: Map<String, String>): Set<String> =
     sequenceOf(attributes["epub:type"], attributes["type"], attributes["role"])
@@ -272,43 +265,43 @@ private fun navTypeTokens(attributes: Map<String, String>): Set<String> =
         .toSet()
 
 /**
- * Matches a `<nav>` opening tag, whose attributes [parseEpubNavDocument] then checks for the `toc`
- * type token.
+ * `<nav>` 여는 태그를 매칭한다. [parseEpubNavDocument]는 이후 이 태그의 속성에서 `toc` 타입 토큰을
+ * 확인한다.
  */
 private val NavOpenTagRegex = Regex("""(?is)<nav\b[^>]*>""")
 
-/** Matches both `<nav …>` and `</nav>` so [findMatchingEndTag] can balance nesting depth. */
+/** [findMatchingEndTag]가 중첩 깊이의 균형을 맞출 수 있도록 `<nav …>`와 `</nav>`를 모두 매칭한다. */
 private val NavTagPairRegex = Regex("""(?is)<(/?)nav\b[^>]*>""")
 
-/** Matches the first heading element inside a nav document's body, whose group 2 is its markup. */
+/** nav 문서 본문 안의 첫 제목 요소를 매칭한다. 그룹 2가 그 마크업이다. */
 private val NavHeadingRegex = Regex("""(?is)<(h[1-6]|p)\b[^>]*>(.*?)</\1>""")
 
 /**
- * Splits markup into a flat stream of tags and the text between them, the tokenization both
- * [parseEpubNavDocument]'s state machine and [stripMarkup] walk.
+ * 마크업을 태그와 그 사이 텍스트의 평평한 스트림으로 분리한다. [parseEpubNavDocument]의 상태
+ * 머신과 [stripMarkup] 모두 이 토큰화를 순회한다.
  */
 private val MarkupTokenRegex = Regex("""(?s)<[^>]+>|[^<]+""")
 
 /**
- * Matches one run of whitespace, for collapsing a label's internal whitespace and for splitting a
- * `nav` type attribute into tokens.
+ * 연속된 공백 한 구간을 매칭한다. 라벨 내부 공백을 축약하고 `nav` type 속성을 토큰으로 분리하는 데
+ * 쓰인다.
  *
- * Hoisted because [stripMarkup] runs once per table-of-contents entry and per heading, so a book with
- * a large outline compiled this pattern hundreds of times per import.
+ * [stripMarkup]이 목차 항목 하나, 제목 하나마다 실행되므로, 개요가 큰 책은 임포트할 때마다 이
+ * 패턴을 수백 번 컴파일했었다. 그래서 이 패턴은 끌어올려져 있다.
  */
 private val WhitespaceRunRegex = Regex("""\s+""")
 
-/** Captures an NCX `docTitle`'s text content in group 1, the heading [parseNcxDocument] reports. */
+/** NCX `docTitle`의 텍스트 콘텐츠를 그룹 1에 캡처한다. [parseNcxDocument]가 보고하는 제목이다. */
 private val NcxDocTitleRegex = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
 
-/** Matches a `navPoint` opening tag, the element [parseNcxNavPoints] walks. */
+/** `navPoint` 여는 태그를 매칭한다. [parseNcxNavPoints]가 순회하는 요소다. */
 private val NcxNavPointOpenRegex = Regex("""(?is)<navPoint\b[^>]*>""")
 
-/** Matches both `<navPoint …>` and `</navPoint>` so [findMatchingEndTag] can balance nesting depth. */
+/** [findMatchingEndTag]가 중첩 깊이의 균형을 맞출 수 있도록 `<navPoint …>`와 `</navPoint>`를 모두 매칭한다. */
 private val NcxNavPointTagPairRegex = Regex("""(?is)<(/?)navPoint\b[^>]*>""")
 
-/** Captures a `navPoint`'s `navLabel`/`text` title in group 1. */
+/** `navPoint`의 `navLabel`/`text` 제목을 그룹 1에 캡처한다. */
 private val NcxNavLabelTextRegex = Regex("""(?is)<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""")
 
-/** Captures a `navPoint`'s `content` `src` link target in group 1. */
+/** `navPoint`의 `content` `src` 링크 대상을 그룹 1에 캡처한다. */
 private val NcxContentSrcRegex = Regex("""(?is)<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""")

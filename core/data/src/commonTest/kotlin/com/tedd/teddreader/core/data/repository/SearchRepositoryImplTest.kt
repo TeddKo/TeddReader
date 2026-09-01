@@ -18,18 +18,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins [SearchRepositoryImpl]'s occurrence-search contract: given sections already indexed via
- * [toSearchIndexEntity], [SearchRepositoryImpl.findInDocument] returns every non-overlapping
- * occurrence of a query in reading order, case-insensitively, with the query trimmed of surrounding
- * whitespace, a query that is blank once trimmed matching nothing, and a requested limit below one
- * read as one. Backed by an in-memory [FakeSearchIndexDao] so these guarantees are exercised without
- * Room.
+ * [SearchRepositoryImpl]의 발생 횟수 검색 계약을 고정한다: [toSearchIndexEntity]를 통해 이미 인덱싱된
+ * 섹션이 주어졌을 때, [SearchRepositoryImpl.findInDocument]는 쿼리의 모든 비중복 발생을 읽기 순서대로
+ * 대소문자 구분 없이 반환하며, 주변 공백을 제거한 쿼리를 사용한다. 제거 후 공백만 남은 쿼리는 아무것도
+ * 매칭하지 않고, 1 미만으로 요청된 limit은 1로 읽힌다. Room 없이 이 보장들을 검증할 수 있도록
+ * 인메모리 [FakeSearchIndexDao]를 사용한다.
  */
 class SearchRepositoryImplTest {
     /**
-     * Guards the basic path: a document indexed via [toSearchIndexEntity] and then searched finds the
-     * matching section and reports the correct absolute character offset, snippet, range, and the
-     * query it was found with.
+     * 기본 경로를 검증한다: [toSearchIndexEntity]를 통해 인덱싱된 문서를 검색하면 일치하는 섹션을 찾아
+     * 올바른 절대 문자 오프셋, 스니펫, 범위, 그리고 검색에 사용된 쿼리를 반환하는지 확인한다.
      */
     @Test
     fun indexesSectionsAndReturnsMatchingResults() = runTest {
@@ -67,10 +65,9 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards that every occurrence — within one section and across several — comes back in document
-     * order and without overlaps: a scan advances past each match before looking for the next, so
-     * adjacent or repeated occurrences of the same word are all counted once each, never double
-     * counted or skipped.
+     * 한 섹션 내에서와 여러 섹션에 걸쳐 모든 발생이 문서 순서대로, 중복 없이 반환되는지 검증한다:
+     * 스캔은 각 매칭을 지나쳐야 다음을 탐색하므로, 같은 단어가 인접하거나 반복 등장해도 각각 한 번씩만
+     * 카운트되며 이중 카운트나 누락이 없어야 한다.
      */
     @Test
     fun returnsEveryNonOverlappingOccurrenceInDocumentOrder() = runTest {
@@ -121,9 +118,9 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards that `limit` counts individual occurrences, not the sections the DAO fetched: three
-     * matches in one section plus one in another, asked for with `limit = 2`, must trim down to
-     * exactly the first two occurrences in document order rather than one per section or all four.
+     * `limit`이 DAO가 가져온 섹션 수가 아닌 개별 발생 횟수를 기준으로 동작하는지 검증한다:
+     * 한 섹션에 3개의 매칭과 다른 섹션에 1개가 있을 때 `limit = 2`로 요청하면, 섹션당 하나 또는
+     * 전체 4개가 아닌 문서 순서상 정확히 처음 2개의 발생만 반환되어야 한다.
      */
     @Test
     fun appliesGlobalLimitPerOccurrence() = runTest {
@@ -163,9 +160,9 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards the allocation bound beneath the repository result contract: a dense section may contain
-     * far more occurrences than a caller will display, so the mapper must stop materializing results
-     * at its own limit rather than build every snippet and rely on a later `take` to discard them.
+     * 리포지토리 결과 계약 하의 할당 경계를 검증한다: 밀도 높은 섹션은 호출자가 표시할 것보다
+     * 훨씬 더 많은 발생을 포함할 수 있으므로, 매퍼는 나중에 `take`로 버리는 방식에 의존하지 않고
+     * 자체 limit에서 결과 생성을 멈춰야 한다.
      */
     @Test
     fun mapperStopsMaterializingOccurrencesAtLimit() {
@@ -188,8 +185,8 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards [toSearchResults] directly: an empty query string must return no results rather than
-     * matching every position in the text (which a naive zero-length-match scan would do).
+     * [toSearchResults]를 직접 검증한다: 빈 쿼리 문자열은 텍스트의 모든 위치에 매칭하는 대신
+     * (단순한 길이-0 매칭 스캔이 그렇게 동작할 것이다) 결과 없음을 반환해야 한다.
      */
     @Test
     fun mapperReturnsEmptyForBlankQuery() {
@@ -206,8 +203,8 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards the repository-level short-circuit: a query that is blank once trimmed returns empty
-     * immediately, without ever reaching the DAO.
+     * 리포지토리 수준 단락(short-circuit)을 검증한다: 제거 후 공백만 남은 쿼리는
+     * DAO에 도달하지 않고 즉시 빈 결과를 반환해야 한다.
      */
     @Test
     fun blankQueryReturnsEmptyResults() = runTest {
@@ -220,10 +217,9 @@ class SearchRepositoryImplTest {
     }
 
     /**
-     * Guards two argument-normalization rules at once, verified against the fake DAO's recorded
-     * arguments: leading/trailing whitespace around the query is trimmed before it ever reaches the
-     * DAO, and a `limit` of `0` is coerced up to `1`, since a caller asking for a search is asking for
-     * at least one result.
+     * 두 가지 인자 정규화 규칙을 동시에, 가짜 DAO의 기록된 인자를 통해 검증한다: 쿼리 주변의 앞뒤
+     * 공백은 DAO에 전달되기 전에 제거되어야 하고, `limit`이 `0`인 경우 `1`로 강제 조정되어야 한다.
+     * 검색을 요청하는 호출자는 최소한 하나의 결과를 기대하기 때문이다.
      */
     @Test
     fun surroundingSpaceIsTrimmedAndAZeroLimitStillAsksForOneResult() = runTest {
@@ -238,10 +234,10 @@ class SearchRepositoryImplTest {
 }
 
 /**
- * Mirrors Room's search projection for the in-memory DAO while keeping its seeded full entities intact.
+ * 인메모리 DAO가 시드된 전체 엔티티를 그대로 유지하면서, Room의 검색 프로젝션을 미러링한다.
  *
- * @receiver the full row selected by the fake search.
- * @return only the columns production search materializes.
+ * @receiver 가짜 검색이 선택한 전체 행.
+ * @return 프로덕션 검색이 materialized하는 컬럼만 반환.
  */
 private fun SearchIndexEntity.toSearchEntry(): SearchIndexSearchEntry = SearchIndexSearchEntry(
     documentId = documentId,
@@ -253,11 +249,10 @@ private fun SearchIndexEntity.toSearchEntry(): SearchIndexSearchEntry = SearchIn
 )
 
 /**
- * In-memory [SearchIndexDao] used only by this test file, filtering/sorting/limiting the same way the
- * real Room-backed DAO does so [SearchRepositoryImpl]'s own logic — trimming, the limit floor,
- * occurrence flattening — is exercised without pulling in Room. `lastQuery`/`lastLimit` record what
- * [SearchRepositoryImpl] actually passed down, so a test can assert on the normalized arguments
- * directly.
+ * 이 테스트 파일에서만 사용하는 인메모리 [SearchIndexDao]로, 실제 Room 기반 DAO와 동일한 방식으로
+ * 필터링·정렬·제한을 수행하여, [SearchRepositoryImpl] 자체의 로직 — 트리밍, limit 하한값,
+ * 발생 횟수 평탄화 — 이 Room 없이 실행될 수 있도록 한다. `lastQuery`/`lastLimit`은
+ * [SearchRepositoryImpl]이 실제로 전달한 값을 기록하므로, 테스트에서 정규화된 인자를 직접 assert할 수 있다.
  */
 private class FakeSearchIndexDao : SearchIndexDao {
     val entries = mutableListOf<SearchIndexEntity>()

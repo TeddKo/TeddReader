@@ -7,19 +7,20 @@ import com.tedd.teddreader.core.common.model.DocumentMetadata
 import com.tedd.teddreader.core.room.entity.DocumentEntity
 
 /**
- * Reads a library row into the domain's own metadata type.
+ * 라이브러리 행을 도메인 자체의 메타데이터 타입으로 읽어들인다.
  *
- * The format is matched by name and falls back to [DocumentFormat.UNKNOWN] for a value this build does not
- * know: a row written by a newer version must still list rather than crash the library. A null stored size
- * becomes 0 because [DocumentLocation] treats size as a number, not as an optional fact.
+ * 포맷은 이름으로 매칭되며, 이 빌드가 모르는 값은 [DocumentFormat.UNKNOWN]으로 대체된다: 더
+ * 새로운 버전이 쓴 행도 라이브러리를 깨뜨리지 않고 계속 목록에 나와야 한다. 저장된 크기가
+ * null이면 0이 되는데, [DocumentLocation]은 크기를 선택적 사실이 아니라 숫자로 취급하기
+ * 때문이다.
  *
- * When `importCompletedAtEpochMillis` is null — meaning the import has not finished — character and word
- * counts are masked to null in the domain model, even though the entity carries running accumulators.
- * This preserves the existing domain contract: null counts mean "not yet known," and callers that display
- * statistics (the document-info sheet) treat them accordingly.
+ * `importCompletedAtEpochMillis`가 null이면 — 임포트가 아직 끝나지 않았다는 뜻 — 엔티티가
+ * 진행 중인 누적값을 갖고 있어도 도메인 모델에서는 문자 수와 단어 수가 null로 가려진다. 이는
+ * 기존 도메인 계약을 지킨다: null 카운트는 "아직 알 수 없음"을 의미하며, 통계를 표시하는
+ * 호출자(문서 정보 시트)는 그에 맞게 처리한다.
  *
- * @receiver the stored row.
- * @return the same document as the domain sees it.
+ * @receiver 저장된 행.
+ * @return 도메인이 보는 것과 같은 문서.
  */
 fun DocumentEntity.toDocumentMetadata(): DocumentMetadata {
     val importComplete = importCompletedAtEpochMillis != null
@@ -44,14 +45,14 @@ fun DocumentEntity.toDocumentMetadata(): DocumentMetadata {
 }
 
 /**
- * Writes domain metadata back into a library row.
+ * 도메인 메타데이터를 라이브러리 행으로 다시 써넣는다.
  *
- * The inverse of [toDocumentMetadata] except for `importCompletedAtEpochMillis`, which no domain type
- * carries: the repository owns that column, so a write from here leaves it at its default and must not be
- * used to update a document mid-import.
+ * [toDocumentMetadata]의 역함수이지만 `importCompletedAtEpochMillis`는 예외인데, 이는 어떤
+ * 도메인 타입도 갖고 있지 않다: 저장소가 그 컬럼을 소유하므로, 여기서의 쓰기는 그것을 기본값에
+ * 남겨두며 임포트 도중인 문서를 갱신하는 데 쓰여서는 안 된다.
  *
- * @receiver the metadata to store.
- * @return the row to upsert.
+ * @receiver 저장할 메타데이터.
+ * @return upsert할 행.
  */
 fun DocumentMetadata.toDocumentEntity(): DocumentEntity = DocumentEntity(
     id = id.value,

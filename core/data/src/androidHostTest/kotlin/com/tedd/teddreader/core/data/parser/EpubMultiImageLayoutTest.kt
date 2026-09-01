@@ -22,39 +22,39 @@ import okio.Path
 import okio.buffer
 
 /**
- * A whole illustrated book, read end to end, checked against what the markup actually says.
+ * 삽화가 가득한 책 한 권 전체를, 처음부터 끝까지 읽어 마크업이 실제로 말하는 것과 대조 검증한다.
  *
- * The fixture is shaped like the EPUBs this reader is given: a cover wrapped in SVG, a glyph set
- * inside a sentence, a plate sized only by a class in the stylesheet, a run of back-to-back plates, a
- * figure with its caption, and a rule. Each of those is a case that was getting drawn wrong.
+ * 이 픽스처는 이 리더가 받게 되는 EPUB 형태로 만들어졌다: SVG로 감싼 표지, 문장 안에 들어간 글자
+ * 세트, 스타일시트의 클래스로만 크기가 정해지는 삽화판, 연속으로 이어지는 삽화판들, 캡션이 붙은
+ * 도판, 그리고 구분선. 이 각각은 잘못 그려지고 있던 사례였다.
  */
 class EpubMultiImageLayoutTest {
     /**
-     * Temporary file the fixture EPUB is written to and read back from, since [EpubDocumentParser.parse]
-     * opens a [Path], not raw bytes, at this call site.
+     * 픽스처 EPUB가 기록되고 다시 읽히는 임시 파일. [EpubDocumentParser.parse]가 이 호출 지점에서
+     * 원시 바이트가 아니라 [Path]를 열기 때문이다.
      */
     private val epubPath: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-multi-image-test.epub"
 
     /**
-     * The fixture book (see [multiImageEpub]), written to [epubPath] and parsed once, lazily, then shared
-     * by every test in this class.
+     * ([multiImageEpub] 참고) 픽스처 책. [epubPath]에 기록되고 한 번 지연 파싱된 뒤, 이 클래스의
+     * 모든 테스트가 공유한다.
      */
     private val document: ReaderDocument by lazy {
         FileSystem.SYSTEM.sink(epubPath).buffer().use { sink -> sink.write(multiImageEpub()) }
         EpubDocumentParser().parse(DocumentId("plates"), "Plates", epubPath)
     }
 
-    /** Deletes the scratch EPUB file after each test, ignoring failure if it was never created. */
+    /** 각 테스트 이후 스크래치 EPUB 파일을 삭제한다. 애초에 만들어진 적이 없다면 실패를 무시한다. */
     @AfterTest
     fun cleanUp() {
         runCatching { FileSystem.SYSTEM.delete(epubPath) }
     }
 
     /**
-     * Regression guard: `<img>` is inline content in HTML, and no reading system moves it out of its
-     * paragraph. Emitting every picture as its own block used to tear a glyph out of the middle of its
-     * sentence and leave blank lines where it had been; this pins that the glyph instead stays inside
-     * the sentence's own paragraph block and is never treated as a standalone plate.
+     * 회귀 방지: `<img>`는 HTML에서 인라인 콘텐츠이며, 어떤 리딩 시스템도 이를 자신의 문단 밖으로
+     * 옮기지 않는다. 모든 그림을 자신만의 블록으로 배출하던 예전 방식은 글자를 문장 중간에서
+     * 찢어내고 그 자리에 빈 줄을 남겼었다; 이 테스트는 그 글자가 대신 문장 자신의 문단 블록 안에
+     * 머무르고 결코 독립된 삽화판으로 취급되지 않음을 고정한다.
      */
     @Test
     fun aGlyphWrittenInsideASentenceStaysInThatSentence() {
@@ -75,9 +75,8 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * A picture that is the only thing inside its wrapping element becomes a standalone plate on its
-     * own line, and the wrapper itself leaves behind no empty paragraph block once the picture is
-     * pulled out of it.
+     * 감싸는 요소 안에 유일하게 든 그림은 자신만의 줄에 독립 삽화판이 되며, 그림이 빠져나온 뒤 그
+     * 래퍼 자체는 빈 문단 블록을 남기지 않는다.
      */
     @Test
     fun aPictureAloneInItsWrapperIsAPlateOnItsOwnLine() {
@@ -97,8 +96,8 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Consecutive standalone plates each keep their own line, in the reading order the markup wrote
-     * them in, with exactly one line break between any two of them — no blank line, and no run-on.
+     * 연속된 독립 삽화판들은 마크업이 작성한 읽기 순서대로 각자 자신의 줄을 유지하며, 어떤 둘
+     * 사이에도 정확히 한 번의 줄바꿈만 있다 — 빈 줄도, 이어붙음도 없다.
      */
     @Test
     fun consecutivePlatesEachKeepTheirOwnLineInReadingOrder() {
@@ -122,8 +121,8 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Every block in the whole book, cover and chapters together, comes back sorted by its own start offset
-     * — reading order end to end.
+     * 책 전체의 모든 블록 — 표지와 챕터들을 통틀어 — 은 자기 자신의 시작 오프셋 기준으로 정렬되어
+     * 돌아온다 — 처음부터 끝까지의 읽기 순서.
      */
     @Test
     fun blocksComeBackInReadingOrder() {
@@ -132,12 +131,13 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Regression guard, one assertion per stylesheet rule the fixture exercises: `.img_full{width:90%}`
-     * sizes `plate1.png` through its wrapper; `.img_inline img{width:1.2em}` on `gaiji.png` resolves
-     * against the image selector itself; `div.plate{width:60%}` together with `div.plate
-     * img{width:100%}` sizes `plate3.png` at 60% of the column, not 100%; and `img{max-width:100%}` on
-     * `plate 2.png` is not a width and must not be read as one. That last assertion also confirms the
-     * percent-encoded path `Images/plate%202.png` resolves to the literal `plate 2.png` entry.
+     * 회귀 방지. 픽스처가 검증하는 스타일시트 규칙마다 단언 하나씩: `.img_full{width:90%}`는
+     * `plate1.png`를 그 래퍼를 통해 크기 조정하고; `.img_inline img{width:1.2em}`은 `gaiji.png`에
+     * 대해 이미지 셀렉터 자체를 기준으로 해석되며; `div.plate{width:60%}`와 `div.plate
+     * img{width:100%}`가 함께 `plate3.png`를 컬럼의 100%가 아니라 60%로 크기 조정한다; 그리고
+     * `plate 2.png`에 걸린 `img{max-width:100%}`는 폭이 아니므로 폭으로 읽혀서는 안 된다. 마지막
+     * 단언은 퍼센트 인코딩된 경로 `Images/plate%202.png`가 실제 `plate 2.png` 항목으로 해석됨도
+     * 함께 확인한다.
      */
     @Test
     fun theStylesheetSizesEachPictureAndPercentEncodedPathsResolve() {
@@ -151,8 +151,8 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Every picture's aspect ratio, when nothing else declares one, comes from the real pixel dimensions
-     * sniffed out of its own PNG bytes.
+     * 다른 무엇도 비율을 선언하지 않을 때, 모든 그림의 종횡비는 자신의 PNG 바이트에서 직접 읽어낸
+     * 실제 픽셀 치수에서 나온다.
      */
     @Test
     fun everyPictureCarriesTheSizeReadFromItsOwnBytes() {
@@ -164,11 +164,10 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Regression guard covering the two ends of the sizing range: a 640x25 rule (a 25.6:1 aspect
-     * ratio) lays out as a hairline under 1em tall rather than a band; a 24px glyph declared 1.2em
-     * stays exactly that size rather than being scaled by its own pixel dimensions; and a tall plate is
-     * bounded by the page height while keeping its declared width and proportions, rather than being
-     * blown up past the column.
+     * 크기 조정 범위의 양 극단을 다루는 회귀 방지: 640x25 구분선(25.6:1 종횡비)은 밴드가 아니라
+     * 1em 미만의 가느다란 선으로 배치되고; 1.2em으로 선언된 24px 글자는 자신의 픽셀 치수로
+     * 스케일되지 않고 정확히 그 크기를 유지하며; 세로로 긴 삽화판은 선언된 폭과 비율을 유지한 채
+     * 페이지 높이로 제한되고, 컬럼을 넘어서까지 확대되지 않는다.
      */
     @Test
     fun aRuleKeepsItsHairlineHeightAndAPlateIsNeverBlownUpPastTheColumn() {
@@ -183,8 +182,8 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * Pagination never gives one page more plates than fit in its own height — the sum of every
-     * standalone image's laid-out height on a page never exceeds that page's own height.
+     * 페이지네이션은 결코 한 페이지에 자신의 높이보다 많은 삽화판을 담게 하지 않는다 — 한 페이지에서
+     * 배치된 모든 독립 이미지 높이의 합은 그 페이지 자신의 높이를 결코 넘지 않는다.
      */
     @Test
     fun noPageIsAskedToHoldMorePicturesThanItHasRoomFor() {
@@ -218,9 +217,9 @@ class EpubMultiImageLayoutTest {
     }
 
     /**
-     * The SVG-wrapped cover becomes the book's single synthetic cover section, and — because its own
-     * XHTML held nothing but that picture — is not repeated again as a chapter of its own; the section
-     * titles are exactly the cover placeholder followed by the two real chapters.
+     * SVG로 감싼 표지는 책의 유일한 합성 표지 섹션이 되고 — 자신의 XHTML이 그 그림 말고는 아무것도
+     * 담고 있지 않았으므로 — 자신만의 챕터로 다시 반복되지 않는다; 섹션 제목들은 정확히 표지
+     * 자리표시자에 이어 실제 챕터 두 개다.
      */
     @Test
     fun theSvgWrappedCoverBecomesTheCoverPageAndIsNotRepeatedAsAChapter() {
@@ -233,7 +232,7 @@ class EpubMultiImageLayoutTest {
         )
     }
 
-    /** A `<figcaption>` under a `<figure>` is read as ordinary text, not swallowed along with its image. */
+    /** `<figure>` 아래의 `<figcaption>`은 자신의 이미지와 함께 묻히지 않고 평범한 텍스트로 읽힌다. */
     @Test
     fun theCaptionUnderAFigureIsReadAsText() {
         val chapter = document.sections.single { it.title == "2화 연속 삽화" }
@@ -241,7 +240,7 @@ class EpubMultiImageLayoutTest {
     }
 }
 
-/** A PNG header the dimension sniffer can read: signature plus an IHDR carrying [width] and [height]. */
+/** 치수 스니퍼가 읽을 수 있는 PNG 헤더: 시그니처에 [width]와 [height]를 담은 IHDR을 붙인 것. */
 private fun pngBytes(width: Int, height: Int): ByteArray {
     val out = ByteArrayOutputStream()
     out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
@@ -262,8 +261,8 @@ private fun pngBytes(width: Int, height: Int): ByteArray {
 }
 
 /**
- * Packs [entries] (container path to raw bytes) into an in-memory ZIP archive — the shape every EPUB
- * fixture in this file is assembled from.
+ * [entries](컨테이너 경로에서 원시 바이트로의 매핑)를 메모리상의 ZIP 아카이브로 묶는다 — 이 파일 안의
+ * 모든 EPUB 픽스처가 조립되는 형태다.
  */
 private fun epubZip(vararg entries: Pair<String, ByteArray>): ByteArray {
     val out = ByteArrayOutputStream()
@@ -278,16 +277,17 @@ private fun epubZip(vararg entries: Pair<String, ByteArray>): ByteArray {
 }
 
 /**
- * Builds the fixture EPUB this whole test class reads: a cover wrapped in SVG (`cover.xhtml`), a first
- * chapter (`1화 기회`) with a glyph inline in a sentence, a plate sized only by its wrapper's class, a
- * rule, and a second chapter (`2화 연속 삽화`) with three back-to-back plates — one of them at a
- * percent-encoded path (`plate%202.png`) — and a captioned figure. The shared stylesheet declares the
- * exact rules [theStylesheetSizesEachPictureAndPercentEncodedPathsResolve] pins: a blanket
- * `img{max-width:100%}`, `.img_full{width:90%}`, `.img_inline img{width:1.2em}`, and
- * `div.plate`/`div.plate img` together sizing a plate at 60% rather than 100%. Every image entry is a
- * real (if tiny) PNG via [pngBytes], so the dimension sniffer has real bytes to size them from.
+ * 이 테스트 클래스 전체가 읽는 픽스처 EPUB를 만든다: SVG로 감싼 표지(`cover.xhtml`), 문장 안에
+ * 글자가 인라인으로 들어간 첫 챕터(`1화 기회`), 자신의 래퍼 클래스만으로 크기가 정해지는 삽화판,
+ * 구분선, 그리고 연속으로 이어지는 삽화판 세 개 — 그중 하나는 퍼센트 인코딩된 경로
+ * (`plate%202.png`) — 와 캡션이 붙은 도판을 가진 두 번째 챕터(`2화 연속 삽화`). 공유 스타일시트는
+ * [theStylesheetSizesEachPictureAndPercentEncodedPathsResolve]가 고정하는 바로 그 규칙들을
+ * 선언한다: 전체를 아우르는 `img{max-width:100%}`, `.img_full{width:90%}`,
+ * `.img_inline img{width:1.2em}`, 그리고 삽화판을 100%가 아니라 60%로 함께 크기 조정하는
+ * `div.plate`/`div.plate img`. 모든 이미지 항목은 [pngBytes]를 통한 실제(비록 작더라도) PNG이므로,
+ * 치수 스니퍼가 크기를 잴 실제 바이트를 갖게 된다.
  *
- * @return the assembled EPUB's raw bytes, ready to be written to disk and parsed.
+ * @return 조립된 EPUB의 원시 바이트. 디스크에 기록되어 파싱될 준비가 된 상태.
  */
 private fun multiImageEpub(): ByteArray {
     val container = """

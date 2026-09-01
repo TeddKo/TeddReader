@@ -20,11 +20,11 @@ import com.tedd.teddreader.core.room.entity.SearchIndexEntity
 import kotlinx.serialization.json.Json
 
 /**
- * Rehydrates a stored reading position into the domain [ReadingProgress] the reader actually works
- * with, parsing the flat [ReaderLocation] string Room stores back into its typed form.
+ * 저장된 읽기 위치를 리더가 실제로 다루는 도메인 [ReadingProgress]로 되살린다. Room이 저장하는 평평한
+ * [ReaderLocation] 문자열을 다시 원래의 타입 있는 형태로 파싱한다.
  *
- * @receiver The Room row for one document's saved reading position.
- * @return The equivalent [ReadingProgress].
+ * @receiver 한 문서의 저장된 읽기 위치에 대한 Room 행.
+ * @return 그에 대응하는 [ReadingProgress].
  */
 fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress(
     documentId = DocumentId(documentId),
@@ -34,12 +34,12 @@ fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress
 )
 
 /**
- * Flattens a [ReadingProgress] into the row shape Room stores it as, the inverse of
- * [toReadingProgress]. [ReaderLocation] has no Room-friendly representation of its own, so it is
- * serialized to a plain string via [asStorageString] before it can become a column.
+ * [ReadingProgress]를 Room이 저장하는 행 형태로 평탄화한다. [toReadingProgress]의 역함수다.
+ * [ReaderLocation]은 Room 친화적인 표현을 자체적으로 갖고 있지 않으므로, 컬럼이 되기 전에 [asStorageString]을
+ * 통해 평문 문자열로 직렬화된다.
  *
- * @receiver The reading position to persist.
- * @return The equivalent [ReadingProgressEntity] row.
+ * @receiver 저장할 읽기 위치.
+ * @return 그에 대응하는 [ReadingProgressEntity] 행.
  */
 fun ReadingProgress.toReadingProgressEntity(): ReadingProgressEntity = ReadingProgressEntity(
     documentId = documentId.value,
@@ -50,10 +50,10 @@ fun ReadingProgress.toReadingProgressEntity(): ReadingProgressEntity = ReadingPr
 )
 
 /**
- * Rehydrates a stored bookmark row into the domain [Bookmark] the reader displays.
+ * 저장된 북마크 행을 리더가 표시하는 도메인 [Bookmark]로 되살린다.
  *
- * @receiver The Room row for one saved bookmark.
- * @return The equivalent [Bookmark].
+ * @receiver 저장된 북마크 하나에 대한 Room 행.
+ * @return 그에 대응하는 [Bookmark].
  */
 fun BookmarkEntity.toBookmark(): Bookmark = Bookmark(
     id = id,
@@ -65,10 +65,10 @@ fun BookmarkEntity.toBookmark(): Bookmark = Bookmark(
 )
 
 /**
- * Flattens a [Bookmark] into the row shape Room stores it as, the inverse of [toBookmark].
+ * [Bookmark]를 Room이 저장하는 행 형태로 평탄화한다. [toBookmark]의 역함수다.
  *
- * @receiver The bookmark to persist.
- * @return The equivalent [BookmarkEntity] row.
+ * @receiver 저장할 북마크.
+ * @return 그에 대응하는 [BookmarkEntity] 행.
  */
 fun Bookmark.toBookmarkEntity(): BookmarkEntity = BookmarkEntity(
     id = id,
@@ -80,12 +80,11 @@ fun Bookmark.toBookmarkEntity(): BookmarkEntity = BookmarkEntity(
 )
 
 /**
- * Rehydrates one logged reading session into the domain [ReadingSession] reading stats are computed
- * from. `endLocation` stays `null` for a session that has no recorded end position rather than being
- * parsed into some placeholder value.
+ * 기록된 읽기 세션 하나를, 읽기 통계 계산의 기반이 되는 도메인 [ReadingSession]으로 되살린다. `endLocation`은
+ * 기록된 종료 위치가 없는 세션이라면 어떤 대체값으로 파싱되는 대신 `null`로 남는다.
  *
- * @receiver The Room row for one reading session.
- * @return The equivalent [ReadingSession].
+ * @receiver 읽기 세션 하나에 대한 Room 행.
+ * @return 그에 대응하는 [ReadingSession].
  */
 fun ReadingSessionEntity.toReadingSession(): ReadingSession = ReadingSession(
     id = id,
@@ -98,11 +97,10 @@ fun ReadingSessionEntity.toReadingSession(): ReadingSession = ReadingSession(
 )
 
 /**
- * Flattens a [ReadingSession] into the row shape Room stores it as, the inverse of
- * [toReadingSession].
+ * [ReadingSession]을 Room이 저장하는 행 형태로 평탄화한다. [toReadingSession]의 역함수다.
  *
- * @receiver The reading session to persist.
- * @return The equivalent [ReadingSessionEntity] row.
+ * @receiver 저장할 읽기 세션.
+ * @return 그에 대응하는 [ReadingSessionEntity] 행.
  */
 fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessionEntity(
     id = id,
@@ -115,25 +113,23 @@ fun ReadingSession.toReadingSessionEntity(): ReadingSessionEntity = ReadingSessi
 )
 
 /**
- * Builds the search-index row a section is stored as, at the moment a document is imported or
- * repaired. The section's own text and offsets carry over as-is; [blocks] and [navigation] are
- * serialized to JSON because Room has no column type for them, and [documentTitle] is duplicated onto
- * every section's row (rather than looked up separately) so a search result can show which book it
- * came from without a join. The row is tagged with [CurrentReaderParserVersion] so a later parser
- * upgrade can tell which rows were written by an older parser and need re-importing.
+ * 문서가 임포트되거나 복구되는 시점에 한 섹션이 저장되는 검색 인덱스 행을 만든다. 섹션 자신의 텍스트와
+ * 오프셋은 그대로 넘어가고, [blocks]와 [navigation]은 Room에 대응하는 컬럼 타입이 없어서 JSON으로
+ * 직렬화된다. [documentTitle]은 (따로 조회하는 대신) 모든 섹션의 행에 중복 저장되어, 검색 결과가 join
+ * 없이도 어느 책에서 왔는지 보여줄 수 있게 한다. 이 행에는 [CurrentReaderParserVersion]으로 태그가 붙는데,
+ * 이후 파서가 업그레이드될 때 어떤 행이 예전 파서로 기록되어 재임포트가 필요한지 알 수 있게 하기 위해서다.
  *
- * @receiver The section being indexed.
- * @param documentId The document this section belongs to.
- * @param blocks This section's block structure, serialized into the row as JSON.
- * @param documentTitle The owning document's title, denormalized onto this row for display; `null`
- *   when the caller does not have it at hand yet.
- * @param navigation The document's table of contents, serialized into the row as JSON; `null` when the
- *   caller does not have it at hand yet, which is stored as an empty string rather than as JSON `null`.
- * @param json The [Json] instance used to serialize [blocks] and [navigation].
- * @param sourcePath The archive-relative path of the spine item this section was parsed from, stored
- *   so `finishEpubImport` can resolve navigation without re-reading all section text; null for
- *   non-EPUB documents.
- * @return The [SearchIndexEntity] row to upsert for this section.
+ * @receiver 인덱싱되는 섹션.
+ * @param documentId 이 섹션이 속한 문서.
+ * @param blocks 이 섹션의 블록 구조. JSON으로 직렬화되어 행에 저장된다.
+ * @param documentTitle 소유 문서의 제목. 표시를 위해 이 행에 비정규화되어 저장된다. 호출자가 아직 갖고
+ *   있지 않으면 `null`.
+ * @param navigation 문서의 목차. JSON으로 직렬화되어 행에 저장된다. 호출자가 아직 갖고 있지 않으면 `null`이며,
+ *   이 경우 JSON `null`이 아니라 빈 문자열로 저장된다.
+ * @param json [blocks]와 [navigation]을 직렬화하는 데 쓰이는 [Json] 인스턴스.
+ * @param sourcePath 이 섹션이 파싱된 spine 항목의 아카이브 상대 경로. `finishEpubImport`가 모든 섹션
+ *   텍스트를 다시 읽지 않고도 목차를 해석할 수 있도록 저장된다. EPUB가 아닌 문서라면 null.
+ * @return 이 섹션에 대해 업서트할 [SearchIndexEntity] 행.
  */
 fun ReaderSection.toSearchIndexEntity(
     documentId: DocumentId,
@@ -157,52 +153,49 @@ fun ReaderSection.toSearchIndexEntity(
 )
 
 /**
- * Bumped whenever the parsers start producing something the reader needs but older stored text lacks —
- * image proportions, stylesheet-derived block styles, pictures kept inside their sentence. Stored rows
- * written by an earlier build are re-read from the file the next time the book is opened.
+ * 파서가 리더에게 필요하지만 예전에 저장된 텍스트에는 없는 뭔가를 만들어내기 시작할 때마다 올라간다 —
+ * 이미지 비율, 스타일시트에서 유도한 블록 스타일, 문장 안에 유지되는 그림 등. 예전 빌드가 기록한 저장된
+ * 행은 다음에 책을 열 때 파일에서 다시 읽힌다.
  *
- * Version 2 is section-relative block storage (DocumentRepositoryImpl.persistParsedDocument/
- * importNextSections). Bumping to it was held back while `repairEpubDocument` still read the whole file
- * and parsed every chapter before the reader could draw, because that would have handed every book
- * already on the shelf a 20-40s wall on its next open. That path now goes through the same phased import
- * a newly picked EPUB takes, so a book below this version shows its first chapter as fast as a fresh one
- * and finishes in the background — which is what makes a bump cost about as little as it ever will.
+ * 버전 2는 섹션 상대 블록 저장이다(DocumentRepositoryImpl.persistParsedDocument/
+ * importNextSections). 이 버전으로 올리는 것은, `repairEpubDocument`가 여전히 파일 전체를 읽고 리더가
+ * 그리기 전에 모든 챕터를 파싱하던 동안에는 보류됐다. 그렇게 했다면 서가에 이미 있던 모든 책이 다음에
+ * 열릴 때 20~40초의 지연을 겪었을 것이다. 그 경로는 이제 새로 고른 EPUB가 거치는 것과 같은 단계적
+ * 임포트를 거치므로, 이 버전 아래의 책도 새 책만큼 빠르게 첫 챕터를 보여주고 나머지는 백그라운드에서
+ * 마무리한다 — 이것이 버전을 올리는 비용을 앞으로도 최소한으로 유지하는 이유다.
  *
- * Version 3 adds inline-CSS span preservation and float-image fallback/width repair, so stale stored
- * blocks must be reparsed before an already-imported EPUB can render those fixes.
+ * 버전 3은 인라인 CSS 스팬 보존과 float 이미지 폴백/너비 복구를 추가하므로, 오래된 저장 블록은 이미
+ * 임포트된 EPUB이 그 수정 사항을 렌더링하기 전에 다시 파싱되어야 한다.
  *
- * Version 4 adds publisher color/font/box styling, hidden-subtree stripping, decorated container ranges,
- * and inline floated-image preservation, so older stored sections must be reparsed to recover those
- * richer blocks and spans.
+ * 버전 4는 퍼블리셔 색상/글꼴/박스 스타일링, 숨겨진 하위 트리 제거, 장식된 컨테이너 범위, 인라인
+ * float 이미지 보존을 추가하므로, 예전 저장 섹션은 이 더 풍부한 블록과 스팬을 되살리기 위해 다시
+ * 파싱되어야 한다.
  *
- * Version 5 bumps that richer schema again now that body/html background containers and publisher float/
- * border/color decoding changed shape; stored rows below this version must be repaired before those
- * blocks can surface consistently.
+ * 버전 5는 body/html 배경 컨테이너와 퍼블리셔 float/테두리/색상 디코딩의 형태가 바뀌면서 그 더 풍부한
+ * 스키마를 다시 올린다. 이 버전 아래의 저장 행은 그 블록들이 일관되게 나타나기 전에 복구되어야 한다.
  *
- * A repair does re-read the book's text, so character offsets can move; stored page layouts are dropped
- * on the character-count mismatch that follows (see DocumentRepositoryImpl.restorePageWindows) and the
- * reading position lands on the nearest page rather than the exact one. That is the price of a bump and
- * the reason not to make one for anything the reader does not actually need.
+ * 복구는 책의 텍스트를 다시 읽으므로 문자 오프셋이 이동할 수 있다. 그 뒤에 이어지는 문자 수 불일치로
+ * 저장된 페이지 레이아웃이 폐기되고(DocumentRepositoryImpl.restorePageWindows 참고), 읽기 위치는 정확한
+ * 페이지가 아니라 가장 가까운 페이지에 놓인다. 그것이 버전을 올리는 대가이며, 리더에게 실제로 필요하지
+ * 않은 것을 위해 버전을 올리지 않는 이유다.
  */
 const val CurrentReaderParserVersion: Int = 9
 
 /**
- * Every non-overlapping occurrence of [query] in this section's stored text, in document order.
+ * 이 섹션에 저장된 텍스트 안에서 [query]가 겹치지 않게 나타나는 모든 위치를, 문서 순서대로.
  *
- * A section's row can hold the same word many times over, and each occurrence is its own
- * [SearchResult] rather than one result per section, so a caller can jump straight to any of them.
- * Matching is case-insensitive and advances past each match before looking for the next one, so an
- * occurrence never overlaps the one before it (searching "aa" in "aaa" finds one match, not two). An
- * empty [query] would otherwise loop forever advancing by zero characters each time, so it is rejected
- * up front and yields no results instead.
+ * 한 섹션의 행은 같은 단어를 여러 번 담을 수 있고, 각 위치는 섹션당 하나의 결과가 아니라 그 자체로
+ * 하나의 [SearchResult]가 되어, 호출자가 그중 어디로든 바로 이동할 수 있게 한다. 매칭은 대소문자를
+ * 구분하지 않으며 다음 매치를 찾기 전에 각 매치를 지나쳐 진행하므로, 한 위치가 앞선 위치와 겹치는 일은
+ * 없다("aaa"에서 "aa"를 검색하면 매치가 둘이 아니라 하나 나온다). 빈 [query]는 매번 0글자씩 진행하며
+ * 무한히 도는 것을 막기 위해 미리 거부되어 결과 없이 끝난다.
  *
- * @receiver The stored section row to search within.
- * @param query The text to find; must be non-empty for any results to come back.
- * @param limit The greatest number of occurrences to materialize from this section. A non-positive
- *   value returns immediately, which lets a document-wide caller stop a dense section as soon as its
- *   remaining result budget is exhausted instead of allocating matches it will discard.
- * @return Matching [SearchResult]s in the order they occur in [text], capped at [limit], or an empty
- *   list if [query] is empty, [limit] is non-positive, or no occurrence exists.
+ * @receiver 검색할 저장된 섹션 행.
+ * @param query 찾을 텍스트. 결과가 나오려면 비어 있지 않아야 한다.
+ * @param limit 이 섹션에서 구체화할 최대 매치 개수. 0 이하 값은 즉시 반환되며, 이는 문서 전체를 훑는
+ *   호출자가 남은 결과 예산이 소진된 밀집 섹션을 폐기할 매치를 만들지 않고 곧바로 멈출 수 있게 한다.
+ * @return [text] 안에서 나타나는 순서대로, [limit]까지 잘라낸 매치된 [SearchResult]들. [query]가 비어
+ *   있거나 [limit]이 0 이하이거나 매치가 전혀 없으면 빈 목록.
  */
 fun SearchIndexSearchEntry.toSearchResults(
     query: String,
@@ -233,14 +226,14 @@ fun SearchIndexSearchEntry.toSearchResults(
 }
 
 /**
- * The window of surrounding text a search result shows around its match, so a result reads as a
- * snippet of context rather than either the bare matched word or the section's entire text.
+ * 검색 결과가 매치된 단어 하나만 보여주거나 섹션 전체 텍스트를 보여주는 대신, 문맥을 담은 스니펫처럼
+ * 읽히도록 매치 주변에 보여주는 텍스트 범위다.
  *
- * @receiver The section text the match was found in.
- * @param matchIndex Index into this string where the match starts.
- * @param matchLength Length of the matched text.
- * @return Up to [SNIPPET_RADIUS] characters on either side of the match, clipped to this string's
- *   bounds rather than padded when the match is near either end.
+ * @receiver 매치가 발견된 섹션 텍스트.
+ * @param matchIndex 이 문자열 안에서 매치가 시작하는 인덱스.
+ * @param matchLength 매치된 텍스트의 길이.
+ * @return 매치 양쪽으로 최대 [SNIPPET_RADIUS] 글자. 매치가 어느 한쪽 끝에 가까우면 패딩되지 않고 이
+ *   문자열의 경계에서 잘린다.
  */
 private fun String.snippetAround(matchIndex: Int, matchLength: Int): String {
     val start = (matchIndex - SNIPPET_RADIUS).coerceAtLeast(0)
@@ -248,5 +241,5 @@ private fun String.snippetAround(matchIndex: Int, matchLength: Int): String {
     return substring(start, end)
 }
 
-/** Characters of context [snippetAround] keeps on each side of a match. */
+/** [snippetAround]가 매치 양쪽에 유지하는 문맥 문자 수. */
 private const val SNIPPET_RADIUS = 40
