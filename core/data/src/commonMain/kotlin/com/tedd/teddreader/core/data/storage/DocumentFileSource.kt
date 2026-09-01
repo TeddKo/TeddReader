@@ -43,6 +43,17 @@ interface DocumentFileSource {
     suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation = location
 
     /**
+     * Removes the durable app-owned copy represented by [location] after its shelf row is deleted.
+     *
+     * Implementations must ignore external sources and paths outside their materialized-document
+     * directory. The default is a no-op for file sources that never create durable copies.
+     *
+     * @param location The stored location captured before its database row was removed.
+     * @throws IllegalStateException when an owned file exists but cannot be deleted.
+     */
+    suspend fun deleteMaterialized(location: DocumentLocation) = Unit
+
+    /**
      * Root of the storage this platform keeps private to the app — [android.content.Context.filesDir]
      * on Android, the sandbox's Library/Caches on iOS. Cached cover images live under here (see
      * DocumentRepositoryImpl.getDocumentCover). This sits on the interface rather than as a bare
@@ -51,6 +62,38 @@ interface DocumentFileSource {
      * through `expect`/`actual`.
      */
     fun appPrivateDirectory(): Path
+}
+
+/**
+ * Whether [path] is one direct child of [directory] after resolving traversal segments.
+ *
+ * @param path Candidate file path from a stored document location.
+ * @param directory Platform-owned materialized-document directory.
+ * @return true only when deleting [path] cannot escape or descend below [directory].
+ */
+internal fun isDirectChildOf(path: Path, directory: Path): Boolean =
+    path.normalized().parent == directory.normalized()
+
+/**
+ * Whether [path] is a direct child of [currentDirectory] or the same directory in a previous
+ * app-container UUID under the same platform container root.
+ *
+ * iOS preserves a sandbox's contents while changing the container UUID. Comparing the container
+ * roots and directory names accepts that relocation without treating an unrelated external
+ * `Documents` directory as app-owned.
+ *
+ * @param path Candidate stored path, possibly carrying an older app-container UUID.
+ * @param currentDirectory Current app container's materialized-document directory.
+ * @return true when [path] belongs to the current or relocated form of that directory.
+ */
+internal fun isDirectChildOfCurrentOrRelocatedDirectory(path: Path, currentDirectory: Path): Boolean {
+    val candidate = path.normalized()
+    val current = currentDirectory.normalized()
+    if (candidate.parent == current) return true
+    val storedDirectory = candidate.parent ?: return false
+    val storedContainer = storedDirectory.parent ?: return false
+    val currentContainer = current.parent ?: return false
+    return storedDirectory.name == current.name && storedContainer.parent == currentContainer.parent
 }
 
 /**

@@ -89,6 +89,25 @@ class AndroidDocumentFileSource(
     }
 
     /**
+     * Deletes a stored file only when its canonical path is a direct child of this app's
+     * `filesDir/documents` directory. Content URIs and external file paths remain untouched; legacy
+     * materialized names remain eligible because directory ownership, not a current naming scheme,
+     * defines whether the app owns the file.
+     *
+     * @param location The stored location captured before its shelf row was deleted.
+     * @throws IllegalStateException when an owned file exists but the filesystem refuses deletion.
+     */
+    override suspend fun deleteMaterialized(location: DocumentLocation) {
+        val uri = Uri.parse(location.sourceUri)
+        if (uri.scheme != "file") return
+        val sourcePath = uri.path ?: return
+        val candidate = File(sourcePath).canonicalFile
+        val directory = File(appContext.filesDir, "documents").canonicalFile
+        if (!isDirectChildOf(candidate.toOkioPath(), directory.toOkioPath())) return
+        if (candidate.exists()) check(candidate.delete()) { "Cannot delete materialized document: $candidate" }
+    }
+
+    /**
      * Materializes [location] straight from its original source, for a freshly picked document
      * whose bytes have not already been loaded into memory the way [materialize] requires — reading
      * it into a [ByteArray] first just to hand it back to [materialize] would hold the whole document
