@@ -53,15 +53,13 @@ import org.koin.compose.viewmodel.koinViewModel
 import kotlin.math.roundToInt
 
 /**
- * The stateful entry point for the document-info screen: obtains [DocumentInfoViewModel] through
- * Koin, tells it which document to describe whenever [documentId] changes, and hands its state
- * to the stateless [DocumentInfoScreen].
+ * 문서 정보 화면의 상태 보유 진입점이다. Koin을 통해 [DocumentInfoViewModel]을 가져오고,
+ * [documentId]가 바뀔 때마다 설명할 문서를 알린 뒤 상태를 비상태 [DocumentInfoScreen]에 넘긴다.
  *
- * @param documentId The document to describe; a change re-triggers
- *   [DocumentInfoViewModel.setDocument].
- * @param onBack Called when the user asks to leave the screen.
- * @param modifier The modifier applied to [DocumentInfoScreen]'s root.
- * @param viewModel The screen's view model, obtained through Koin by default.
+ * @param documentId 설명할 문서다. 값이 바뀌면 [DocumentInfoViewModel.setDocument]를 다시 호출한다.
+ * @param onBack 사용자가 화면을 떠나려고 할 때 호출된다.
+ * @param modifier [DocumentInfoScreen]의 루트에 적용할 수정자다.
+ * @param viewModel 화면의 뷰 모델이다. 기본적으로 Koin을 통해 가져온다.
  */
 @Composable
 fun DocumentInfoRouteScreen(
@@ -86,25 +84,24 @@ fun DocumentInfoRouteScreen(
 }
 
 /**
- * The document-info screen's stateless layout: an overview of the document's metadata, its
- * reading statistics, and its most recent reading sessions, driven entirely by [uiState].
+ * [uiState]만으로 구동되는 문서 정보 화면의 비상태 레이아웃이다. 문서 메타데이터 개요,
+ * 읽기 통계, 최근 읽기 세션을 표시한다.
  *
- * The overview and sessions sections are bounded to [TeddReaderBreakpoints.readableMaxWidth] and
- * centered through [BoundedWidthContent], since both read as prose-like label/value lists. The
- * reading-stats section instead uses [TeddReaderBreakpoints.collectionMaxWidth] — wider, because it
- * is the one block that needs room past the expanded breakpoint to lay its grid out at up to four
- * columns (see [ReadingStatsContent]) — so the surrounding [LazyColumn] itself carries no width
- * cap; only the sections that want one apply it themselves.
+ * 개요와 세션 섹션은 산문형 레이블/값 목록으로 읽히므로 [TeddReaderBreakpoints.readableMaxWidth]로
+ * 너비를 제한하고 [BoundedWidthContent]로 가운데에 배치한다. 반면 읽기 통계 섹션은 확장형
+ * 중단점을 지난 뒤 그리드를 최대 4열로 배치할 공간이 필요한 유일한 블록이므로 더 넓은
+ * [TeddReaderBreakpoints.collectionMaxWidth]를 사용한다([ReadingStatsContent] 참고). 따라서 바깥
+ * [LazyColumn] 자체에는 최대 너비를 두지 않고, 필요한 섹션만 직접 너비를 제한한다.
  *
- * @param uiState The screen's current data and loading/error state.
- * @param onBack Called when the user taps the back navigation action.
- * @param listState The scroll state for the screen's content list, hoisted so a caller can
- *   observe or restore scroll position.
- * @param modifier The modifier applied to the screen's root.
- * @param contentPadding Vertical padding applied above and below the scrolling content, beyond
- *   the screen's own system-bar and top-bar insets; any horizontal component is ignored because
- *   horizontal inset is owned by each [TeddSection] (through [BoundedWidthContent] for the
- *   width-capped ones). Null resolves to the theme's screenPadding for both edges.
+ * @param uiState 화면의 현재 데이터와 로딩 및 오류 상태다.
+ * @param onBack 사용자가 뒤로 탐색 동작을 누를 때 호출된다.
+ * @param listState 화면 콘텐츠 목록의 스크롤 상태다. 호출자가 스크롤 위치를 관찰하거나
+ *   복원할 수 있도록 끌어올려져 있다.
+ * @param modifier 화면 루트에 적용할 수정자다.
+ * @param contentPadding 스크롤 콘텐츠 위아래에 적용하는 수직 패딩이다. 화면 자체의 시스템 바와
+ *   상단 바 인셋에 추가된다. 수평 인셋은 각 [TeddSection]이 소유하므로 수평 성분은 무시한다.
+ *   너비가 제한된 섹션은 [BoundedWidthContent]를 통해 이를 적용한다. null이면 양쪽 가장자리에
+ *   테마의 screenPadding을 사용한다.
  */
 @Composable
 fun DocumentInfoScreen(
@@ -241,15 +238,16 @@ fun DocumentInfoScreen(
 }
 
 /**
- * Bounds [content] to [maxWidth] and centers it within the full [LazyColumn] width, so a block
- * that reads as a bounded column — the overview, the document-name line, the sessions list, or
- * (at its own wider [TeddReaderBreakpoints.collectionMaxWidth]) the reading-stats grid — stays that
- * width regardless of how wide the surrounding expanded window actually is.
+ * [content]의 너비를 [maxWidth]로 제한하고 전체 [LazyColumn] 너비 안에서 가운데에 배치한다.
+ * 따라서 제한된 열로 읽히는 개요, 문서 이름 행, 세션 목록 또는 자체적으로 더 넓은
+ * [TeddReaderBreakpoints.collectionMaxWidth]를 쓰는 읽기 통계 그리드는 바깥의 확장 창이 실제로
+ * 얼마나 넓든 해당 너비를 유지한다.
  *
- * @param maxWidth The content's width cap; typically [TeddReaderBreakpoints.readableMaxWidth] for a
- * prose-like block or [TeddReaderBreakpoints.collectionMaxWidth] for a grid that wants more room.
- * @param modifier Applied to the outer, full-width centering box.
- * @param content The bounded content.
+ * @param maxWidth 콘텐츠의 최대 너비다. 보통 산문형 블록에는
+ *   [TeddReaderBreakpoints.readableMaxWidth], 더 넓은 공간이 필요한 그리드에는
+ *   [TeddReaderBreakpoints.collectionMaxWidth]를 사용한다.
+ * @param modifier 바깥쪽 전체 너비 가운데 정렬 Box에 적용할 수정자다.
+ * @param content 너비를 제한할 콘텐츠다.
  */
 @Composable
 private fun BoundedWidthContent(
@@ -265,15 +263,15 @@ private fun BoundedWidthContent(
 }
 
 /**
- * Lays the four reading-stat values out as label/value pairs in a grid whose column count follows
- * [TeddReaderBreakpoints]: one column below [TeddReaderBreakpoints.compact], two from there up to
- * [TeddReaderBreakpoints.expanded], and four at or above it — the document-info screen's adaptive
- * stats contract.
+ * 4개의 읽기 통계 값을 레이블/값 쌍으로 이루어진 그리드에 배치한다. 열 수는
+ * [TeddReaderBreakpoints]를 따른다. [TeddReaderBreakpoints.compact] 미만에서는 1열,
+ * 그 지점부터 [TeddReaderBreakpoints.expanded] 미만까지는 2열, 그 이상에서는 4열을 사용하는
+ * 것이 문서 정보 화면의 적응형 통계 규약이다.
  *
- * @param readingTime The formatted total active reading time.
- * @param readingPace The formatted words-per-minute reading pace.
- * @param characters The formatted character count.
- * @param words The formatted word count.
+ * @param readingTime 형식화된 총 활성 읽기 시간이다.
+ * @param readingPace 형식화된 분당 단어 수 읽기 속도다.
+ * @param characters 형식화된 문자 수다.
+ * @param words 형식화된 단어 수다.
  */
 @Composable
 private fun ReadingStatsContent(
@@ -314,12 +312,12 @@ private fun ReadingStatsContent(
 }
 
 /**
- * One labeled value in the document-info screen's overview and stats sections: a small caption
- * above the value itself, the layout every row in those sections shares.
+ * 문서 정보 화면의 개요와 통계 섹션에 표시하는 레이블이 붙은 값 하나다. 작은 캡션을 값 위에
+ * 배치하며, 해당 섹션의 모든 행이 이 레이아웃을 공유한다.
  *
- * @param label The field's caption.
- * @param value The field's already-formatted value.
- * @param modifier The modifier applied to the row's root.
+ * @param label 필드의 캡션이다.
+ * @param value 이미 형식화된 필드 값이다.
+ * @param modifier 행 루트에 적용할 수정자다.
  */
 @Composable
 private fun MetadataRow(
@@ -341,13 +339,13 @@ private fun MetadataRow(
 }
 
 /**
- * Renders a byte count the way the overview section shows it: bytes verbatim under 1 KB, then KB
- * or MB with [formatDecimal]'s one-decimal rounding. Takes [unavailable] as a parameter with an
- * English default so a test can call this directly while the screen itself passes a localized
- * string.
+ * 개요 섹션의 표시 방식에 맞춰 바이트 수를 렌더링한다. 1 KB 미만은 바이트를 그대로 표시하고,
+ * 그 이상은 [formatDecimal]로 소수점 한 자리까지 반올림한 KB 또는 MB로 표시한다. 테스트가 이
+ * 함수를 직접 호출할 수 있고 화면은 현지화된 문자열을 전달할 수 있도록 영어 기본값을 가진
+ * [unavailable]을 매개변수로 받는다.
  *
- * @param sizeBytes The size to format, or null when it is not known.
- * @param unavailable The text to show when [sizeBytes] is null.
+ * @param sizeBytes 형식화할 크기다. 알 수 없으면 null이다.
+ * @param unavailable [sizeBytes]가 null일 때 표시할 텍스트다.
  */
 internal fun formatSize(sizeBytes: Long?, unavailable: String = "Not available"): String {
     if (sizeBytes == null) return unavailable
@@ -358,13 +356,12 @@ internal fun formatSize(sizeBytes: Long?, unavailable: String = "Not available")
 }
 
 /**
- * Renders an active-reading duration the way the overview and stats sections show it: hours and
- * minutes once there is at least an hour, minutes and seconds once there is at least a minute,
- * otherwise just seconds — never more than two units at once. See [formatSize] for why
- * [unavailable] is a parameter rather than a hardcoded string.
+ * 개요와 통계 섹션의 표시 방식에 맞춰 활성 읽기 시간을 렌더링한다. 1시간 이상이면 시간과 분,
+ * 1분 이상이면 분과 초, 그 외에는 초만 표시하며 한 번에 단위를 2개보다 많이 표시하지 않는다.
+ * [unavailable]이 하드코딩된 문자열이 아니라 매개변수인 이유는 [formatSize]를 참고한다.
  *
- * @param activeMillis The duration to format, or null when it is not known.
- * @param unavailable The text to show when [activeMillis] is null.
+ * @param activeMillis 형식화할 시간이다. 알 수 없으면 null이다.
+ * @param unavailable [activeMillis]가 null일 때 표시할 텍스트다.
  */
 internal fun formatDuration(activeMillis: Long?, unavailable: String = "Not available"): String {
     if (activeMillis == null) return unavailable
@@ -380,13 +377,13 @@ internal fun formatDuration(activeMillis: Long?, unavailable: String = "Not avai
 }
 
 /**
- * Renders a document's reading pace in words per minute, or [unavailable] when there is nothing
- * meaningful to show yet — no time spent reading, or no words read, either of which would
- * otherwise divide out to a pace of zero rather than "no data."
+ * 문서의 읽기 속도를 분당 단어 수로 렌더링한다. 읽은 시간이 없거나 읽은 단어가 없어 아직
+ * 의미 있는 값을 표시할 수 없으면 [unavailable]을 사용한다. 어느 경우든 계산하면 "데이터 없음"이
+ * 아니라 속도 0이 되기 때문이다.
  *
- * @param stats The reading totals to compute a pace from, or null when none exist yet.
- * @param unavailable The text to show when a pace cannot be computed.
- * @param suffix Appended after the number, so a caller can localize the unit.
+ * @param stats 속도를 계산할 읽기 합계다. 아직 없으면 null이다.
+ * @param unavailable 속도를 계산할 수 없을 때 표시할 텍스트다.
+ * @param suffix 호출자가 단위를 현지화할 수 있도록 숫자 뒤에 붙이는 텍스트다.
  */
 internal fun formatReadingPace(
     stats: ReadingStats?,
@@ -398,32 +395,32 @@ internal fun formatReadingPace(
 }
 
 /**
- * Renders an optional count (characters or words read) as plain text, or [unavailable] when it is
- * not known yet.
+ * 선택적인 수치(읽은 문자 또는 단어)를 일반 텍스트로 렌더링한다. 아직 알 수 없으면
+ * [unavailable]을 사용한다.
  *
- * @param value The count to format, or null when it is not known.
- * @param unavailable The text to show when [value] is null.
+ * @param value 형식화할 수치다. 알 수 없으면 null이다.
+ * @param unavailable [value]가 null일 때 표시할 텍스트다.
  */
 internal fun formatCount(value: Long?, unavailable: String = "Not available"): String = value?.toString() ?: unavailable
 
 /**
- * Renders an optional page count as plain text, or [unavailable] when nothing has measured the
- * document yet.
+ * 선택적인 페이지 수를 일반 텍스트로 렌더링한다. 아직 문서를 측정한 결과가 없으면
+ * [unavailable]을 사용한다.
  *
- * @param pageCount The page count to format, or null when it is not known.
- * @param unavailable The text to show when [pageCount] is null.
+ * @param pageCount 형식화할 페이지 수다. 알 수 없으면 null이다.
+ * @param unavailable [pageCount]가 null일 때 표시할 텍스트다.
  */
 internal fun formatPageCount(pageCount: Int?, unavailable: String = "Not available"): String = pageCount?.toString() ?: unavailable
 
 /**
- * Renders where the reader last left off as "current of total," or [unavailable] when there is no
- * saved position or the document has not been measured into any pages yet — a [PageIndex.total]
- * of zero would otherwise render as "1 of 0".
+ * 독자가 마지막으로 읽던 위치를 현재 페이지 번호와 전체 페이지 번호를 이어붙인 형태로
+ * 렌더링한다. 저장된 위치가 없거나 문서가 아직 페이지로 측정되지 않았으면 [unavailable]을
+ * 사용한다. 그렇지 않으면 [PageIndex.total]이 0일 때 "1 of 0"으로 표시되기 때문이다.
  *
- * @param pageIndex The saved position to format, or null when none exists.
- * @param unavailable The text to show when [pageIndex] is null or has no pages yet.
- * @param separator Placed between the current and total page numbers, so a caller can localize
- *   it.
+ * @param pageIndex 형식화할 저장 위치다. 없으면 null이다.
+ * @param unavailable [pageIndex]가 null이거나 아직 페이지가 없을 때 표시할 텍스트다.
+ * @param separator 호출자가 현지화할 수 있도록 현재 페이지 번호와 전체 페이지 번호 사이에
+ *   넣는 텍스트다.
  */
 internal fun formatPagePosition(
     pageIndex: PageIndex?,
@@ -435,8 +432,8 @@ internal fun formatPagePosition(
 }
 
 /**
- * Rounds [value] to one decimal place and drops a trailing `.0`, so a size like 5.0 MB shows as
- * "5 MB" rather than "5.0 MB" while 5.3 MB keeps its decimal.
+ * [value]를 소수점 한 자리로 반올림하고 뒤따르는 `.0`을 제거한다. 따라서 5.0 MB 같은 크기는
+ * "5.0 MB"가 아니라 "5 MB"로 표시되고 5.3 MB는 소수부를 유지한다.
  */
 private fun formatDecimal(value: Float): String {
     val rounded = (value * 10).roundToInt() / 10f
@@ -444,11 +441,11 @@ private fun formatDecimal(value: Float): String {
 }
 
 /**
- * The short label the overview section shows for this format, or [unknown] for
- * [DocumentFormat.UNKNOWN]. Takes [unknown] as a parameter with an English default, the same
- * pattern the `format*` functions above use, so a test can exercise the English text directly.
+ * 개요 섹션이 이 형식에 표시하는 짧은 레이블이다. [DocumentFormat.UNKNOWN]이면 [unknown]을
+ * 표시한다. 위 `format*` 함수와 같은 패턴으로 [unknown]에 영어 기본값을 두어 테스트가 영어
+ * 텍스트를 직접 검증할 수 있게 한다.
  *
- * @param unknown The text to show for [DocumentFormat.UNKNOWN].
+ * @param unknown [DocumentFormat.UNKNOWN]에 표시할 텍스트다.
  */
 private fun DocumentFormat.displayName(unknown: String = "Unknown format"): String = when (this) {
     DocumentFormat.TXT -> "TXT"
@@ -460,9 +457,9 @@ private fun DocumentFormat.displayName(unknown: String = "Unknown format"): Stri
 }
 
 /**
- * A design-time preview of [DocumentInfoScreen] with representative sample data, rendered at
- * three widths chosen to exercise both the narrow single-column stats layout and the wider
- * two-column one plus the readable-width clamp applied to the overview and sessions sections.
+ * 대표 샘플 데이터로 렌더링하는 [DocumentInfoScreen]의 디자인 타임 미리보기다. 좁은 단일 열
+ * 통계 레이아웃, 더 넓은 2열 레이아웃, 개요와 세션 섹션에 적용되는 읽기 너비 제한을 모두
+ * 확인하도록 3가지 너비를 사용한다.
  */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
