@@ -41,8 +41,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(libs.findLibrary("kotlinx-coroutines-core").get())
-            // Every module logs, and each platform wants its own sink: Kermit writes to Logcat on
-            // Android and os_log on iOS without any wiring at the call site.
+            // 모든 모듈이 로그를 기록하고 각 플랫폼에는 자체 sink가 필요하다. Kermit은 호출 지점의 별도
+            // 연결 없이 Android에서는 Logcat에, iOS에서는 os_log에 기록한다.
             implementation(libs.findLibrary("kermit").get())
         }
         commonTest.dependencies {

@@ -8,36 +8,35 @@ import org.gradle.api.provider.Provider
 import org.gradle.kotlin.dsl.getByType
 
 /**
- * This project's `libs.versions.toml` version catalog, resolved once per project so a convention
- * plugin can look up a library or version by its catalog alias instead of hardcoding a
- * coordinate or version string in `build-logic`.
+ * 이 프로젝트의 `libs.versions.toml` version catalog이다. convention plugin이 `build-logic`에
+ * coordinate나 버전 문자열을 하드코딩하지 않고 catalog alias로 라이브러리나 버전을 찾을 수 있도록
+ * 프로젝트마다 한 번 해석한다.
  *
- * @receiver The project whose `libs` catalog to resolve.
+ * @receiver `libs` catalog를 해석할 프로젝트.
  */
 internal val Project.libs: VersionCatalog
     get() = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
 /**
- * Looks up a library dependency by its alias in [libs], so a convention plugin can add it as a
- * dependency without the module's own `build.gradle.kts` repeating the coordinate.
+ * convention plugin이 모듈의 자체 `build.gradle.kts`에 coordinate를 반복하지 않고 의존성을 추가할 수
+ * 있도록 [libs]에서 alias로 라이브러리 의존성을 찾는다.
  *
- * @receiver The project to resolve the version catalog against.
- * @param name The library's alias in `libs.versions.toml`.
- * @return The resolved dependency, ready to pass to `dependencies { ... }`.
- * @throws NoSuchElementException if [name] is not a library alias in the catalog.
+ * @receiver version catalog를 해석할 프로젝트.
+ * @param name `libs.versions.toml`에 있는 라이브러리 alias.
+ * @return `dependencies { ... }`에 바로 전달할 수 있도록 해석된 의존성.
+ * @throws NoSuchElementException [name]이 catalog의 라이브러리 alias가 아닌 경우.
  */
 internal fun Project.findLibrary(name: String): Provider<MinimalExternalModuleDependency> =
     libs.findLibrary(name).get()
 
 /**
- * Looks up a version string by its alias in [libs], for a convention plugin that needs the raw
- * version rather than a full dependency coordinate — e.g. to configure a tool that takes a
- * version string directly.
+ * 전체 의존성 coordinate 대신 원시 버전이 필요한 convention plugin을 위해 [libs]에서 alias로 버전
+ * 문자열을 찾는다. 예를 들어 버전 문자열을 직접 받는 도구를 설정할 때 사용한다.
  *
- * @receiver The project to resolve the version catalog against.
- * @param name The version's alias in `libs.versions.toml`.
- * @return The alias's required version string.
- * @throws NoSuchElementException if [name] is not a version alias in the catalog.
+ * @receiver version catalog를 해석할 프로젝트.
+ * @param name `libs.versions.toml`에 있는 버전 alias.
+ * @return alias의 필수 버전 문자열.
+ * @throws NoSuchElementException [name]이 catalog의 버전 alias가 아닌 경우.
  */
 internal fun Project.findVersion(name: String): String =
     libs.findVersion(name).get().requiredVersion
