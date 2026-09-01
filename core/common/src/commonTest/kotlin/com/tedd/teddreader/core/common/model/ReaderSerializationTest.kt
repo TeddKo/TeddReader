@@ -8,17 +8,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /**
- * Pins what is persisted, since every one of these types is written to storage and read back on a later
- * launch.
+ * 이 타입들은 모두 저장소에 기록하고 이후 실행에서 다시 읽으므로 영속화 형식을 고정한다.
  *
- * A round trip failing here is an install that loses its settings or its reading positions on upgrade,
- * which is why the page-animation case checks that the pager presets are all still serializable names
- * rather than just that the enum compiles.
+ * 여기서 왕복 변환이 실패하면 업그레이드 때 설정이나 독서 위치를 잃는다. 따라서 페이지 전환 애니메이션 관련 검증은 열거형이 컴파일되는지만 확인하지 않고 모든 페이저 프리셋이 계속 직렬화 가능한 이름인지 확인한다.
  */
 class ReaderSerializationTest {
-    // The default Json, exactly as production reads these back (DocumentRepositoryImpl and the settings
-    // store both use `Json` with no leniency) — a laxer instance here would pass round trips production
-    // rejects, hiding the silent per-section block loss an unknown key causes there.
+    // 운영 환경에서 다시 읽는 방식과 정확히 같은 기본 Json이다(DocumentRepositoryImpl과 설정
+    // 저장소 모두 완화 옵션 없는 `Json`을 사용한다). 여기서 더 느슨한 인스턴스를 쓰면 운영 환경이
+    // 거부하는 왕복 변환이 통과하여 알 수 없는 키가 일으키는 조용한 섹션별 블록 손실을 숨긴다.
     private val json = Json
 
     @Test
