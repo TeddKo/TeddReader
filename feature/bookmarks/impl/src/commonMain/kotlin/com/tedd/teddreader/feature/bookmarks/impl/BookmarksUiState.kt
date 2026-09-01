@@ -6,17 +6,16 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
 /**
- * What the bookmarks screen renders at any moment.
+ * 북마크 화면이 현재 렌더링하는 상태이다.
  *
- * @property documentId the document these bookmarks belong to; empty before the screen's view model
- *   has resolved it from its route.
- * @property bookmarks the document's saved places, in the order the screen lists them.
- * @property editingBookmark the bookmark currently open in the rename/edit sheet, or null when no
- *   sheet is showing.
- * @property isLoading whether [bookmarks] still reflects its initial, not-yet-loaded default rather
- *   than a real read from storage.
- * @property errorMessage a user-facing message for the most recent failed action, or null when
- *   nothing needs reporting.
+ * @property documentId 이 북마크들이 속한 문서이다. 화면의 뷰 모델이 경로에서 값을 확인하기 전에는
+ *   비어 있다.
+ * @property bookmarks 화면에 표시되는 순서대로 정렬된 문서의 저장 위치 목록이다.
+ * @property editingBookmark 이름 변경/편집 시트에 현재 열려 있는 북마크이며, 표시 중인 시트가 없으면
+ *   null이다.
+ * @property isLoading [bookmarks]가 저장소에서 실제로 읽은 결과가 아니라 아직 불러오지 않은 초기 기본값을
+ *   나타내는지 여부이다.
+ * @property errorMessage 최근 실패한 작업을 사용자에게 알리는 메시지이며, 보고할 내용이 없으면 null이다.
  */
 @Immutable
 data class BookmarksUiState(
