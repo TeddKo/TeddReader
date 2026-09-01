@@ -43,10 +43,10 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * The Uniform Type Identifiers `UIDocumentPickerViewController` is opened with, one per format
- * this app parses plus `public.zip-archive` so an EPUB or CBZ a provider exposes only as a generic
- * zip is still selectable, the same reasoning the Android and Google Drive pickers apply for
- * `application/zip`.
+ * `UIDocumentPickerViewController`를 열 때 사용하는 Uniform Type Identifier다. 이 앱이 파싱하는
+ * 형식마다 하나씩 포함하고 `public.zip-archive`를 추가하여 provider가 EPUB 또는 CBZ를 일반 zip으로만
+ * 노출해도 선택할 수 있게 한다. Android와 Google Drive 선택기에 `application/zip`을 적용하는 이유와
+ * 같다.
  */
 private val IosPickerTypeIdentifiers = listOf(
     "public.plain-text",
@@ -61,14 +61,14 @@ private val IosPickerTypeIdentifiers = listOf(
 )
 
 /**
- * Builds iOS's [DocumentImporter], backed by `UIDocumentPickerViewController` for on-device picks
- * and by whichever [GoogleDrivePickerBridge] the Swift host app supplies for Drive — unlike
- * Android, iOS has no equivalent to the Identity `AuthorizationClient` SDK, so Drive support is
- * necessarily delegated to native code outside this Kotlin module.
+ * iOS의 [DocumentImporter]를 구성한다. 기기 내 선택에는 `UIDocumentPickerViewController`를 사용하고,
+ * Drive에는 Swift 호스트 앱이 제공한 [GoogleDrivePickerBridge]를 사용한다. Android와 달리 iOS에는
+ * Identity `AuthorizationClient` SDK에 대응하는 기능이 없으므로 Drive 지원은 이 Kotlin 모듈 밖의
+ * 네이티브 코드에 위임해야 한다.
  *
- * @param googleDrivePickerBridge the Swift-side Drive picker bridge, or null when Drive import is
- *   not configured for this build.
- * @return an iOS-backed [DocumentImporter] remembered for the composition's lifetime.
+ * @param googleDrivePickerBridge Swift 측 Drive 선택기 브리지다. 이 빌드에 Drive 가져오기가 구성되지
+ *   않았으면 null이다.
+ * @return 컴포지션 수명 동안 기억되는 iOS 기반 [DocumentImporter]다.
  */
 @Composable
 internal actual fun rememberDocumentImporter(
@@ -87,19 +87,17 @@ internal actual fun rememberDocumentImporter(
 }
 
 /**
- * iOS's [DocumentImporter] implementation, wrapping `UIDocumentPickerViewController` for files and
- * folders and forwarding to a [GoogleDrivePickerBridge] for Drive. Every picker presentation keeps
- * its own [IosDocumentPickerDelegate] alive in [delegate], since `UIDocumentPickerViewController`
- * holds only a weak reference to its delegate and the delegate would otherwise be freed before the
- * user finishes picking.
+ * 파일과 폴더에는 `UIDocumentPickerViewController`를 감싸고 Drive에는
+ * [GoogleDrivePickerBridge]로 전달하는 iOS [DocumentImporter] 구현이다. 각 선택기를 표시할 때 자체
+ * [IosDocumentPickerDelegate]를 [delegate]에 보관한다. `UIDocumentPickerViewController`는 delegate의
+ * 약한 참조만 보관하므로 이렇게 하지 않으면 사용자가 선택을 끝내기 전에 delegate가 해제된다.
  *
- * @property scope the coroutine scope import work is launched on, tied to the composition that
- *   created this importer.
- * @property documentRepository imports a resolved
- *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource] into the library.
- * @property fileSource copies picked documents into the app's sandbox container.
- * @property googleDrivePickerBridge the Swift-side Drive picker bridge, or null when Drive import
- *   is unavailable.
+ * @property scope 이 임포터를 만든 컴포지션에 연결되어 가져오기 작업을 실행하는 코루틴 범위다.
+ * @property documentRepository 해석된
+ *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 라이브러리로 가져온다.
+ * @property fileSource 선택한 문서를 앱의 샌드박스 컨테이너로 복사한다.
+ * @property googleDrivePickerBridge Swift 측 Drive 선택기 브리지이며 Drive 가져오기를 사용할 수 없으면
+ *   null이다.
  */
 private class IosDocumentImporter(
     private val scope: CoroutineScope,
@@ -108,26 +106,25 @@ private class IosDocumentImporter(
     private val googleDrivePickerBridge: GoogleDrivePickerBridge?,
 ) : DocumentImporter {
     /**
-     * True only when the Swift host app supplied a [GoogleDrivePickerBridge] and that bridge
-     * reports itself configured — this build never has anything else to check Drive support
-     * against, unlike Android where the Identity SDK's availability can be probed directly.
+     * Swift 호스트 앱이 [GoogleDrivePickerBridge]를 제공하고 해당 브리지가 구성되었다고 보고할 때만
+     * true다. Identity SDK의 사용 가능 여부를 직접 확인할 수 있는 Android와 달리 이 빌드에는 Drive
+     * 지원을 확인할 다른 대상이 없다.
      */
     override val supportsGoogleDrivePicker: Boolean
         get() = googleDrivePickerBridge?.isConfigured == true
 
     /**
-     * The delegate for whichever `UIDocumentPickerViewController` is currently presented, held
-     * here rather than only as a local variable so it survives for as long as the picker itself
-     * does — see the class-level note on why the delegate must be kept alive.
+     * 현재 표시 중인 `UIDocumentPickerViewController`의 delegate다. 지역 변수로만 두지 않고 여기에
+     * 보관하여 선택기 자체와 같은 기간 동안 유지한다. delegate를 살려 둬야 하는 이유는 클래스 수준
+     * 설명을 참고한다.
      */
     private var delegate: IosDocumentPickerDelegate? = null
 
     /**
-     * Presents the file picker with `asCopy = true`, so the system hands back a URL to a
-     * temporary copy of each picked file that this app already owns, rather than the original
-     * security-scoped URL a folder pick returns — a whole file can be copied this way, so there is
-     * no need for the explicit `startAccessingSecurityScopedResource` dance [importFolders] has to
-     * do for a folder's contents.
+     * 파일 선택기를 `asCopy = true`로 표시하여, 폴더 선택이 반환하는 원본 보안 범위 URL 대신 앱이
+     * 이미 소유한 각 선택 파일의 임시 복사본 URL을 시스템에서 받는다. 파일 전체는 이 방식으로 복사할
+     * 수 있으므로, 폴더 콘텐츠에 [importFolders]가 수행해야 하는 명시적
+     * `startAccessingSecurityScopedResource` 절차가 필요 없다.
      */
     override fun openFiles(
         onImported: (List<DocumentId>) -> Unit,
@@ -147,10 +144,9 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Presents the folder picker with `asCopy = false`, since an entire folder cannot be handed
-     * back as a single copied file the way [openFiles] receives one — the picker returns the
-     * original, security-scoped folder URL instead, and [importFolders] is responsible for
-     * accessing and walking it.
+     * 폴더 전체는 [openFiles]가 받는 것처럼 복사된 파일 하나로 반환할 수 없으므로 폴더 선택기를
+     * `asCopy = false`로 표시한다. 선택기는 원본 보안 범위 폴더 URL을 반환하며 [importFolders]가
+     * 접근과 탐색을 담당한다.
      */
     override fun openFolder(
         onImported: (List<DocumentId>) -> Unit,
@@ -170,8 +166,8 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Delegates to [googleDrivePickerBridge] for the native picker/authorization UI, then
-     * downloads and imports whatever the user picks the same way the Android implementation does.
+     * 네이티브 선택기/인증 UI는 [googleDrivePickerBridge]에 위임한 뒤, Android 구현과 같은 방식으로
+     * 사용자가 선택한 항목을 다운로드하여 가져온다.
      */
     override fun openGoogleDrive(
         onImported: (List<DocumentId>) -> Unit,
@@ -217,9 +213,9 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Not yet implemented on iOS: unlike Android, which resolves an external document straight
-     * from the `Intent` that delivered it, this platform has no external-delivery path wired up
-     * yet, so every call reports the same fixed failure regardless of [request].
+     * iOS에는 아직 구현되지 않았다. 전달한 `Intent`에서 외부 문서를 바로 해석하는 Android와 달리 이
+     * 플랫폼에는 외부 전달 경로가 아직 연결되지 않아 [request]와 관계없이 모든 호출이 같은 고정
+     * 실패를 보고한다.
      */
     override fun importExternal(
         request: ExternalDocumentImportRequest,
@@ -230,18 +226,17 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Presents a configured `UIDocumentPickerViewController` and wires its delegate to run
-     * [importUrls] over whatever the user picks, converging both [openFiles] and [openFolder] on
-     * this one presentation/import/callback plumbing.
+     * 구성된 `UIDocumentPickerViewController`를 표시하고 사용자가 선택한 항목에 [importUrls]를
+     * 실행하도록 delegate를 연결한다. [openFiles]와 [openFolder]가 이 하나의 표시/가져오기/콜백
+     * 처리로 합류한다.
      *
-     * @param picker the picker to present, already configured with its content types and
-     *   `asCopy`/`allowsMultipleSelection` settings.
-     * @param onImported forwarded to the resulting [IosDocumentPickerDelegate].
-     * @param onError called immediately if there is no view controller available to present from,
-     *   or forwarded to the delegate for a failure discovered during import.
-     * @param importUrls imports the URLs the user picked; differs between [openFiles] (imports
-     *   each URL as a document) and [openFolder] (imports every supported document found inside
-     *   each picked folder).
+     * @param picker 콘텐츠 타입과 `asCopy`/`allowsMultipleSelection` 설정을 이미 구성하여 표시할
+     *   선택기다.
+     * @param onImported 생성한 [IosDocumentPickerDelegate]에 전달한다.
+     * @param onError 표시를 시작할 view controller가 없으면 즉시 호출하고, 가져오기 중 발견한 실패에는
+     *   delegate로 전달한다.
+     * @param importUrls 사용자가 선택한 URL을 가져온다. [openFiles]에서는 각 URL을 문서로 가져오고,
+     *   [openFolder]에서는 선택한 각 폴더 안에서 찾은 지원 문서를 모두 가져온다.
      */
     private fun presentPicker(
         picker: UIDocumentPickerViewController,
@@ -267,18 +262,17 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Imports every supported document found inside each picked folder root, one folder at a
-     * time, merging their [DocumentImportBatchResult]s into a single batch result the same way
-     * [importDocuments] merges individual document failures.
+     * 선택한 각 폴더 루트 안에서 찾은 지원 문서를 한 폴더씩 모두 가져오고, 각각의
+     * [DocumentImportBatchResult]를 [importDocuments]가 개별 문서 실패를 병합하는 것과 같은 방식으로
+     * 하나의 배치 결과로 병합한다.
      *
-     * Each root URL is a security-scoped resource — the picker returned the original folder
-     * location rather than a copy (see [openFolder]) — so access is explicitly started before
-     * walking it and stopped afterward regardless of outcome; the individual files found inside
-     * are then imported with `manageSecurityScope = false` in [importUrl], since the root's own
-     * access grant already covers everything beneath it.
+     * 각 루트 URL은 보안 범위 리소스다. 선택기가 복사본이 아닌 원본 폴더 위치를 반환했으므로
+     * ([openFolder] 참고) 탐색 전에 명시적으로 접근을 시작하고 결과와 관계없이 이후 중지한다. 루트의
+     * 접근 권한이 아래의 모든 항목을 이미 포괄하므로, 내부에서 찾은 개별 파일은 [importUrl]에서
+     * `manageSecurityScope = false`로 가져온다.
      *
-     * @param urls the folder root URLs the user picked.
-     * @return the combined result across every picked folder.
+     * @param urls 사용자가 선택한 폴더 루트 URL이다.
+     * @return 선택한 모든 폴더의 결합 결과다.
      */
     private suspend fun importFolders(urls: List<NSURL>): DocumentImportBatchResult {
         val importedDocumentIds = mutableListOf<DocumentId>()
@@ -312,13 +306,12 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Lists every file under a security-scoped folder root whose extension this app parses,
-     * using `NSFileManager.subpathsAtPath` to recurse through the whole tree in one call rather
-     * than walking it directory by directory.
+     * 보안 범위 폴더 루트 아래에서 이 앱이 파싱하는 확장자를 가진 모든 파일을 나열한다. 디렉터리를
+     * 하나씩 탐색하는 대신 `NSFileManager.subpathsAtPath` 호출 하나로 전체 트리를 재귀 탐색한다.
      *
-     * @param rootUrl the already-access-started folder root to search.
-     * @return the supported document URLs found anywhere under [rootUrl], or empty if the root's
-     *   path could not be resolved.
+     * @param rootUrl 접근을 이미 시작한 검색 대상 폴더 루트다.
+     * @return [rootUrl] 아래 어디에서든 찾은 지원 문서 URL이며, 루트 경로를 해석할 수 없으면 빈
+     *   목록이다.
      */
     private fun collectSupportedDocumentUrls(rootUrl: NSURL): List<NSURL> {
         val rootPath = rootUrl.path ?: return emptyList()
@@ -331,25 +324,24 @@ private class IosDocumentImporter(
     }
 
     /**
-     * Imports a single document from a picked or discovered [NSURL], the shared routine behind
-     * both [openFiles] and the per-file step of [importFolders].
+     * 선택하거나 탐색으로 찾은 [NSURL]에서 문서 하나를 가져온다. [openFiles]와 [importFolders]의
+     * 파일별 단계가 공유하는 루틴이다.
      *
-     * Every format is copied into the app's own sandbox container via [fileSource] first — the
-     * picked URL itself, whether a temporary copy ([openFiles]) or a security-scoped original
-     * location ([openFolder]), is not guaranteed to remain valid or accessible for as long as the
-     * imported document needs to stay readable. For EPUB and CBZ archives, [fileSource]'s bytes are
-     * then deliberately left null rather than read again here: the sandbox copy already exists as a
-     * real file on disk, so reading it fully into memory just to hand those bytes to a parser that
-     * immediately reopens a scratch copy as a zip would be wasted work. `DocumentFormatDetector`
-     * resolves both formats from `displayName`/`mimeType` alone, and `DocumentRepositoryImpl` copies
-     * from `sandboxLocation` through [DocumentFileSource.copyTo] before opening the archive.
+     * 모든 형식은 먼저 [fileSource]를 통해 앱 자체 샌드박스 컨테이너로 복사한다. 선택한 URL이
+     * 임시 복사본([openFiles])이든 보안 범위 원본 위치([openFolder])든 가져온 문서를 읽어야 하는
+     * 기간 내내 유효하거나 접근 가능하다고 보장되지 않기 때문이다. EPUB과 CBZ 압축 파일에서는
+     * [fileSource]의 바이트를 여기서 다시 읽지 않고 의도적으로 null로 둔다. 샌드박스 복사본이 이미
+     * 디스크의 실제 파일이므로, 전체를 메모리로 읽어 곧바로 임시 복사본을 zip으로 다시 여는 파서에
+     * 전달하는 것은 낭비다. `DocumentFormatDetector`는 `displayName`/`mimeType`만으로 두 형식을
+     * 해석하고, `DocumentRepositoryImpl`은 압축 파일을 열기 전에 `sandboxLocation`에서
+     * [DocumentFileSource.copyTo]를 통해 복사한다.
      *
-     * @param url the document URL to import.
-     * @param manageSecurityScope whether this call must itself start and stop security-scoped
-     *   access to [url]; true when called directly from [openFiles], false when called from
-     *   [importFolders] for a file whose containing folder root already holds that access.
-     * @return the imported document's [DocumentId].
-     * @throws IllegalStateException if [url]'s path cannot be read.
+     * @param url 가져올 문서 URL이다.
+     * @param manageSecurityScope 이 호출 자체에서 [url]의 보안 범위 접근을 시작하고 중지해야 하는지
+     *   나타낸다. [openFiles]에서 직접 호출하면 true이고, 폴더 루트가 이미 접근 권한을 보유한 파일을
+     *   [importFolders]에서 호출하면 false다.
+     * @return 가져온 문서의 [DocumentId]다.
+     * @throws IllegalStateException [url]의 경로를 읽을 수 없을 때 발생한다.
      */
     private suspend fun importUrl(
         url: NSURL,
@@ -382,16 +374,16 @@ private class IosDocumentImporter(
 }
 
 /**
- * The `UIDocumentPickerDelegateProtocol` conformance behind one presented
- * `UIDocumentPickerViewController`, bridging its Objective-C callback-based delegate methods into
- * the coroutine-based [importUrls] import step and the [DocumentImporter] callback pair a picker
- * call was opened with.
+ * 표시된 `UIDocumentPickerViewController` 하나를 위한 `UIDocumentPickerDelegateProtocol` 구현이다.
+ * Objective-C의 콜백 기반 delegate 메서드를 코루틴 기반 [importUrls] 가져오기 단계와 선택기를 열 때
+ * 전달받은 [DocumentImporter] 콜백 쌍으로 연결한다.
  *
- * @property scope the coroutine scope the import work resulting from a pick is launched on.
- * @property onImported called with every successfully imported document once import finishes.
- * @property onError called with a user-facing message if any import failed or nothing was picked.
- * @property importUrls imports the URLs the user picked; supplied by [IosDocumentImporter] to
- *   differ between a files pick and a folder pick.
+ * @property scope 선택 결과의 가져오기 작업을 실행하는 코루틴 범위다.
+ * @property onImported 가져오기가 끝나면 성공한 모든 문서와 함께 호출한다.
+ * @property onError 가져오기가 실패했거나 아무것도 선택하지 않았을 때 사용자에게 표시할 메시지와
+ *   함께 호출한다.
+ * @property importUrls 사용자가 선택한 URL을 가져온다. 파일 선택과 폴더 선택을 다르게 처리하도록
+ *   [IosDocumentImporter]가 제공한다.
  */
 private class IosDocumentPickerDelegate(
     private val scope: CoroutineScope,
@@ -400,13 +392,13 @@ private class IosDocumentPickerDelegate(
     private val importUrls: suspend (List<NSURL>) -> DocumentImportBatchResult,
 ) : NSObject(), UIDocumentPickerDelegateProtocol {
     /**
-     * Called by UIKit once the user finishes picking. Launches [importUrls] on [scope] and
-     * reports the result through [onImported]/[onError]; reports an error immediately, without
-     * launching anything, if the picker somehow completed with no URLs at all.
+     * 사용자가 선택을 끝내면 UIKit이 호출한다. [scope]에서 [importUrls]를 실행하고 결과를
+     * [onImported]/[onError]로 보고한다. 선택기가 URL 없이 완료되는 경우에는 아무 작업도 실행하지 않고
+     * 즉시 오류를 보고한다.
      *
-     * @param controller the picker that completed.
-     * @param didPickDocumentsAtURLs the picked URLs, typed `List<*>` because that is the
-     *   Objective-C bridge's signature; filtered down to [NSURL] before use.
+     * @param controller 완료된 선택기다.
+     * @param didPickDocumentsAtURLs 선택한 URL이다. Objective-C 브리지 시그니처에 따라 `List<*>`로
+     *   타입이 지정되며 사용 전에 [NSURL]만 남긴다.
      */
     override fun documentPicker(
         controller: UIDocumentPickerViewController,
@@ -434,28 +426,26 @@ private class IosDocumentPickerDelegate(
     }
 
     /**
-     * Called by UIKit when the user dismisses the picker without picking anything; deliberately a
-     * no-op, since dismissing a picker without choosing a document is not itself a failure worth
-     * reporting through [onError].
+     * 사용자가 아무것도 선택하지 않고 선택기를 닫으면 UIKit이 호출한다. 문서를 고르지 않고 선택기를
+     * 닫은 것은 [onError]로 보고할 실패가 아니므로 의도적으로 아무 작업도 하지 않는다.
      *
-     * @param controller the picker that was cancelled.
+     * @param controller 취소된 선택기다.
      */
     override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) = Unit
 }
 
 /**
- * Fetches, validates, downloads, and materializes one Google Drive file into app storage — the
- * iOS equivalent of the Android importer's Drive fetch-then-`copyMaterialized` pair, done here in
- * a single function since iOS's Drive flow only ever imports through [IosDocumentImporter], with
- * no separate download step shared with anything else.
+ * Google Drive 파일 하나를 가져오고 검증하고 다운로드하여 앱 저장소에 구체화한다. Android 임포터의
+ * Drive 가져오기 후 `copyMaterialized` 쌍에 대응하는 iOS 처리다. iOS의 Drive 흐름은
+ * [IosDocumentImporter]를 통해서만 가져오고 다른 처리와 공유하는 별도 다운로드 단계가 없으므로 한
+ * 함수에서 수행한다.
  *
- * @param fileId the Drive file id to fetch.
- * @param accessToken the bearer token authorizing the request.
- * @param fileSource materializes the downloaded bytes into the app's sandbox container.
- * @return a [DocumentImportSource] pointing at the materialized copy, still carrying the full
- *   bytes.
- * @throws IllegalStateException if the file cannot be downloaded, is not an importable format, or
- *   downloads empty.
+ * @param fileId 가져올 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @param fileSource 다운로드한 바이트를 앱의 샌드박스 컨테이너에 구체화한다.
+ * @return 구체화한 복사본을 가리키면서 전체 바이트도 담고 있는 [DocumentImportSource]다.
+ * @throws IllegalStateException 파일을 다운로드할 수 없거나 가져올 수 없는 형식이거나 다운로드
+ *   결과가 비어 있으면 발생한다.
  */
 private suspend fun fetchGoogleDriveImportSource(
     fileId: String,
@@ -475,11 +465,11 @@ private suspend fun fetchGoogleDriveImportSource(
 }
 
 /**
- * Requests and parses one Drive file's metadata via the `files.get` REST endpoint.
+ * `files.get` REST 엔드포인트로 Drive 파일 하나의 메타데이터를 요청하고 파싱한다.
  *
- * @param fileId the Drive file id to describe.
- * @param accessToken the bearer token authorizing the request.
- * @return the parsed [GoogleDriveFileMetadata].
+ * @param fileId 설명할 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @return 파싱한 [GoogleDriveFileMetadata]다.
  */
 private suspend fun fetchGoogleDriveMetadata(
     fileId: String,
@@ -493,11 +483,11 @@ private suspend fun fetchGoogleDriveMetadata(
     )
 
 /**
- * Downloads one Drive file's full content via the `files.get?alt=media` REST endpoint.
+ * `files.get?alt=media` REST 엔드포인트로 Drive 파일 하나의 전체 콘텐츠를 다운로드한다.
  *
- * @param fileId the Drive file id to download.
- * @param accessToken the bearer token authorizing the request.
- * @return the file's raw bytes.
+ * @param fileId 다운로드할 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @return 파일의 원본 바이트다.
  */
 private suspend fun downloadGoogleDriveFile(
     fileId: String,
@@ -508,16 +498,15 @@ private suspend fun downloadGoogleDriveFile(
 )
 
 /**
- * Runs one authenticated `GET` request against the Google Drive REST API on iOS's native URL
- * loading system, used for both the metadata and download endpoints.
+ * iOS의 네이티브 URL 로딩 시스템에서 Google Drive REST API에 인증된 `GET` 요청 하나를 실행한다.
+ * 메타데이터와 다운로드 엔드포인트에 모두 사용한다.
  *
- * @param urlString the full request URL, built by [googleDriveMetadataUrl] or
- *   [googleDriveDownloadUrl].
- * @param accessToken the bearer token to send in the `Authorization` header.
- * @return the response body's raw bytes.
- * @throws IllegalStateException if [urlString] is not a valid URL.
- * @throws Throwable the error [NSURLSession.awaitResponse] or [errorWithStatus] produces if the
- *   request fails or returns a non-2xx status.
+ * @param urlString [googleDriveMetadataUrl] 또는 [googleDriveDownloadUrl]이 구성한 전체 요청 URL이다.
+ * @param accessToken `Authorization` 헤더에 보낼 bearer 토큰이다.
+ * @return 응답 본문의 원본 바이트다.
+ * @throws IllegalStateException [urlString]이 유효한 URL이 아니면 발생한다.
+ * @throws Throwable 요청이 실패하거나 2xx가 아닌 상태를 반환했을 때 [NSURLSession.awaitResponse] 또는
+ *   [errorWithStatus]가 만든 오류다.
  */
 private suspend fun executeGoogleDriveRequest(
     urlString: String,
@@ -537,15 +526,14 @@ private suspend fun executeGoogleDriveRequest(
 }
 
 /**
- * Adapts `NSURLSession`'s callback-based `dataTaskWithRequest` into a suspend call, cancelling the
- * underlying task if the coroutine is cancelled first and ignoring a callback that arrives after
- * the coroutine already stopped waiting.
+ * `NSURLSession`의 콜백 기반 `dataTaskWithRequest`를 suspend 호출로 변환한다. 코루틴이 먼저 취소되면
+ * 내부 task를 취소하고, 코루틴이 대기를 끝낸 뒤 도착한 콜백은 무시한다.
  *
- * @receiver the session to run the request on.
- * @param request the request to execute.
- * @return the response's status code and body, wrapped as [IosHttpResponse].
- * @throws Throwable [NSError.toThrowable]'s result if the task failed, or an
- *   [IllegalStateException] if the response body or headers were missing or of the wrong type.
+ * @receiver 요청을 실행할 session이다.
+ * @param request 실행할 요청이다.
+ * @return 응답 상태 코드와 본문을 [IosHttpResponse]로 감싼 값이다.
+ * @throws Throwable task가 실패하면 [NSError.toThrowable]의 결과를 던진다. 응답 본문이나 헤더가
+ *   없거나 타입이 잘못되었으면 [IllegalStateException]을 던진다.
  */
 private suspend fun NSURLSession.awaitResponse(request: NSURLRequest): IosHttpResponse =
     suspendCancellableCoroutine { continuation ->
@@ -564,11 +552,11 @@ private suspend fun NSURLSession.awaitResponse(request: NSURLRequest): IosHttpRe
     }
 
 /**
- * The minimal shape [NSURLSession.awaitResponse] needs from a completed HTTP response, decoupling
- * the rest of this file from Foundation's richer `NSHTTPURLResponse` type.
+ * 완료된 HTTP 응답에서 [NSURLSession.awaitResponse]에 필요한 최소 형태다. 이 파일의 나머지 부분을
+ * Foundation의 더 풍부한 `NSHTTPURLResponse` 타입과 분리한다.
  *
- * @property statusCode the HTTP status code the response carried.
- * @property data the response body.
+ * @property statusCode 응답이 전달한 HTTP 상태 코드다.
+ * @property data 응답 본문이다.
  */
 private data class IosHttpResponse(
     val statusCode: Int,
@@ -576,24 +564,23 @@ private data class IosHttpResponse(
 )
 
 /**
- * Converts a Foundation `NSError` from a failed URL session task into a Kotlin [Throwable],
- * recognizing `NSURLErrorCancelled` (`-999`) specifically as a [CancellationException] so a
- * cancelled request propagates as a coroutine cancellation rather than as an ordinary failure.
+ * 실패한 URL session task의 Foundation `NSError`를 Kotlin [Throwable]로 변환한다.
+ * `NSURLErrorCancelled`(`-999`)는 특별히 [CancellationException]으로 인식하여 취소된 요청이 일반
+ * 실패가 아니라 코루틴 취소로 전파되게 한다.
  *
- * @receiver the error the task failed with.
- * @return the equivalent [Throwable].
+ * @receiver task가 실패하며 전달한 오류다.
+ * @return 동등한 [Throwable]이다.
  */
 private fun NSError.toThrowable(): Throwable =
     if (code.toInt() == -999) CancellationException(localizedDescription)
     else error(localizedDescription)
 
 /**
- * Builds the [Throwable] to report for a non-2xx Google Drive HTTP response, giving `401`
- * specifically a session-expiry message since that is the one status this app's Drive flow can
- * meaningfully explain to the user.
+ * 2xx가 아닌 Google Drive HTTP 응답에 보고할 [Throwable]을 구성한다. 이 앱의 Drive 흐름에서
+ * 사용자에게 의미 있게 설명할 수 있는 상태인 `401`에는 특별히 세션 만료 메시지를 사용한다.
  *
- * @param statusCode the HTTP status code the request failed with.
- * @return the [Throwable] to raise.
+ * @param statusCode 요청이 실패한 HTTP 상태 코드다.
+ * @return 발생시킬 [Throwable]이다.
  */
 private fun errorWithStatus(statusCode: Int): Throwable =
     when (statusCode) {
@@ -602,47 +589,46 @@ private fun errorWithStatus(statusCode: Int): Throwable =
     }
 
 /**
- * Builds the `files.get` metadata URL for one Drive file, requesting only the fields
- * [GoogleDriveFileMetadata] needs and `supportsAllDrives=true` so a file living in a shared drive
- * resolves the same as one in the user's own Drive.
+ * Drive 파일 하나의 `files.get` 메타데이터 URL을 구성한다. [GoogleDriveFileMetadata]에 필요한
+ * 필드만 요청하고 `supportsAllDrives=true`를 사용하여 공유 drive의 파일도 사용자 자신의 Drive
+ * 파일과 같은 방식으로 해석한다.
  *
- * @param fileId the Drive file id.
- * @return the full metadata request URL.
+ * @param fileId Drive 파일 id다.
+ * @return 전체 메타데이터 요청 URL이다.
  */
 private fun googleDriveMetadataUrl(fileId: String): String =
     "https://www.googleapis.com/drive/v3/files/$fileId" +
         "?fields=id,name,mimeType,size,capabilities(canDownload)&supportsAllDrives=true"
 
 /**
- * Builds the `files.get?alt=media` download URL for one Drive file's content, with the same
- * shared-drive support as [googleDriveMetadataUrl].
+ * Drive 파일 하나의 콘텐츠를 위한 `files.get?alt=media` 다운로드 URL을 구성한다.
+ * [googleDriveMetadataUrl]과 동일하게 공유 drive를 지원한다.
  *
- * @param fileId the Drive file id.
- * @return the full download request URL.
+ * @param fileId Drive 파일 id다.
+ * @return 전체 다운로드 요청 URL이다.
  */
 private fun googleDriveDownloadUrl(fileId: String): String =
     "https://www.googleapis.com/drive/v3/files/$fileId" +
         "?alt=media&supportsAllDrives=true"
 
 /**
- * Whether a file found while walking a picked folder tree is one this app parses, by extension
- * alone — [collectSupportedDocumentUrls] has only a file-system path to check, with no MIME type
- * available the way the Android tree walker's `DocumentsContract` query provides one.
+ * 선택한 폴더 트리를 탐색하며 찾은 파일을 확장자만으로 이 앱이 파싱할 수 있는지 판단한다.
+ * [collectSupportedDocumentUrls]에는 확인할 파일 시스템 경로만 있고 Android 트리 탐색기의
+ * `DocumentsContract` 조회처럼 사용할 MIME 타입은 없다.
  *
- * @param path the file's path or subpath, as `NSFileManager.subpathsAtPath` reports it.
- * @return true when the path's extension is a supported one.
+ * @param path `NSFileManager.subpathsAtPath`가 보고한 파일 경로나 하위 경로다.
+ * @return 경로의 확장자가 지원 대상이면 true다.
  */
 private fun isSupportedDocumentPath(path: String): Boolean =
     path.substringAfterLast('.', missingDelimiterValue = "").lowercase() in SupportedDocumentExtensions
 
 /**
- * Maps a lowercased file extension to the MIME type [IosDocumentFileSource.copyIntoAppContainer]
- * records for the sandboxed copy, since a picked iOS file's `UTType` does not directly hand back
- * the plain MIME type string the rest of the app's format detection expects.
+ * 소문자 파일 확장자를 [IosDocumentFileSource.copyIntoAppContainer]가 샌드박스 복사본에 기록할 MIME
+ * 타입으로 매핑한다. 선택한 iOS 파일의 `UTType`은 앱의 나머지 형식 감지가 요구하는 일반 MIME 타입
+ * 문자열을 직접 반환하지 않는다.
  *
- * @param extension the lowercased file extension, without the leading dot.
- * @return the corresponding MIME type, or null when [extension] is not one of the formats this
- *   app recognizes.
+ * @param extension 앞의 점을 제외한 소문자 파일 확장자다.
+ * @return 대응하는 MIME 타입이며 [extension]이 이 앱이 인식하는 형식이 아니면 null이다.
  */
 private fun mimeTypeForExtension(extension: String): String? = when (extension) {
     "txt" -> "text/plain"
@@ -658,12 +644,11 @@ private fun mimeTypeForExtension(extension: String): String? = when (extension) 
 }
 
 /**
- * Copies this Foundation `NSData`'s bytes into a Kotlin [ByteArray], since Google Drive's
- * downloaded response body arrives as `NSData` and the rest of the import pipeline works with
- * plain byte arrays.
+ * Foundation `NSData`의 바이트를 Kotlin [ByteArray]로 복사한다. Google Drive에서 다운로드한 응답
+ * 본문은 `NSData`로 도착하지만 가져오기 파이프라인의 나머지 부분은 일반 바이트 배열을 사용한다.
  *
- * @receiver the data to copy.
- * @return a new [ByteArray] with the same contents, empty when this data is empty.
+ * @receiver 복사할 데이터다.
+ * @return 같은 콘텐츠를 담은 새 [ByteArray]이며 이 데이터가 비어 있으면 빈 배열이다.
  */
 @OptIn(ExperimentalForeignApi::class)
 private fun NSData.toByteArray(): ByteArray {
@@ -677,11 +662,11 @@ private fun NSData.toByteArray(): ByteArray {
 }
 
 /**
- * The current wall-clock time in epoch milliseconds, read from POSIX `time()` since
- * `kotlin.time`/`Clock` was not otherwise in use here; used to stamp a Google-Drive-imported
- * document's import time the same way Android stamps one with `System.currentTimeMillis()`.
+ * POSIX `time()`에서 읽은 epoch 밀리초 단위의 현재 실제 시각이다. 여기서는 달리
+ * `kotlin.time`/`Clock`을 사용하지 않으므로, Google Drive에서 가져온 문서에 Android가
+ * `System.currentTimeMillis()`로 기록하는 것과 같은 방식으로 가져오기 시각을 기록하는 데 사용한다.
  *
- * @return the current time in milliseconds since the Unix epoch, at one-second resolution.
+ * @return Unix epoch 이후 현재 시각의 밀리초 값이며 1초 해상도다.
  */
 @OptIn(ExperimentalForeignApi::class)
 private fun currentTimeMillis(): Long = time(null) * 1000L
