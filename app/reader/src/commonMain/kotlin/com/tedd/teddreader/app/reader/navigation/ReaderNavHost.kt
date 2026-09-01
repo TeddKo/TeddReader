@@ -55,54 +55,53 @@ import com.tedd.teddreader.feature.search.impl.SearchRouteScreen
 import com.tedd.teddreader.feature.settings.impl.ReaderSettingsRouteScreen
 
 /**
- * Storage token for [HomeRoute] in the back-stack encoding [navKeyToStorageToken] and
- * [storageTokenToNavKey] convert between.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [HomeRoute]를
+ * 나타내는 저장 토큰이다.
  */
 private const val HOME_ROUTE_TOKEN = "home"
 
 /**
- * Storage token prefix for a [LibraryRoute] in the back-stack encoding [navKeyToStorageToken] and
- * [storageTokenToNavKey] convert between; the route's optional folder id, if any, follows the
- * prefix.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [LibraryRoute]를
+ * 나타내는 저장 토큰 접두사다. 선택적 폴더 id가 있으면 접두사 뒤에 붙는다.
  */
 private const val LIBRARY_ROUTE_PREFIX = "library:"
 
 /**
- * Storage token prefix for a [ReaderRoute] in the back-stack encoding [navKeyToStorageToken] and
- * [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [ReaderRoute]를
+ * 나타내는 저장 토큰 접두사다. 문서 id가 접두사 뒤에 붙는다.
  */
 private const val READER_ROUTE_PREFIX = "reader:"
 
 /**
- * Storage token prefix for a [SearchRoute] in the back-stack encoding [navKeyToStorageToken] and
- * [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [SearchRoute]를
+ * 나타내는 저장 토큰 접두사다. 문서 id가 접두사 뒤에 붙는다.
  */
 private const val SEARCH_ROUTE_PREFIX = "search:"
 
 /**
- * Storage token prefix for a [BookmarksRoute] in the back-stack encoding [navKeyToStorageToken]
- * and [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [BookmarksRoute]를
+ * 나타내는 저장 토큰 접두사다. 문서 id가 접두사 뒤에 붙는다.
  */
 private const val BOOKMARKS_ROUTE_PREFIX = "bookmarks:"
 
 /**
- * Storage token prefix for a [DocumentInfoRoute] in the back-stack encoding [navKeyToStorageToken]
- * and [storageTokenToNavKey] convert between; the route's document id follows the prefix.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서
+ * [DocumentInfoRoute]를 나타내는 저장 토큰 접두사다. 문서 id가 접두사 뒤에 붙는다.
  */
 private const val DOCUMENT_INFO_ROUTE_PREFIX = "document-info:"
 
 /**
- * Storage token for [SettingsRoute] in the back-stack encoding [navKeyToStorageToken] and
- * [storageTokenToNavKey] convert between.
+ * [navKeyToStorageToken]과 [storageTokenToNavKey]가 변환하는 백 스택 인코딩에서 [SettingsRoute]를
+ * 나타내는 저장 토큰이다.
  */
 private const val SETTINGS_ROUTE_TOKEN = "settings"
 
 /**
- * Lets the navigation back stack survive process death and configuration changes: each entry's
- * navigation-key object (e.g. [com.tedd.teddreader.feature.reader.api.ReaderRoute]) is not itself
- * `Parcelable`/serializable, so [rememberSaveable] cannot save the [SnapshotStateList] directly —
- * this saver converts every entry to and from the plain string tokens [navKeyToStorageToken] and
- * [storageTokenToNavKey] define instead.
+ * 내비게이션 백 스택이 프로세스 종료와 구성 변경 후에도 유지되게 한다. 각 항목의 내비게이션 키 객체
+ * (예: [com.tedd.teddreader.feature.reader.api.ReaderRoute])는 자체적으로
+ * `Parcelable`/serializable이 아니어서 [rememberSaveable]이 [SnapshotStateList]를 직접 저장할 수
+ * 없다. 따라서 이 saver는 각 항목을 [navKeyToStorageToken]과 [storageTokenToNavKey]가 정의한 일반
+ * 문자열 토큰으로 변환하고 복원한다.
  */
 private val navBackStackSaver = listSaver<SnapshotStateList<Any>, String>(
     save = { backStack -> backStack.map(::navKeyToStorageToken) },
@@ -110,13 +109,13 @@ private val navBackStackSaver = listSaver<SnapshotStateList<Any>, String>(
 )
 
 /**
- * Encodes one back-stack entry's navigation key as the plain string [navBackStackSaver] persists,
- * pairing with [storageTokenToNavKey] to decode it back.
+ * 백 스택 항목의 내비게이션 키를 [navBackStackSaver]가 저장하는 일반 문자열로 인코딩한다.
+ * [storageTokenToNavKey]가 이 문자열을 다시 디코딩한다.
  *
- * @param key a navigation key present in [ReaderNavHost]'s back stack.
- * @return the key's string encoding.
- * @throws IllegalStateException if [key] is not one of the navigation key types this navigation
- *   host recognizes.
+ * @param key [ReaderNavHost]의 백 스택에 있는 내비게이션 키다.
+ * @return 키의 문자열 인코딩이다.
+ * @throws IllegalStateException [key]가 이 내비게이션 호스트가 인식하는 내비게이션 키 타입이 아닐 때
+ *   발생한다.
  */
 internal fun navKeyToStorageToken(key: Any): String = when (key) {
     HomeRoute -> HOME_ROUTE_TOKEN
@@ -130,12 +129,13 @@ internal fun navKeyToStorageToken(key: Any): String = when (key) {
 }
 
 /**
- * Decodes a back-stack entry from the string [navKeyToStorageToken] produced, reversing its
- * per-route-type prefix scheme.
+ * [navKeyToStorageToken]이 만든 문자열에서 경로 타입별 접두사 규칙을 역으로 적용하여 백 스택 항목을
+ * 디코딩한다.
  *
- * @param token a string previously produced by [navKeyToStorageToken].
- * @return the navigation key the token encodes.
- * @throws IllegalStateException if [token] matches none of the recognized route prefixes/tokens.
+ * @param token 이전에 [navKeyToStorageToken]이 만든 문자열이다.
+ * @return 토큰이 인코딩한 내비게이션 키다.
+ * @throws IllegalStateException [token]이 인식하는 어떤 경로 접두사/토큰과도 일치하지 않을 때
+ *   발생한다.
  */
 internal fun storageTokenToNavKey(token: String): Any = when {
     token == HOME_ROUTE_TOKEN -> HomeRoute
@@ -151,38 +151,34 @@ internal fun storageTokenToNavKey(token: String): Any = when {
 }
 
 /**
- * Decides whether a completed import should jump straight into the reader: only when the picker
- * imported exactly one document, since a multi-file or folder import has no single obvious
- * document to open and the user is left on the screen they imported from to pick one themselves.
+ * 완료된 가져오기 후 리더로 바로 이동할지 결정한다. 여러 파일이나 폴더 가져오기에는 바로 열 명확한
+ * 단일 문서가 없으므로 선택기가 정확히 한 문서만 가져왔을 때만 이동한다. 그 외에는 사용자가 직접
+ * 문서를 고를 수 있도록 가져오기를 시작한 화면에 남긴다.
  *
- * @param documentIds the [DocumentId]s an import batch produced.
- * @return a [ReaderRoute] for the sole imported document, or null when zero or more than one
- *   document was imported.
+ * @param documentIds 가져오기 배치가 만든 [DocumentId]다.
+ * @return 가져온 문서가 하나면 해당 문서의 [ReaderRoute], 0개이거나 둘 이상이면 null이다.
  */
 internal fun importedDocumentRoute(documentIds: List<DocumentId>): ReaderRoute? =
     documentIds.singleOrNull()?.let { documentId -> ReaderRoute(documentId.value) }
 
 /**
- * The composition root's navigation host: owns the back stack for every screen in the app (home,
- * library, reader, search, bookmarks, document info, settings) and is the single place import
- * results and cross-screen navigation events are translated into back-stack changes. Mounted once
- * by [com.tedd.teddreader.app.reader.TeddReaderApp] for the lifetime of the app.
+ * 컴포지션 루트의 내비게이션 호스트다. 앱의 모든 화면(홈, 라이브러리, 리더, 검색, 북마크, 문서 정보,
+ * 설정)에 대한 백 스택을 소유하며, 가져오기 결과와 화면 간 내비게이션 이벤트를 백 스택 변경으로
+ * 변환하는 유일한 위치다. 앱 수명 동안 [com.tedd.teddreader.app.reader.TeddReaderApp]이 한 번
+ * 배치한다.
  *
- * Handles the app's one piece of cross-screen state that does not belong to any single screen:
- * a location picked from search or bookmarks ([pendingReaderLocation]) needs to reach the reader
- * screen being popped back onto, and an import's success/failure message
- * ([homeImportMessage]) needs to reach the home screen being popped back onto — both are held here
- * rather than in a screen's own ViewModel because the screen that produces the value and the
- * screen that consumes it are never on screen at the same time.
+ * 어느 한 화면에도 속하지 않는 앱의 화면 간 상태를 처리한다. 검색이나 북마크에서 선택한 위치
+ * ([pendingReaderLocation])는 팝으로 돌아갈 리더 화면에 전달되어야 하고, 가져오기 성공/실패 메시지
+ * ([homeImportMessage])는 팝으로 돌아갈 홈 화면에 전달되어야 한다. 값을 만드는 화면과 사용하는
+ * 화면이 동시에 표시되지 않으므로 각 화면의 ViewModel이 아니라 여기에 보관한다.
  *
- * @param documentImporter the platform importer used both for on-demand imports triggered from the
- *   home screen and for handling [externalImportRequest] on first composition.
- * @param modifier applied to the underlying [NavDisplay].
- * @param externalImportRequest a document import to run once, typically one the OS handed the app
- *   through an incoming intent or share target; null when the app was opened with no document
- *   attached. Importing it always opens the resulting document in the reader, unlike an on-demand
- *   multi-file import which only does so for a single imported file (see
- *   [importedDocumentRoute]).
+ * @param documentImporter 홈 화면에서 실행하는 주문형 가져오기와 첫 컴포지션의
+ *   [externalImportRequest] 처리에 모두 사용하는 플랫폼 임포터다.
+ * @param modifier 내부 [NavDisplay]에 적용할 수정자다.
+ * @param externalImportRequest 한 번 실행할 문서 가져오기 요청으로, 일반적으로 OS가 수신 인텐트나
+ *   공유 대상으로 앱에 전달한 문서다. 첨부 문서 없이 앱을 열었으면 null이다. 주문형 다중 파일
+ *   가져오기가 단일 파일일 때만 여는 것과 달리, 이 요청은 결과 문서를 항상 리더에서 연다
+ *   ([importedDocumentRoute] 참고).
  */
 @Composable
 fun ReaderNavHost(
@@ -343,17 +339,17 @@ fun ReaderNavHost(
 }
 
 /**
- * Fallback content for a navigation key [ReaderNavHost]'s `entryProvider` does not recognize —
- * reachable only if a route type is added to the back stack without a matching `entryProvider`
- * branch, or a persisted back-stack token from an older app version no longer decodes to a route
- * this version defines. Shows an explanatory message with a way back rather than crashing.
+ * [ReaderNavHost]의 `entryProvider`가 인식하지 못하는 내비게이션 키를 위한 대체 콘텐츠다. 일치하는
+ * `entryProvider` 분기 없이 경로 타입을 백 스택에 추가했거나, 이전 앱 버전에서 저장한 백 스택 토큰을
+ * 이 버전이 정의한 경로로 더는 디코딩하지 못할 때만 도달한다. 충돌하는 대신 이유를 설명하고 돌아갈
+ * 방법을 제공한다.
  *
- * @param title the heading shown for the unrecognized destination.
- * @param description explains to the user why nothing more specific could be shown.
- * @param onBack invoked when the user taps the back action to leave this placeholder.
- * @param modifier applied to the destination's root layout.
- * @param contentPadding padding around the description and back button; null resolves to the
- *   design system's standard screen padding.
+ * @param title 인식하지 못한 목적지에 표시할 제목이다.
+ * @param description 더 구체적인 콘텐츠를 표시할 수 없는 이유를 사용자에게 설명한다.
+ * @param onBack 사용자가 뒤로 가기 동작을 눌러 이 대체 화면을 떠날 때 호출한다.
+ * @param modifier 목적지의 루트 레이아웃에 적용할 수정자다.
+ * @param contentPadding 설명과 뒤로 가기 버튼 주위의 여백이다. null이면 디자인 시스템의 표준 화면
+ *   여백을 사용한다.
  */
 @Composable
 private fun PlaceholderDestination(
