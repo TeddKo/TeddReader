@@ -55,26 +55,23 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Entry point that wires [BookmarksViewModel] into [BookmarksScreen] for one document's saved
- * places. Like [BookmarksScreen] below it, this composable is a pure state-and-callback
- * pass-through to the view model: it collects [BookmarksUiState] and forwards every user action
- * back as a view model call, holding no bookmark data of its own.
+ * 단일 문서의 저장 위치를 보여 주는 [BookmarksScreen]에 [BookmarksViewModel]을 연결하는 진입점이다.
+ * 아래의 [BookmarksScreen]과 마찬가지로 이 컴포저블은 뷰 모델에 상태와 콜백만 전달한다.
+ * [BookmarksUiState]를 수집하고 모든 사용자 작업을 뷰 모델 호출로 전달하며, 자체적으로 북마크 데이터를
+ * 보관하지 않는다.
  *
- * `note` is a draft: it holds the edit sheet's text field value while the user is typing, and is
- * only written back to storage when [onSaveNote]/[BookmarksViewModel.saveNote] is called. It is
- * seeded from the bookmark's own committed note when [onEditClick] opens the sheet, not kept in
- * sync with [BookmarksUiState] afterward, since the field the user is actively editing should not
- * be overwritten mid-edit by a state change from elsewhere. `pendingDeleteBookmarkId` and
- * `pendingDeleteFromEditSheet` are plain UI state with no committed counterpart at all: they only
- * track which bookmark has a delete confirmation open and whether that confirmation was raised
- * from the edit sheet (so confirming also dismisses the sheet) or from the list directly.
+ * `note`는 사용자가 입력하는 동안 편집 시트의 텍스트 필드 값을 보관하는 초안이며,
+ * [onSaveNote]/[BookmarksViewModel.saveNote]가 호출될 때만 저장소에 기록된다. [onEditClick]이 시트를 열면
+ * 북마크에 저장된 메모로 초기화하지만, 이후에는 [BookmarksUiState]와 동기화하지 않는다. 사용자가 편집 중인
+ * 필드를 외부 상태 변경이 중간에 덮어써서는 안 되기 때문이다. `pendingDeleteBookmarkId`와
+ * `pendingDeleteFromEditSheet`는 저장되는 대응 값이 전혀 없는 단순 UI 상태이다. 삭제 확인 창이 열린 북마크와
+ * 그 확인 요청이 편집 시트에서 발생했는지(확인할 때 시트도 닫음), 목록에서 직접 발생했는지만 추적한다.
  *
- * @param documentId The document whose saved places this screen shows.
- * @param onBack Invoked when the user asks to leave the saved-places screen.
- * @param onBookmarkClick Invoked with a saved place's location when the user taps it to jump
- * there.
- * @param modifier Applied to the resulting [BookmarksScreen].
- * @param viewModel The bookmarks screen's view model; defaults to one resolved through Koin.
+ * @param documentId 이 화면에서 저장 위치를 보여 줄 문서이다.
+ * @param onBack 사용자가 저장 위치 화면을 나가려고 할 때 호출된다.
+ * @param onBookmarkClick 사용자가 이동하려고 저장 위치를 탭하면 해당 위치와 함께 호출된다.
+ * @param modifier 생성되는 [BookmarksScreen]에 적용할 수정자이다.
+ * @param viewModel 북마크 화면의 뷰 모델이며, 기본값은 Koin을 통해 확인한 인스턴스이다.
  */
 @Composable
 fun BookmarksRouteScreen(
@@ -127,42 +124,36 @@ fun BookmarksRouteScreen(
 }
 
 /**
- * The saved-places screen for one document: a scaffold with a list of saved places, an edit sheet
- * for the place currently being edited, and a delete-confirmation dialog. This composable is a
- * pure state-and-callback pass-through to the view model — every value it renders comes from
- * [uiState] or one of its other parameters, and every user action is reported back through a
- * callback; it holds no saved-place state of its own.
+ * 단일 문서의 저장 위치 화면이다. 저장 위치 목록, 현재 편집 중인 위치를 위한 편집 시트, 삭제 확인 대화상자가
+ * 있는 스캐폴드로 구성된다. 이 컴포저블은 뷰 모델에 상태와 콜백만 전달한다. 렌더링하는 모든 값은 [uiState]나
+ * 다른 매개변수에서 오고, 모든 사용자 작업은 콜백으로 다시 전달되며, 자체적으로 저장 위치 상태를 보관하지
+ * 않는다.
  *
- * The empty explanation and the bookmark list are each one [TeddSectionKind.Status] or
- * [TeddSectionKind.Collection] section, mutually exclusive by construction. The empty state names
- * no CTA of its own — the top bar's back action already provides the only navigation a reader
- * needs from an empty saved-places screen. Below
+ * 빈 상태 설명과 북마크 목록은 각각 하나의 [TeddSectionKind.Status] 또는 [TeddSectionKind.Collection]
+ * 섹션이며 구조상 동시에 표시되지 않는다. 빈 상태에는 별도의 행동 유도 요소를 두지 않는다. 상단 바의 뒤로 가기
+ * 작업이
+ * 빈 저장 위치 화면에서 독자에게 필요한 유일한 내비게이션을 이미 제공하기 때문이다.
  * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth]
- * the empty state's message switches from centered to start-aligned text, since centering reads
- * cramped once the container itself is that narrow.
+ * 미만에서는 컨테이너가 좁아 중앙 정렬이 답답해 보이므로 빈 상태 메시지를 중앙 정렬에서 시작점 정렬로 바꾼다.
  *
- * @param uiState The saved-places screen's current state, as published by the view model.
- * @param onBack Invoked when the user asks to leave the screen.
- * @param onBookmarkClick Invoked with a saved place's location when the user taps its row.
- * @param note The edit sheet's current note draft, shown in its text field.
- * @param onNoteChange Invoked as the user types in the edit sheet's note field.
- * @param onEditClick Invoked with a saved place when the user opens it for editing.
- * @param pendingDeleteBookmarkId The id of the saved place awaiting delete confirmation, or null
- * if no confirmation dialog should be shown.
- * @param onRequestDelete Invoked with the saved place to confirm deleting and whether the request
- * came from the edit sheet's delete button (as opposed to a row in the list), so the caller knows
- * whether confirming should also dismiss the edit sheet.
- * @param onDismissDeleteConfirmation Invoked when the delete-confirmation dialog is dismissed
- * without confirming.
- * @param onConfirmDelete Invoked with the saved place to actually delete once the user confirms.
- * @param onDismissEdit Invoked when the edit sheet is dismissed without saving.
- * @param onSaveNote Invoked with the note text to commit when the user saves it from the edit
- * sheet.
- * @param listState Scroll state for the saved-places list.
- * @param modifier Applied to the scaffold.
- * @param contentPadding Vertical padding applied above and below the list's content; any
- * horizontal component is ignored because horizontal inset is owned by each [TeddSection]. Null
- * resolves to the theme's screenPadding for both edges.
+ * @param uiState 뷰 모델이 게시한 저장 위치 화면의 현재 상태이다.
+ * @param onBack 사용자가 화면을 나가려고 할 때 호출된다.
+ * @param onBookmarkClick 사용자가 저장 위치 행을 탭하면 해당 위치와 함께 호출된다.
+ * @param note 편집 시트의 텍스트 필드에 표시되는 현재 메모 초안이다.
+ * @param onNoteChange 사용자가 편집 시트의 메모 필드에 입력할 때 호출된다.
+ * @param onEditClick 사용자가 편집하려고 저장 위치를 열면 해당 위치와 함께 호출된다.
+ * @param pendingDeleteBookmarkId 삭제 확인을 기다리는 저장 위치의 ID이며, 확인 대화상자를 표시하지 않아야
+ *   하면 null이다.
+ * @param onRequestDelete 삭제를 확인할 저장 위치 및 요청이 목록의 행이 아니라 편집 시트의 삭제 버튼에서
+ *   발생했는지 여부와 함께 호출된다. 호출자는 이 값으로 확인 시 편집 시트도 닫아야 하는지 판단한다.
+ * @param onDismissDeleteConfirmation 삭제를 확인하지 않고 삭제 확인 대화상자를 닫을 때 호출된다.
+ * @param onConfirmDelete 사용자가 확인한 뒤 실제로 삭제할 저장 위치와 함께 호출된다.
+ * @param onDismissEdit 저장하지 않고 편집 시트를 닫을 때 호출된다.
+ * @param onSaveNote 사용자가 편집 시트에서 저장할 때 반영할 메모 텍스트와 함께 호출된다.
+ * @param listState 저장 위치 목록의 스크롤 상태이다.
+ * @param modifier 스캐폴드에 적용할 수정자이다.
+ * @param contentPadding 목록 콘텐츠 위아래에 적용할 세로 패딩이다. 가로 인셋은 각 [TeddSection]이 소유하므로
+ *   가로 성분은 무시한다. null이면 양쪽 가장자리에 테마의 screenPadding을 사용한다.
  */
 @Composable
 fun BookmarksScreen(
@@ -350,13 +341,13 @@ fun BookmarksScreen(
 }
 
 /**
- * One saved place's row in [BookmarksScreen]'s list: its title, supporting text (see
- * [buildBookmarkSupportingText]), and an edit button.
+ * [BookmarksScreen] 목록에서 저장 위치 하나를 나타내는 행이다. 제목, 보조 텍스트
+ * ([buildBookmarkSupportingText] 참고), 편집 버튼을 표시한다.
  *
- * @param bookmark The saved place this row displays.
- * @param onBookmarkClick Invoked when the row itself is tapped.
- * @param onEditClick Invoked when the row's edit button is tapped.
- * @param modifier Applied to the row.
+ * @param bookmark 이 행에 표시할 저장 위치이다.
+ * @param onBookmarkClick 행 자체를 탭할 때 호출된다.
+ * @param onEditClick 행의 편집 버튼을 탭할 때 호출된다.
+ * @param modifier 행에 적용할 수정자이다.
  */
 @Composable
 private fun BookmarkRow(
@@ -379,17 +370,16 @@ private fun BookmarkRow(
     )
 }
 
-/** Matches a generic, unlocalized label such as "Page 12" that an older build could have saved
- * directly onto [Bookmark.label] instead of leaving it null; [hasCustomLabel] treats a match as no
- * label at all so [displayTitle] falls back to today's localized, live location label instead of
- * showing a stale string in the wrong language. */
+/** 이전 빌드가 [Bookmark.label]을 null로 두는 대신 직접 저장했을 수 있는 "Page 12" 같은 일반적인
+ * 비지역화 레이블과 일치한다. [hasCustomLabel]은 일치하는 값을 레이블 없음으로 처리하므로 [displayTitle]은
+ * 잘못된 언어의 오래된 문자열을 표시하는 대신 현재 지역화된 실시간 위치 레이블을 사용한다. */
 private val legacyPageLabelPattern = Regex("""^Page \d+$""")
 
 /**
- * Whether this saved place carries a label the user (or an older build) actually wrote, as opposed
- * to no label or a legacy auto-generated one (see [legacyPageLabelPattern]).
+ * 이 저장 위치에 레이블이 없거나 이전 방식으로 자동 생성된 레이블([legacyPageLabelPattern] 참고)이 아니라
+ * 사용자 또는 이전 빌드가 실제로 작성한 레이블이 있는지 확인한다.
  *
- * @receiver The saved place to check.
+ * @receiver 확인할 저장 위치이다.
  */
 private fun Bookmark.hasCustomLabel(): Boolean {
     val currentLabel = label
@@ -397,33 +387,31 @@ private fun Bookmark.hasCustomLabel(): Boolean {
 }
 
 /**
- * The title shown for this saved place: its own label when [hasCustomLabel] is true, otherwise
- * today's localized description of where it points (see [ReaderLocation.displayLabel]).
+ * 이 저장 위치에 표시할 제목이다. [hasCustomLabel]이 true이면 자체 레이블을 사용하고, 그렇지 않으면 현재
+ * 지역화된 위치 설명([ReaderLocation.displayLabel] 참고)을 사용한다.
  *
- * @receiver The saved place to title.
+ * @receiver 제목을 만들 저장 위치이다.
  */
 @Composable
 private fun Bookmark.displayTitle(): String = label?.takeIf { hasCustomLabel() } ?: location.displayLabel()
 
 /**
- * The secondary text shown under a saved place's title: its note when one has been written,
- * otherwise the same location description [displayTitle] falls back to, so a row without a note
- * still says where it points rather than repeating the title.
+ * 저장 위치 제목 아래에 표시할 보조 텍스트이다. 작성된 메모가 있으면 메모를 사용하고, 그렇지 않으면
+ * [displayTitle]이 대체값으로 사용하는 것과 같은 위치 설명을 사용한다. 따라서 메모가 없는 행도 제목을
+ * 반복하지 않고 가리키는 위치를 알려 준다.
  *
- * @param bookmark The saved place to build supporting text for.
- * @return The note if non-blank, otherwise the location's display label.
+ * @param bookmark 보조 텍스트를 만들 저장 위치이다.
+ * @return 비어 있지 않은 메모가 있으면 메모이고, 그렇지 않으면 위치의 표시 레이블이다.
  */
 @Composable
 private fun buildBookmarkSupportingText(bookmark: Bookmark): String = bookmark.note?.takeIf { it.isNotBlank() } ?: bookmark.location.displayLabel()
 
 /**
- * A localized, human-readable description of where this location points, for a saved place that
- * has no title of its own to show. Each [ReaderLocation] variant is described in the terms that
- * make sense for it — a page number for a PDF, a raw text offset for plain text, and a
- * section-plus-offset pair for an EPUB spine position — rather than one generic label for all
- * three.
+ * 자체 제목이 없는 저장 위치에 표시할, 이 위치가 가리키는 곳의 지역화된 사용자 친화적 설명이다. 세 가지
+ * [ReaderLocation] 변형에 하나의 일반 레이블을 쓰지 않고 각 형식에 맞게 설명한다. PDF에는 페이지 번호,
+ * 일반 텍스트에는 원시 텍스트 오프셋, EPUB 스파인 위치에는 섹션과 오프셋 쌍을 사용한다.
  *
- * @receiver The location to describe.
+ * @receiver 설명할 위치이다.
  */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
@@ -433,8 +421,8 @@ private fun ReaderLocation.displayLabel(): String = when (this) {
 }
 
 /**
- * Preview of [BookmarksScreen] at three widths, with one sample saved place, exercising the
- * compact, default, and wide layouts the screen's content can render at.
+ * 샘플 저장 위치 하나로 [BookmarksScreen]을 세 가지 너비에서 표시하여 화면 콘텐츠가 렌더링할 수 있는
+ * 소형, 기본, 확장 레이아웃을 확인하는 미리 보기이다.
  */
 @Preview(widthDp = 280)
 @Preview(widthDp = 360)
