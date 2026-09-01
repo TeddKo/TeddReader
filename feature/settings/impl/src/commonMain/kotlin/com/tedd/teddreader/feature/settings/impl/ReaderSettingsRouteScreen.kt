@@ -26,16 +26,16 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * The reader settings screen: hosts [ReaderSettingsSheet] inside a scaffold with its own top bar,
- * capping the sheet's width via [TeddReaderBreakpoints.readableMaxWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.readableMaxWidth]
- * so its rows do not stretch to unreadable line lengths on a tablet- or desktop-sized window. Past
- * that width the settings rows' labels and controls would spread out with far more blank space
- * between them than a control needs, rather than reading as a normal-width settings list.
+ * 자체 상단 바가 있는 스캐폴드 안에 [ReaderSettingsSheet]를 배치하는 리더 설정 화면이다.
+ * 태블릿이나 데스크톱 크기의 창에서 행이 읽기 어려울 만큼 길어지지 않도록
+ * [TeddReaderBreakpoints.readableMaxWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.readableMaxWidth]로
+ * 시트 너비를 제한한다. 이 너비를 넘으면 설정 행의 라벨과 컨트롤 사이에 필요한 것보다
+ * 훨씬 많은 빈 공간이 생겨 일반적인 너비의 설정 목록처럼 읽히지 않는다.
  *
- * @param onBack invoked when the user leaves this screen via the top bar's back action.
- * @param modifier applied to the outer [TeddScaffold].
- * @param viewModel supplies [ReaderSettingsUiState] and the update callbacks wired into
- *   [ReaderSettingsSheet]; defaults to one resolved through Koin.
+ * @param onBack 사용자가 상단 바의 뒤로 가기 동작으로 이 화면을 떠날 때 호출할 콜백.
+ * @param modifier 바깥쪽 [TeddScaffold]에 적용할 값.
+ * @param viewModel [ReaderSettingsUiState]와 [ReaderSettingsSheet]에 연결할 업데이트 콜백을
+ *   제공하며, 기본값은 Koin으로 해석한 인스턴스다.
  */
 @Composable
 fun ReaderSettingsRouteScreen(
