@@ -4,8 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins the invariants the entities enforce at construction, so a row that could not be rendered — a folder
- * id with no name, a blank folder label — cannot be written in the first place.
+ * 렌더링할 수 없는 행, 즉 이름 없는 폴더 id나 빈 폴더 레이블이 애초에 기록되지 않도록 엔티티가 생성 시 강제하는
+ * 불변 조건을 고정합니다.
  */
 class RoomEntityTest {
     @Test

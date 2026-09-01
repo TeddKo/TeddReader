@@ -6,12 +6,12 @@ import androidx.room3.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 
 /**
- * The Android database builder, opened on the application context so it outlives any activity.
+ * 애플리케이션 컨텍스트에서 열려 어떤 Activity보다 오래 유지되는 Android 데이터베이스 빌더입니다.
  *
- * The bundled SQLite driver is deliberate: it ships one SQLite build with the app, so a query that works
- * on a modern device works on an old one, and the parameter and expression limits are the bundled
- * library's rather than the platform's. Migrations come from [TeddReaderMigrationList] instead of being
- * listed here, so the two platforms cannot drift apart.
+ * 번들 SQLite 드라이버 사용은 의도적인 선택입니다. 앱과 함께 단일 SQLite 빌드를 배포하므로 최신 기기에서
+ * 작동하는 쿼리는 오래된 기기에서도 작동하며, 매개변수와 표현식 제한도 플랫폼이 아닌 번들 라이브러리를
+ * 따릅니다. 마이그레이션은 여기에 나열하지 않고 [TeddReaderMigrationList]에서 가져오므로 두 플랫폼의 구성이
+ * 서로 달라질 수 없습니다.
  */
 fun createTeddReaderDatabaseBuilder(
     context: Context,

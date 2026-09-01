@@ -7,95 +7,92 @@ import com.tedd.teddreader.core.room.entity.DocumentEntity
 import kotlinx.coroutines.flow.Flow
 
 /**
- * The library table: what documents exist and when each was added or last opened.
+ * 존재하는 문서와 각 문서를 추가하거나 마지막으로 연 시각을 관리하는 라이브러리 테이블입니다.
  *
- * [observeRecentDocuments] orders by last-opened falling back to added, which is what makes the home
- * screen show a freshly imported book at the top before it has ever been read. Deleting a document here
- * takes its progress, bookmarks, search index and page layouts with it — those tables cascade on this
- * row — so nothing else has to clean up after a removal.
+ * [observeRecentDocuments]는 마지막으로 연 시각을 기준으로 정렬하고 없으면 추가 시각을 사용하므로, 새로 가져온
+ * 책은 읽은 적이 없어도 홈 화면 맨 위에 표시됩니다. 여기서 문서를 삭제하면 캐스케이드되는 진행 위치, 북마크,
+ * 검색 인덱스, 페이지 레이아웃도 함께 삭제되므로 삭제 후 다른 곳에서 정리할 필요가 없습니다.
  */
 @Dao
 interface DocumentDao {
     /**
-     * Inserts a library row or replaces the existing one.
+     * 라이브러리 행을 삽입하거나 기존 행을 교체합니다.
      *
-     * @param document the whole row; every column is written, so a caller edits a copy of what it read.
+     * @param document 전체 행입니다. 모든 열을 기록하므로 호출자는 읽은 값의 복사본을 수정합니다.
      */
     @Upsert
     suspend fun upsertDocument(document: DocumentEntity)
 
     /**
-     * @param documentId the document's id.
-     * @return its row, or null when nothing has been imported under that id.
+     * @param documentId 문서 id입니다.
+     * @return 해당 행이며, 이 id로 가져온 문서가 없으면 null입니다.
      */
     @Query("SELECT * FROM documents WHERE id = :documentId")
     suspend fun getDocument(documentId: String): DocumentEntity?
 
     /**
-     * @return a flow of every library row, most recently opened first and falling back to when it was
-     * added, so a freshly imported book sits at the top before it has ever been read.
+     * @return 모든 라이브러리 행을 마지막으로 연 순서대로 제공하고, 없으면 추가 시각을 사용하는 Flow입니다.
+     * 따라서 새로 가져온 책은 읽은 적이 없어도 맨 위에 표시됩니다.
      */
     @Query("SELECT * FROM documents ORDER BY COALESCE(lastOpenedAtEpochMillis, addedAtEpochMillis) DESC")
     fun observeRecentDocuments(): Flow<List<DocumentEntity>>
 
     /**
-     * Rewrites the bookmarked flag for every matching row in one statement.
+     * 일치하는 모든 행의 북마크 플래그를 하나의 구문으로 다시 기록합니다.
      */
     @Query("UPDATE documents SET isBookmarked = :isBookmarked WHERE id IN (:documentIds)")
     suspend fun updateBookmarked(documentIds: List<String>, isBookmarked: Boolean)
 
     /**
-     * Rewrites the folder pair for every matching row in one statement.
+     * 일치하는 모든 행의 폴더 쌍을 하나의 구문으로 다시 기록합니다.
      */
     @Query("UPDATE documents SET folderId = :folderId, folderName = :folderName WHERE id IN (:documentIds)")
     suspend fun updateFolder(documentIds: List<String>, folderId: String?, folderName: String?)
 
     /**
-     * Renames every row currently carrying [folderId].
+     * 현재 [folderId]를 가진 모든 행의 폴더 이름을 변경합니다.
      */
     @Query("UPDATE documents SET folderName = :folderName WHERE folderId = :folderId")
     suspend fun renameFolder(folderId: String, folderName: String)
 
     /**
-     * Clears [folderId] from every current member in one statement.
+     * 현재 속한 모든 행에서 [folderId]를 하나의 구문으로 제거합니다.
      */
     @Query("UPDATE documents SET folderId = NULL, folderName = NULL WHERE folderId = :folderId")
     suspend fun clearFolder(folderId: String)
 
     /**
-     * Stamps an open, which is the only thing that reorders the library list.
+     * 문서를 연 시각을 기록하며, 이 동작만 라이브러리 목록의 순서를 바꿉니다.
      *
-     * @param documentId the document that was opened.
-     * @param openedAtEpochMillis when it was opened.
+     * @param documentId 연 문서입니다.
+     * @param openedAtEpochMillis 문서를 연 시각입니다.
      */
     @Query("UPDATE documents SET lastOpenedAtEpochMillis = :openedAtEpochMillis WHERE id = :documentId")
     suspend fun updateLastOpenedAt(documentId: String, openedAtEpochMillis: Long)
 
     /**
-     * Removes a library row, and with it — by cascade — its progress, saved places, stored text and
-     * measured page layouts.
+     * 라이브러리 행과 캐스케이드되는 진행 위치, 저장 위치, 저장된 텍스트, 측정된 페이지 레이아웃을 함께 삭제합니다.
      *
-     * @param documentId the document to remove.
+     * @param documentId 삭제할 문서입니다.
      */
     @Query("DELETE FROM documents WHERE id = :documentId")
     suspend fun deleteDocument(documentId: String)
 
     /**
-     * Removes many library rows in one statement.
+     * 여러 라이브러리 행을 하나의 구문으로 삭제합니다.
      */
     @Query("DELETE FROM documents WHERE id IN (:documentIds)")
     suspend fun deleteDocuments(documentIds: List<String>)
 
     /**
-     * Updates only the character/word counts and embedded-font index for a document, leaving every
-     * other column — favourite, folder, lastOpened — untouched. Used by import batches so a concurrent
-     * library edit (starring, moving to a folder) is never clobbered by an import that reads and
-     * rewrites the whole row.
+     * 문서의 문자 수, 단어 수, 내장 글꼴 인덱스만 갱신하고 즐겨찾기, 폴더, lastOpened 등 다른 모든 열은
+     * 그대로 둡니다. 가져오기 배치가 이 함수를 사용하므로, 전체 행을 읽고 다시 쓰는 가져오기가 동시에 발생한
+     * 라이브러리 편집(즐겨찾기 지정, 폴더 이동)을 덮어쓰지 않습니다.
      *
-     * @param documentId the document to update.
-     * @param characterCount the accumulated character count so far.
-     * @param wordCount the accumulated word count so far.
-     * @param embeddedFontHrefsJson the JSON-encoded sorted font-href set, or null to clear the index.
+     * @param documentId 갱신할 문서입니다.
+     * @param characterCount 현재까지 누적된 문자 수입니다.
+     * @param wordCount 현재까지 누적된 단어 수입니다.
+     * @param embeddedFontHrefsJson JSON으로 인코딩된 정렬된 글꼴 href 집합이며, 인덱스를 지우려면 null입니다.
      */
     @Query(
         "UPDATE documents SET characterCount = :characterCount, wordCount = :wordCount, " +
@@ -109,13 +106,13 @@ interface DocumentDao {
     )
 
     /**
-     * Stamps a document's import as complete and writes the final counts in one targeted update,
-     * without touching favourite/folder/lastOpened columns.
+     * 즐겨찾기, 폴더, lastOpened 열을 건드리지 않고 문서의 가져오기 완료 시각과 최종 개수를 하나의 대상 갱신으로
+     * 기록합니다.
      *
-     * @param documentId the document to mark complete.
-     * @param characterCount the final character count.
-     * @param wordCount the final word count.
-     * @param importCompletedAtEpochMillis the completion timestamp.
+     * @param documentId 완료로 표시할 문서입니다.
+     * @param characterCount 최종 문자 수입니다.
+     * @param wordCount 최종 단어 수입니다.
+     * @param importCompletedAtEpochMillis 완료 타임스탬프입니다.
      */
     @Query(
         "UPDATE documents SET characterCount = :characterCount, wordCount = :wordCount, " +
@@ -129,11 +126,11 @@ interface DocumentDao {
     )
 
     /**
-     * Writes only the embedded font href index column, leaving everything else untouched.
-     * Used by the legacy backfill path after the first full-blocks scan.
+     * 다른 값을 건드리지 않고 내장 글꼴 href 인덱스 열만 기록합니다. 첫 전체 블록 스캔 이후 레거시
+     * 백필 경로에서 사용합니다.
      *
-     * @param documentId the document to update.
-     * @param embeddedFontHrefsJson the JSON-encoded sorted font-href set.
+     * @param documentId 갱신할 문서입니다.
+     * @param embeddedFontHrefsJson JSON으로 인코딩된 정렬된 글꼴 href 집합입니다.
      */
     @Query("UPDATE documents SET embeddedFontHrefsJson = :embeddedFontHrefsJson WHERE id = :documentId")
     suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String)
