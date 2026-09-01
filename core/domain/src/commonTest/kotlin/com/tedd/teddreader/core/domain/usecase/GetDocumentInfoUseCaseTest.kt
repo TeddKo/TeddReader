@@ -27,11 +27,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /**
- * Pins the composed read behind the document-info screen: three sources, one answer, and never a partial one.
+ * 문서 정보 화면 뒤의 조합된 읽기, 즉 세 공급원과 하나의 결과, 부분 결과 없음이라는 계약을 고정한다.
  *
- * The all-or-nothing property is why this deserves a test of its own. The screen shows metadata, a page number
- * and reading totals as a single panel, so applying two of the three and leaving the third blank would read as
- * a book with no reading history rather than as a failure.
+ * 전부 아니면 전무라는 속성 때문에 별도 테스트가 필요하다. 화면은 메타데이터, 페이지 번호, 읽기 합계를 하나의
+ * 패널로 표시한다. 셋 중 둘만 적용하고 나머지를 비워 두면 실패가 아니라 읽기 이력이 없는 책처럼 보인다.
  */
 class GetDocumentInfoUseCaseTest {
     private val documentId = DocumentId("file:///book.epub")
@@ -46,10 +45,10 @@ class GetDocumentInfoUseCaseTest {
     private val stats = ReadingStats(documentId = documentId, activeMillis = 0, charactersRead = 12, wordsRead = 3)
 
     /**
-     * Answers with fixed metadata, or throws from the one read this use case makes.
+     * 고정된 메타데이터를 반환하거나 이 유스 케이스가 수행하는 유일한 읽기에서 예외를 던진다.
      *
-     * @property metadata what [getDocument] answers.
-     * @property failure thrown instead, for the partial-answer case.
+     * @property metadata [getDocument]가 반환할 값.
+     * @property failure 부분 결과 사례에서 대신 던질 예외.
      */
     private class FakeDocuments(
         private val metadata: DocumentMetadata?,
@@ -80,7 +79,7 @@ class GetDocumentInfoUseCaseTest {
         override suspend fun deleteDocument(documentId: DocumentId) = Unit
     }
 
-    /** Holds one stored position, or none at all for a book that has never been opened. */
+    /** 한 번도 열지 않은 책에는 저장된 위치가 없으며, 그 외에는 위치 하나를 보관한다. */
     private class FakeReader(private val progress: ReadingProgress?) : ReaderRepository {
         override fun observeProgress(documentId: DocumentId): Flow<ReadingProgress?> = flowOf(progress)
         override suspend fun getProgress(documentId: DocumentId): ReadingProgress? = progress
@@ -88,14 +87,14 @@ class GetDocumentInfoUseCaseTest {
         override suspend fun deleteProgress(documentId: DocumentId) = Unit
     }
 
-    /** Answers fixed totals; the write half of the interface is never reached by this read. */
+    /** 고정된 합계를 반환한다. 이 읽기에서는 인터페이스의 쓰기 쪽에 도달하지 않는다. */
     private class FakeStats(private val stats: ReadingStats) : ReadingStatsRepository {
         override fun observeSessions(documentId: DocumentId): Flow<List<ReadingSession>> = flowOf(emptyList())
         override suspend fun recordSession(session: ReadingSession) = Unit
         override suspend fun getStats(documentId: DocumentId): ReadingStats = stats
     }
 
-    /** All three reads land in one answer, which is the whole reason the composition exists. */
+    /** 세 읽기가 하나의 결과에 담긴다. 이 조합이 존재하는 이유 전체를 검증한다. */
     @Test
     fun composesMetadataProgressAndStats() = runTest {
         val progress = ReadingProgress(
@@ -113,7 +112,7 @@ class GetDocumentInfoUseCaseTest {
         assertEquals(stats, info.stats)
     }
 
-    /** A book never opened has no page to show, which is a different fact from being on page one. */
+    /** 한 번도 열지 않은 책에는 표시할 페이지가 없으며, 이는 1페이지에 있다는 것과 다른 상태다. */
     @Test
     fun pageIndexIsAbsentForABookThatWasNeverOpened() = runTest {
         val useCase = GetDocumentInfoUseCase(FakeDocuments(metadata), FakeReader(null), FakeStats(stats))
@@ -121,7 +120,7 @@ class GetDocumentInfoUseCaseTest {
         assertNull(useCase(documentId).pageIndex)
     }
 
-    /** A document the library does not hold still answers, with the absence made explicit. */
+    /** 라이브러리에 없는 문서도 결과를 반환하되, 없다는 사실을 명시한다. */
     @Test
     fun metadataIsAbsentForAnUnknownDocument() = runTest {
         val useCase = GetDocumentInfoUseCase(FakeDocuments(null), FakeReader(null), FakeStats(stats))
@@ -129,7 +128,7 @@ class GetDocumentInfoUseCaseTest {
         assertNull(useCase(documentId).metadata)
     }
 
-    /** One failed read fails the whole answer, so the screen cannot show a half-filled panel. */
+    /** 읽기 하나가 실패하면 전체 결과가 실패하므로 화면은 절반만 채운 패널을 표시할 수 없다. */
     @Test
     fun aFailedReadPropagatesInsteadOfYieldingAPartialAnswer() = runTest {
         val useCase = GetDocumentInfoUseCase(

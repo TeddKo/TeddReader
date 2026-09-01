@@ -4,7 +4,7 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import kotlin.random.Random
 
-/** Validates a new folder request, generates its id, then writes membership in one repository call. */
+/** 새 폴더 요청을 검증하고 식별자를 생성한 뒤 한 번의 저장소 호출로 소속을 기록한다. */
 class CreateLibraryFolderUseCase(
     private val documentRepository: DocumentRepository,
     private val folderIdGenerator: () -> String = ::generatedFolderId,

@@ -6,7 +6,7 @@ import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.SearchRepository
 
-/** Search outcome with "unsupported" kept separate from an ordinary empty result set. */
+/** 일반적인 빈 결과 집합과 "지원하지 않음"을 구분해 유지하는 검색 결과다. */
 data class SearchDocumentResult(
     val query: String,
     val results: List<SearchResult>,
