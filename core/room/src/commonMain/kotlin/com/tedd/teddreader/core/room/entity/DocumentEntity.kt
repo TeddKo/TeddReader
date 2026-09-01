@@ -5,38 +5,38 @@ import androidx.room3.Entity
 import androidx.room3.PrimaryKey
 
 /**
- * A library row: one imported document, and the parent every other table cascades from.
+ * 가져온 문서 하나를 나타내며 다른 모든 테이블이 캐스케이드되는 부모인 라이브러리 행입니다.
  *
- * Identity is the source URI (`id`), so handing the app the same file twice resolves to this row rather
- * than importing a second copy. The counts are nullable because they are not known until a book is fully
- * parsed — a null [characterCount] is how the library recognises an import that has not finished.
+ * 원본 URI(`id`)가 식별자이므로 같은 파일을 앱에 두 번 전달해도 두 번째 사본을 가져오지 않고 이 행으로
+ * 해석합니다. 책을 완전히 파싱하기 전에는 개수를 알 수 없으므로 nullable이며, null인 [characterCount]로
+ * 라이브러리가 완료되지 않은 가져오기를 인식합니다.
  *
- * Folder membership is validated in `init` rather than left to the caller: a row that named a folder it
- * could not label would render as a blank chip in the library.
+ * 폴더 이름 없이 폴더만 지정한 행은 라이브러리에서 빈 칩으로 렌더링되므로 호출자에게 맡기지 않고 `init`에서
+ * 폴더 소속을 검증합니다.
  *
- * @property id the source URI the document was imported from, and the key every other table cascades from.
- * @property name the document's display name, as the library shows it.
- * @property sourceUri where the file lives; equal to [id] today, kept separately so identity and location
- * can diverge if the app ever re-keys documents.
- * @property format the document format's name, stored as text so an unknown value from a newer build
- * degrades instead of failing to read.
- * @property mimeType what the platform reported, or NULL when the picker supplied nothing.
- * @property sizeBytes the file's size as reported, or NULL when unknown.
- * @property addedAtEpochMillis when the document was imported.
- * @property lastOpenedAtEpochMillis when it was last opened, or NULL while it never has been — which is
- * why the library's ordering coalesces this with [addedAtEpochMillis].
- * @property pageCount pages as last measured, or NULL when nothing has measured it.
- * @property characterCount characters of text, or NULL while the import has not finished.
- * @property wordCount words of text, or NULL for the same reason.
- * @property isBookmarked whether the book is starred in the library.
- * @property folderId the folder this book is filed under, or NULL when unfiled.
- * @property folderName that folder's name, present exactly when [folderId] is.
- * @property embeddedFontHrefsJson a JSON-encoded sorted set of the EPUB font hrefs this document
- * references, accumulated during import from the parsed blocks' `fontHref` fields. NULL for non-EPUB
- * documents or for rows written before `TeddReaderMigration8To9` — in that case a legacy scan
- * fills it on first read. The indexed value lets [getReferencedEmbeddedFontHrefs] answer in O(F) for
- * the font count rather than decoding every section's `blocksJson`.
- * @throws IllegalArgumentException if the folder pair is half-filled or either half is blank.
+ * @property id 문서를 가져온 원본 URI이자 다른 모든 테이블이 캐스케이드되는 키입니다.
+ * @property name 라이브러리에 표시하는 문서 이름입니다.
+ * @property sourceUri 파일이 있는 위치입니다. 현재는 [id]와 같지만 앱이 문서 키를 변경할 경우 식별자와 위치를
+ * 분리할 수 있도록 별도로 유지합니다.
+ * @property format 문서 형식의 이름입니다. 이후 빌드가 쓴 알 수 없는 값도 읽기 실패 없이 그대로 넘어가도록
+ * 텍스트로 저장합니다.
+ * @property mimeType 플랫폼이 보고한 값이며, 선택기가 아무 값도 제공하지 않았으면 NULL입니다.
+ * @property sizeBytes 보고된 파일 크기이며, 알 수 없으면 NULL입니다.
+ * @property addedAtEpochMillis 문서를 가져온 시각입니다.
+ * @property lastOpenedAtEpochMillis 마지막으로 연 시각이며, 연 적이 없으면 NULL입니다. 그래서 라이브러리 정렬은
+ * 이 값을 [addedAtEpochMillis]와 COALESCE 처리합니다.
+ * @property pageCount 마지막으로 측정한 페이지 수이며, 측정한 적이 없으면 NULL입니다.
+ * @property characterCount 텍스트의 문자 수이며, 가져오기가 끝나지 않았으면 NULL입니다.
+ * @property wordCount 텍스트의 단어 수이며, 같은 이유로 NULL일 수 있습니다.
+ * @property isBookmarked 라이브러리에서 책을 즐겨찾기에 넣었는지 나타냅니다.
+ * @property folderId 책이 속한 폴더이며, 분류하지 않았으면 NULL입니다.
+ * @property folderName 해당 폴더 이름이며 [folderId]가 있을 때만 존재합니다.
+ * @property embeddedFontHrefsJson 문서가 참조하는 EPUB 글꼴 href의 JSON 인코딩된 정렬 집합입니다. 가져오는 동안
+ * 파싱된 블록의 `fontHref` 필드에서 누적합니다. EPUB이 아닌 문서나 `TeddReaderMigration8To9` 이전에 기록한
+ * 행에서는 NULL이며, 이 경우 첫 읽기 때 레거시 스캔으로 채웁니다. 인덱싱된 값을 사용하므로
+ * [getReferencedEmbeddedFontHrefs]는 모든 섹션의 `blocksJson`을 디코딩하지 않고 글꼴 개수에 대해 O(F)로
+ * 응답할 수 있습니다.
+ * @throws IllegalArgumentException 폴더 쌍 중 하나만 채웠거나 어느 한쪽이 비어 있을 때 발생합니다.
  */
 @Entity(tableName = "documents")
 data class DocumentEntity(
@@ -56,22 +56,21 @@ data class DocumentEntity(
     val folderId: String? = null,
     val folderName: String? = null,
     /**
-     * When the import that produced this row finished, or NULL while it never did — which is what makes a
-     * half-imported book recognisable after the app is killed mid-import.
+     * 이 행을 만든 가져오기가 완료된 시각이며, 완료된 적이 없으면 NULL입니다. 앱이 가져오기 도중 종료된 후에도
+     * 절반만 가져온 책을 인식할 수 있게 합니다.
      *
-     * Added ahead of the code that reads it (TeddReaderMigration7To8) so shipping progressive import needed
-     * no second schema bump. Rows that already existed were backfilled to their `addedAtEpochMillis`,
-     * because a row that already existed was, by definition, imported completely.
+     * 점진적 가져오기를 제공할 때 두 번째 스키마 버전 증가가 필요 없도록 이를 읽는 코드보다 먼저
+     * TeddReaderMigration7To8에서 추가했습니다. 이미 존재하던 행은 정의상 가져오기가 완료되었으므로 각 행의
+     * `addedAtEpochMillis`로 백필했습니다.
      */
     val importCompletedAtEpochMillis: Long? = null,
     /**
-     * JSON-encoded sorted set of every embedded-font href this document references, accumulated
-     * progressively during import from parsed `ReaderBlock.style.fontHref` and
-     * `spans.styleDelta.fontHref` unions. NULL for non-EPUB documents or legacy rows that predate
-     * the v9 schema — a legacy scan fills it on first font-href query, after which subsequent reads
-     * skip the expensive full-blocks prewarm entirely.
+     * 이 문서가 참조하는 모든 내장 글꼴 href의 JSON 인코딩된 정렬 집합입니다. 가져오는 동안 파싱된
+     * `ReaderBlock.style.fontHref`와 `spans.styleDelta.fontHref`의 합집합으로 점진적으로 누적합니다. EPUB이
+     * 아닌 문서나 v9 스키마 이전 레거시 행에서는 NULL입니다. 첫 글꼴 href 쿼리 때 레거시 스캔으로 채우며,
+     * 이후 읽기에서는 비용이 큰 전체 블록 사전 준비를 완전히 건너뜁니다.
      *
-     * Added by TeddReaderMigration8To9.
+     * TeddReaderMigration8To9에서 추가했습니다.
      */
     val embeddedFontHrefsJson: String? = null,
 ) {

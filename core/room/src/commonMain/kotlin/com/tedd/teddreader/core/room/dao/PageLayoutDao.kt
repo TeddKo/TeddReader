@@ -6,34 +6,33 @@ import androidx.room3.Upsert
 import com.tedd.teddreader.core.room.entity.PageLayoutEntity
 
 /**
- * The measured page boundaries of a book, cached so a re-open never re-measures it.
+ * 책을 다시 열 때 재측정하지 않도록 캐시한 측정된 페이지 경계입니다.
  *
- * A row is identified by document, type and viewport together, because that whole tuple is what a
- * measurement is true for — the same book at a larger font, or on a wider pane, breaks elsewhere. Rows are
- * a cache and nothing more: pagination is deterministic on identical input, so a deleted row costs one
- * re-measurement and never data.
+ * 측정값은 문서, 글자 설정, 뷰포트 전체 조합에 대해 유효합니다. 같은 책도 글꼴이 커지거나 창이 넓어지면
+ * 다른 곳에서 나뉘므로 이 조합으로 행을 식별합니다. 행은 캐시일 뿐입니다. 같은 입력에서 페이지 분할은 결정적이므로
+ * 행을 삭제해도 한 번 재측정할 뿐 데이터를 잃지 않습니다.
  *
- * The table is bounded by [trimPageLayouts] rather than by expiry, since what makes it grow is a reader
- * trying type settings, not time passing.
+ * 테이블을 증가시키는 요인은 시간 경과가 아니라 독자가 글자 설정을 시도하는 것이므로 만료 대신
+ * [trimPageLayouts]로 크기를 제한합니다.
  */
 @Dao
 interface PageLayoutDao {
     /**
-     * Writes a measurement, replacing any row with the same (document, type, viewport) key.
+     * 측정값을 기록하며 같은 (문서, 글자 설정, 뷰포트) 키를 가진 행을 교체합니다.
      *
-     * @param layout the measured page starts and the key they belong to.
+     * @param layout 측정된 페이지 시작점과 그 값이 속한 키입니다.
      */
     @Upsert
     suspend fun upsertPageLayout(layout: PageLayoutEntity)
 
     /**
-     * @param documentId the book.
-     * @param fontSizeSp the type size to match exactly.
-     * @param lineHeightMultiplier the line height to match exactly.
-     * @param fontFamilyName the family to match; `""` stands for the system default (see PageLayoutEntity).
-     * @param viewportWidthPx the pane width to match exactly.
-     * @param viewportHeightPx the pane height to match exactly.
-     * @return the stored measurement for exactly that combination, or null when none was ever made.
+     * @param documentId 책입니다.
+     * @param fontSizeSp 정확히 일치시킬 글자 크기입니다.
+     * @param lineHeightMultiplier 정확히 일치시킬 줄 높이입니다.
+     * @param fontFamilyName 일치시킬 글꼴 패밀리이며, `""`는 시스템 기본값을 뜻합니다(PageLayoutEntity 참고).
+     * @param viewportWidthPx 정확히 일치시킬 창 너비입니다.
+     * @param viewportHeightPx 정확히 일치시킬 창 높이입니다.
+     * @return 이 조합과 정확히 일치하는 저장된 측정값이며, 측정한 적이 없으면 null입니다.
      */
     @Query(
         "SELECT * FROM page_layouts WHERE documentId = :documentId AND fontSizeSp = :fontSizeSp AND " +
@@ -50,19 +49,17 @@ interface PageLayoutDao {
     ): PageLayoutEntity?
 
     /**
-     * The newest measurement for this type at *any* viewport, for a caller that has no pane measurement
-     * yet.
+     * 아직 창 측정값이 없는 호출자를 위해 *모든* 뷰포트 중 이 글자 설정으로 만든 최신 측정값을 반환합니다.
      *
-     * Ignoring the viewport is the point: a row measured for this type at some pane size is still a real
-     * measurement, and the most recent one is the best available guess at what the pane is about to report,
-     * almost always on the very same physical screen. That beats paginating against a guessed viewport,
-     * which would publish a page count the first real measurement then contradicts.
+     * 뷰포트를 무시하는 것이 핵심입니다. 어떤 창 크기에서 이 글자 설정으로 측정한 행도 실제 측정값이며, 최신
+     * 행은 창이 곧 보고할 값에 대해 사용 가능한 최선의 추정치입니다. 거의 항상 바로 그 물리 화면에서 측정한
+     * 값입니다. 추측한 뷰포트로 페이지를 나눠 첫 실제 측정값이 곧 뒤집을 페이지 수를 게시하는 것보다 낫습니다.
      *
-     * @param documentId the book.
-     * @param fontSizeSp the type size to match.
-     * @param lineHeightMultiplier the line height to match.
-     * @param fontFamilyName the family to match; `""` stands for the system default.
-     * @return the most recently written measurement for that type at any viewport, or null when none exists.
+     * @param documentId 책입니다.
+     * @param fontSizeSp 일치시킬 글자 크기입니다.
+     * @param lineHeightMultiplier 일치시킬 줄 높이입니다.
+     * @param fontFamilyName 일치시킬 글꼴 패밀리이며, `""`는 시스템 기본값을 뜻합니다.
+     * @return 모든 뷰포트 중 이 글자 설정으로 가장 최근에 기록한 측정값이며, 없으면 null입니다.
      */
     @Query(
         "SELECT * FROM page_layouts WHERE documentId = :documentId AND fontSizeSp = :fontSizeSp AND " +
@@ -77,22 +74,22 @@ interface PageLayoutDao {
     ): PageLayoutEntity?
 
     /**
-     * Drops every measurement of one book, which costs a re-measurement and never data.
+     * 책 하나의 모든 측정값을 삭제합니다. 한 번 재측정할 뿐 데이터를 잃지 않습니다.
      *
-     * @param documentId the book whose measurements to discard.
+     * @param documentId 측정값을 버릴 책입니다.
      */
     @Query("DELETE FROM page_layouts WHERE documentId = :documentId")
     suspend fun deletePageLayouts(documentId: String)
 
     /**
-     * Keeps only the [keep] most recently written rows for a document, discarding older measurements.
+     * 문서에서 가장 최근에 기록한 행 [keep]개만 유지하고 오래된 측정값을 버립니다.
      *
-     * A reader who tries a few font sizes or line heights before settling measures a new layout each time,
-     * so without this the table would grow by one row per combination ever tried. Newest-first is the right
-     * order to keep: the settings a reader arrived at are the ones they will open the book with again.
+     * 독자가 정착하기 전에 여러 글꼴 크기나 줄 높이를 시도할 때마다 새 레이아웃을 측정하므로, 이 제한이 없으면
+     * 시도한 모든 조합마다 행이 하나씩 늘어납니다. 독자가 도달한 설정은 책을 다시 열 때 사용할 설정이므로 최신순으로
+     * 유지하는 것이 맞습니다.
      *
-     * @param documentId the book to bound.
-     * @param keep how many of the most recently written measurements to keep.
+     * @param documentId 크기를 제한할 책입니다.
+     * @param keep 가장 최근에 기록한 측정값 중 유지할 개수입니다.
      */
     @Query(
         "DELETE FROM page_layouts WHERE documentId = :documentId AND rowid NOT IN " +
@@ -102,24 +99,21 @@ interface PageLayoutDao {
     suspend fun trimPageLayouts(documentId: String, keep: Int)
 
     /**
-     * Deletes all partial-layout rows for a document — used when the document grows (a new import
-     * batch lands) so stale partial measurements that addressed an older prefix are not mistakenly
-     * restored by a later open.
+     * 문서의 모든 부분 레이아웃 행을 삭제합니다. 문서가 늘어날 때, 즉 새 가져오기 배치가 저장될 때 사용하여
+     * 이전 앞부분을 대상으로 한 오래된 부분 측정값이 나중에 열 때 잘못 복원되지 않게 합니다.
      *
-     * @param documentId the document whose partial rows to discard.
+     * @param documentId 부분 행을 버릴 문서입니다.
      */
     @Query("DELETE FROM page_layouts WHERE documentId = :documentId AND isPartial = 1")
     suspend fun deletePartialPageLayouts(documentId: String)
 
     /**
-     * Promotes a partial-layout row to complete by setting its `isPartial` flag to `0`. Called once
-     * the import completes and the row's existing character count proves its measurement covers the
-     * whole document.
+     * 부분 레이아웃 행의 `isPartial` 플래그를 `0`으로 설정해 완전한 행으로 승격합니다. 가져오기가 완료되고 행의
+     * 기존 문자 수가 측정값이 전체 문서를 포함함을 증명할 때 한 번 호출합니다.
      *
-     * @param documentId the document whose partial rows to promote.
-     * @param characterCount the exact character count the row must carry to be promoted — only rows
-     *   whose `characterCount` already matches are touched, so a stale row for an older prefix is
-     *   never accidentally promoted.
+     * @param documentId 부분 행을 승격할 문서입니다.
+     * @param characterCount 승격하려는 행이 가져야 하는 정확한 문자 수입니다. `characterCount`가 이미 일치하는
+     *   행만 변경하므로 이전 앞부분의 오래된 행을 실수로 승격하지 않습니다.
      */
     @Query(
         "UPDATE page_layouts SET isPartial = 0 WHERE documentId = :documentId " +
