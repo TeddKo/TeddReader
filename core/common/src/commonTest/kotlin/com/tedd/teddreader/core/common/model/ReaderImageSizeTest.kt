@@ -6,16 +6,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Pins how [readerImageSize] sizes a picture, case by case, against real figures taken from books this
- * reader opens.
+ * 이 리더가 여는 책에서 얻은 실제 수치를 기준으로 [readerImageSize]가 그림 크기를 정하는 방식을 경우별로 고정한다.
  *
- * The cases exist because each one was once wrong on a device: a hairline rule drawn as a thick band, a
- * small logo blown up to a poster, a tall plate clipped at the page edge. Every expectation here is in em
- * at 22 CSS pixels per em, the conversion the render side uses, so a number can be compared against what
- * a page actually shows.
+ * 각 경우는 기기에서 한 번씩 잘못 동작했던 사례다. 가는 구분선이 두꺼운 띠로 표시되거나, 작은 로고가 포스터 크기로 늘어나거나, 세로로 긴 플레이트가 페이지 가장자리에서 잘렸다. 모든 기대값은 렌더링 쪽에서 사용하는 변환인 1em당 22 CSS 픽셀 기준의 em이므로 페이지에 실제 표시된 값과 비교할 수 있다.
  */
 class ReaderImageSizeTest {
-    /** An image block with only the measurements a case cares about stated, everything else unknown. */
+    /**
+     * 경우에 필요한 측정값만 지정하고 나머지는 모두 알 수 없는 이미지 블록이다.
+     */
     private fun imageBlock(
         aspectRatio: Float? = null,
         naturalWidthPx: Int? = null,
@@ -31,12 +29,16 @@ class ReaderImageSizeTest {
         imageWidthEm = widthEm,
     )
 
-    /** Float comparison with a tolerance, since these sizes come out of divisions rather than constants. */
+    /**
+     * 이 크기는 상수가 아니라 나눗셈에서 나오므로 허용 오차를 적용하는 Float 비교이다.
+     */
     private fun assertClose(expected: Float, actual: Float, tolerance: Float = 0.01f) {
         assertTrue(abs(expected - actual) <= tolerance, "expected $expected but was $actual")
     }
 
-    /** A stylesheet width wins over the picture's own: `.img_full{width:90%}` of a 20em column is 18em. */
+    /**
+     * 스타일시트 너비가 그림 자체 크기보다 우선한다. 20em 열에서 `.img_full{width:90%}`는 18em이다.
+     */
     @Test
     fun stylesheetPercentSizesTheImageAgainstTheColumn() {
         val size = imageBlock(aspectRatio = 0.663f, naturalWidthPx = 630, widthPercent = 0.9f)
@@ -47,8 +49,7 @@ class ReaderImageSizeTest {
     }
 
     /**
-     * A picture with no declared width keeps its own proportions rather than being stretched to the
-     * column: `old_line1.png` is 640x25, so a 25.6:1 rule has to stay under a single line of text.
+     * 너비가 지정되지 않은 그림은 열까지 늘어나지 않고 자체 비율을 유지한다. `old_line1.png`는 640x25이므로 25.6:1 구분선은 텍스트 한 줄보다 낮게 유지돼야 한다.
      */
     @Test
     fun aHairlineRuleKeepsItsOwnHeightInsteadOfFillingTheColumn() {
@@ -59,7 +60,9 @@ class ReaderImageSizeTest {
         assertTrue(size.heightEm < 1f, "a 25.6:1 rule must stay under one line, was ${size.heightEm}")
     }
 
-    /** `max-width` only ever shrinks: 110 CSS px is 5em at 22px per em, well under the column, so it stays 5em. */
+    /**
+     * `max-width`는 줄이기만 한다. 110 CSS px는 1em당 22px에서 5em이고 열보다 훨씬 작으므로 5em으로 유지된다.
+     */
     @Test
     fun aSmallPictureIsNotBlownUpPastItsNaturalSize() {
         val size = imageBlock(aspectRatio = 1f, naturalWidthPx = 110)
@@ -70,10 +73,7 @@ class ReaderImageSizeTest {
     }
 
     /**
-     * A portrait plate twice as tall as it is wide cannot fill the column on a short page, so the page cap
-     * takes over: 95% of the page — the `max-height: 95vh` Readium's stylesheet puts on any image, which
-     * leaves the line box holding it somewhere to sit — and the width shrinks with it so the proportions
-     * hold.
+     * 너비보다 높이가 두 배인 세로형 플레이트는 짧은 페이지에서 열을 채울 수 없으므로 페이지 상한을 적용한다. 페이지의 95%, 즉 Readium 스타일시트가 모든 이미지에 지정하는 `max-height: 95vh`는 이미지를 담는 줄 상자가 위치할 공간을 남긴다. 비율을 유지하도록 너비도 함께 줄인다.
      */
     @Test
     fun aTallPlateIsScaledDownToThePageAndKeepsItsProportions() {
@@ -86,9 +86,7 @@ class ReaderImageSizeTest {
     }
 
     /**
-     * Nothing states this picture's proportions, so its box is square rather than the whole page. Handing
-     * it the page strands a small illustration in a screenful of blank space and pushes the text around it
-     * off the page — and the picture keeps its true shape when it is drawn anyway.
+     * 이 그림은 비율이 지정되지 않았으므로 상자는 페이지 전체가 아니라 정사각형이다. 페이지 전체를 할당하면 작은 삽화가 화면 가득한 빈 공간에 고립되고 주변 텍스트가 페이지 밖으로 밀려난다. 그림 자체는 어차피 그릴 때 실제 형태를 유지한다.
      */
     @Test
     fun anImageWithUnreadableProportionsIsSquaredOffRatherThanGivenThePage() {
@@ -100,7 +98,9 @@ class ReaderImageSizeTest {
         assertClose(20f, size.heightEm)
     }
 
-    /** The square fallback is still bound by the page: 9.5em is 95% of a 10em page, same cap as a measured box. */
+    /**
+     * 정사각형 대체값도 페이지에 제한된다. 9.5em은 10em 페이지의 95%로, 측정된 상자와 같은 상한이다.
+     */
     @Test
     fun anUnmeasurableImageStillShrinksToFitAShortPage() {
         val size = imageBlock()
@@ -109,7 +109,9 @@ class ReaderImageSizeTest {
         assertClose(9.5f, size.heightEm)
     }
 
-    /** An em width from the book's stylesheet is taken as stated, ahead of the picture's intrinsic width. */
+    /**
+     * 책 스타일시트의 em 너비는 그대로 사용하며 그림의 고유 너비보다 우선한다.
+     */
     @Test
     fun emWidthFromTheStylesheetIsUsedVerbatim() {
         val size = imageBlock(aspectRatio = 1f, naturalWidthPx = 800, widthEm = 2.5f)
@@ -118,7 +120,9 @@ class ReaderImageSizeTest {
         assertClose(2.5f, size.widthEm)
     }
 
-    /** A horizontal rule is not an image: it spans the column at the fixed height the renderer draws. */
+    /**
+     * 가로 구분선은 이미지가 아니다. 열 전체를 차지하고 렌더러가 그리는 고정 높이를 사용한다.
+     */
     @Test
     fun aSeparatorIsOneRuleWide() {
         val size = ReaderBlock(kind = ReaderBlockKind.SEPARATOR, range = TextRange(0, 1))

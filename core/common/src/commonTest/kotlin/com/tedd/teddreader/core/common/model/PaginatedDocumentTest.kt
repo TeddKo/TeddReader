@@ -8,28 +8,18 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Pins every domain query [PaginatedDocument] answers, reproducing the exact semantics
- * `ReaderViewModel`'s own `pageOfOffset`, `absoluteOffset`, `sectionContaining`,
- * `sectionIndexContaining`, and the chapter-title/`isSectionTail` derivation inside `pageUi` had before
- * this type existed — including their edge cases, such as a binary search that gives up the moment it
- * lands on a page whose blocks are not decoded yet, and a chapter title that is inherited from the last
- * titled section rather than the section a page's start literally falls in.
+ * [PaginatedDocument]가 답하는 모든 도메인 질의를 고정한다. 이 타입이 생기기 전 `ReaderViewModel` 자체의 `pageOfOffset`, `absoluteOffset`, `sectionContaining`, `sectionIndexContaining`, `pageUi` 내부 장 제목/`isSectionTail` 파생과 정확히 같은 의미 및 경계 사례를 재현한다. 예를 들어 이진 검색은 블록을 아직 디코딩하지 않은 페이지에 도달하는 순간 포기하고, 장 제목은 페이지 시작점이 실제로 속한 섹션이 아니라 제목이 있는 마지막 섹션에서 상속한다.
  *
- * It also pins the B4 decision behind this type's declaration: [PaginatedDocument] is a plain `class`,
- * not a `data class`, precisely so nothing here ever walks its lazily built [PaginatedDocument.pageWindows]
- * list — [equalContentInstancesAreNotEqual] fails the moment someone "helpfully" adds `data` back.
+ * 또한 이 타입 선언의 B4 결정을 고정한다. [PaginatedDocument]는 `data class`가 아니라 일반 `class`이므로 지연으로 생성되는 [PaginatedDocument.pageWindows] 목록을 아무것도 순회하지 않는다. 누군가 "도움이 되도록" `data`를 다시 추가하는 순간 [equalContentInstancesAreNotEqual]이 실패한다.
  */
 class PaginatedDocumentTest {
 
     /**
-     * Builds a page window carrying only what these queries actually read, so each case states its own
-     * premise instead of hiding it in one fixture shared by twenty tests.
+     * 질의가 실제로 읽는 값만 담은 페이지 윈도를 만든다. 20개 테스트가 공유하는 하나의 픽스처에 전제를 숨기지 않고 각 경우가 자체 조건을 드러내게 한다.
      *
-     * @param range the page's text range; null stands for a page whose blocks are not decoded yet, which
-     * is the state the offset search has to stop on rather than skip past.
-     * @param blocks the page's blocks; a cover block is what makes [PaginatedDocument.chapterTitleAt]
-     * answer null, and an image block is what [PaginatedDocument.imageHrefsIn] collects.
-     * @return a window whose page index, location and text are placeholders no query here depends on.
+     * @param range 페이지의 텍스트 범위. `null`은 블록을 아직 디코딩하지 않은 페이지를 뜻하며, 오프셋 검색은 이를 건너뛰지 않고 그 상태에서 멈춰야 한다.
+     * @param blocks 페이지의 블록. 표지 블록이 있으면 [PaginatedDocument.chapterTitleAt]은 `null`을 반환하고, [PaginatedDocument.imageHrefsIn]은 이미지 블록을 수집한다.
+     * @return 이 질의들이 의존하지 않는 페이지 인덱스, 위치, 텍스트에는 대체 문구를 사용한 윈도.
      */
     private fun page(
         range: TextRange? = null,
@@ -43,14 +33,13 @@ class PaginatedDocumentTest {
     )
 
     /**
-     * Builds a section spanning `start until end`, which is the only part of a section these queries read.
+     * `start until end`를 차지하는 섹션을 만든다. 이 질의들이 읽는 섹션 정보는 이것뿐이다.
      *
-     * @param index the section's own index, which the section lookups answer with.
-     * @param start the section's first absolute offset.
-     * @param end the section's exclusive end offset; a page ending exactly here is a section tail.
-     * @param title the section's title; null is a real state in EPUBs, and the one a chapter title has to
-     * be inherited for.
-     * @return a section with empty text, since no query here reads it.
+     * @param index 섹션 조회가 반환하는 섹션 자체 인덱스.
+     * @param start 섹션의 첫 절대 오프셋.
+     * @param end 섹션의 배타적 끝 오프셋. 페이지가 정확히 여기서 끝나면 섹션 끝이다.
+     * @param title 섹션 제목. EPUB에서 `null`은 실제 상태이며 장 제목을 상속해야 하는 경우다.
+     * @return 이 질의들이 텍스트를 읽지 않으므로 빈 텍스트를 가진 섹션.
      */
     private fun section(
         index: Int,
@@ -59,7 +48,9 @@ class PaginatedDocumentTest {
         title: String? = null,
     ): ReaderSection = ReaderSection(index = index, text = "", range = TextRange(start, end), title = title)
 
-    /** A document with no pages has no page for any offset, rather than answering page zero. */
+    /**
+     * 페이지가 없는 문서는 어떤 오프셋에도 페이지가 없으며 0번 페이지를 반환하지 않는다.
+     */
     @Test
     fun pageOfOffsetOnAnEmptyPageListIsNull() {
         val document = PaginatedDocument()
@@ -67,7 +58,9 @@ class PaginatedDocumentTest {
         assertNull(document.pageOf(0L))
     }
 
-    /** A page owns its range from its first offset up to, but not including, the next page's first. */
+    /**
+     * 페이지는 첫 오프셋부터 다음 페이지의 첫 오프셋 직전까지 범위를 소유한다.
+     */
     @Test
     fun pageOfOffsetFindsAPageAtItsFirstAndLastOffset() {
         val document = PaginatedDocument(
@@ -85,8 +78,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * An offset past everything measured so far has no page yet — a different answer from the last page,
-     * which is what keeps a resume from landing at the end of a partially measured book.
+     * 현재까지 측정한 모든 범위를 지난 오프셋에는 아직 페이지가 없다. 부분 측정된 책의 끝에서 재개하지 않도록 마지막 페이지와 다른 답을 반환한다.
      */
     @Test
     fun pageOfOffsetPastTheEndIsNull() {
@@ -101,12 +93,9 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * The search gives up on an undecoded page instead of stepping over it.
+     * 검색은 디코딩하지 않은 페이지를 건너뛰지 않고 포기한다.
      *
-     * Binary search on three pages visits index 1 first. Offset 25 truly belongs to page 2, so a search
-     * treating a null range as "keep going" would find it — and would be answering from a page list it
-     * cannot actually trust. Reproducing `ReaderViewModel.pageOfOffset` exactly, this edge case included,
-     * is the whole reason this type took the old implementation over rather than replacing it.
+     * 세 페이지의 이진 검색은 인덱스 1을 먼저 방문한다. 오프셋 25는 실제로 페이지 2에 속하므로 `null` 범위를 "계속 진행"으로 처리하면 이를 찾는다. 하지만 그러면 신뢰할 수 없는 페이지 목록으로 답하게 된다. 이 경계 사례를 포함해 `ReaderViewModel.pageOfOffset`을 정확히 재현하는 것이 기존 구현을 대체하지 않고 이 타입으로 옮긴 이유다.
      */
     @Test
     fun pageOfOffsetStopsAtAPageWithNoTextRangeInsteadOfSkippingIt() {
@@ -121,7 +110,9 @@ class PaginatedDocumentTest {
         assertNull(document.pageOf(25L))
     }
 
-    /** A plain text offset needs no section context: it is already absolute. */
+    /**
+     * 일반 텍스트 오프셋은 이미 절대값이므로 섹션 문맥이 필요 없다.
+     */
     @Test
     fun pageOfLocationResolvesATextOffsetThroughAbsoluteOffsetOf() {
         val document = PaginatedDocument(
@@ -136,8 +127,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * An EPUB offset is relative to its spine item, so it only means something once the section list says
-     * where that item starts — which is why pages and sections travel together in this one type.
+     * EPUB 오프셋은 스파인 항목 기준 상대값이므로 섹션 목록이 해당 항목의 시작 위치를 제공한 뒤에야 의미가 생긴다. 이 때문에 페이지와 섹션을 하나의 타입에 함께 전달한다.
      */
     @Test
     fun pageOfLocationResolvesAnEpubOffsetAgainstItsSpineItemsSectionStart() {
@@ -154,9 +144,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * A PDF page number is not a text offset, so this query has no answer for it. The caller has to branch
-     * on the location type — the reason `ReaderViewModel.moveToLocation` keeps its own explicit `PdfPage`
-     * branch instead of routing every jump through here.
+     * PDF 페이지 번호는 텍스트 오프셋이 아니므로 이 질의는 답할 수 없다. 호출자가 위치 유형에 따라 분기해야 하며, 그래서 `ReaderViewModel.moveToLocation`은 모든 이동을 여기로 보내지 않고 명시적 `PdfPage` 분기를 유지한다.
      */
     @Test
     fun pageOfLocationOnAPdfPageIsAlwaysNull() {
@@ -168,7 +156,9 @@ class PaginatedDocumentTest {
         assertNull(document.pageOf(ReaderLocation.PdfPage(0)))
     }
 
-    /** The stored position for a page is the window's own location, not one derived from its range. */
+    /**
+     * 페이지에 저장할 위치는 범위에서 파생하지 않고 윈도 자체 위치를 사용한다.
+     */
     @Test
     fun locationAtReturnsTheWindowsOwnLocationWhenThePageExists() {
         val location = ReaderLocation.TextOffset(42L)
@@ -179,7 +169,9 @@ class PaginatedDocumentTest {
         assertEquals(location, document.locationAt(0))
     }
 
-    /** Asking about a page the measurement has not reached answers absence, not a fallback location. */
+    /**
+     * 측정이 아직 도달하지 않은 페이지를 요청하면 대체 위치가 아니라 값이 없다고 답한다.
+     */
     @Test
     fun locationAtIsNullWhenThePageHasNoWindow() {
         val document = PaginatedDocument(pageWindows = listOf(page(range = TextRange(0, 10))))
@@ -188,8 +180,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * A section owns every offset from its own start until the next section's, so the lookup takes the last
-     * section starting at or before the offset rather than the first one whose range contains it.
+     * 섹션은 자체 시작부터 다음 섹션 전까지 모든 오프셋을 소유하므로, 조회는 범위에 포함되는 첫 섹션이 아니라 해당 오프셋 이전 또는 같은 위치에서 시작하는 마지막 섹션을 선택한다.
      */
     @Test
     fun sectionContainingFindsTheLastSectionStartingAtOrBeforeTheOffset() {
@@ -202,7 +193,9 @@ class PaginatedDocumentTest {
         assertEquals(sectionB, document.sectionContaining(35L))
     }
 
-    /** Gaps still belong to the last section start at or before the offset, matching the old lookup. */
+    /**
+     * 간격도 해당 오프셋 이전 또는 같은 위치에서 시작하는 마지막 섹션에 속하며, 기존 조회와 일치한다.
+     */
     @Test
     fun sectionContainingUsesTheLastSectionStartEvenAcrossAGap() {
         val intro = section(index = 0, start = 10, end = 20, title = "Intro")
@@ -213,7 +206,9 @@ class PaginatedDocumentTest {
         assertEquals(0, document.sectionIndexContaining(25L))
     }
 
-    /** Front matter can start after offset zero, and an offset before it belongs to no section at all. */
+    /**
+     * 앞 내용은 오프셋 0 이후에 시작할 수 있으며, 그보다 앞선 오프셋은 어떤 섹션에도 속하지 않는다.
+     */
     @Test
     fun sectionContainingIsNullForAnOffsetBeforeTheFirstSection() {
         val document = PaginatedDocument(
@@ -224,7 +219,9 @@ class PaginatedDocumentTest {
         assertNull(document.sectionIndexContaining(5L))
     }
 
-    /** The index form is the same lookup, so the two can never disagree about which section wins. */
+    /**
+     * 인덱스 형태도 같은 조회를 사용하므로 어느 섹션을 선택할지 두 결과가 다를 수 없다.
+     */
     @Test
     fun sectionIndexContainingMatchesSectionContainingsIndex() {
         val document = PaginatedDocument(
@@ -238,8 +235,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * A page range is clamped to what has been measured, so asking for a fixed-size window around the
-     * reading position cannot fail mid-import — which is what lets block warming ask by page range.
+     * 페이지 범위는 측정된 범위로 제한하므로 독서 위치 주변의 고정 크기 윈도를 요청해도 가져오기 중간에 실패하지 않는다. 이 덕분에 블록 준비가 페이지 범위로 요청할 수 있다.
      */
     @Test
     fun sectionIndexesForIgnoresPagesPastTheEndOfTheKnownList() {
@@ -287,7 +283,9 @@ class PaginatedDocumentTest {
         assertEquals(setOf("fonts/body.otf", "fonts/inline.otf"), document.fontHrefsIn(0..0))
     }
 
-    /** Nothing measured in the asked-for range means nothing to warm, not a request for an empty set. */
+    /**
+     * 요청 범위에 측정된 것이 없으면 준비할 것도 없으며 빈 집합을 요청하지 않는다.
+     */
     @Test
     fun sectionIndexesForIsEmptyWhenTheWholeRangeIsPastTheEnd() {
         val document = PaginatedDocument(pageWindows = listOf(page(range = TextRange(0, 10))))
@@ -296,8 +294,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * A cover belongs to no chapter, so the reader's top bar stays empty on it instead of showing the
-     * title of whichever section the cover's offsets happen to fall in.
+     * 표지는 어떤 장에도 속하지 않으므로, 표지 오프셋이 우연히 어떤 섹션에 들어가더라도 리더 상단 표시줄에는 해당 제목을 표시하지 않고 비워 둔다.
      */
     @Test
     fun chapterTitleAtIsNullForACoverPage() {
@@ -315,11 +312,9 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * An untitled section inherits the last title before it, which is what keeps a chapter's name in the
-     * top bar for the whole chapter rather than only for its first spine item.
+     * 제목 없는 섹션은 앞의 마지막 제목을 상속한다. 따라서 장 첫 스파인 항목뿐 아니라 장 전체에서 상단 표시줄에 장 이름을 유지한다.
      *
-     * The first assertion is the trap this pins: the section the page's start literally falls in has no
-     * title of its own, so a naive `sectionContaining(start)?.title` answers null here.
+     * 첫 단언이 핵심 함정이다. 페이지 시작점이 실제로 속한 섹션에는 자체 제목이 없으므로 단순한 `sectionContaining(start)?.title`은 여기서 `null`을 반환한다.
      */
     @Test
     fun chapterTitleAtIsInheritedByAnUntitledSectionFromTheLastTitledSectionBeforeIt() {
@@ -333,7 +328,9 @@ class PaginatedDocumentTest {
         assertNull(document.sectionContaining(60L)?.title)
         assertEquals("Preface", document.chapterTitleAt(0))
     }
-    /** Title inheritance walks backward from the positioned section until it finds a titled one. */
+    /**
+     * 제목 상속은 위치가 지정된 섹션에서 뒤로 이동하여 제목이 있는 섹션을 찾는다.
+     */
     @Test
     fun chapterTitleAtKeepsTheLastTitleAcrossUntitledSectionsAndGaps() {
         val preface = section(index = 0, start = 0, end = 50, title = "Preface")
@@ -346,7 +343,9 @@ class PaginatedDocumentTest {
         assertEquals("Preface", document.chapterTitleAt(0))
     }
 
-    /** Inheritance never invents a title: a book whose sections are all untitled shows none. */
+    /**
+     * 상속은 제목을 만들어내지 않는다. 모든 섹션이 제목 없는 책은 아무것도 표시하지 않는다.
+     */
     @Test
     fun chapterTitleAtIsNullWhenNoSectionAtOrBeforeThePageHasEverCarriedATitle() {
         val document = PaginatedDocument(
@@ -357,7 +356,9 @@ class PaginatedDocumentTest {
         assertNull(document.chapterTitleAt(0))
     }
 
-    /** A page is numbered from its chapter start, not from the start of the whole document. */
+    /**
+     * 페이지 번호는 전체 문서 시작이 아니라 장 시작부터 센다.
+     */
     @Test
     fun chapterPageIndexAtCountsWithinTheCurrentChapter() {
         val document = PaginatedDocument(
@@ -379,8 +380,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * Only the page whose end meets its section's end is a tail, which is how the reader tells a page that
-     * ends a chapter from one merely sitting inside it.
+     * 자체 섹션 끝과 범위 끝이 만나는 페이지만 끝이다. 리더는 이를 통해 장을 끝내는 페이지와 단순히 내부에 있는 페이지를 구별한다.
      */
     @Test
     fun isSectionTailIsTrueExactlyWhenThePagesEndMatchesItsSectionsEnd() {
@@ -396,7 +396,9 @@ class PaginatedDocumentTest {
         assertTrue(document.isSectionTail(1))
     }
 
-    /** Without a measured range, or without a window at all, the answer is no rather than a guess. */
+    /**
+     * 측정된 범위가 없거나 윈도 자체가 없으면 추정하지 않고 `false`를 반환한다.
+     */
     @Test
     fun isSectionTailIsFalseWithoutATextRangeOrAWindow() {
         val document = PaginatedDocument(pageWindows = listOf(page(range = null)))
@@ -406,8 +408,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * Images are collected per page range and de-duplicated, so prefetching around the reading position
-     * asks for each file once and never for a page the reader is nowhere near.
+     * 이미지를 페이지 범위별로 수집하고 중복을 제거하므로, 독서 위치 주변을 미리 가져오기할 때 각 파일을 한 번만 요청하고 독자가 가까이 있지 않은 페이지는 요청하지 않는다.
      */
     @Test
     fun imageHrefsInCollectsDistinctHrefsFromTheGivenPagesOnly() {
@@ -427,8 +428,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * Re-measuring pages leaves the section list alone, because a repagination changes where the page
-     * boundaries fall but not how the book is divided.
+     * 페이지를 다시 측정해도 섹션 목록은 유지한다. 페이지 재분할은 페이지 경계를 바꾸지만 책이 나뉜 방식은 바꾸지 않기 때문이다.
      */
     @Test
     fun withPagesReplacesOnlyThePageList() {
@@ -443,8 +443,7 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * The mirror image: an import parsing further into the book replaces the sections while the pages
-     * measured so far stay as they are. The two updates stay separate because they arrive separately.
+     * 반대 경우로, 가져오기가 책의 더 뒤쪽을 파싱하면 지금까지 측정된 페이지는 그대로 유지하면서 섹션을 교체한다. 두 갱신은 별도로 도착하므로 계속 분리한다.
      */
     @Test
     fun withSectionsReplacesOnlyTheSectionList() {
@@ -462,14 +461,9 @@ class PaginatedDocumentTest {
     }
 
     /**
-     * Content-equal instances are deliberately not equal, which is the guard on this type staying a plain
-     * `class`.
+     * 내용이 같은 인스턴스도 의도적으로 동등하지 않으며, 이 타입을 일반 `class`로 유지하게 하는 보호 장치이다.
      *
-     * The first two assertions establish that the two really do hold content-equal lists; the last shows
-     * that this still does not make the values equal, because [PaginatedDocument] has neither a generated
-     * nor a hand-written `equals`. Adding `data` back would satisfy the first two and break the third —
-     * and would make every `==` walk a page list that builds and caches pages as it is indexed, so the
-     * comparison would be neither cheap nor free of side effects.
+     * 첫 두 단언은 두 인스턴스가 실제로 내용이 같은 목록을 지녔음을 확인한다. 마지막 단언은 그래도 두 값이 같지 않음을 보여준다. [PaginatedDocument]에는 생성된 `equals`도 직접 작성한 `equals`도 없기 때문이다. `data`를 다시 추가하면 첫 두 단언은 만족하지만 세 번째가 실패한다. 또한 모든 `==`가 인덱스 접근 시 페이지를 생성하고 캐시하는 페이지 목록을 순회하게 되어 비교가 저렴하지도 부수 효과에서 자유롭지도 않게 된다.
      */
     @Test
     fun equalContentInstancesAreNotEqual() {

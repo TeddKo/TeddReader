@@ -1,10 +1,9 @@
 package com.tedd.teddreader.core.common
 
 /**
- * Tiny byte-budgeted LRU.
+ * 바이트 예산을 기준으로 동작하는 작은 LRU이다.
  *
- * `put` trims against that call's protected keys, so the caller can keep the currently visible entries even
- * when they alone exceed the budget.
+ * `put`은 해당 호출에서 보호하는 키를 제외하고 정리하므로, 그 항목들만으로 예산을 초과하더라도 호출자는 현재 표시 중인 항목을 유지할 수 있다.
  */
 class ByteArrayLruCache<K>(
     private val maxByteCount: Int,

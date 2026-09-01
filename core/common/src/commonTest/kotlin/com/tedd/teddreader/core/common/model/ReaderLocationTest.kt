@@ -5,12 +5,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
- * Pins the storage form of a reading position, per format, in both directions.
+ * 형식별 독서 위치의 저장소 형식을 양방향으로 고정한다.
  *
- * This round trip is what a resume depends on: [parseReaderLocation] has to return exactly what
- * [ReaderLocation.asStorageString] wrote, or a reader is put back somewhere other than where they stopped.
- * The rejection case is here for the same reason — a negative offset means a corrupt row, and reading it
- * as page one would hide that while losing the reader's place.
+ * 재개는 이 왕복 변환에 의존한다. [parseReaderLocation]이 [ReaderLocation.asStorageString]이 기록한 값과 정확히 같은 값을 반환하지 않으면 독자는 멈춘 곳과 다른 위치로 돌아간다. 거부 경우도 같은 이유로 둔다. 음수 오프셋은 손상된 행이며 이를 첫 페이지로 읽으면 위치를 잃으면서 문제를 숨긴다.
  */
 class ReaderLocationTest {
     @Test
