@@ -9,99 +9,99 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
- * The theme's channels down through composition.
+ * 컴포지션을 통해 아래로 전달되는 테마 채널입니다.
  *
- * `staticCompositionLocalOf`, not `compositionLocalOf`: a theme changes once per app, so paying to track
- * every individual reader of it buys nothing — a static local re-composes the whole subtree when it does
- * change, which is exactly what a theme switch wants.
+ * `staticCompositionLocalOf`를 사용하며 `compositionLocalOf`는 사용하지 않습니다. 테마는 앱에서 한 번씩 바뀌므로
+ * 개별 소비자를 모두 추적해도 이점이 없습니다. 정적 로컬은 값이 바뀔 때 하위 트리 전체를 다시
+ * 컴포지션하며, 이는 테마 전환에 정확히 필요한 동작입니다.
  *
- * Private on purpose. A screen reads the theme through the accessor functions below, so the locals stay one
- * module's implementation detail and can be re-pointed without touching call sites.
+ * 의도적으로 비공개입니다. 화면은 아래 접근자 함수를 통해 테마를 읽으므로 로컬은 이 모듈의 구현 세부
+ * 사항으로 남고, 호출 지점을 건드리지 않고도 연결 대상을 바꿀 수 있습니다.
  */
 private val LocalTeddReaderColors = staticCompositionLocalOf { LightTeddReaderColors }
 
-/** The app's type scale, read through [teddReaderTypography]. */
+/** [teddReaderTypography]를 통해 읽는 앱의 활자 척도입니다. */
 private val LocalTeddReaderTypography = staticCompositionLocalOf { DefaultTeddReaderTypography }
 
-/** The app's spacing scale, read through [teddReaderSpacing]. */
+/** [teddReaderSpacing]을 통해 읽는 앱의 간격 척도입니다. */
 private val LocalTeddReaderSpacing = staticCompositionLocalOf { DefaultTeddReaderSpacing }
 
-/** The app's corner radii, read through [teddReaderShapes]. */
+/** [teddReaderShapes]를 통해 읽는 앱의 모서리 반경 척도입니다. */
 private val LocalTeddReaderShapes = staticCompositionLocalOf { DefaultTeddReaderShapes }
 
-/** The app's elevation scale, read through [teddReaderElevation]. */
+/** [teddReaderElevation]을 통해 읽는 앱의 고도 척도입니다. */
 private val LocalTeddReaderElevation = staticCompositionLocalOf { DefaultTeddReaderElevation }
 
-/** The app's animation durations, read through [teddReaderMotion]. */
+/** [teddReaderMotion]을 통해 읽는 앱의 애니메이션 시간입니다. */
 private val LocalTeddReaderMotion = staticCompositionLocalOf { DefaultTeddReaderMotion }
 
-/** The app's icon sizes, read through [teddReaderIconography]. */
+/** [teddReaderIconography]를 통해 읽는 앱의 아이콘 크기입니다. */
 private val LocalTeddReaderIconography = staticCompositionLocalOf { DefaultTeddReaderIconography }
 
-/** The app's adaptive layout breakpoints, read through [teddReaderBreakpoints]. */
+/** [teddReaderBreakpoints]를 통해 읽는 앱의 적응형 레이아웃 중단점입니다. */
 private val LocalTeddReaderBreakpoints = staticCompositionLocalOf { DefaultTeddReaderBreakpoints }
 
-/** The palette the reading page draws with, read through [readerColors] — not the app's chrome palette. */
+/** 앱 크롬 팔레트가 아니라 [readerColors]를 통해 읽는 읽기 페이지용 팔레트입니다. */
 private val LocalReaderColors = staticCompositionLocalOf { LightReaderColors }
 
-/** The app's colour roles at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 색상 역할입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderColors(): TeddReaderColors = LocalTeddReaderColors.current
 
-/** The app's type scale at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 활자 척도입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderTypography(): TeddReaderTypography = LocalTeddReaderTypography.current
 
-/** The app's spacing scale at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 간격 척도입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderSpacing(): TeddReaderSpacing = LocalTeddReaderSpacing.current
 
-/** The app's corner radii at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 모서리 반경 척도입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderShapes(): TeddReaderShapes = LocalTeddReaderShapes.current
 
-/** The app's elevation scale at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 고도 척도입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderElevation(): TeddReaderElevation = LocalTeddReaderElevation.current
 
-/** The app's animation durations at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 애니메이션 시간입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderMotion(): TeddReaderMotion = LocalTeddReaderMotion.current
 
-/** The app's icon sizes at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 아이콘 크기입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderIconography(): TeddReaderIconography = LocalTeddReaderIconography.current
 
-/** The app's adaptive layout breakpoints at this point in the tree. */
+/** 트리의 현재 지점에 적용된 앱 적응형 레이아웃 중단점입니다. */
 @Composable
 @ReadOnlyComposable
 fun teddReaderBreakpoints(): TeddReaderBreakpoints = LocalTeddReaderBreakpoints.current
 
-/** The palette the *reading page* draws with, which is not the app's chrome palette. */
+/** 앱 크롬 팔레트가 아니라 *읽기 페이지*를 그리는 데 사용하는 팔레트입니다. */
 @Composable
 @ReadOnlyComposable
 fun readerColors(): ReaderColors = LocalReaderColors.current
 
 @Composable
 /**
- * Installs the app's theme: its own scales for screens, and a Material theme built from the same colours so
- * stock components match.
+ * 화면에서 사용하는 앱 고유 척도와 같은 색상으로 만든 Material 테마를 함께 설치하여 기본 컴포넌트도
+ * 앱과 어울리게 합니다.
  *
- * The reader's palette is a *separate* parameter rather than being derived from [darkTheme], because a
- * reading page follows the reader's own choice — sepia paper in a dark app, or a custom palette — which is
- * independent of whether app chrome is dark.
+ * 읽기 페이지는 앱 크롬의 다크 모드 여부와 독립적으로 독자 자신의 선택을 따릅니다. 어두운 앱에서 세피아
+ * 종이를 쓰거나 사용자 팔레트를 쓸 수 있으므로 리더 팔레트는 [darkTheme]에서 파생하지 않고 *별도*
+ * 매개변수로 받습니다.
  *
- * @param darkTheme whether app chrome uses the dark palette.
- * @param readerColors the palette a reading page draws with; defaults to the one matching [darkTheme], and
- * is overridden by the reader with the palette its own style resolves to.
- * @param content the app, composed under this theme.
+ * @param darkTheme 앱 크롬에 다크 팔레트를 사용할지 여부입니다.
+ * @param readerColors 읽기 페이지를 그리는 팔레트입니다. 기본값은 [darkTheme]에 맞는 팔레트이며, 리더가
+ * 자체 스타일로 결정한 팔레트로 재정의합니다.
+ * @param content 이 테마 아래에서 컴포지션할 앱 콘텐츠입니다.
  */
 fun TeddReaderTheme(
     darkTheme: Boolean = false,
