@@ -1362,25 +1362,41 @@ class DocumentRepositoryImpl(
     }
 
     /**
-     * Removes [documentId] from the shelf entirely: [documentDao]'s row for it, every in-memory cache
-     * that might still name it and its stored page layouts (both via [invalidateCaches]), its EPUB
-     * scratch copy if it is the one currently held (also via [invalidateCaches]), and its cached cover
-     * file.
+     * Removes [documentId] from the shelf entirely: its stored location is captured before Room
+     * removes the row, then every in-memory/scratch/layout cache, cover file, and app-owned
+     * materialized source is removed. [DocumentFileSource] enforces the platform directory boundary,
+     * so an external original URI is never deleted.
      *
      * @param documentId The document to delete.
      */
     override suspend fun deleteDocument(documentId: DocumentId) {
+        val storedLocation = documentDao.getDocument(documentId.value)?.toDocumentMetadata()?.location
         documentDao.deleteDocument(documentId.value)
         invalidateCaches(documentId)
         coverStore.delete(documentId)
+        if (storedLocation != null) documentFileSource?.deleteMaterialized(storedLocation)
     }
 
+    /**
+     * Removes every selected document and all of its app-owned persistent and transient artifacts.
+     *
+     * Locations are read before the batch Room delete because the removed rows are the only durable
+     * mapping back to materialized files. Missing rows contribute no location and remain harmless.
+     *
+     * @param documentIds Documents selected for deletion; an empty collection is a no-op.
+     */
     override suspend fun deleteDocuments(documentIds: Collection<DocumentId>) {
         if (documentIds.isEmpty()) return
+        val storedLocations = documentIds.mapNotNull { documentId ->
+            documentDao.getDocument(documentId.value)?.toDocumentMetadata()?.location
+        }
         documentDao.deleteDocuments(documentIds.map(DocumentId::value))
         documentIds.forEach { documentId ->
             invalidateCaches(documentId)
             coverStore.delete(documentId)
+        }
+        documentFileSource?.let { fileSource ->
+            storedLocations.forEach { location -> fileSource.deleteMaterialized(location) }
         }
     }
 

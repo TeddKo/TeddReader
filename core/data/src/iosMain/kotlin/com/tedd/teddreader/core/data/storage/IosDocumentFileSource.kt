@@ -107,6 +107,32 @@ class IosDocumentFileSource : DocumentFileSource {
     }
 
     /**
+     * Deletes direct children of this app's current or relocated `Documents` directory. The
+     * container-root comparison matches [resolveExistingPath] across UUID changes while rejecting
+     * unrelated external directories, and keeps legacy pre-hash materialized names eligible.
+     *
+     * @param location The stored location captured before its shelf row was deleted.
+     * @throws IllegalStateException when an owned file exists but the filesystem refuses deletion.
+     */
+    override suspend fun deleteMaterialized(location: DocumentLocation) {
+        if (!location.sourceUri.startsWith("file://")) return
+        val storedPath = location.sourceUri.removePrefix("file://").toPath().normalized()
+        val currentDirectory = "${NSHomeDirectory()}/Documents".toPath().normalized()
+        if (!isDirectChildOfCurrentOrRelocatedDirectory(storedPath, currentDirectory)) return
+
+        val candidate = if (isDirectChildOf(storedPath, currentDirectory)) {
+            storedPath
+        } else {
+            currentDirectory / storedPath.name
+        }
+        try {
+            FileSystem.SYSTEM.delete(candidate, mustExist = false)
+        } catch (cause: Throwable) {
+            throw IllegalStateException("Cannot delete materialized document: $candidate", cause)
+        }
+    }
+
+    /**
      * Materializes a document straight from its original file, for a freshly picked document whose
      * bytes have not already been loaded into memory (the entry point [materialize] itself would need
      * a [ByteArray] for). This is iOS's counterpart to `AndroidDocumentFileSource.materializeFromSource`.
