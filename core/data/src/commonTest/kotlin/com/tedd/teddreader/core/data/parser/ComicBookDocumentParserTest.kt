@@ -6,18 +6,18 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins how a CBZ's page list is built without ever opening a real ZIP archive: metadata and
- * resource-fork entries are filtered out, pages sort in natural reading order with an entry named
- * `cover` forced first, and the page count alone is enough to build a valid comic
- * [com.tedd.teddreader.core.common.model.ReaderDocument].
- * Actually opening an archive is covered separately by an instrumented test.
+ * 실제 ZIP 아카이브를 전혀 열지 않고 CBZ의 페이지 목록이 어떻게 만들어지는지를 고정한다: 메타데이터와
+ * 리소스 포크 항목은 걸러지고, 페이지는 자연스러운 읽기 순서로 정렬되며 `cover`라는 이름의 항목은
+ * 강제로 맨 앞에 오고, 페이지 수만으로도 유효한 코믹
+ * [com.tedd.teddreader.core.common.model.ReaderDocument]를 만들기에 충분하다.
+ * 실제로 아카이브를 여는 것은 계측 테스트로 별도 커버된다.
  */
 class ComicBookDocumentParserTest {
     /**
-     * Regression guard: `__MACOSX/` metadata and AppleDouble `._`-prefixed entries, and non-image
-     * files, must be dropped; an entry literally named `cover` must always sort first; and the
-     * remaining pages must sort in natural numeric order (`page2` before `page10`) rather than plain
-     * string order.
+     * 회귀 가드: `__MACOSX/` 메타데이터와 AppleDouble `._` 접두사 항목, 그리고 이미지가 아닌 파일은
+     * 제거되어야 한다; `cover`라는 이름 그대로인 항목은 항상 맨 먼저 정렬되어야 한다; 그리고 나머지
+     * 페이지는 일반 문자열 순서가 아니라 자연스러운 숫자 순서로 정렬되어야 한다(`page10`보다
+     * `page2`가 먼저).
      */
     @Test
     fun comicPageNamesFilterMetadataAndUseNaturalReadingOrder() {
@@ -37,8 +37,8 @@ class ComicBookDocumentParserTest {
     }
 
     /**
-     * The synthetic CBZ document carries the given page count and CBZ format, and no sections at all — a
-     * comic has no text.
+     * 합성된 CBZ 문서는 주어진 페이지 수와 CBZ 포맷을 가지며, 섹션은 전혀 없다 — 코믹은 텍스트가
+     * 없다.
      */
     @Test
     fun comicMetadataUsesImageCountAsPageCount() {
