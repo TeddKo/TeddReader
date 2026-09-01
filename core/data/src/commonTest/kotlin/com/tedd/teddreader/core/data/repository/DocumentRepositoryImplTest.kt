@@ -1538,6 +1538,76 @@ class DocumentRepositoryImplTest {
         assertFalse(systemFileSystem().exists(coverPath), "deleteDocument must remove the cached cover file.")
     }
 
+    /** Deletion must snapshot the stored location before removing the only row that can identify its app-owned file. */
+    @Test
+    fun deleteDocumentRemovesItsMaterializedSource() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///app/documents/materialized.txt",
+            displayName = "materialized.txt",
+            mimeType = "text/plain",
+        )
+        val bytes = "materialized".encodeToByteArray()
+        val fileSource = FakeDocumentFileSource(location, bytes)
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeDocumentDao(),
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        val documentId = DocumentId(location.sourceUri)
+        repository.importDocument(DocumentImportSource(location, bytes), importedAtEpochMillis = 1_000)
+
+        repository.deleteDocument(documentId)
+
+        assertEquals(listOf(location), fileSource.deletedMaterializedLocations)
+    }
+
+    /** Batch deletion must retain every location before Room removes all selected rows together. */
+    @Test
+    fun deleteDocumentsRemovesEveryMaterializedSource() = runTest {
+        val first = DocumentLocation(
+            sourceUri = "file:///app/documents/first.txt",
+            displayName = "first.txt",
+            mimeType = "text/plain",
+        )
+        val second = DocumentLocation(
+            sourceUri = "file:///app/documents/second.txt",
+            displayName = "second.txt",
+            mimeType = "text/plain",
+        )
+        val bytesByLocation = mapOf(
+            first.sourceUri to "first".encodeToByteArray(),
+            second.sourceUri to "second".encodeToByteArray(),
+        )
+        val fileSource = MultiLocationDocumentFileSource(bytesByLocation)
+        val repository = DocumentRepositoryImpl(
+            documentDao = FakeMultiDocumentDao(),
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+        repository.importDocument(DocumentImportSource(first, bytesByLocation.getValue(first.sourceUri)), 1_000)
+        repository.importDocument(DocumentImportSource(second, bytesByLocation.getValue(second.sourceUri)), 2_000)
+
+        repository.deleteDocuments(listOf(DocumentId(first.sourceUri), DocumentId(second.sourceUri)))
+
+        assertEquals(setOf(first, second), fileSource.deletedMaterializedLocations.toSet())
+    }
+
     /**
      * [coverFilePath]'s hash of the document id must give two different books two different cover
      * paths, so importing both and reading each cover back must not cross-contaminate. Neither the
@@ -4225,6 +4295,9 @@ private class FakeDocumentFileSource(
     /** How many times [copyTo] has been called. */
     var copyCount: Int = 0
 
+    /** Locations the repository requested to remove after deleting their shelf rows. */
+    val deletedMaterializedLocations = mutableListOf<DocumentLocation>()
+
     /**
      * Unique per fake instance so one test's cached cover file can never be left over for the next —
      * a real device's covers directory is one shared place, but a test's should not be.
@@ -4244,6 +4317,12 @@ private class FakeDocumentFileSource(
         FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
             sink.write(bytes)
         }
+    }
+
+    /** Records the location a production file source would remove from app-owned storage. */
+    override suspend fun deleteMaterialized(location: DocumentLocation) {
+        assertEquals(expectedLocation, location)
+        deletedMaterializedLocations += location
     }
 
     override fun appPrivateDirectory(): Path = privateDirectory
@@ -4280,6 +4359,9 @@ private class MultiLocationDocumentFileSource(
     /** How many times [copyTo] has been called across every location. */
     var copyCount: Int = 0
 
+    /** Locations the repository requested to remove after batch deletion. */
+    val deletedMaterializedLocations = mutableListOf<DocumentLocation>()
+
     private val privateDirectory: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
         "tedd-reader-test-${Random.nextLong().toString(16)}"
 
@@ -4293,6 +4375,11 @@ private class MultiLocationDocumentFileSource(
         FileSystem.SYSTEM.sink(destination).buffer().use { sink ->
             sink.write(bytesByLocation.getValue(location.sourceUri))
         }
+    }
+
+    /** Records each location a production file source would remove from app-owned storage. */
+    override suspend fun deleteMaterialized(location: DocumentLocation) {
+        deletedMaterializedLocations += location
     }
 
     override fun appPrivateDirectory(): Path = privateDirectory
