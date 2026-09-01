@@ -16,20 +16,20 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 
 /**
- * The app's default text input: an [OutlinedTextField] pinned to the app's shape scale and type
- * style, with its container color fixed to the surface color in every state (focused, unfocused, and
- * disabled) so the field never shows Material's default state-dependent container tinting, which
- * would otherwise clash with the surfaces this field is normally placed on (option sheets, forms).
- * Also enforces the same 48dp minimum touch height every other input in this module uses.
+ * 앱의 기본 텍스트 입력: 앱의 모양 스케일과 활자 스타일에 고정된 [OutlinedTextField]로, 컨테이너
+ * 색상이 모든 상태(포커스, 비포커스, 비활성)에서 서피스 색상으로 고정되어 있어, 필드가 Material의
+ * 기본 상태 의존적 컨테이너 색조를 결코 보여주지 않는다. 그 색조는 이 필드가 보통 놓이는 서피스
+ * (옵션 시트, 폼)와 충돌했을 것이다. 이 모듈의 다른 모든 입력이 사용하는 것과 같은 48dp 최소 터치
+ * 높이도 함께 강제한다.
  *
- * @param value The field's current text.
- * @param onValueChange Invoked with the new text whenever the user edits the field.
- * @param modifier Modifier applied to the field, after `fillMaxWidth()` and the 48dp minimum height.
- * @param label A floating label shown above the field's content; omitted when null.
- * @param placeholder Text shown when [value] is empty; omitted when null.
- * @param enabled Whether the field accepts input.
- * @param minLines Minimum number of visible text lines.
- * @param maxLines Maximum number of visible text lines before the field scrolls internally.
+ * @param value 필드의 현재 텍스트.
+ * @param onValueChange 사용자가 필드를 편집할 때마다 새 텍스트와 함께 호출된다.
+ * @param modifier `fillMaxWidth()`와 48dp 최소 높이가 적용된 뒤, 필드에 적용되는 modifier.
+ * @param label 필드 콘텐츠 위에 표시되는 떠 있는 라벨. null이면 생략된다.
+ * @param placeholder [value]가 비어 있을 때 표시되는 텍스트. null이면 생략된다.
+ * @param enabled 필드가 입력을 받을지 여부.
+ * @param minLines 보이는 텍스트 줄의 최소 개수.
+ * @param maxLines 필드가 내부적으로 스크롤되기 전, 보이는 텍스트 줄의 최대 개수.
  */
 @Composable
 fun TeddTextField(
@@ -65,23 +65,23 @@ fun TeddTextField(
 }
 
 /**
- * A single-line search input built on [OutlinedTextField], wired for the IME's search action
- * ([ImeAction.Search]) and fixed to the same surface-colored container in every state as
- * [TeddTextField], with room for leading/trailing icon slots (typically a search glyph and a clear
- * button) that [OutlinedTextField] itself only exposes as raw composable slots.
+ * [OutlinedTextField] 위에 만든 한 줄짜리 검색 입력으로, IME의 검색 액션([ImeAction.Search])에
+ * 연결되어 있고 [TeddTextField]와 마찬가지로 모든 상태에서 같은 서피스 색상 컨테이너로 고정되어
+ * 있으며, [OutlinedTextField] 자체는 그저 원시 컴포저블 슬롯으로만 노출하는 leading/trailing 아이콘
+ * 슬롯(보통 검색 글리프와 지우기 버튼)을 위한 자리를 마련해 둔다.
  *
- * @param value The field's current text.
- * @param onValueChange Invoked with the new text whenever the user edits the field.
- * @param modifier Modifier applied to the field, after `fillMaxWidth()` and the 48dp minimum height.
- * @param placeholder Text shown when [value] is empty. Defaults to the literal string `"Search"`,
- * which is not localized — callers in a localized screen should pass a translated string explicitly.
- * @param enabled Whether the field accepts input.
- * @param onSearch Invoked when the user triggers the IME's search action; not wired to any other
- * event.
- * @param leadingContent Content shown at the field's start, typically a search icon; omitted when
- * null.
- * @param trailingContent Content shown at the field's end, typically a clear button; omitted when
- * null.
+ * @param value 필드의 현재 텍스트.
+ * @param onValueChange 사용자가 필드를 편집할 때마다 새 텍스트와 함께 호출된다.
+ * @param modifier `fillMaxWidth()`와 48dp 최소 높이가 적용된 뒤, 필드에 적용되는 modifier.
+ * @param placeholder [value]가 비어 있을 때 표시되는 텍스트. 기본값은 지역화되지 않은 리터럴
+ * 문자열 `"Search"`다 — 지역화된 화면의 호출자는 번역된 문자열을 명시적으로 전달해야 한다.
+ * @param enabled 필드가 입력을 받을지 여부.
+ * @param onSearch 사용자가 IME의 검색 액션을 트리거할 때 호출된다. 다른 어떤 이벤트에도 연결되어
+ * 있지 않다.
+ * @param leadingContent 필드의 시작 부분에 표시되는 콘텐츠로, 보통 검색 아이콘이다. null이면
+ * 생략된다.
+ * @param trailingContent 필드의 끝 부분에 표시되는 콘텐츠로, 보통 지우기 버튼이다. null이면
+ * 생략된다.
  */
 @Composable
 fun TeddSearchField(

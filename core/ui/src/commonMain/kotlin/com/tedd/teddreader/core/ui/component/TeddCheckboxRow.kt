@@ -23,25 +23,23 @@ import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.teddToggleable
 
 /**
- * A settings row that pairs a title/description with a trailing [Checkbox], where the whole row
- * (not just the checkbox glyph) is the tap target — the row itself carries [teddToggleable] with
- * `role = Role.Checkbox`, and the [Checkbox] passed `onCheckedChange = null` so it renders visually
- * but does not register its own, smaller, tap target. Same pattern as [TeddSwitchRow] and
- * [TeddRadioRow], for the checkbox case. [Checkbox] itself is kept rather than rebuilt — a null
- * `onCheckedChange` already removes its own ripple — with only its `colors` pinned to this app's
- * tokens instead of the ambient Material scheme.
+ * 제목/설명과 후행 [Checkbox]를 짝짓는 설정 행으로, 체크박스 글리프만이 아니라 행 전체가 탭
+ * 타깃이다 — 행 자체가 `role = Role.Checkbox`로 [teddToggleable]을 가지고, [Checkbox]에는
+ * `onCheckedChange = null`이 전달되어 시각적으로는 렌더링되지만 그 자체의 더 작은 탭 타깃은 등록하지
+ * 않는다. 체크박스 경우에 대해 [TeddSwitchRow], [TeddRadioRow]와 동일한 패턴이다. [Checkbox] 자체는
+ * 새로 만들지 않고 그대로 유지한다 — `onCheckedChange`가 null이면 이미 자체 리플이 제거되므로 —
+ * `colors`만 주변 Material 스킴 대신 이 앱의 토큰에 고정한다.
  *
- * @param title The row's primary text, shown in [teddReaderTypography]'s `settingTitle` style.
- * @param checked Whether the checkbox is drawn checked.
- * @param onCheckedChange Invoked with the new checked state when the row is tapped; not invoked
- * while [enabled] is false.
- * @param modifier Modifier applied to the row's root.
- * @param description A second line shown under [title] in a muted color; omitted when null.
- * @param enabled Whether the row responds to taps; false also switches the checkbox to disabled
- * colors.
- * @param contentPadding Padding between the row's edge and its content; null means the theme's
- * screenPadding/small combination is used, so the row's horizontal inset lines up with
- * [TeddSection]'s screen padding instead of sitting 4dp inside it.
+ * @param title [teddReaderTypography]의 `settingTitle` 스타일로 표시되는 행의 주요 텍스트.
+ * @param checked 체크박스를 체크된 상태로 그릴지 여부.
+ * @param onCheckedChange 행이 탭될 때 새 체크 상태와 함께 호출된다. [enabled]가 false인 동안에는
+ * 호출되지 않는다.
+ * @param modifier 행 루트에 적용되는 modifier.
+ * @param description [title] 아래 흐린 색상으로 표시되는 두 번째 줄. null이면 생략된다.
+ * @param enabled 행이 탭에 반응할지 여부. false이면 체크박스도 비활성 색상으로 전환된다.
+ * @param contentPadding 행 가장자리와 콘텐츠 사이의 패딩. null이면 테마의 screenPadding/small
+ * 조합을 사용하여, 행의 가로 인셋이 그 안쪽 4dp에 놓이는 대신 [TeddSection]의 화면 패딩과
+ * 맞춰진다.
  */
 @Composable
 fun TeddCheckboxRow(
@@ -100,7 +98,7 @@ fun TeddCheckboxRow(
     }
 }
 
-/** Compose preview rendering [TeddCheckboxRow] unchecked, with a title and description. */
+/** 제목과 설명을 갖춘 체크 해제 상태로 [TeddCheckboxRow]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddCheckboxRowPreview() {

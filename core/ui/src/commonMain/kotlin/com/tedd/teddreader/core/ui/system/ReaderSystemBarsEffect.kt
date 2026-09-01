@@ -4,21 +4,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 /**
- * Applies the app-wide theme colour and matching icon contrast to the platform system bars.
- * This is composed once at the app root so home, search, settings, document info, and reader all
- * receive the same persisted reader-theme update.
+ * 앱 전역 테마 색상과 그에 맞는 아이콘 대비를 플랫폼 시스템 바에 적용한다. 이것은 앱 루트에서 한
+ * 번만 컴포즈되어, 홈, 검색, 설정, 문서 정보, 리더가 모두 같은 저장된 리더 테마 업데이트를 받는다.
  *
- * @param backgroundColor The current global theme's opaque page colour.
+ * @param backgroundColor 현재 전역 테마의 불투명한 페이지 색상.
  */
 @Composable
 expect fun SystemBarsThemeEffect(backgroundColor: Color)
 
 /**
- * Owns only the reader-specific window behavior: immersive visibility and keeping the screen awake.
- * System bar colour and icon contrast remain the app root's responsibility.
+ * 리더 고유의 창 동작 — 몰입형 가시성과 화면 꺼짐 방지 — 만을 소유한다. 시스템 바 색상과 아이콘
+ * 대비는 계속 앱 루트의 책임으로 남는다.
  *
- * @param visible Whether the system status/navigation bars should be shown.
- * @param keepScreenOn Whether the device's screen should stay awake while reading.
+ * @param visible 시스템 상태/내비게이션 바를 표시할지 여부.
+ * @param keepScreenOn 읽는 동안 기기 화면이 계속 켜져 있어야 하는지 여부.
  */
 @Composable
 expect fun ReaderSystemBarsEffect(

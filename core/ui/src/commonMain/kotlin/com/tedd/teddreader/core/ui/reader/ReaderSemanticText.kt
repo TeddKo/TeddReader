@@ -35,25 +35,24 @@ import com.tedd.teddreader.core.common.model.readerImageSize
 import com.tedd.teddreader.core.common.model.standaloneBlocks
 import com.tedd.teddreader.core.common.model.TextRange
 
-/** U+FFFC OBJECT REPLACEMENT CHARACTER: the one character a picture occupies in the rendered text. */
+/** U+FFFC OBJECT REPLACEMENT CHARACTER: 그림이 렌더링된 텍스트에서 차지하는 단 하나의 문자. */
 private const val ObjectReplacementChar = '\uFFFC'
-/** Annotation tag a link carries, so a tap on the rendered text can find the href behind it. */
+/** 링크가 지니는 annotation 태그로, 렌더링된 텍스트를 탭했을 때 그 뒤의 href를 찾을 수 있게 한다. */
 private const val ReaderLinkTag = "link"
 
 /**
- * A page's text as Compose draws it, plus the map back to the document it came from.
+ * Compose가 그리는 대로의 페이지 텍스트와, 그것이 유래한 문서로 되돌아가는 맵.
  *
- * Rendering adds characters the document does not have — a quote bar, a list bullet, a heading rule, the
- * placeholder standing in for a picture — so display offsets and document offsets stop agreeing at the first
- * such prefix. Everything the reader does with a position (saving progress, jumping to a search hit,
- * reporting where a page ends) speaks in document offsets, so the map travels with the string rather than
- * being recomputed by whoever needs it.
+ * 렌더링은 문서에는 없는 문자들 — 인용 막대, 목록 불릿, 제목 룰, 그림 자리를 대신하는 placeholder —
+ * 을 더하므로, 그런 접두부가 처음 나타나는 지점부터 표시 오프셋과 문서 오프셋은 더 이상 일치하지
+ * 않는다. 리더가 위치를 다루는 모든 작업(진행률 저장, 검색 결과로 이동, 페이지가 끝나는 지점 보고)은
+ * 문서 오프셋으로 말하므로, 이 맵은 필요한 쪽이 다시 계산하는 대신 문자열과 함께 이동한다.
  *
- * @property annotatedString the text to draw, prefixes and placeholders included.
- * @property offsetMap document offset per rendered character, one entry longer than the string so the
- * position just past the end is addressable; read through [sourceOffsetFor], which clamps.
- * @property placeholders the boxes reserved for pictures and rules, in rendering order.
- * @property containerDecorations full-width block decorations resolved from container blocks, in paint order.
+ * @property annotatedString 접두부와 placeholder를 포함해, 그릴 텍스트.
+ * @property offsetMap 렌더링된 문자마다의 문서 오프셋. 끝 바로 다음 위치도 가리킬 수 있도록 문자열보다
+ * 항목이 하나 더 많다; 값을 clamp하는 [sourceOffsetFor]를 통해 읽는다.
+ * @property placeholders 그림과 룰을 위해 예약된 박스들로, 렌더링 순서대로다.
+ * @property containerDecorations 컨테이너 블록에서 해석된, 전체 너비 블록 장식들로, 그리는 순서대로다.
  */
 data class ReaderSemanticText(
     val annotatedString: AnnotatedString,
@@ -63,10 +62,10 @@ data class ReaderSemanticText(
 )
 
 /**
- * One full-width block decoration segment in the rendered text, and everything the renderer needs to paint it.
+ * 렌더링된 텍스트 안 하나의 전체 너비 블록 장식 구간과, 렌더러가 이를 그리는 데 필요한 모든 것.
  *
- * Container backgrounds and borders are measured from the same text layout as the glyphs they surround, so
- * the geometry needed for page painting travels beside the text rather than being rediscovered later.
+ * 컨테이너 배경과 테두리는 그것들이 감싸는 글리프와 같은 텍스트 레이아웃에서 측정되므로, 페이지를
+ * 그리는 데 필요한 기하 정보는 나중에 다시 알아내는 대신 텍스트와 함께 이동한다.
  */
 data class ReaderContainerDecoration(
     val start: Int,
@@ -76,17 +75,17 @@ data class ReaderContainerDecoration(
     val startsHere: Boolean = true,
     val endsHere: Boolean = true,
     val isPageContainer: Boolean = false,
-    /** Space the box keeps between its own top edge and the first line inside it, in em. */
+    /** 박스가 자신의 위쪽 가장자리와 그 안 첫 줄 사이에 두는 간격, em 단위. */
     val paddingTopEm: Float = 0f,
-    /** Space the box keeps between the last line inside it and its own bottom edge, in em. */
+    /** 박스가 그 안 마지막 줄과 자신의 아래쪽 가장자리 사이에 두는 간격, em 단위. */
     val paddingBottomEm: Float = 0f,
 )
 
 /**
- * The leading slice of paragraph content measured to sit beside a floated image inside one placeholder.
+ * 하나의 placeholder 안에서 플로팅된 이미지 옆에 놓이도록 측정된, 문단 콘텐츠의 선행 조각.
  *
- * Pagination and drawing both consume the same fitted slice so a float claims the same source offsets in
- * measurement and rendering.
+ * 페이지 분할과 그리기 양쪽 모두 같은 맞춰진 조각을 소비하므로, float는 측정과 렌더링에서 같은 소스
+ * 오프셋을 갖는다.
  */
 data class ReaderFloatContent(
     val side: ReaderFloat,
@@ -97,22 +96,24 @@ data class ReaderFloatContent(
 )
 
 /**
- * One reserved box in the rendered text, and everything the renderer needs to fill it.
+ * 렌더링된 텍스트 안 예약된 박스 하나와, 렌더러가 그것을 채우는 데 필요한 모든 것.
  *
- * The box is reserved during layout and filled during drawing, which is why the size lives here rather than
- * being decided at draw time: pagination has to know how much of the page a picture takes before anyone
- * loads it, and the drawn picture then has to match what was measured.
+ * 박스는 레이아웃 중에 예약되고 그리기 중에 채워지며, 이것이 바로 크기가 그리는 시점에 정해지는
+ * 대신 여기에 있는 이유다: 페이지 분할은 누군가 그림을 로드하기 전에 그것이 페이지의 얼마를
+ * 차지하는지 알아야 하고, 그려진 그림은 측정된 것과 일치해야 한다.
  *
- * @property id the inline-content key Compose matches the box to its content by; unique per page.
- * @property kind what stands in the box — a picture, a cover, a rule, or a floated image plus its nested text.
- * @property href the image's path inside the container, for a caller that has to fetch the bytes.
- * @property label the image's alt text, for accessibility and for a failed load.
- * @property placeholder the box itself: the size reserved and how it aligns with the line.
- * @property start where the box sits in [ReaderSemanticText.annotatedString].
- * @property end one past [start] — a box always occupies exactly one character.
- * @property floatContent nested text content measured to live beside a floated image, when this placeholder is one.
- * @property boxStyle publisher box styling that belongs to the image box itself, when present.
- * @property foregroundColor the color the placeholder should inherit for currentColor-style borders.
+ * @property id Compose가 박스를 그 콘텐츠와 매칭하는 inline-content 키. 페이지마다 고유하다.
+ * @property kind 박스 안에 무엇이 서 있는지 — 그림, 표지, 룰, 또는 플로팅된 이미지와 그에 딸린
+ * 중첩 텍스트.
+ * @property href 바이트를 가져와야 하는 호출자를 위한, 컨테이너 안 이미지의 경로.
+ * @property label 접근성과 로드 실패를 위한, 이미지의 대체 텍스트.
+ * @property placeholder 박스 자체: 예약된 크기와 그것이 줄에 어떻게 정렬되는지.
+ * @property start [ReaderSemanticText.annotatedString] 안에서 박스가 놓인 위치.
+ * @property end [start] 바로 다음 위치 — 박스는 항상 정확히 한 문자를 차지한다.
+ * @property floatContent 이 placeholder가 플로팅된 이미지일 때, 그 옆에 놓이도록 측정된 중첩 텍스트
+ * 콘텐츠.
+ * @property boxStyle 존재할 경우, 이미지 박스 자체에 속하는 출판사 박스 스타일링.
+ * @property foregroundColor currentColor 스타일의 테두리를 위해 placeholder가 상속해야 하는 색상.
  */
 data class ReaderPlaceholder(
     val id: String,
@@ -128,10 +129,10 @@ data class ReaderPlaceholder(
 )
 
 /**
- * Input for the shared float fitter used by pagination and page rendering.
+ * 페이지 분할과 페이지 렌더링이 공유하는 float fitter의 입력.
  *
- * The request carries the paragraph containing the float in absolute document offsets so the fitter can
- * measure only the remaining post-image slice yet still return source offsets the caller can trust.
+ * 이 요청은 float를 포함한 문단을 절대 문서 오프셋으로 담아, fitter가 이미지 이후 남은 조각만
+ * 측정하면서도 호출자가 신뢰할 수 있는 소스 오프셋을 반환할 수 있게 한다.
  */
 data class ReaderFloatPlacementRequest(
     val text: String,
@@ -143,10 +144,10 @@ data class ReaderFloatPlacementRequest(
 )
 
 /**
- * The fitted leading paragraph slice that can live beside a float.
+ * float 옆에 놓일 수 있도록 맞춰진, 문단의 선행 조각.
  *
- * [nestedRange] stays in source offsets while [nestedText] carries the rendered substring that fits in the
- * floated column beside the image.
+ * [nestedRange]는 소스 오프셋을 유지하는 반면 [nestedText]는 이미지 옆 플로팅된 컬럼에 맞는 렌더링된
+ * 부분 문자열을 담는다.
  */
 data class ReaderFloatPlacement(
     val nestedRange: TextRange,
@@ -154,17 +155,17 @@ data class ReaderFloatPlacement(
 )
 
 /**
- * Shared callback that returns the largest leading paragraph slice that fits beside a float.
+ * float 옆에 들어맞는 가장 큰 선행 문단 조각을 반환하는 공유 콜백.
  *
- * It is injected so pagination and rendering can share the exact same fitting logic and measurement inputs.
+ * 페이지 분할과 렌더링이 정확히 같은 맞춤 로직과 측정 입력을 공유할 수 있도록 주입된다.
  */
 typealias ReaderFloatTextFitter = (ReaderFloatPlacementRequest) -> ReaderFloatPlacement?
 
 /**
- * Collects embedded font hrefs referenced by block and span styles.
+ * 블록과 span 스타일이 참조하는 내장 글꼴 href들을 모은다.
  *
- * EPUB pagination waits until every referenced font has either resolved or failed, so this scan is the cheap
- * contract that tells the caller which hrefs matter for first measurement.
+ * EPUB 페이지 분할은 참조된 모든 글꼴이 해석되거나 실패할 때까지 기다리므로, 이 스캔은 첫 측정에
+ * 어떤 href가 중요한지 호출자에게 알려주는 저렴한 계약이다.
  */
 fun readerReferencedFontHrefs(blocks: List<ReaderBlock>): Set<String> = buildSet {
     blocks.forEach { block ->
@@ -174,51 +175,52 @@ fun readerReferencedFontHrefs(blocks: List<ReaderBlock>): Set<String> = buildSet
 }
 
 /**
- * Turns stored text and its block structure into the string a page draws, and the offset map back.
+ * 저장된 텍스트와 그 블록 구조를 페이지가 그리는 문자열과, 그로부터 되돌아가는 오프셋 맵으로
+ * 바꾼다.
  *
- * This is the single place the document's flat text becomes something visual, and it runs on both sides of
- * the reader: the page breaker measures with it, then the page surface draws with it. Both must see the same
- * string, or a page will be measured with one set of characters and drawn with another — which is how a page
- * ends up clipping its last line.
+ * 이곳은 문서의 평평한 텍스트가 시각적인 무언가가 되는 유일한 장소이며, 리더의 양쪽에서 실행된다:
+ * 페이지 breaker가 이것으로 측정하고, 페이지 서피스가 이것으로 그린다. 둘은 반드시 같은 문자열을
+ * 봐야 한다. 그렇지 않으면 페이지가 한 문자 집합으로 측정되고 다른 문자 집합으로 그려지게 되며,
+ * 이것이 페이지의 마지막 줄이 잘리는 원인이다.
  *
- * A picture is kept *in* the text as one placeholder character rather than being lifted out between blocks,
- * because that is where HTML puts it: a gaiji glyph or an icon belongs in the sentence it was written in. A
- * picture that is the only thing in its block gets a paragraph of its own — that is what centres it as the
- * book asks and stops prose being set beside it — while one written inside a sentence gets none of that,
- * since a paragraph there would break the sentence and fight the enclosing style. A floated image still keeps
- * that single placeholder position, but may also consume the largest leading slice of the containing
- * paragraph that fits beside it; the consumed source range is mapped to the placeholder so measurement and
- * drawing agree on where the remaining text resumes.
+ * 그림은 블록 사이로 들어올려지는 대신 텍스트 *안에* 하나의 placeholder 문자로 유지된다. HTML이
+ * 그것을 두는 방식이 그렇기 때문이다: 외자 글리프나 아이콘은 그것이 쓰인 문장 안에 속한다. 자기
+ * 블록의 유일한 내용인 그림은 자기만의 문단을 갖는다 — 이것이 책이 요구하는 대로 그것을 가운데
+ * 정렬하고 산문이 그 옆에 놓이지 않게 막는다 — 반면 문장 안에 쓰인 그림은 그중 아무것도 갖지 않는데,
+ * 그곳의 문단은 문장을 끊고 감싸는 스타일과 충돌하기 때문이다. 플로팅된 이미지는 여전히 그 단일
+ * placeholder 위치를 유지하지만, 그 옆에 들어맞는 감싸는 문단의 가장 큰 선행 조각도 함께 소비할 수
+ * 있다; 소비된 소스 범위는 placeholder에 매핑되어, 측정과 그리기가 남은 텍스트가 재개되는 지점에
+ * 합의하게 한다.
  *
- * Two allocations here were the bulk of the work when opening a book, and both are deliberate now: the
- * offset map is a growable [IntBuffer] instead of an `ArrayList<Int>`, which boxed an `Integer` per rendered
- * character, and each block's display start is recorded by its *position* in a map instead of by searching a
- * list for an equal block, which compared whole blocks — spans and all — once per block, quadratically.
+ * 여기의 두 할당이 책을 여는 작업의 대부분을 차지했었고, 이제 둘 다 의도적이다: 오프셋 맵은
+ * 렌더링된 문자마다 `Integer`를 박싱했던 `ArrayList<Int>` 대신 늘어날 수 있는 [IntBuffer]이고, 각
+ * 블록의 표시 시작 위치는 동일한 블록을 찾아 목록을 검색하는 대신 — 그 방식은 블록마다 전체 블록을
+ * span까지 포함해 비교하여 이차 시간이 걸렸다 — 맵 안의 그 *위치*로 기록된다.
  *
- * @param text the stretch of document text to render.
- * @param blocks the blocks covering it, in absolute document offsets; blocks are clamped to [range], so
- * passing a whole section's blocks for one page's text is expected.
- * @param range where [text] sits in the document, which is what makes the returned offsets absolute.
- * Defaults to treating [text] as the whole document.
- * @param lineWidthEm width of the text column in em, which bounds an image like `max-width: 100%`; 0 means
- * unknown and falls back to a default column.
- * @param maxHeightEm height available for one page in em, which bounds an image like `max-height`; 0 falls
- * back to a default page.
- * @param emInPx CSS pixels per em, which turns an image's intrinsic pixel width into em; 0 means an
- * intrinsic width cannot be used.
- * @param embeddedFontFamiliesByHref resolved embedded font families keyed by EPUB href, reused by pagination
- * and drawing so both measure with the same fonts.
- * @param publisherColorsEnabled whether publisher foreground and background colors should be applied.
- * @param publisherFontsEnabled whether publisher-requested generic/custom font families should be applied.
- * @param floatTextFitter shared float fitting callback; null disables float nesting and leaves images as plain
- * placeholders.
- * @param baseFontWeight the reader's chosen base body weight — the same 300..600 value the reader style
- * stores as its own `fontWeight`. Publisher emphasis (a heading, a bold run, a table header cell) is
- * drawn relative to this rather than at a fixed weight, so raising or lowering it does not close the gap
- * between body text and emphasis. Defaults to [ReaderDefaultFontWeight] so existing callers, tests
- * included, keep drawing exactly what they did before this parameter existed.
- * @return the drawable string, its offset map, and the boxes reserved for pictures. Empty [text] yields an
- * empty string with a one-entry map, never an invalid one.
+ * @param text 렌더링할 문서 텍스트 구간.
+ * @param blocks 절대 문서 오프셋 기준으로 그것을 덮는 블록들; 블록들은 [range]로 clamp되므로, 한
+ * 페이지 텍스트에 대해 섹션 전체의 블록들을 전달하는 것도 예상된 사용이다.
+ * @param range [text]가 문서 안에 놓인 위치로, 반환되는 오프셋들을 절대적으로 만드는 값이다.
+ * 기본값은 [text]를 문서 전체로 취급한다.
+ * @param lineWidthEm em 단위의 텍스트 컬럼 너비로, `max-width: 100%`처럼 이미지를 제한한다; 0이면
+ * 알 수 없음을 뜻하며 기본 컬럼으로 대체된다.
+ * @param maxHeightEm em 단위의, 한 페이지에 사용 가능한 높이로, `max-height`처럼 이미지를 제한한다;
+ * 0이면 기본 페이지로 대체된다.
+ * @param emInPx em당 CSS 픽셀로, 이미지의 고유 픽셀 너비를 em으로 바꾼다; 0이면 고유 너비를 사용할
+ * 수 없다는 뜻이다.
+ * @param embeddedFontFamiliesByHref EPUB href로 키가 매겨진, 해석된 내장 글꼴 패밀리로, 페이지
+ * 분할과 그리기가 재사용하여 둘 다 같은 글꼴로 측정한다.
+ * @param publisherColorsEnabled 출판사 전경/배경 색상을 적용할지 여부.
+ * @param publisherFontsEnabled 출판사가 요청한 일반/커스텀 글꼴 패밀리를 적용할지 여부.
+ * @param floatTextFitter 공유 float 맞춤 콜백; null이면 float 중첩을 비활성화하고 이미지를 일반
+ * placeholder로 남긴다.
+ * @param baseFontWeight 리더가 선택한 기본 본문 굵기 — 리더 스타일이 자체 `fontWeight`로 저장하는
+ * 것과 같은 300..600 범위의 값이다. 출판사 강조(제목, 굵은 텍스트, 표 헤더 셀)는 고정된 굵기가
+ * 아니라 이 값을 기준으로 상대적으로 그려지므로, 이 값을 올리거나 내려도 본문 텍스트와 강조 사이의
+ * 간격이 좁혀지지 않는다. 기본값은 [ReaderDefaultFontWeight]로, 테스트를 포함한 기존 호출자들이 이
+ * 파라미터가 존재하기 전과 정확히 같은 것을 계속 그리게 한다.
+ * @return 그릴 수 있는 문자열, 그 오프셋 맵, 그림을 위해 예약된 박스들. 빈 [text]는 유효하지 않은
+ * 것이 아니라 항목이 하나뿐인 맵을 가진 빈 문자열을 낳는다.
  */
 fun buildReaderSemanticText(
     text: String,
@@ -369,11 +371,10 @@ fun buildReaderSemanticText(
 
     clampedBlocks.forEach { block ->
         if (block.block.kind == ReaderBlockKind.IMAGE || block.block.kind == ReaderBlockKind.COVER_IMAGE || block.block.kind == ReaderBlockKind.SEPARATOR) return@forEach
-        // A container contributes decorations and gap spacing only. Its inherited styling is already
-        // baked into every leaf block the parser resolved inside it, and a span of its own would also
-        // cover the zero-width gap characters between those leaves — which is how underlines and
-        // background fragments used to appear in the blank space between paragraphs, and how a
-        // container font size compounded into the gap lines and broke their measured height.
+        // 컨테이너는 장식과 간격 여백만 기여한다. 그 상속된 스타일링은 파서가 그 안에서 해석한 모든
+        // 리프 블록에 이미 구워져 있고, 컨테이너 자체의 span은 그 리프들 사이 폭 없는 간격 문자까지
+        // 덮게 되는데 — 이것이 밑줄과 배경 조각이 문단 사이 빈 공간에 나타나곤 했던 이유이고,
+        // 컨테이너 글자 크기가 간격 줄에 겹겹이 곱해져 그 측정된 높이를 깨뜨렸던 이유다.
         if (block.block.kind == ReaderBlockKind.CONTAINER) return@forEach
         val blockStart = blockDisplayStart[block.index] ?: sourceToDisplay[block.localStart]
         val blockEnd = sourceToDisplay[block.localEnd]
@@ -417,11 +418,10 @@ fun buildReaderSemanticText(
         }
     }
 
-    // A float placeholder is a full-column box ten-odd lines tall. Left inside the paragraph it was
-    // written in, its line box contaminates the line-height resolution of every following line of that
-    // paragraph — the remaining prose came out with line boxes the height of the picture. Splitting the
-    // paragraph around the placeholder confines that height to the placeholder's own line while the
-    // surrounding text keeps the paragraph's stated style.
+    // float placeholder는 십여 줄 높이의 전체 컬럼 박스다. 그것이 쓰인 문단 안에 그대로 두면, 그
+    // 줄 상자가 그 문단의 뒤따르는 모든 줄의 줄 높이 해석을 오염시킨다 — 남은 산문이 그림 높이의
+    // 줄 상자로 나오게 된다. placeholder 주위로 문단을 나누면 그 높이가 placeholder 자체의 줄에만
+    // 국한되고, 주위 텍스트는 문단이 명시한 스타일을 유지한다.
     placeholderSpecs.filter { it.floatContent != null }.map(PlaceholderSpec::start).sorted().forEach { floatStart ->
         val containing = paragraphs.indexOfFirst { (rangeValue, _) -> floatStart in rangeValue && rangeValue.count() > 1 }
         val floatParagraph = (floatStart until floatStart + 1) to EmptyParagraphStyle
@@ -476,10 +476,10 @@ fun buildReaderSemanticText(
             }
             displayIndex += 1
         }
-        // A placeholder's reserved box is stated in em, and Compose resolves that em against the font
-        // size in force at the placeholder's position — so a placeholder inside a 0.85em block span was
-        // reserved 15% smaller than every consumer (image sizing, float fitting, pagination arithmetic)
-        // computed in base em. Splitting the spans around each placeholder keeps its em the base em.
+        // placeholder의 예약된 박스는 em 단위로 명시되고, Compose는 그 em을 placeholder 위치에서
+        // 적용 중인 글자 크기를 기준으로 해석한다 — 그래서 0.85em 블록 span 안의 placeholder는 이미지
+        // 크기 조정, float 맞춤, 페이지 분할 연산 등 모든 소비자가 기준 em으로 계산한 것보다 15% 더
+        // 작게 예약되었다. 각 placeholder 주위로 span을 나누면 그 em이 기준 em으로 유지된다.
         val placeholderStarts = placeholderSpecs.map(PlaceholderSpec::start).toSet()
         spans.flatMap { (rangeValue, style) -> rangeValue.splitAround(placeholderStarts).map { it to style } }
             .forEach { (rangeValue, style) -> addStyle(style, rangeValue.first, rangeValue.last + 1) }
@@ -487,9 +487,9 @@ fun buildReaderSemanticText(
         annotations.forEach { (tag, value, rangeValue) -> addStringAnnotation(tag, value, rangeValue.first, rangeValue.last + 1) }
     }
 
-    // Wrappers paint first (outermost lowest), then styled leaf blocks paint their own boxes on top —
-    // the box a leaf used to get from its parse-time container twin now comes straight from the leaf.
-    // Standalone image kinds are excluded: the image box paints its own background and borders.
+    // 래퍼가 먼저 그려지고(가장 바깥쪽이 가장 아래), 그 위에 스타일이 적용된 리프 블록들이 자기
+    // 박스를 그린다 — 예전에 리프가 파싱 시점의 컨테이너 쌍둥이로부터 받던 박스가 이제는 리프에서
+    // 곧바로 나온다. 단독 이미지 종류는 제외된다: 이미지 박스는 자기 배경과 테두리를 스스로 그린다.
     val containerDecorations = clampedBlocks
         .asSequence()
         .filter { block ->
@@ -572,7 +572,7 @@ private fun buildFloatContent(
     )
 }
 
-/** This range cut into the sub-ranges that exclude every position in [holes]; empty pieces are dropped. */
+/** [holes]의 모든 위치를 제외한 하위 범위들로 잘린 이 범위; 빈 조각은 버려진다. */
 private fun IntRange.splitAround(holes: Set<Int>): List<IntRange> {
     if (holes.none { it in this }) return listOf(this)
     val pieces = mutableListOf<IntRange>()
@@ -587,7 +587,7 @@ private fun IntRange.splitAround(holes: Set<Int>): List<IntRange> {
     return pieces
 }
 
-/** A growable primitive int buffer, used so building the offset map does not box one Integer per character. */
+/** 오프셋 맵을 만들 때 문자마다 하나의 Integer를 박싱하지 않도록 쓰이는, 늘어날 수 있는 원시 int 버퍼. */
 private class IntBuffer(initialCapacity: Int) {
     private var values = IntArray(initialCapacity.coerceAtLeast(16))
     private var size = 0
@@ -602,23 +602,23 @@ private class IntBuffer(initialCapacity: Int) {
 }
 
 /**
- * The space between two blocks, in em, resolved the way CSS resolves it: each side states its own margin,
- * adjacent vertical margins collapse to the larger of the two, and a side that states nothing falls back to
- * the default a browser gives that element.
+ * CSS가 해석하는 방식대로 해석된, 두 블록 사이 em 단위 간격: 각 쪽이 자신의 margin을 명시하고,
+ * 인접한 수직 margin은 둘 중 더 큰 값으로 합쳐지며, 아무것도 명시하지 않은 쪽은 브라우저가 그
+ * 요소에 주는 기본값으로 대체된다.
  *
- * This is the whole reason a book's paragraph rhythm survives. The stored text separates two blocks with
- * newlines, and drawing those newlines as text costs a whole line of the reader's own line height —
- * a book asking for `margin-bottom: 10px` between paragraphs got a gap six times what it wrote, and one
- * asking for none still got a full blank line. The gap is drawn as a single line whose height is exactly
- * the collapsed margin instead, so `margin: 0` prose runs on the way its indents assume and a stated
- * margin is the size it says.
+ * 이것이 책의 문단 리듬이 살아남는 이유의 전부다. 저장된 텍스트는 두 블록을 개행으로 구분하는데,
+ * 그 개행을 텍스트로 그리면 리더 자체 줄 높이만큼의 온전한 한 줄을 비용으로 치르게 된다 — 문단
+ * 사이에 `margin-bottom: 10px`를 요구한 책은 자신이 쓴 것의 6배에 달하는 간격을 얻었고, 아무것도
+ * 요구하지 않은 책조차 온전한 빈 줄 하나를 얻었다. 대신 이 간격은 합쳐진 margin과 정확히 같은
+ * 높이의 단일 줄로 그려져, `margin: 0`인 산문은 그 들여쓰기가 가정하는 대로 이어지고 명시된
+ * margin은 명시한 크기 그대로가 된다.
  *
- * A gap with nothing before it, or nothing after it, is dropped: it would be blank space at the top or
- * bottom of a page, which no reading system leaves there.
+ * 앞에 아무것도 없거나 뒤에 아무것도 없는 간격은 버려진다: 그것은 페이지의 위나 아래에 빈 공간이
+ * 될 것이고, 어떤 리딩 시스템도 그곳에 그것을 남기지 않는다.
  *
- * @param before the block the gap follows, or null when the gap opens the rendered stretch.
- * @param after the block the gap precedes, or null when the gap closes it.
- * @return the gap in em, never negative.
+ * @param before 간격이 뒤따르는 블록, 또는 간격이 렌더링된 구간을 여는 경우 null.
+ * @param after 간격이 앞서는 블록, 또는 간격이 그것을 닫는 경우 null.
+ * @return em 단위의 간격. 결코 음수가 되지 않는다.
  */
 private fun blockGapEm(before: ReaderBlock?, after: ReaderBlock?): Float {
     if (before == null || after == null) return 0f
@@ -630,17 +630,17 @@ private fun blockGapEm(before: ReaderBlock?, after: ReaderBlock?): Float {
 }
 
 /**
- * Whether these two blocks would run into each other with nothing at all to tell them apart.
+ * 이 두 블록을 구분해 줄 것이 전혀 없어 서로 이어져 버릴지 여부.
  *
- * A book can state no gap and no first-line indent on its paragraphs — plenty do, because on the wide page
- * they were typeset for the line length alone makes the breaks legible. On a phone the same setting is a
- * solid wall of type where one paragraph ends and the next begins mid-line. A gap the reader supplies here
- * is the smallest thing that keeps them apart, and it is only ever supplied when the book left both means
- * of separation out.
+ * 책은 문단에 간격도 첫 줄 들여쓰기도 명시하지 않을 수 있다 — 많은 책이 그렇게 한다. 그들이
+ * 조판된 넓은 페이지에서는 줄 길이만으로도 문단 나눔이 읽을 만하게 유지되기 때문이다. 폰에서는
+ * 같은 설정이 한 문단이 끝나고 다음 문단이 줄 중간에서 시작되는 활자 벽이 되어 버린다. 여기서
+ * 리더가 제공하는 간격은 그것들을 떼어 놓는 가장 작은 것이며, 책이 두 가지 구분 수단을 모두 빠뜨렸을
+ * 때만 제공된다.
  *
- * @param before the block the gap follows.
- * @param after the block the gap precedes.
- * @return true when neither a gap nor an indent would separate them.
+ * @param before 간격이 뒤따르는 블록.
+ * @param after 간격이 앞서는 블록.
+ * @return 간격도 들여쓰기도 이들을 구분하지 못할 때 true.
  */
 private fun runsOnUnreadably(before: ReaderBlock, after: ReaderBlock): Boolean {
     if (before.kind != after.kind) return false
@@ -649,23 +649,23 @@ private fun runsOnUnreadably(before: ReaderBlock, after: ReaderBlock): Boolean {
 }
 
 /**
- * Smallest gap the reader puts between two paragraphs a book separates by nothing at all.
+ * 책이 전혀 구분하지 않는 두 문단 사이에 리더가 두는 가장 작은 간격.
  *
- * Small enough to read as the same setting the book asked for rather than as spacing of the reader's own —
- * a quarter of a line, against the whole line a blank line would have cost.
+ * 리더 자체의 간격이 아니라 책이 요구한 것과 같은 설정으로 읽힐 만큼 작다 — 빈 줄 하나가 들었을
+ * 온전한 한 줄에 비해, 4분의 1 줄 정도다.
  */
 private const val MobileParagraphFloorEm = 0.35f
 
 /**
- * These paragraph ranges with any that overlaps an earlier one dropped, innermost-first.
+ * 앞선 것과 겹치는 것은 안쪽부터 우선으로 버려진, 이 문단 범위들.
  *
- * A paragraph is a hard division of the text, and Compose refuses two that overlap — it throws rather than
- * drawing the page. The blocks a well-formed document produces never overlap, but a malformed one can (a
- * cell inside a cell, a heading a document never closed), and a book that reaches that state must still be
- * readable. The narrower range wins, since it is the one closest to the text it describes.
+ * 문단은 텍스트의 확고한 구분이며, Compose는 겹치는 두 개를 거부한다 — 페이지를 그리는 대신
+ * 예외를 던진다. 잘 만들어진 문서가 생성하는 블록은 결코 겹치지 않지만, 잘못 만들어진 문서는 그럴
+ * 수 있고(셀 안의 셀, 문서가 결코 닫지 않은 제목), 그런 상태에 이른 책도 여전히 읽을 수 있어야
+ * 한다. 더 좁은 범위가 이긴다. 그것이 자신이 설명하는 텍스트에 가장 가까운 것이기 때문이다.
  *
- * @receiver the paragraph ranges collected while rendering, in block order.
- * @return the subset that can be applied together.
+ * @receiver 렌더링 중에 수집된, 블록 순서의 문단 범위들.
+ * @return 함께 적용할 수 있는 부분집합.
  */
 private fun List<Pair<IntRange, ParagraphStyle>>.withoutOverlaps(): List<Pair<IntRange, ParagraphStyle>> {
     if (size <= 1) return this
@@ -682,18 +682,18 @@ private fun List<Pair<IntRange, ParagraphStyle>>.withoutOverlaps(): List<Pair<In
 }
 
 /**
- * The space a box's own edges need where they fall inside this gap, in em.
+ * 박스 자체의 가장자리가 이 간격 안에 떨어질 때 필요로 하는 공간, em 단위.
  *
- * A `<div>` with a border and `padding: 1em 0` — the shape a book frames its table of contents or its
- * author note with — draws its rule above the first line inside it and below the last. Without room
- * reserved for that rule and the padding it stands off by, the rule is drawn straight through the words:
- * the box has no space of its own, so it borrows the text's.
+ * 테두리와 `padding: 1em 0`을 가진 `<div>` — 책이 목차나 저자 노트를 두르는 모양 — 는 그 안 첫
+ * 줄 위와 마지막 줄 아래에 룰을 그린다. 그 룰과 그것이 떨어져 있는 만큼의 padding을 위한 공간이
+ * 예약되지 않으면, 룰은 단어들을 그대로 관통해 그려진다: 박스는 자기 공간이 없어서 텍스트의
+ * 공간을 빌리게 된다.
  *
- * @param blocks every block of the stretch being rendered, containers included.
- * @param gapStart first offset of the gap, relative to the rendered stretch.
- * @param gapEnd one past its last offset.
- * @param emInPx CSS pixels per em, which turns a border width into em; 0 leaves borders out.
- * @return the space the boxes opening and closing here need, in em.
+ * @param blocks 컨테이너를 포함해, 렌더링되는 구간의 모든 블록.
+ * @param gapStart 렌더링되는 구간을 기준으로 한, 간격의 첫 오프셋.
+ * @param gapEnd 그 마지막 오프셋 바로 다음.
+ * @param emInPx 테두리 너비를 em으로 바꾸는, em당 CSS 픽셀; 0이면 테두리를 빼놓는다.
+ * @return 여기서 열리고 닫히는 박스들이 필요로 하는 공간, em 단위.
  */
 private fun containerEdgeEm(
     blocks: List<ClampedBlock>,
@@ -701,10 +701,11 @@ private fun containerEdgeEm(
     gapEnd: Int,
     emInPx: Float,
 ): Float {
-    // A CONTAINER is always a genuine wrapper (the parser suppresses same-range-same-style twins at the
-    // source), so its margins, padding and borders all need room of their own here — no leaf accounts
-    // for any of them. A leaf block's own padding and margins already reach the gap through blockGapEm,
-    // so a styled leaf only reserves the one thing blockGapEm cannot know about: its border strokes.
+    // CONTAINER는 항상 진짜 래퍼다(파서가 소스 단계에서 같은 범위·같은 스타일의 쌍둥이를 억제한다),
+    // 그래서 그 margin, padding, 테두리는 모두 여기서 자기만의 공간을 필요로 한다 — 어떤 리프도
+    // 그것들을 대신 계산하지 않는다. 리프 블록 자체의 padding과 margin은 이미 blockGapEm을 통해
+    // 간격에 반영되므로, 스타일이 적용된 리프는 blockGapEm이 알 수 없는 단 하나 — 그 테두리 획 —
+    // 만을 예약한다.
     var extra = 0f
     blocks.forEach { block ->
         val style = block.block.style ?: return@forEach
@@ -723,21 +724,21 @@ private fun containerEdgeEm(
     return extra
 }
 
-/** This border's width in em, or zero when it has none or one em's width in pixels is unknown. */
+/** 이 테두리의 em 단위 너비. 테두리가 없거나 1em의 픽셀 너비를 알 수 없으면 0. */
 private fun com.tedd.teddreader.core.common.model.ReaderBorder?.widthEm(emInPx: Float): Float {
     val widthPx = this?.widthPx ?: return 0f
     return if (emInPx > 0f) widthPx / emInPx else 0f
 }
 
 /**
- * The margin a browser's own stylesheet gives this kind, used only when the book states none.
+ * 브라우저 자체 스타일시트가 이 종류에 주는 margin으로, 책이 아무것도 명시하지 않을 때만 쓰인다.
  *
- * These are the CSS2.1 sample-stylesheet values every engine ships: `1em` above and below a paragraph,
- * a blockquote and a `pre`, `0.67em` around an `h1`, and nothing around a list item or a table cell,
- * which are spaced by their list or their row instead.
+ * 이것들은 모든 엔진이 탑재하는 CSS2.1 예시 스타일시트 값이다: 문단, blockquote, `pre`의 위아래에는
+ * `1em`, `h1` 둘레에는 `0.67em`, 목록 항목이나 표 셀 둘레에는 아무것도 없으며 이들은 대신 그
+ * 목록이나 행에 의해 간격이 정해진다.
  *
- * @receiver the kind whose default margin is wanted.
- * @return that margin in em.
+ * @receiver 기본 margin을 알고 싶은 종류.
+ * @return em 단위의 그 margin.
  */
 private fun defaultBlockMarginEm(kind: ReaderBlockKind): Float = when (kind) {
     ReaderBlockKind.PARAGRAPH,
@@ -756,35 +757,35 @@ private fun defaultBlockMarginEm(kind: ReaderBlockKind): Float = when (kind) {
     -> 0f
 }
 
-/** The one character a between-block gap occupies: a zero-width space, so the gap line draws nothing. */
+/** 블록 사이 간격이 차지하는 단 하나의 문자: 폭 없는 공백으로, 간격 줄이 아무것도 그리지 않게 한다. */
 private const val BlockGapChar = '\u200B'
 
 /**
- * How much taller than its font size a line is by nature, used to pick the type size a gap line is set in
- * so its natural height never exceeds the gap it has to be.
+ * 줄이 본래 자기 글자 크기보다 얼마나 더 큰지를 나타내며, 간격 줄이 되어야 할 간격을 그 자연스러운
+ * 높이가 결코 넘지 않도록 간격 줄이 설정될 활자 크기를 고르는 데 쓰인다.
  *
- * A line box is at least as tall as the font asks for, so a gap line set in the reader's own size could
- * not be shorter than a whole line however small the margin. Setting it in type scaled down by this ratio
- * makes the stated line height the binding constraint again.
+ * 줄 상자는 최소한 글꼴이 요구하는 만큼 높으므로, 리더 자체 크기로 설정된 간격 줄은 margin이
+ * 아무리 작아도 온전한 한 줄보다 짧아질 수 없었다. 이 비율만큼 축소된 활자로 설정하면 명시된 줄
+ * 높이가 다시 구속력 있는 제약이 된다.
  */
 private const val GapLineNaturalHeightRatio = 1.3f
 
-/** A paragraph that asks for nothing, attached to a block that needs no styling but must still be its own
- *  paragraph — without one it would run on into the block after it once the gap between them is closed. */
+/** 스타일링은 필요 없지만 여전히 자기만의 문단이어야 하는 블록에 붙는, 아무것도 요구하지 않는 문단
+ *  — 이것이 없으면 그 사이 간격이 닫혔을 때 뒤의 블록으로 이어져 버릴 것이다. */
 private val EmptyParagraphStyle = ParagraphStyle()
 
-/** Maps a rendered character position back to the document offset it came from, clamping out-of-range asks. */
+/** 렌더링된 문자 위치를 그것이 유래한 문서 오프셋으로 되돌려 매핑하며, 범위 밖 요청은 clamp한다. */
 fun ReaderSemanticText.sourceOffsetFor(displayIndex: Int): Int =
     offsetMap[displayIndex.coerceIn(0, offsetMap.lastIndex)]
 
 /**
- * The visible prefix a block contributes at its own start: a list item's marker, and nothing else.
+ * 블록이 자기 시작 부분에 기여하는 눈에 보이는 접두부: 목록 항목의 마커, 그것뿐이다.
  *
- * A marker belongs to the document — a browser draws one for every `<li>` too — so it is written into the
- * rendered text. A heading or a quotation gets nothing. The bar this used to draw beside those was
- * typography the book never asked for: it fought the book's own centring, indents and margins, and no
- * reading system puts one there. What sets a heading apart is the size, weight and spacing the book states,
- * or failing that the browser default the reader falls back to.
+ * 마커는 문서에 속한다 — 브라우저도 모든 `<li>`에 대해 하나를 그린다 — 그래서 렌더링된 텍스트
+ * 안에 쓰인다. 제목이나 인용문은 아무것도 얻지 못한다. 예전에 이들 옆에 그려지던 막대는 책이 결코
+ * 요구하지 않은 활자였다: 그것은 책 자체의 가운데 정렬, 들여쓰기, margin과 충돌했고, 어떤 리딩
+ * 시스템도 그곳에 그것을 두지 않는다. 제목을 구별하는 것은 책이 명시하는 크기, 굵기, 간격이거나,
+ * 그것이 없으면 리더가 대체하는 브라우저 기본값이다.
  */
 private fun blockPrefix(block: ReaderBlock): String = when (block.kind) {
     ReaderBlockKind.LIST_ITEM -> "${"  ".repeat((block.level - 1).coerceAtLeast(0))}${block.label ?: "•"} "
@@ -792,27 +793,28 @@ private fun blockPrefix(block: ReaderBlock): String = when (block.kind) {
 }
 
 /**
- * The composed span style a block contributes before inline spans narrow it further.
+ * 인라인 span들이 더 좁히기 전에 블록이 기여하는, 합성된 span 스타일.
  *
- * Publisher colors and publisher-requested font families are gated separately so a reader-selected font can
- * suppress all EPUB font-family styling while still keeping structural emphasis like heading weight.
+ * 출판사 색상과 출판사가 요청한 글꼴 패밀리는 별도로 게이트되어 있어, 리더가 선택한 글꼴이 제목
+ * 굵기 같은 구조적 강조는 유지하면서도 모든 EPUB 글꼴 패밀리 스타일링은 억제할 수 있다.
  *
- * That suppression has to reach the monospace a `<pre>` block gets for being preformatted, not only the
- * families the book's own CSS names. The mono here is a browser default this renderer stands in for, so it
- * belongs to the document's typography exactly as a stylesheet rule would: a reader who picks Serif asked
- * for the page to be set in serif, and a preformatted block left in mono is the one run of text on the page
- * still ignoring that choice. It survives under the document font, where the browser default is what the
- * reader asked to see. Weight, slant and heading scale are structure rather than typeface and are never
- * gated — a heading stays bold in any family.
+ * 그 억제는 책 자체 CSS가 지정한 패밀리뿐 아니라, `<pre>` 블록이 preformatted라서 얻는 monospace에도
+ * 미쳐야 한다. 여기의 mono는 이 렌더러가 대신하는 브라우저 기본값이므로, 스타일시트 규칙이 그렇듯
+ * 정확히 문서의 활자에 속한다: Serif를 고른 사용자는 페이지가 세리프로 설정되기를 요청한 것이고,
+ * mono로 남아 있는 preformatted 블록은 여전히 그 선택을 무시하는 페이지 위 유일한 텍스트 런이다.
+ * 이것은 문서 글꼴 아래에서 살아남으며, 그곳에서는 브라우저 기본값이 사용자가 보기를 요청한 것이다.
+ * 굵기, 기울임, 제목 스케일은 활자체가 아니라 구조이므로 결코 게이트되지 않는다 — 제목은 어떤
+ * 패밀리에서든 굵게 유지된다.
  *
- * @param block the block whose kind and CSS the style is composed from.
- * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
- * @param publisherColorsEnabled whether the book's own foreground colors apply, or the theme's ink wins.
- * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
- *   reader has chosen a font of their own, which then has to win over every family this function could set.
- * @param emphasisWeights the weights a heading, a table header cell, and a book-stated bold or explicit
- *   non-bold draw at, derived from the reader's own base weight (see [readerEmphasisWeights]).
- * @return the style this block contributes, or null when it asks for nothing.
+ * @param block 스타일을 합성할 대상이 되는 종류와 CSS를 가진 블록.
+ * @param embeddedFontFamiliesByHref 책이 함께 보낸, CSS가 참조하는 href로 키가 매겨진 서체들.
+ * @param publisherColorsEnabled 책 자체의 전경 색상이 적용될지, 아니면 테마의 잉크가 이길지 여부.
+ * @param publisherFontsEnabled 문서의 활자체 선택이 아예 적용될지 여부 — 사용자가 자신만의 글꼴을
+ *   선택했을 때 정확히 false가 되며, 그러면 이 함수가 설정할 수 있는 모든 패밀리보다 그 선택이
+ *   이겨야 한다.
+ * @param emphasisWeights 제목, 표 헤더 셀, 그리고 책이 명시한 굵게 또는 명시적 비굵게가 그려지는
+ *   굵기로, 리더 자체 기준 굵기에서 도출된다([readerEmphasisWeights] 참고).
+ * @return 이 블록이 기여하는 스타일, 또는 아무것도 요구하지 않으면 null.
  */
 private fun blockSpanStyle(
     block: ReaderBlock,
@@ -840,25 +842,25 @@ private fun blockSpanStyle(
     return merged.takeIf { it != EmptySpanStyle }
 }
 
-/** A style that asks for nothing, compared against so an all-null merge is reported as no style at all. */
+/** 아무것도 요구하지 않는 스타일로, 전부 null인 병합이 아예 스타일 없음으로 보고되도록 비교 대상이 된다. */
 private val EmptySpanStyle = SpanStyle()
 
 /**
- * The three weights publisher emphasis draws at relative to the reader's own base body weight.
+ * 출판사 강조가 리더 자체 기준 본문 굵기를 기준으로 상대적으로 그려지는 세 가지 굵기.
  *
- * A heading, a table header cell, and a book-stated bold run are emphasis *against whatever the page's
- * plain text is drawn at*, never an absolute weight — drawing "bold" as the fixed [FontWeight.Bold] is
- * how raising the reader's base weight to 600 closed the gap entirely (600 body against 700 "bold" reads
- * as no emphasis at all), and how lowering it to 300 made ordinary emphasis look disproportionately
- * heavy. Holding the step from body to emphasis constant instead of the resulting weight is what keeps
- * that contrast the same at every base the reader can choose.
+ * 제목, 표 헤더 셀, 책이 명시한 굵은 텍스트는 절대적인 굵기가 아니라 항상 *페이지의 일반 텍스트가
+ * 그려지는 굵기에 대비한* 강조다 — "굵게"를 고정된 [FontWeight.Bold]로 그리는 것이 바로 리더의
+ * 기준 굵기를 600으로 올렸을 때 그 간격이 완전히 사라졌던(700 "굵게"에 대해 600 본문은 전혀 강조로
+ * 읽히지 않는다) 이유이고, 300으로 내렸을 때 일반적인 강조가 불균형하게 무거워 보였던 이유다.
+ * 결과 굵기가 아니라 본문에서 강조까지의 단계를 일정하게 유지하는 것이 사용자가 선택할 수 있는 모든
+ * 기준에서 그 대비를 동일하게 유지하는 방법이다.
  *
- * @property strong the weight a heading and a book-stated bold run draw at.
- * @property subtle the weight a table header cell draws at — a lighter emphasis than [strong], the same
- *   way [FontWeight.SemiBold] used to sit below [FontWeight.Bold].
- * @property base the weight a book that explicitly cancels an inherited bold (`font-weight: normal`
- *   inside a bold context) resolves to — the reader's own base weight itself, not a fixed
- *   [FontWeight.Normal] that would fight a heavier or lighter reader setting.
+ * @property strong 제목과 책이 명시한 굵은 텍스트가 그려지는 굵기.
+ * @property subtle 표 헤더 셀이 그려지는 굵기 — [FontWeight.SemiBold]가 예전에 [FontWeight.Bold]
+ *   아래에 있었던 것과 같은 방식으로, [strong]보다 가벼운 강조.
+ * @property base 상속된 굵게를 명시적으로 취소하는 책(굵게 컨텍스트 안의 `font-weight: normal`)이
+ *   귀결되는 굵기 — 더 무겁거나 가벼운 사용자 설정과 충돌할 고정된 [FontWeight.Normal]이 아니라,
+ *   리더 자체 기준 굵기 그 자체다.
  */
 private class ReaderEmphasisWeights(
     val strong: FontWeight,
@@ -866,28 +868,27 @@ private class ReaderEmphasisWeights(
     val base: FontWeight,
 )
 
-/** How much heavier [ReaderEmphasisWeights.strong] draws than the reader's own base weight. */
+/** [ReaderEmphasisWeights.strong]이 리더 자체 기준 굵기보다 얼마나 더 무겁게 그려지는지. */
 private const val StrongEmphasisStep = 300
 
-/** How much heavier [ReaderEmphasisWeights.subtle] draws than the reader's own base weight. */
+/** [ReaderEmphasisWeights.subtle]이 리더 자체 기준 굵기보다 얼마나 더 무겁게 그려지는지. */
 private const val SubtleEmphasisStep = 200
 
 /**
- * Derives [ReaderEmphasisWeights] for [baseFontWeight], so every place emphasis is drawn scales its
- * contrast from the same base instead of repeating the same two additions four times over.
+ * [baseFontWeight]에 대해 [ReaderEmphasisWeights]를 도출하여, 강조가 그려지는 모든 곳이 같은 두
+ * 덧셈을 네 번 반복하는 대신 같은 기준으로부터 그 대비를 스케일한다.
  *
- * At [ReaderDefaultFontWeight] (400) this reproduces today's fixed 700/600/400 exactly, so a reader who
- * never touches the font-weight setting sees no change at all from this contrast becoming relative
- * instead of absolute. The reader's own base weight is bounded to 300..600 wherever it is stored (see
- * `ReaderStyle`'s own validation), which puts [strong][ReaderEmphasisWeights.strong] — the heaviest of
- * the three — at 600..900, safely inside range; the coercion below is not a guard against that arithmetic
- * but against a caller that skips `ReaderStyle`'s own validation, since [FontWeight] itself only accepts
- * 1..1000 and throws for anything outside it — including 0, which an uncoerced [baseFontWeight] would
- * otherwise pass straight through.
+ * [ReaderDefaultFontWeight](400)에서는 오늘날의 고정된 700/600/400을 정확히 재현하므로,
+ * font-weight 설정을 전혀 건드리지 않는 사용자는 이 대비가 절대값에서 상대값으로 바뀌어도 전혀
+ * 변화를 보지 못한다. 리더 자체 기준 굵기는 저장되는 어디서나 300..600으로 제한되므로(`ReaderStyle`
+ * 자체의 검증 참고), 셋 중 가장 무거운 [strong][ReaderEmphasisWeights.strong]을 안전하게 범위 안인
+ * 600..900에 둔다; 아래의 coercion은 그 산술에 대한 방어가 아니라 `ReaderStyle` 자체의 검증을
+ * 건너뛰는 호출자에 대한 방어다. [FontWeight] 자체가 1..1000만 받아들이고 그 밖의 값(coerce되지
+ * 않은 [baseFontWeight]가 그대로 통과시켰을 0을 포함해)에 대해서는 예외를 던지기 때문이다.
  *
- * @param baseFontWeight the reader's chosen base body weight.
- * @return the weights a heading, a table header cell, and a book-stated bold or explicit non-bold each
- * draw at for this base.
+ * @param baseFontWeight 리더가 선택한 기준 본문 굵기.
+ * @return 이 기준에 대해 제목, 표 헤더 셀, 책이 명시한 굵게 또는 명시적 비굵게가 각각 그려지는
+ * 굵기.
  */
 private fun readerEmphasisWeights(baseFontWeight: Int): ReaderEmphasisWeights {
     val validRange = 1..1000
@@ -899,8 +900,8 @@ private fun readerEmphasisWeights(baseFontWeight: Int): ReaderEmphasisWeights {
 }
 
 /**
- * @receiver the generic family the book asked for.
- * @return the same family as Compose names it.
+ * @receiver 책이 요청한 일반 패밀리.
+ * @return Compose가 이름 붙인 같은 패밀리.
  */
 private fun ReaderFontFamily.toComposeFontFamily(): FontFamily = when (this) {
     ReaderFontFamily.SERIF -> FontFamily.Serif
@@ -909,9 +910,11 @@ private fun ReaderFontFamily.toComposeFontFamily(): FontFamily = when (this) {
 }
 
 /**
- * Picks the font family a block or span's CSS requests, preferring an embedded face by href when one was loaded.
+ * 블록이나 span의 CSS가 요청하는 글꼴 패밀리를 고르되, 로드된 것이 있으면 href로 지정된 내장
+ * 서체를 우선한다.
  *
- * Callers gate whether publisher fonts are honored at all; this helper only resolves the best available family.
+ * 출판사 글꼴을 아예 존중할지는 호출자가 게이트한다; 이 헬퍼는 사용 가능한 최선의 패밀리만
+ * 해석한다.
  */
 private fun ReaderBlockStyle.toComposeFontFamily(embeddedFontFamiliesByHref: Map<String, FontFamily>): FontFamily? =
     fontHref?.let(embeddedFontFamiliesByHref::get)
@@ -928,25 +931,24 @@ private fun String?.toComposeFontFamilyOrNull(): FontFamily? = when (this?.lower
 }
 
 /**
- * The paragraph-level style a block is set in: its indents, its alignment, and the line height the book asks
- * for.
+ * 블록이 설정되는 문단 수준 스타일: 들여쓰기, 정렬, 그리고 책이 요구하는 줄 높이.
  *
- * A container never gets one: it spans the blocks inside it, and two paragraphs that overlap are something
- * Compose refuses outright. Everything a container states that a paragraph can carry — its line height, its
- * alignment — is an inherited property, so the blocks inside it already carry it themselves.
+ * 컨테이너는 결코 이것을 갖지 않는다: 그것은 그 안 블록들에 걸쳐 있고, 겹치는 두 문단은 Compose가
+ * 완전히 거부하는 것이기 때문이다. 컨테이너가 명시하는, 문단이 담을 수 있는 모든 것 — 줄 높이,
+ * 정렬 — 은 상속되는 속성이므로 그 안의 블록들이 이미 스스로 그것을 담고 있다.
  *
- * The inline space before the text is the book's own: `margin-left` plus `padding-left`, which is how a
- * stylesheet indents a quotation, a table of contents or a nested note. Only when the book states neither
- * does the reader supply one, and then only for the kinds that would otherwise be unreadable — a list item
- * needs room for its marker, a table cell room off its neighbour. `text-indent` is added on top of that
- * inset for the first line, exactly as CSS composes the two.
+ * 텍스트 앞의 인라인 공간은 책 자체의 것이다: `margin-left`에 `padding-left`를 더한 것으로, 이는
+ * 스타일시트가 인용문, 목차, 중첩된 노트를 들여쓰는 방식이다. 책이 둘 다 명시하지 않을 때만 리더가
+ * 하나를 공급하며, 그것도 오직 그렇지 않으면 읽을 수 없게 될 종류에 대해서만이다 — 목록 항목은
+ * 마커를 위한 공간이, 표 셀은 이웃과 떨어질 공간이 필요하다. `text-indent`는 CSS가 둘을 합성하는
+ * 방식 그대로, 첫 줄에 대해 그 인셋 위에 더해진다.
  *
- * @param block the block to style.
- * @param indentsFirstLine false for a paragraph that began on an earlier page. Its opening line here is the
- * middle of a paragraph, so it takes no first-line indent: pagination measured it as a middle line, and
- * indenting it on the page costs a line's worth of room the page does not have, which pushed the last line
- * off the bottom.
- * @return the paragraph style, or null when nothing about this block departs from the page's own defaults.
+ * @param block 스타일을 지정할 블록.
+ * @param indentsFirstLine 이전 페이지에서 시작된 문단이면 false. 여기서 그 시작 줄은 문단의
+ * 중간이므로 첫 줄 들여쓰기를 받지 않는다: 페이지 분할이 그것을 중간 줄로 측정했고, 페이지에서
+ * 그것을 들여쓰면 페이지에 없는 한 줄만큼의 공간을 소모하여 마지막 줄이 아래로 밀려나게 된다.
+ * @return 문단 스타일, 또는 이 블록에 대해 페이지 자체 기본값에서 벗어나는 것이 아무것도 없으면
+ * null.
  */
 private fun blockParagraphStyle(
     block: ReaderBlock,
@@ -972,10 +974,10 @@ private fun blockParagraphStyle(
         null -> null
     }
     val firstLineIndent = block.style?.textIndentEm?.takeIf { indentsFirstLine } ?: 0f
-    // The book's line height rides the reader's slider rather than replacing it, anchored at the slider's
-    // neutral point: at the default the block draws exactly what the book stated, and moving the slider
-    // scales it proportionally. Multiplying by the raw slider value instead compounded the default 145%
-    // into every styled book — lines half again looser than the book asked for out of the box.
+    // 책의 줄 높이는 사용자의 슬라이더를 대체하는 대신 그것에 올라타며, 슬라이더의 중립점에 고정된다:
+    // 기본값에서는 블록이 책이 명시한 그대로를 그리고, 슬라이더를 움직이면 그것이 비례하여
+    // 스케일된다. 원시 슬라이더 값을 그대로 곱하면 대신 스타일이 적용된 모든 책에 기본값 145%가
+    // 겹겹이 곱해져 — 처음부터 책이 요구한 것보다 절반이나 더 헐거운 줄이 되었을 것이다.
     val lineHeight = block.style?.lineHeightScale
         ?.times(lineHeightMultiplier / ReaderDefaultLineHeightMultiplier)?.em
         ?: TextUnit.Unspecified
@@ -988,18 +990,18 @@ private fun blockParagraphStyle(
 }
 
 /**
- * Whether justifying this stretch would set evenly, or tear holes in it.
+ * 이 구간을 양쪽 정렬하면 고르게 맞춰질지, 아니면 구멍이 뚫릴지 여부.
  *
- * Justification here can only stretch the spaces between words, which is what a Latin column is built to
- * absorb. A CJK column is not: its lines break between characters, its spaces are few and far apart, and
- * pushing a line out to the margin by widening three of them leaves gaps wide enough to read as separate
- * columns. The book still gets its alignment wherever the stretch can carry it, and falls back to a ragged
- * edge — which is what a phone-width CJK column wants anyway — where it cannot.
+ * 여기서 양쪽 정렬은 단어 사이 공백만 늘릴 수 있는데, 이는 라틴 문자 컬럼이 흡수하도록 만들어진
+ * 것이다. CJK 컬럼은 그렇지 않다: 그 줄은 문자 사이에서 끊기고, 공백은 적고 멀리 떨어져 있으며,
+ * 그중 세 개를 넓혀 줄을 margin까지 밀어내면 별개의 컬럼처럼 읽힐 만큼 넓은 틈이 남는다. 책은
+ * 그 늘어남이 감당할 수 있는 곳에서는 여전히 그 정렬을 얻고, 감당할 수 없는 곳에서는 — 어차피
+ * 폰 너비 CJK 컬럼이 원하는 대로 — 들쭉날쭉한 가장자리로 대체된다.
  *
- * @receiver the rendered stretch of text.
- * @param start first offset of the block, relative to that stretch.
- * @param end one past its last offset.
- * @return true when the block is not dominated by characters that carry no inter-word space.
+ * @receiver 렌더링되는 텍스트 구간.
+ * @param start 그 구간을 기준으로 한, 블록의 첫 오프셋.
+ * @param end 그 마지막 오프셋 바로 다음.
+ * @return 블록이 단어 사이 공백을 갖지 않는 문자들에 지배되지 않을 때 true.
  */
 private fun String.justifiesWell(start: Int, end: Int): Boolean {
     val from = start.coerceIn(0, length)
@@ -1017,7 +1019,7 @@ private fun String.justifiesWell(start: Int, end: Int): Boolean {
     return wide * 2 < letters
 }
 
-/** Whether this character belongs to a script whose lines break between characters rather than at spaces. */
+/** 이 문자가 공백이 아니라 문자 사이에서 줄이 끊기는 문자 체계에 속하는지 여부. */
 private fun Char.isWideScript(): Boolean = code in 0x1100..0x11FF ||
     code in 0x2E80..0xA4CF ||
     code in 0xAC00..0xD7AF ||
@@ -1025,23 +1027,24 @@ private fun Char.isWideScript(): Boolean = code in 0x1100..0x11FF ||
     code in 0xFF00..0xFFEF
 
 /**
- * The style one inline run is drawn in, from the tag it came from plus whatever its own CSS changes.
+ * 하나의 인라인 런이 그려지는 스타일로, 그것이 유래한 태그와 그 자체 CSS가 바꾸는 것으로부터
+ * 나온다.
  *
- * The monospace a `<code>`, `<kbd>` or `<samp>` run gets is gated on [publisherFontsEnabled] for the same
- * reason [blockSpanStyle] gates a `<pre>` block's: it is a browser default this renderer supplies on the
- * document's behalf, so it is a typeface the document asked for rather than structure, and a reader who
- * chose their own font chose it for every run on the page. Every other entry here — weight, slant,
- * decoration, baseline shift — is structure and applies in any family.
+ * `<code>`, `<kbd>`, `<samp>` 런이 얻는 monospace는 [blockSpanStyle]이 `<pre>` 블록의 것을 게이트하는
+ * 것과 같은 이유로 [publisherFontsEnabled]에 게이트된다: 이는 이 렌더러가 문서를 대신해 공급하는
+ * 브라우저 기본값이므로 구조가 아니라 문서가 요구한 활자체이며, 자신만의 글꼴을 고른 사용자는
+ * 페이지의 모든 런에 대해 그것을 선택한 것이다. 여기의 그 밖의 모든 항목 — 굵기, 기울임, 장식,
+ * baseline shift — 은 구조이며 어떤 패밀리에서든 적용된다.
  *
- * @param span the inline run whose semantic and CSS emphasis should be rendered.
- * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
- * @param publisherColorsEnabled whether the book's own foreground colors apply to this run.
- * @param publisherFontsEnabled whether the document's typeface choices apply at all — false exactly when the
- *   reader has chosen a font of their own.
- * @param emphasisWeights the weights a bold run and a book-stated explicit non-bold draw at, derived from
- *   the reader's own base weight (see [readerEmphasisWeights]).
- * @return the Compose style that renders it; a link is underlined here and carries its href as a separate
- * annotation, since a colour alone would not survive a theme change.
+ * @param span 시맨틱 및 CSS 강조가 렌더링되어야 하는 인라인 런.
+ * @param embeddedFontFamiliesByHref 책이 함께 보낸, CSS가 참조하는 href로 키가 매겨진 서체들.
+ * @param publisherColorsEnabled 책 자체의 전경 색상이 이 런에 적용될지 여부.
+ * @param publisherFontsEnabled 문서의 활자체 선택이 아예 적용될지 여부 — 사용자가 자신만의 글꼴을
+ *   선택했을 때 정확히 false다.
+ * @param emphasisWeights 굵은 텍스트 런과 책이 명시한 명시적 비굵게가 그려지는 굵기로, 리더 자체
+ *   기준 굵기에서 도출된다([readerEmphasisWeights] 참고).
+ * @return 이를 렌더링하는 Compose 스타일; 색상만으로는 테마 변경에서 살아남지 못하므로 링크는
+ * 여기서 밑줄이 그어지고 별도의 annotation으로 href를 지닌다.
  */
 private fun inlineSpanStyle(
     span: com.tedd.teddreader.core.common.model.ReaderSpan,
@@ -1070,14 +1073,14 @@ private fun inlineSpanStyle(
 }
 
 /**
- * The Compose span style this CSS delta asks for, on the same terms as [blockSpanStyle]'s own merge.
+ * [blockSpanStyle] 자체 병합과 같은 조건으로, 이 CSS delta가 요구하는 Compose span 스타일.
  *
- * @param embeddedFontFamiliesByHref the faces the book shipped, keyed by the href its CSS refers to them by.
- * @param publisherColorsEnabled whether the book's own foreground colors apply to this run.
- * @param publisherFontsEnabled whether the document's typeface choices apply at all.
- * @param emphasisWeights the weights [bold] resolves to — [ReaderEmphasisWeights.strong] when true,
- *   [ReaderEmphasisWeights.base] when explicitly false, derived from the reader's own base weight.
- * @return the Compose style this delta describes.
+ * @param embeddedFontFamiliesByHref 책이 함께 보낸, CSS가 참조하는 href로 키가 매겨진 서체들.
+ * @param publisherColorsEnabled 책 자체의 전경 색상이 이 런에 적용될지 여부.
+ * @param publisherFontsEnabled 문서의 활자체 선택이 아예 적용될지 여부.
+ * @param emphasisWeights [bold]가 귀결되는 굵기 — true면 [ReaderEmphasisWeights.strong], 명시적으로
+ *   false면 [ReaderEmphasisWeights.base]이며, 리더 자체 기준 굵기에서 도출된다.
+ * @return 이 delta가 기술하는 Compose 스타일.
  */
 private fun ReaderSpanStyle.toComposeSpanStyle(
     embeddedFontFamiliesByHref: Map<String, FontFamily>,
@@ -1087,21 +1090,21 @@ private fun ReaderSpanStyle.toComposeSpanStyle(
 ): SpanStyle = SpanStyle(
     fontWeight = bold?.let { if (it) emphasisWeights.strong else emphasisWeights.base },
     fontStyle = italic?.let { if (it) FontStyle.Italic else FontStyle.Normal },
-    // A span's em is resolved by Compose against the size already in force at its position, which is
-    // exactly what a delta ratio means — no re-anchoring to the reader's base here.
+    // span의 em은 Compose에 의해 그 위치에서 이미 적용 중인 크기를 기준으로 해석되며, 이는 delta
+    // 비율이 정확히 의미하는 것이다 — 여기서 리더의 기준으로 다시 고정하지 않는다.
     fontSize = fontScale?.em ?: TextUnit.Unspecified,
     fontFamily = toComposeFontFamily(embeddedFontFamiliesByHref).takeIf { publisherFontsEnabled },
     color = foregroundColor.takeIf { publisherColorsEnabled }?.toColor() ?: Color.Unspecified,
     textDecoration = toTextDecoration(),
 )
 
-/** The embedded or generic family this span delta asks for, on the same terms as the block resolver. */
+/** 블록 해석기와 같은 조건으로, 이 span delta가 요구하는 내장 또는 일반 패밀리. */
 private fun ReaderSpanStyle.toComposeFontFamily(embeddedFontFamiliesByHref: Map<String, FontFamily>): FontFamily? =
     fontHref?.let(embeddedFontFamiliesByHref::get)
         ?: fontFamily?.toComposeFontFamily()
         ?: fontFamilyName.toComposeFontFamilyOrNull()
 
-/** The decoration this span delta asks for, on the same terms as [ReaderBlockStyle.toTextDecoration]. */
+/** [ReaderBlockStyle.toTextDecoration]과 같은 조건으로, 이 span delta가 요구하는 장식. */
 private fun ReaderSpanStyle.toTextDecoration(): TextDecoration? = when {
     underline == true && lineThrough == true ->
         TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
@@ -1112,10 +1115,10 @@ private fun ReaderSpanStyle.toTextDecoration(): TextDecoration? = when {
 }
 
 /**
- * The decoration this style asks for, or null when the book said nothing about it.
+ * 이 스타일이 요구하는 장식, 또는 책이 그것에 대해 아무 말도 하지 않았으면 null.
  *
- * [TextDecoration.None] is what a book that turned decoration off gets, and it is what makes
- * `a { text-decoration: none }` win over the underline a link is otherwise drawn with.
+ * [TextDecoration.None]은 장식을 끈 책이 얻는 것이며, `a { text-decoration: none }`이 링크가
+ * 그렇지 않으면 그려졌을 밑줄을 이기게 만드는 것이 바로 이것이다.
  */
 private fun ReaderBlockStyle.toTextDecoration(): TextDecoration? = when {
     underline == true && lineThrough == true ->
@@ -1127,17 +1130,18 @@ private fun ReaderBlockStyle.toTextDecoration(): TextDecoration? = when {
 }
 
 /**
- * Reserves exactly the box [readerImageSize] says the picture occupies, so the line the text lays out around
- * is the line the image is actually drawn into.
+ * [readerImageSize]가 그림이 차지한다고 말하는 박스를 정확히 예약하여, 텍스트가 그 주위에 배치하는
+ * 줄이 이미지가 실제로 그려지는 줄이 되게 한다.
  *
- * @param block the picture, cover or rule to reserve room for.
- * @param isStandalone whether it has its line to itself. A picture set inside a sentence sits on the text's
- * own centre, the way a glyph does; a plate is centred in its own line.
- * @param lineWidthEm the text column in em, or 0 to fall back to [DefaultImageWidthEm].
- * @param maxHeightEm the page height in em, or 0 to fall back to [DefaultImageMaxHeightEm].
- * @param emInPx CSS pixels per em, for turning an intrinsic pixel width into em.
- * @param isFloat whether this image is rendered as a floated full-column placeholder with nested text beside it.
- * @return the box to reserve; a one-em square for any other kind, which no caller asks for.
+ * @param block 공간을 예약할 그림, 표지, 또는 룰.
+ * @param isStandalone 그것이 자기만의 줄을 갖는지 여부. 문장 안에 놓인 그림은 글리프처럼 텍스트
+ * 자체의 중심에 놓이고, 판형 그림은 자기만의 줄 안에서 가운데 정렬된다.
+ * @param lineWidthEm em 단위의 텍스트 컬럼, 또는 [DefaultImageWidthEm]으로 대체하려면 0.
+ * @param maxHeightEm em 단위의 페이지 높이, 또는 [DefaultImageMaxHeightEm]으로 대체하려면 0.
+ * @param emInPx 고유 픽셀 너비를 em으로 바꾸기 위한, em당 CSS 픽셀.
+ * @param isFloat 이 이미지가 옆에 중첩 텍스트를 둔 플로팅된 전체 컬럼 placeholder로 렌더링되는지
+ * 여부.
+ * @return 예약할 박스; 어떤 호출자도 요구하지 않는 그 밖의 종류에 대해서는 1em 정사각형.
  */
 private fun placeholderFor(
     block: ReaderBlock,
@@ -1165,14 +1169,14 @@ private fun placeholderFor(
     else -> Placeholder(1.em, 1.em, PlaceholderVerticalAlign.Center)
 }
 
-/** Column used when the caller has no measured one — wide enough that a plate is not shrunk to a thumbnail. */
+/** 호출자가 측정된 것이 없을 때 쓰이는 컬럼 — 판형 그림이 썸네일로 줄어들지 않을 만큼 넓다. */
 private const val DefaultImageWidthEm = 20f
-/** Page height used when the caller has no measured one, on the same terms. */
+/** 같은 조건으로, 호출자가 측정된 것이 없을 때 쓰이는 페이지 높이. */
 private const val DefaultImageMaxHeightEm = 26f
 
 /**
- * @param level the heading's level, clamped to 1..6 so a malformed document cannot ask for type of any size.
- * @return the multiple of the reader's font size that heading is set at, tightening as the level deepens.
+ * @param level 제목의 레벨. 잘못된 문서가 어떤 크기의 활자든 요구할 수 없도록 1..6으로 clamp된다.
+ * @return 그 제목이 설정되는, 리더 글자 크기의 배수. 레벨이 깊어질수록 좁아진다.
  */
 private fun headingScale(level: Int): Float = when (level.coerceIn(1, 6)) {
     1 -> 1.55f
@@ -1184,17 +1188,17 @@ private fun headingScale(level: Int): Float = when (level.coerceIn(1, 6)) {
 }
 
 /**
- * One block cut down to the stretch of text being rendered.
+ * 렌더링되는 텍스트 구간에 맞춰 잘린 블록 하나.
  *
- * Deliberately not a data class: it is looked up by [index], never compared field by field — comparing whole
- * blocks, spans and all, is what made building a page quadratic.
+ * 의도적으로 data class가 아니다: [index]로 조회될 뿐, 필드별로 비교되는 일은 결코 없다 — span까지
+ * 포함해 블록 전체를 비교하는 것이 페이지를 만드는 작업을 이차 시간으로 만든 원인이었다.
  *
- * @property index the block's position in the caller's own list, which is its identity here.
- * @property block the block itself.
- * @property localStart where it starts, relative to the rendered stretch.
- * @property localEnd where it ends, on the same terms.
- * @property includesStart whether the block's own beginning falls inside this stretch — false for a
- * paragraph continued from an earlier page, which is what suppresses its prefix and its first-line indent.
+ * @property index 호출자 자신의 목록 안에서 블록의 위치로, 여기서는 이것이 그 정체성이다.
+ * @property block 블록 자체.
+ * @property localStart 렌더링되는 구간을 기준으로, 그것이 시작하는 위치.
+ * @property localEnd 같은 기준으로, 그것이 끝나는 위치.
+ * @property includesStart 블록 자체의 시작이 이 구간 안에 떨어지는지 여부 — 이전 페이지에서 이어지는
+ * 문단에는 false이며, 이것이 그 접두부와 첫 줄 들여쓰기를 억제하는 것이다.
  */
 private class ClampedBlock(
     val index: Int,
@@ -1205,17 +1209,17 @@ private class ClampedBlock(
 )
 
 /**
- * A reserved box while the string is still being built, before its final size is known.
+ * 문자열이 아직 만들어지는 중이고 최종 크기가 알려지기 전, 예약된 박스.
  *
- * Float fitting may attach nested content and consume extra source offsets before the final
- * [ReaderPlaceholder] is built from this spec.
+ * float 맞춤은 이 spec으로부터 최종 [ReaderPlaceholder]가 만들어지기 전에 중첩 콘텐츠를 붙이고
+ * 추가 소스 오프셋을 소비할 수 있다.
  *
- * @property id the inline-content key this box will be matched by.
- * @property kind what stands in it.
- * @property href the image's path inside the container.
- * @property label the image's alt text.
- * @property block the block it came from, kept so the size can be computed once the column is known.
- * @property start where the placeholder character landed in the rendered text.
+ * @property id 이 박스가 매칭될 inline-content 키.
+ * @property kind 그 안에 무엇이 서 있는지.
+ * @property href 컨테이너 안 이미지의 경로.
+ * @property label 이미지의 대체 텍스트.
+ * @property block 그것이 유래한 블록으로, 컬럼이 알려지면 크기를 계산할 수 있도록 보관된다.
+ * @property start placeholder 문자가 렌더링된 텍스트 안에서 놓인 위치.
  */
 private data class PlaceholderSpec(
     val id: String,

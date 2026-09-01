@@ -10,18 +10,16 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /**
- * Hand-drawn [ImageVector]s for the reader chrome, in place of Material's icon library. This app
- * does not depend on `material-icons-extended` (a large artifact for the handful of glyphs actually
- * needed), so each icon here is a minimal path definition covering exactly the reader's controls
- * (navigation, bookmarking, playback, battery, delete). Every path is filled or stroked with
- * `Color.Black` regardless of theme; that value is not the rendered color — Material's `Icon`
- * composable recolors the whole vector via its `tint` color filter (default
- * `LocalContentColor.current`), which replaces every opaque pixel's color and only preserves alpha,
- * so black here is just a convenient, high-contrast placeholder for "the shape," not the on-screen
- * color.
+ * Material의 아이콘 라이브러리 대신 리더 크롬을 위해 직접 그린 [ImageVector]들. 이 앱은 실제로
+ * 필요한 소수의 글리프를 위한 큰 아티팩트인 `material-icons-extended`에 의존하지 않으므로, 여기의
+ * 각 아이콘은 리더의 컨트롤(내비게이션, 북마크, 재생, 배터리, 삭제)만을 정확히 다루는 최소한의 경로
+ * 정의다. 모든 경로는 테마와 무관하게 `Color.Black`으로 채우거나 획을 긋는다; 그 값이 실제 렌더링
+ * 색상은 아니다 — Material의 `Icon` 컴포저블이 `tint` 색상 필터(기본값 `LocalContentColor.current`)를
+ * 통해 벡터 전체를 다시 색칠하며, 이는 불투명한 모든 픽셀의 색을 대체하고 알파만 보존하므로, 여기의
+ * 검은색은 화면에 보이는 색이 아니라 그저 "형태"를 나타내기 위한 편리하고 대비가 높은 대용일 뿐이다.
  */
 object TeddIcons {
-    /** A left-pointing chevron, used for back/up navigation. */
+    /** 뒤로 가기/위로 가기 내비게이션에 쓰이는, 왼쪽을 가리키는 셰브런. */
     val Back: ImageVector by lazy {
         ImageVector.Builder(
             name = "Back",
@@ -46,7 +44,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** An open bookmark ribbon, for a page that is not currently saved. */
+    /** 현재 저장되지 않은 페이지를 위한, 열린 북마크 리본. */
     val BookmarkOutline: ImageVector by lazy {
         ImageVector.Builder(
             name = "BookmarkOutline",
@@ -72,7 +70,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A filled bookmark ribbon, for a page that is currently saved. */
+    /** 현재 저장된 페이지를 위한, 채워진 북마크 리본. */
     val BookmarkFilled: ImageVector by lazy {
         ImageVector.Builder(
             name = "BookmarkFilled",
@@ -95,7 +93,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** An "X" glyph, used to dismiss a sheet, dialog, or overlay. */
+    /** 시트, 다이얼로그, 오버레이를 닫는 데 쓰이는 "X" 글리프. */
     val Close: ImageVector by lazy {
         ImageVector.Builder(
             name = "Close",
@@ -119,7 +117,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** Three vertically stacked dots, opening an overflow menu of secondary actions. */
+    /** 보조 액션의 오버플로우 메뉴를 여는, 세로로 쌓인 세 개의 점. */
     val MoreVert: ImageVector by lazy {
         ImageVector.Builder(
             name = "MoreVert",
@@ -142,7 +140,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A left-pointing caret, for moving to the previous page or track. */
+    /** 이전 페이지나 트랙으로 이동하기 위한, 왼쪽을 가리키는 캐럿. */
     val Previous: ImageVector by lazy {
         ImageVector.Builder(
             name = "Previous",
@@ -165,7 +163,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A right-pointing caret, for moving to the next page or track. */
+    /** 다음 페이지나 트랙으로 이동하기 위한, 오른쪽을 가리키는 캐럿. */
     val Next: ImageVector by lazy {
         ImageVector.Builder(
             name = "Next",
@@ -188,7 +186,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A right-pointing triangle, starting playback (e.g. auto-scroll). */
+    /** 재생(예: 자동 스크롤)을 시작하는, 오른쪽을 가리키는 삼각형. */
     val Play: ImageVector by lazy {
         ImageVector.Builder(
             name = "Play",
@@ -206,7 +204,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** Two vertical bars, pausing playback (e.g. auto-scroll). */
+    /** 재생(예: 자동 스크롤)을 일시정지하는, 두 개의 세로 막대. */
     val Pause: ImageVector by lazy {
         ImageVector.Builder(
             name = "Pause",
@@ -230,7 +228,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A battery outline with a terminal nub, for the reader's own battery-percentage indicator. */
+    /** 리더 자체의 배터리 퍼센트 표시를 위한, 단자 돌기가 있는 배터리 윤곽선. */
     val Battery: ImageVector by lazy {
         ImageVector.Builder(
             name = "Battery",
@@ -257,7 +255,7 @@ object TeddIcons {
         }.build()
     }
 
-    /** A trash can, for a destructive delete/remove action. */
+    /** 파괴적인 삭제/제거 액션을 위한 휴지통. */
     val Delete: ImageVector by lazy {
         ImageVector.Builder(
             name = "Delete",

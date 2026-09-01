@@ -8,15 +8,15 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Verifies [consumeUnconsumedVerticalScrollConnection]'s post-scroll/post-fling behavior directly,
- * without going through Compose — this is the piece `TeddModalBottomSheet` relies on to stop leftover
- * vertical drag from leaking into the sheet's own drag-to-dismiss handling, so its exact
- * consumed/available split needs to be pinned by a test rather than only exercised indirectly.
+ * Compose를 거치지 않고 [consumeUnconsumedVerticalScrollConnection]의 post-scroll/post-fling 동작을
+ * 직접 검증한다 — 이것은 `TeddModalBottomSheet`가 남은 수직 드래그가 시트 자체의 드래그-닫기 처리로
+ * 새어 들어가는 것을 막기 위해 의존하는 부분으로, 그 정확한 consumed/available 분할은 간접적으로만
+ * 검증되는 대신 테스트로 고정되어야 한다.
  */
 class ModifierTest {
     /**
-     * Confirms `onPostScroll` reports the entire available vertical delta as consumed while leaving
-     * horizontal delta alone, and that `onPreScroll` (not overridden) consumes nothing.
+     * `onPostScroll`이 수평 델타는 그대로 두고 사용 가능한 수직 델타 전체를 소비된 것으로 보고하며,
+     * (오버라이드되지 않은) `onPreScroll`은 아무것도 소비하지 않음을 확인한다.
      */
     @Test
     fun connectionConsumesOnlyUnconsumedVerticalPostScroll() {
@@ -40,8 +40,8 @@ class ModifierTest {
     }
 
     /**
-     * Confirms `onPostFling` reports the entire available vertical fling velocity as consumed while
-     * leaving horizontal velocity alone, and that `onPreFling` (not overridden) consumes nothing.
+     * `onPostFling`이 수평 속도는 그대로 두고 사용 가능한 수직 플링 속도 전체를 소비된 것으로 보고하며,
+     * (오버라이드되지 않은) `onPreFling`은 아무것도 소비하지 않음을 확인한다.
      */
     @Test
     fun connectionConsumesOnlyUnconsumedVerticalPostFling() = runTest {

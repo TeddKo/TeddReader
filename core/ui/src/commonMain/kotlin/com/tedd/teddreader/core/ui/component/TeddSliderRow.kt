@@ -32,24 +32,23 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
- * A settings row that labels a [TeddSlider] with a title and an optional formatted value (e.g.
- * "18sp"), stacking them so the row can sit directly inside a [TeddOptionGroup] alongside
- * [TeddSwitchRow]/[TeddRadioRow] without each caller re-building the title-plus-value header by hand.
+ * [TeddSlider]에 제목과 선택적 포맷된 값(예: "18sp")으로 라벨을 붙이는 설정 행으로, 이들을 쌓아
+ * [TeddSwitchRow]/[TeddRadioRow]와 나란히 [TeddOptionGroup] 안에 바로 놓일 수 있게 하며, 각 호출자가
+ * 제목-값 헤더를 직접 다시 만들 필요가 없게 한다.
  *
- * @param title The row's label, shown in [teddReaderTypography]'s `settingTitle` style.
- * @param value The slider's current value; must fall within [valueRange].
- * @param onValueChange Invoked continuously while the slider is dragged, with the new value.
- * @param valueRange The inclusive range [value] can take.
- * @param modifier Modifier applied to the row's root.
- * @param valueLabel A formatted display of [value] (e.g. "18sp") shown at the row's trailing edge;
- * omitted when null.
- * @param steps Number of discrete steps between the ends of [valueRange]; 0 means the slider is
- * continuous.
- * @param enabled Whether the slider responds to drags.
- * @param onValueChangeFinished Invoked once, after a drag gesture ends, distinct from the continuous
- * [onValueChange] — the value passed to [onValueChange] is not repeated here.
- * @param contentPadding Padding between the row's edge and its content; null means the theme's
- * medium (all sides) value is used.
+ * @param title [teddReaderTypography]의 `settingTitle` 스타일로 표시되는 행의 라벨.
+ * @param value 슬라이더의 현재 값. [valueRange] 안에 들어야 한다.
+ * @param onValueChange 슬라이더가 드래그되는 동안 새 값과 함께 계속 호출된다.
+ * @param valueRange [value]가 가질 수 있는 포함 범위.
+ * @param modifier 행 루트에 적용되는 modifier.
+ * @param valueLabel 행의 후행 가장자리에 표시되는, [value]의 포맷된 표시(예: "18sp"). null이면
+ * 생략된다.
+ * @param steps [valueRange] 양 끝 사이의 이산 단계 수. 0이면 슬라이더는 연속적이다.
+ * @param enabled 슬라이더가 드래그에 반응할지 여부.
+ * @param onValueChangeFinished 드래그 제스처가 끝난 뒤 한 번 호출되며, 연속적인 [onValueChange]와는
+ * 구별된다 — [onValueChange]에 전달된 값이 여기서 반복되지는 않는다.
+ * @param contentPadding 행 가장자리와 콘텐츠 사이의 패딩. null이면 테마의 medium(모든 방향) 값을
+ * 사용한다.
  */
 @Composable
 fun TeddSliderRow(
@@ -103,23 +102,21 @@ fun TeddSliderRow(
 }
 
 /**
- * The app's slider chrome on top of Material's [Slider]: a thumb that is invisible until the user is
- * actually pressing or dragging it, and a flat two-color track drawn with a [Canvas] instead of
- * [Slider]'s default track/thumb art. This exists because the design calls for the slider to look
- * like a plain track until touched — Material's [Slider] has no built-in way to hide its thumb only
- * while idle, so this redraws both the `thumb` and `track` slots to get that behavior while still
- * delegating all drag/keyboard/state handling to [Slider] itself.
+ * Material의 [Slider] 위에 얹은 앱의 슬라이더 크롬: 사용자가 실제로 누르거나 드래그하기 전까지는
+ * 보이지 않는 thumb, 그리고 [Slider]의 기본 track/thumb 그림 대신 [Canvas]로 그린 평평한 2색
+ * track이다. 디자인이 슬라이더를 터치되기 전까지는 단순한 track처럼 보이도록 요구하기 때문에 이것이
+ * 존재한다 — Material의 [Slider]는 유휴 상태일 때만 thumb를 숨기는 내장 방법이 없으므로, 모든
+ * 드래그/키보드/상태 처리는 여전히 [Slider] 자체에 위임한 채 `thumb`와 `track` 슬롯을 다시 그려 그
+ * 동작을 얻는다.
  *
- * @param value The slider's current value; must fall within [valueRange].
- * @param onValueChange Invoked continuously while the slider is dragged, with the new value.
- * @param valueRange The inclusive range [value] can take.
- * @param modifier Modifier applied to the underlying [Slider].
- * @param steps Number of discrete steps between the ends of [valueRange]; 0 means the slider is
- * continuous.
- * @param enabled Whether the slider responds to drags; also gates whether the thumb can ever become
- * visible.
- * @param onValueChangeFinished Invoked once, after a drag gesture ends, distinct from the continuous
- * [onValueChange].
+ * @param value 슬라이더의 현재 값. [valueRange] 안에 들어야 한다.
+ * @param onValueChange 슬라이더가 드래그되는 동안 새 값과 함께 계속 호출된다.
+ * @param valueRange [value]가 가질 수 있는 포함 범위.
+ * @param modifier 내부 [Slider]에 적용되는 modifier.
+ * @param steps [valueRange] 양 끝 사이의 이산 단계 수. 0이면 슬라이더는 연속적이다.
+ * @param enabled 슬라이더가 드래그에 반응할지 여부. thumb가 보일 수 있는지 여부도 함께 결정한다.
+ * @param onValueChangeFinished 드래그 제스처가 끝난 뒤 한 번 호출되며, 연속적인 [onValueChange]와는
+ * 구별된다.
  */
 @Composable
 fun TeddSlider(
@@ -191,13 +188,13 @@ fun TeddSlider(
     )
 }
 
-/** Diameter of [TeddSlider]'s thumb while it is visible (pressed or dragged). */
+/** [TeddSlider]의 thumb가 보이는 동안(눌리거나 드래그될 때)의 지름. */
 private val TeddSliderThumbSize = 24.dp
 
-/** Height of [TeddSlider]'s drawn track line. */
+/** [TeddSlider]가 그리는 track 선의 높이. */
 private val TeddSliderTrackHeight = 8.dp
 
-/** Compose preview rendering [TeddSliderRow] with a font-size value and its formatted label. */
+/** 글자 크기 값과 포맷된 라벨을 갖춘 [TeddSliderRow]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddSliderRowPreview() {

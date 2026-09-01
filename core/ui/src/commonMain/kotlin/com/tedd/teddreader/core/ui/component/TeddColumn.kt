@@ -21,14 +21,14 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
- * The app's card surface: one clipped, bordered container that every list row and panel sits in.
+ * 앱의 카드 서피스: 모든 리스트 행과 패널이 놓이는, 클립되고 테두리가 있는 하나의 컨테이너.
  *
- * Drawn with modifiers on the `Column` that already arranges the content rather than wrapping it in a
- * `Surface`, so a card is one layout node instead of two. It also pins the content colour, so a caller never
- * has to remember which `on…` role matches the card's own background.
+ * `Surface`로 감싸는 대신 이미 콘텐츠를 배치하는 `Column`에 modifier를 그려서, 카드는 두 개가 아니라
+ * 하나의 레이아웃 노드가 된다. 콘텐츠 색상도 고정해 두므로, 호출자가 카드 자체 배경에 어떤 `on…`
+ * 역할이 맞는지 기억할 필요가 없다.
  *
- * @param modifier applied to the card itself; a caller sizes and positions it from outside.
- * @param content the card's children, laid out in a column and drawn in the card's content colour.
+ * @param modifier 카드 자체에 적용된다. 호출자가 바깥에서 카드의 크기와 위치를 정한다.
+ * @param content 카드의 자식들로, column으로 배치되고 카드의 콘텐츠 색상으로 그려진다.
  */
 @Composable
 fun TeddCard(
@@ -51,18 +51,17 @@ fun TeddCard(
 }
 
 /**
- * The one way a failure is shown inline, so every screen reports an error the same way.
+ * 실패를 인라인으로 보여 주는 단 하나의 방법으로, 모든 화면이 오류를 같은 방식으로 알린다.
  *
- * Its own colour roles rather than a plain red: the container carries the error tint with a hairline border,
- * and the content colour is set once for both the message and any action, so a caller cannot leave a button
- * unreadable on the tinted background.
+ * 단순한 빨간색이 아니라 자체 색상 역할을 사용한다: 컨테이너는 머리카락 굵기 테두리와 함께 오류
+ * 색조를 띠고, 콘텐츠 색상은 메시지와 액션 양쪽에 한 번만 지정되므로 호출자가 색이 입혀진 배경 위에
+ * 읽을 수 없는 버튼을 남길 수 없다.
  *
- * @param message what went wrong, in the reader's language.
- * @param modifier applied to the banner; it fills its parent's width by default.
- * @param contentPadding inset around the message and action; null means the theme's medium (all
- * sides) value is used.
- * @param action an optional retry or dismiss control, composed under the message inside the banner's own
- * column scope.
+ * @param message 리더의 언어로 표현된, 무엇이 잘못되었는지에 대한 설명.
+ * @param modifier 배너에 적용된다. 기본적으로 부모의 너비를 채운다.
+ * @param contentPadding 메시지와 액션 주위의 인셋. null이면 테마의 medium(모든 방향) 값을 사용한다.
+ * @param action 배너 자체의 column scope 안 메시지 아래에 컴포즈되는, 선택적인 재시도 또는 닫기
+ * 컨트롤.
  */
 @Composable
 fun TeddErrorBanner(

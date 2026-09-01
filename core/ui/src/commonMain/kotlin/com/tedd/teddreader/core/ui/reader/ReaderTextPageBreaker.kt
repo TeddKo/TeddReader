@@ -14,51 +14,52 @@ import com.tedd.teddreader.core.common.model.layoutKey
 import kotlin.math.roundToInt
 
 /**
- * Page breaker backed by the same text layout the reader page draws with.
+ * 리더 페이지가 그리는 것과 같은 텍스트 레이아웃을 기반으로 하는 페이지 breaker.
  *
- * [widthPx] and [heightPx] must be the drawn text area, so a page holds exactly the lines that fit
- * in it: the break follows measured line boxes rather than a `height / lineHeight` count, which is
- * what keeps the last line whole when the reader's font size or line height changes.
+ * [widthPx]와 [heightPx]는 반드시 그려지는 텍스트 영역이어야 하며, 그래야 페이지가 정확히 그 안에
+ * 맞는 줄들을 담는다: 이 분할은 `height / lineHeight` 계산이 아니라 측정된 줄 상자를 따르며, 이것이
+ * 리더의 글자 크기나 줄 높이가 바뀔 때도 마지막 줄이 온전하게 유지되는 이유다.
  *
- * ponytail: lays the whole document out once per style/size change. Fine for the documents this
- * reader opens; switch to chunked measurement if a book ever makes that layout too slow.
+ * ponytail: 스타일/크기 변경마다 전체 문서를 한 번에 레이아웃한다. 이 리더가 여는 문서들에는
+ * 문제없다; 어떤 책이 그 레이아웃을 너무 느리게 만들면 청크 단위 측정으로 전환한다.
  *
- * The `remember` key is the style's layout key, not the whole style. Colour rides along in `TextStyle`, so
- * keying on the style handed back a different breaker on every theme switch and measured every page in the
- * book again for a change that cannot move a line. The captured style keeps whatever colour it was built
- * with, which is harmless because nothing here draws.
+ * `remember` 키는 전체 스타일이 아니라 스타일의 layout key다. 색상은 `TextStyle`에 함께 실려 오므로,
+ * 스타일 자체로 키를 잡으면 테마를 전환할 때마다 다른 breaker를 돌려주어 줄을 옮길 수 없는 변경에
+ * 대해서도 책의 모든 페이지를 다시 측정하게 되었을 것이다. 캡처된 스타일은 만들어질 때의 색상을
+ * 그대로 유지하는데, 여기서는 아무것도 그리지 않으므로 해가 없다.
  *
- * A pane of zero width or height yields null rather than a breaker. A breaker built before the pane is
- * measured can only answer "I measured nothing", and handing that to the reader silently disables measured
- * pagination for the whole book — every page then comes from the estimate, which cannot know the line
- * height the book's stylesheet asks for. EPUB also waits until every referenced embedded font has either
- * resolved or failed, so the first measurement uses the same font families the page surface will draw.
+ * 너비나 높이가 0인 pane은 breaker가 아니라 null을 낳는다. pane이 측정되기 전에 만들어진 breaker는
+ * "아무것도 측정하지 못했다"라고만 답할 수 있고, 그것을 리더에 넘기면 책 전체의 측정 기반 페이지
+ * 분할을 조용히 비활성화해 버린다 — 그러면 모든 페이지가 책의 스타일시트가 요구하는 줄 높이를 알 수
+ * 없는 추정값에서 나오게 된다. EPUB은 또한 참조된 모든 내장 글꼴이 해석되거나 실패할 때까지
+ * 기다리므로, 첫 측정은 페이지 서피스가 그릴 것과 같은 글꼴 패밀리를 사용한다.
  *
- * Two em conversions appear inside, deliberately different. The text one goes through [LocalDensity] so a
- * page is measured in the same pixels it will be drawn in (see EpubPageSurface). The image one uses the
- * font size scaled only by the accessibility font scale, because an image's intrinsic size is in CSS
- * pixels, which are density-independent.
+ * 내부에는 의도적으로 다른 두 em 변환이 등장한다. 텍스트 쪽은 [LocalDensity]를 거쳐, 페이지가
+ * 그려질 것과 같은 픽셀로 측정된다(EpubPageSurface 참고). 이미지 쪽은 이미지의 고유 크기가
+ * density와 무관한 CSS 픽셀 단위이기 때문에, 접근성 글꼴 배율만으로 스케일된 글자 크기를 사용한다.
  *
- * A page holds a line back from its usable height. The chapter is laid out once, in full, and split by line
- * position; each page is then drawn on its own, and the two layouts never agree to the pixel — justified
- * text, and an opening line that is a middle line here but a first line there, shift things a little — so a
- * page filled to the last hairline loses the bottom of its final line. One line is the smallest slack that
- * absorbs that rather than most of it: it costs a page a line where the fit was that tight, and a clipped
- * line costs the reader a line of the book. The first line's height is only a sample, since a chapter mixes
- * heading, quote and picture lines and the line landing on the boundary may be taller, so [PageSlack]
- * floors the slack at a share of the page instead of trusting whichever line happened to be measured.
+ * 페이지는 사용 가능한 높이에서 한 줄을 남겨 둔다. 챕터는 한 번에 전체가 레이아웃되고 줄 위치로
+ * 나뉜다; 각 페이지는 그 뒤 독립적으로 그려지는데, 두 레이아웃은 결코 픽셀 단위까지 일치하지
+ * 않는다 — 양쪽 정렬된 텍스트, 그리고 여기서는 중간 줄이지만 저기서는 첫 줄인 시작 줄이 조금씩
+ * 어긋나게 만든다 — 그래서 마지막 머리카락 굵기까지 채운 페이지는 마지막 줄의 아래쪽을 잃게 된다.
+ * 한 줄은 그 대부분이 아니라 그것을 흡수하는 가장 작은 여유분이다: 딱 맞아떨어지는 자리에서는
+ * 페이지가 한 줄을 손해 보지만, 잘린 줄은 독자에게 책의 한 줄을 잃게 만든다. 챕터는 제목, 인용,
+ * 그림 줄이 섞여 있고 경계에 걸리는 줄이 더 클 수도 있으므로 첫 줄의 높이는 표본일 뿐이며, 그래서
+ * [PageSlack]은 우연히 측정된 줄을 신뢰하는 대신 여유분을 페이지의 일정 비율로 하한을 둔다.
  *
- * A page then breaks at the first line whose *measured box bottom* passes that usable height, which stays
- * correct when line boxes are not uniform.
+ * 그러면 페이지는 *측정된 상자의 아래쪽*이 그 사용 가능한 높이를 넘는 첫 줄에서 나뉘며, 이는 줄
+ * 상자가 균일하지 않을 때도 올바르게 유지된다.
  *
- * @param style the reading style; only its layout key affects where pages break.
- * @param widthPx the drawn text area's width in pixels — the pane minus its margins, not the pane.
- * @param heightPx the drawn text area's height in pixels, on the same terms.
- * @param embeddedFontFamiliesByHref resolved embedded font families keyed by href, shared with the page surface.
- * @param canMeasure whether the caller has enough viewport/font state to trust a first measurement yet.
- * @return a breaker that measures with the reader's own text layout, or null while the pane has no real
- * size or the caller is still waiting on required font resolution — in which case the caller must not treat
- * the absence as "no pages".
+ * @param style 읽기 스타일. 페이지가 나뉘는 위치에는 그 layout key만 영향을 준다.
+ * @param widthPx 픽셀 단위의 그려지는 텍스트 영역 너비 — pane이 아니라 그 여백을 뺀 pane.
+ * @param heightPx 같은 기준의, 픽셀 단위 그려지는 텍스트 영역 높이.
+ * @param embeddedFontFamiliesByHref href로 키가 매겨진, 페이지 서피스와 공유되는 해석된 내장 글꼴
+ * 패밀리.
+ * @param canMeasure 호출자가 아직 첫 측정을 신뢰할 만큼 충분한 뷰포트/글꼴 상태를 가지고 있는지
+ * 여부.
+ * @return 리더 자체 텍스트 레이아웃으로 측정하는 breaker, 또는 pane이 아직 실제 크기를 갖지 않거나
+ * 호출자가 필요한 글꼴 해석을 여전히 기다리는 동안에는 null — 이 경우 호출자는 그 부재를 "페이지
+ * 없음"으로 취급해서는 안 된다.
  */
 @Composable
 fun rememberReaderPageBreaker(
@@ -130,11 +131,11 @@ fun rememberReaderPageBreaker(
 }
 
 /**
- * Builds the shared float fitter used by both pagination and rendering.
+ * 페이지 분할과 렌더링 양쪽에서 쓰이는 공유 float fitter를 만든다.
  *
- * The fitter measures the remaining paragraph beside a floated image once, finds the last full line that fits
- * under the image height, then rebuilds only that consumed prefix as semantic text. Sharing the callback is
- * what keeps the placeholder's consumed source range identical in the breaker and the page surface.
+ * 이 fitter는 플로팅된 이미지 옆에 남은 문단을 한 번 측정하여, 이미지 높이 안에 들어가는 마지막
+ * 완전한 줄을 찾은 뒤, 그 소비된 접두부만을 semantic text로 다시 만든다. 콜백을 공유하는 것이
+ * placeholder의 소비된 소스 범위를 breaker와 페이지 서피스에서 동일하게 유지하는 방법이다.
  */
 fun readerFloatTextFitter(
     measurer: TextMeasurer,
@@ -211,10 +212,10 @@ fun readerFloatTextFitter(
     }
 }
 
-/** Lines held back from each page, so the drawn page may differ from the measured one by that much. */
+/** 각 페이지에서 남겨 두는 줄 수로, 그려진 페이지가 측정된 페이지와 그만큼 달라질 수 있다. */
 private const val LineSlack = 1.0f
 
-/** Floor on that slack as a share of the page, for pages whose lines vary in height. */
+/** 줄 높이가 제각각인 페이지를 위해, 그 여유분을 페이지 비율로 두는 하한. */
 private const val PageSlack = 0.04f
 
 private fun emptyFloatPlacement(sourceStart: Long): ReaderFloatPlacement =
