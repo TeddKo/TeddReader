@@ -6,29 +6,27 @@ import androidx.room3.ForeignKey
 import androidx.room3.Index
 
 /**
- * One section of a document's stored text, and the row both the reader and search read.
+ * 문서에 저장된 텍스트의 한 섹션이며 리더와 검색이 함께 읽는 행입니다.
  *
- * Keyed by document and section index, so a progressive import can append sections as it parses them and
- * the reader can ask for exactly the ones it is about to draw. `startOffset`/`endOffset` place the section
- * in the whole document's flat text, which is what makes a search hit, a bookmark and a reading position
- * comparable across sections.
+ * 문서와 섹션 인덱스를 키로 사용하므로 점진적 가져오기가 파싱한 섹션을 계속 추가할 수 있고, 리더는 곧 그릴 섹션만
+ * 정확히 요청할 수 있습니다. `startOffset`/`endOffset`은 섹션을 전체 문서의 평면 텍스트 안에 배치하므로 검색
+ * 결과, 북마크, 독서 위치를 섹션 간에 비교할 수 있습니다.
  *
- * The table name is historical: it began as a search index and became the document store. Everything about
- * a section lives here — its text, its block structure, and (on one row) the book's title and navigation —
- * so opening a book is one query.
+ * 테이블 이름에는 역사가 있습니다. 검색 인덱스로 시작해 문서 저장소가 되었습니다. 섹션의 텍스트, 블록 구조,
+ * 한 행에 저장하는 책 제목과 내비게이션까지 섹션에 관한 모든 정보가 여기에 있으므로 책을 열 때 쿼리 한 번이면 됩니다.
  *
- * @property documentId the document this section belongs to; half of the primary key.
- * @property sectionIndex the section's position in document order; the other half of the key.
- * @property sectionTitle the section's heading, or NULL when it has none — later replaced from the book's
- * navigation on the import's last batch.
- * @property text the section's text, line-ending normalised at parse time.
- * @property startOffset where that text begins in the whole document.
- * @property endOffset one past where it ends, which is what a progressive import resumes from.
- * @property blocksJson the section's block structure, the column that dwarfs all the others on a large
- * book — read only through `getSectionBlocksJson`.
- * @property documentTitle the book's own title, written on one section's row rather than in a table of
- * its own so an open reads it with the text.
- * @property navigationJson the book's table of contents, stored the same way and for the same reason.
+ * @property documentId 이 섹션이 속한 문서이며 기본 키의 절반입니다.
+ * @property sectionIndex 문서 순서에서 섹션의 위치이며 키의 나머지 절반입니다.
+ * @property sectionTitle 섹션 제목이며 없으면 NULL입니다. 가져오기의 마지막 배치에서 책 내비게이션의 값으로
+ * 교체합니다.
+ * @property text 파싱할 때 줄 끝을 정규화한 섹션 텍스트입니다.
+ * @property startOffset 전체 문서에서 이 텍스트가 시작하는 위치입니다.
+ * @property endOffset 텍스트가 끝나는 위치 바로 다음이며 점진적 가져오기가 재개하는 위치입니다.
+ * @property blocksJson 섹션의 블록 구조이며 큰 책에서 다른 모든 열보다 훨씬 큰 열입니다.
+ * `getSectionBlocksJson`을 통해서만 읽습니다.
+ * @property documentTitle 책 자체의 제목입니다. 문서를 열 때 텍스트와 함께 읽도록 별도 테이블 대신 한 섹션 행에
+ * 기록합니다.
+ * @property navigationJson 책의 목차이며 같은 방식과 같은 이유로 저장합니다.
  */
 @Entity(
     tableName = "search_index",
@@ -54,20 +52,17 @@ data class SearchIndexEntity(
     val documentTitle: String? = null,
     val navigationJson: String = "",
     /**
-     * Which build of the parser wrote this row, so the reader can tell stored text that predates a parser
-     * change and re-parse it.
+     * 이 행을 작성한 파서 빌드이며, 리더가 파서 변경보다 앞선 저장 텍스트를 구분해 다시 파싱할 수 있게 합니다.
      *
-     * A number, because the alternative was inspecting the blocks themselves for traces of the older code —
-     * which on a book whose first illustration sits in chapter 292 meant decoding 293 chapters on every open
-     * just to ask the question.
+     * 숫자를 사용한 이유는 대안이 이전 코드의 흔적을 찾기 위해 블록 자체를 검사하는 것이기 때문입니다. 첫 삽화가
+     * 292장에 있는 책에서는 질문 하나를 위해 열 때마다 293개 챕터를 디코딩해야 했습니다.
      */
     @ColumnInfo(defaultValue = "0")
     val parserVersion: Int = 0,
     /**
-     * The archive-relative path of the spine item this section was parsed from, stored during
-     * import so `finishEpubImport` can resolve navigation titles and source paths without re-reading
-     * every stored section's full text. NULL for non-EPUB documents or legacy rows that predate
-     * TeddReaderMigration8To9.
+     * 이 섹션을 파싱한 spine 항목의 아카이브 상대 경로입니다. `finishEpubImport`가 저장된 모든 섹션의 전체
+     * 텍스트를 다시 읽지 않고 내비게이션 제목과 원본 경로를 해석할 수 있도록 가져오는 동안 저장합니다. EPUB이
+     * 아닌 문서나 TeddReaderMigration8To9 이전 레거시 행에서는 NULL입니다.
      */
     val sourcePath: String? = null,
 )

@@ -6,19 +6,18 @@ import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
 /**
- * Where one document is being read. The document id *is* the primary key, so there is exactly one row per
- * book and a page turn replaces it rather than appending history.
+ * 한 문서의 독서 위치입니다. 문서 id 자체가 기본 키이므로 책마다 행이 정확히 하나이며, 페이지를 넘길 때 이력을
+ * 추가하지 않고 교체합니다.
  *
- * [currentPageIndex] and [totalPageCount] are what the reader last displayed, kept beside the durable
- * [readerLocation] so a screen can show a number before it has laid anything out; the location is what a
- * resume actually uses. [totalPageCount] is nullable because a book still being measured has no total to
- * claim.
+ * [currentPageIndex]와 [totalPageCount]는 리더가 마지막으로 표시한 값입니다. 화면이 아직 레이아웃을 만들기
+ * 전에도 숫자를 표시할 수 있도록 영속적인 [readerLocation] 옆에 보관하지만, 실제 재개에는 위치를 사용합니다.
+ * 아직 측정 중인 책은 주장할 전체 페이지 수가 없으므로 [totalPageCount]는 nullable입니다.
  *
- * @property documentId the book, and the primary key — one position per document, replaced in place.
- * @property readerLocation the durable position, as the reader's own compact `prefix:…` string.
- * @property currentPageIndex the page last displayed, for showing progress before anything is laid out.
- * @property totalPageCount pages known when that page was displayed, or NULL while nothing was measured.
- * @property updatedAtEpochMillis when the row was written; the reader passes 0 today.
+ * @property documentId 책이자 기본 키입니다. 문서마다 위치 하나를 제자리에서 교체합니다.
+ * @property readerLocation 리더 자체의 축약형 `prefix:…` 문자열로 표현한 영속적인 위치입니다.
+ * @property currentPageIndex 레이아웃 전에 진행 상황을 표시하기 위한 마지막 표시 페이지입니다.
+ * @property totalPageCount 해당 페이지를 표시할 때 알고 있던 페이지 수이며, 측정된 값이 없으면 NULL입니다.
+ * @property updatedAtEpochMillis 행을 기록한 시각이며, 현재 리더는 0을 전달합니다.
  */
 @Entity(
     tableName = "reading_progress",
