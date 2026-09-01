@@ -431,18 +431,91 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationWholePageFlipShadowSpec] casts its hinge shadow from the outgoing whole
-     * page's trailing edge — the start edge when turning forward, the end edge when turning back —
-     * and produces no spec at all at zero offset, where there is no fold to shade.
+     * Verifies the reference shadow stays on the turning leaf's free edge while forward and
+     * backward turns retain identical dimensions and opacity.
      */
     @Test
-    fun `page flip page shadow hinge follows outgoing whole page edge`() {
-        val next = foundationWholePageFlipShadowSpec(0.5f)
-        val previous = foundationWholePageFlipShadowSpec(-0.5f)
+    fun `page flip shadow follows swipe free edge`() {
+        val next = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val previous = foundationPageFlipShadowSpec(-0.5f, FoundationPageFlipLayout.WholePage)
 
-        assertEquals(FoundationFluidSide.Start, next?.side)
-        assertEquals(FoundationFluidSide.End, previous?.side)
-        assertEquals(null, foundationWholePageFlipShadowSpec(0f))
+        assertEquals(FoundationFluidSide.End, next.side)
+        assertEquals(FoundationFluidSide.Start, previous.side)
+        assertEquals(next.outerWidthFraction, previous.outerWidthFraction, tolerance)
+        assertEquals(next.innerWidthFraction, previous.innerWidthFraction, tolerance)
+        assertEquals(next.opacity, previous.opacity, tolerance)
+    }
+
+    /**
+     * Verifies a whole-page flip casts from the raised leaf's moving free edge onto the exposed
+     * incoming page. A forward/left swipe exposes the end side beyond that edge; a backward/right
+     * swipe mirrors the edge and cast around the page center.
+     */
+    @Test
+    fun `whole page flip shadow follows moving edge onto incoming page`() {
+        val next = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.5f,
+                layout = FoundationPageFlipLayout.WholePage,
+            ),
+        )
+        val previous = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = -0.5f,
+                layout = FoundationPageFlipLayout.WholePage,
+            ),
+        )
+
+        assertTrue(next.shadowEdgeFraction > 0.5f)
+        assertEquals(FoundationFluidSide.End, next.castDirection)
+        assertEquals(1f, next.shadowEdgeFraction + previous.shadowEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.Start, previous.castDirection)
+    }
+
+    /**
+     * Verifies a split-half leaf's shadow follows its moving edge and extends onto the uncovered
+     * receiver side instead of underneath the opaque leaf toward the spine.
+     */
+    @Test
+    fun `spread page flip shadow crosses the spine onto uncovered side`() {
+        val beforeSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.25f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+        val atSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.5f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+        val afterSpine = requireNotNull(
+            foundationPageFlipProjectionSpec(
+                pageOffset = 0.75f,
+                layout = FoundationPageFlipLayout.SplitHalfFold,
+            ),
+        )
+
+        assertTrue(beforeSpine.shadowEdgeFraction > 0.5f)
+        assertEquals(FoundationFluidSide.End, beforeSpine.castDirection)
+        assertEquals(0.5f, atSpine.shadowEdgeFraction, tolerance)
+        assertEquals(FoundationFluidSide.Start, atSpine.castDirection)
+        assertTrue(afterSpine.shadowEdgeFraction < 0.5f)
+        assertEquals(FoundationFluidSide.Start, afterSpine.castDirection)
+    }
+
+    /**
+     * Verifies projected PAGE_FLIP shadows are absent at every settled endpoint, matching the
+     * reference shadow contract and preventing a stale band after cancel or completion.
+     */
+    @Test
+    fun `page flip projection vanishes at settled endpoints`() {
+        FoundationPageFlipLayout.entries.forEach { layout ->
+            assertEquals(null, foundationPageFlipProjectionSpec(0f, layout))
+            assertEquals(null, foundationPageFlipProjectionSpec(1f, layout))
+            assertEquals(null, foundationPageFlipProjectionSpec(-1f, layout))
+        }
     }
 
     /**
@@ -470,34 +543,42 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * Verifies [foundationWholePageFlipShadowSpec]'s hinge-contact alpha grows monotonically as
-     * the fold offset approaches a full turn, rather than saturating early or non-monotonically.
+     * Verifies the StPageFlip reference progression: outer width grows to 75% of one leaf while
+     * opacity falls linearly from Harism's 0.5 inner-shadow alpha to zero.
      */
     @Test
-    fun `whole page shadow contact alpha grows monotonically toward edge on`() {
-        val quarter = foundationWholePageFlipShadowSpec(0.25f)
-        val half = foundationWholePageFlipShadowSpec(0.5f)
-        val full = foundationWholePageFlipShadowSpec(1f)
+    fun `page flip shadow follows reference width and opacity progression`() {
+        val start = foundationPageFlipShadowSpec(0f, FoundationPageFlipLayout.WholePage)
+        val middle = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val end = foundationPageFlipShadowSpec(1f, FoundationPageFlipLayout.WholePage)
 
-        assertTrue(quarter != null)
-        assertTrue(half != null)
-        assertTrue(full != null)
-        assertTrue(quarter.contactAlpha > 0f)
-        assertTrue(quarter.contactAlpha < half.contactAlpha)
-        assertTrue(half.contactAlpha < full.contactAlpha)
+        assertEquals(0f, start.outerWidthFraction, tolerance)
+        assertEquals(0.5f, start.opacity, tolerance)
+        assertEquals(0.375f, middle.outerWidthFraction, tolerance)
+        assertEquals(0.25f, middle.opacity, tolerance)
+        assertEquals(0.75f, end.outerWidthFraction, tolerance)
+        assertEquals(0f, end.opacity, tolerance)
+        assertEquals(middle.outerWidthFraction * 0.75f, middle.innerWidthFraction, tolerance)
     }
 
-    /**
-     * Verifies [foundationWholePageFlipShadowSpec]'s whole-page ambient shade stays lighter than
-     * its hinge-contact shade, so the fold's crease reads darker than the rest of the turning page.
-     */
+    /** A spread leaf is half a viewport, so both reference shadow bands must be half as wide. */
     @Test
-    fun `whole page shadow keeps ambient shade below hinge contact shade`() {
-        val shadow = foundationWholePageFlipShadowSpec(0.5f)
+    fun `spread page flip shadow uses half viewport leaf width`() {
+        val whole = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
+        val spread = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.SplitHalfFold)
 
-        assertTrue(shadow != null)
-        assertTrue(shadow.ambientAlpha > 0f)
-        assertTrue(shadow.ambientAlpha < shadow.contactAlpha)
+        assertEquals(whole.outerWidthFraction * 0.5f, spread.outerWidthFraction, tolerance)
+        assertEquals(whole.innerWidthFraction * 0.5f, spread.innerWidthFraction, tolerance)
+        assertEquals(whole.opacity, spread.opacity, tolerance)
+    }
+
+    /** The inner band must touch each clipped half's outer free edge, not land outside its clip. */
+    @Test
+    fun `spread page flip inner shadow follows clipped half free edge`() {
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Left))
+        assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Right))
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Top))
+        assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Bottom))
     }
 
     /**

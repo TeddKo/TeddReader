@@ -51,14 +51,11 @@
     <string name="hands_free_reading">핸즈프리 읽기</string>
     <string name="hands_free_reading_description">문서를 자동으로 계속 읽고 싶을 때의 이동 설정입니다.</string>
     <string name="system_default">시스템 기본</string>
-    <string name="follow_system">시스템 설정 따름</string>
+    <string name="system_style">시스템 스타일</string>
     <string name="light">라이트</string>
     <string name="dark">다크</string>
     <string name="sepia">세피아</string>
     <string name="custom">사용자 지정</string>
-    <string name="document_style">문서 스타일</string>
-    <string name="pdf_style">PDF 스타일</string>
-    <string name="epub_style">EPUB 스타일</string>
     <string name="horizontal">가로</string>
     <string name="vertical">세로</string>
     <string name="animation_none">없음</string>
@@ -66,6 +63,7 @@
     <string name="animation_fade">페이드</string>
     <string name="animation_scroll">스크롤</string>
     <string name="animation_curl_pager">컬 페이지</string>
+    <string name="animation_three_d_curl">3D 컬</string>
     <string name="animation_fluid_pager">플루이드 페이지</string>
     <string name="animation_circle_reveal">원형 전환</string>
     <string name="animation_movie_carousel">무비 캐러셀</string>
@@ -128,7 +126,6 @@
     <string name="remove_from_favorites">즐겨찾기에서 제거</string>
     <string name="add_to_favorites">즐겨찾기에 추가</string>
     <string name="opening_document">문서를 여는 중</string>
-    <string name="saving_reader_settings">리더 설정을 저장하는 중</string>
     <string name="contents">목차</string>
     <string name="no_table_of_contents">목차가 없습니다.</string>
     <string name="outline_section_title">섹션 %1$s</string>

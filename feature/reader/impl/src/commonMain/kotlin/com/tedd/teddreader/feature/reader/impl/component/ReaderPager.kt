@@ -185,12 +185,18 @@ internal fun ReaderPager(
         }
 
         PageAnimation.BOOK_CURL,
-        PageAnimation.CURL_PAGER -> {
+        PageAnimation.CURL_PAGER,
+        PageAnimation.THREE_D_CURL -> {
             FoundationCurlPager(
                 pageKey = pageKey,
                 pageCount = pageCount,
                 pageStep = pageStep,
                 pageTurnMode = pageTurnMode,
+                style = if (pageAnimation == PageAnimation.THREE_D_CURL) {
+                    FoundationReferenceCurlStyle.ThreeDimensional
+                } else {
+                    FoundationReferenceCurlStyle.Standard
+                },
                 canRequestNextPage = canRequestNextPage,
                 pageMoveRequest = pageMoveRequest,
                 onPageMoveRequestConsumed = onPageMoveRequestConsumed,
@@ -272,6 +278,7 @@ internal fun ReaderPager(
                     PageAnimation.NONE -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
                     PageAnimation.FADE -> fadeIn(tween(140)) togetherWith fadeOut(tween(140))
                     PageAnimation.BOOK_CURL,
+                    PageAnimation.THREE_D_CURL,
                     PageAnimation.SLIDE,
                     PageAnimation.SHEET_FLIP,
                     PageAnimation.SCROLL,

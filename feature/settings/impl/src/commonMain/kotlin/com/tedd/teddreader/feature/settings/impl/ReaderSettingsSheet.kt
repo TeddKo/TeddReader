@@ -216,14 +216,14 @@ fun ReaderSettingsSheet(
         ) {
             listOf(
                 ReaderThemeMode.PUBLISHER,
-                ReaderThemeMode.SYSTEM,
                 ReaderThemeMode.LIGHT,
                 ReaderThemeMode.DARK,
                 ReaderThemeMode.SEPIA,
             ).forEach { mode ->
                 TeddRadioRow(
                     title = mode.displayName(),
-                    selected = uiState.style.themeMode == mode,
+                    selected = uiState.style.themeMode == mode ||
+                        (mode == ReaderThemeMode.PUBLISHER && uiState.style.themeMode == ReaderThemeMode.SYSTEM),
                     onClick = { onStyleChange(uiState.style.withThemeMode(mode)) },
                 )
             }
@@ -334,6 +334,7 @@ private val settingsDefaultTransitionOptions = listOf(
 private val settingsPageEffectOptions = listOf(
     PageAnimation.FLUID_PAGER,
     PageAnimation.CURL_PAGER,
+    PageAnimation.THREE_D_CURL,
     PageAnimation.CIRCLE_REVEAL,
     PageAnimation.MOVIE_CAROUSEL,
     PageAnimation.PAGE_FLIP,
@@ -364,8 +365,9 @@ private fun AppLanguage.displayName(): String = when (this) {
  */
 @Composable
 private fun ReaderThemeMode.displayName(): String = when (this) {
-    ReaderThemeMode.PUBLISHER -> stringResource(Res.string.document_style)
-    ReaderThemeMode.SYSTEM -> stringResource(Res.string.follow_system)
+    ReaderThemeMode.PUBLISHER,
+    ReaderThemeMode.SYSTEM,
+        -> stringResource(Res.string.system_style)
     ReaderThemeMode.LIGHT -> stringResource(Res.string.light)
     ReaderThemeMode.DARK -> stringResource(Res.string.dark)
     ReaderThemeMode.SEPIA -> stringResource(Res.string.sepia)
@@ -408,6 +410,7 @@ private fun PageAnimation.displayName(): String = when (this) {
     PageAnimation.BOOK_CURL,
     PageAnimation.CURL_PAGER,
         -> stringResource(Res.string.animation_curl_pager)
+    PageAnimation.THREE_D_CURL -> stringResource(Res.string.animation_three_d_curl)
     PageAnimation.FLUID_PAGER -> stringResource(Res.string.animation_fluid_pager)
     PageAnimation.CIRCLE_REVEAL -> stringResource(Res.string.animation_circle_reveal)
     PageAnimation.MOVIE_CAROUSEL -> stringResource(Res.string.animation_movie_carousel)

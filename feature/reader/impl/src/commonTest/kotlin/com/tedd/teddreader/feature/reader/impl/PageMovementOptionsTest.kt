@@ -20,6 +20,7 @@ class PageMovementOptionsTest {
                 PageAnimation.SCROLL,
                 PageAnimation.FLUID_PAGER,
                 PageAnimation.CURL_PAGER,
+                PageAnimation.THREE_D_CURL,
                 PageAnimation.CIRCLE_REVEAL,
                 PageAnimation.MOVIE_CAROUSEL,
                 PageAnimation.PAGE_FLIP,

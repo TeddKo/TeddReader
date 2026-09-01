@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -40,7 +41,9 @@ import com.tedd.teddreader.core.common.model.ReaderBlockStyle
 import com.tedd.teddreader.core.common.model.ReaderBorder
 import com.tedd.teddreader.core.common.model.ReaderBoxStyle
 import com.tedd.teddreader.core.common.model.ReaderColor
+import com.tedd.teddreader.core.common.model.ReaderDarkTextArgb
 import com.tedd.teddreader.core.common.model.ReaderFloat
+import com.tedd.teddreader.core.common.model.ReaderLightTextArgb
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.layoutKey
@@ -87,8 +90,8 @@ internal fun EpubPageSurface(
     modifier: Modifier = Modifier,
 ) {
     val plateBlock = epubFullPagePlate(text = page.text, blocks = page.blocks)
-    val readerTextStyle = style.readerTextStyle()
-    val baseTextColor = style.textColor.toColor()
+    val readerTextStyle = epubPageTextStyle(page, style)
+    val baseTextColor = readerTextStyle.color
     val publisherColorsEnabled = style.themeMode == ReaderThemeMode.PUBLISHER
     if (plateBlock != null) {
         EpubImageBox(
@@ -606,6 +609,22 @@ internal fun epubPageContainerBackgroundColor(
         .maxByOrNull { (level, _) -> level }
         ?.second
 }
+
+/**
+ * The text colour used only when publisher styling does not provide one. A publisher page background
+ * wins over the reader background, so its luminance must also choose the fallback ink; otherwise a
+ * light publisher page on a dark device receives the dark theme's light ink and becomes unreadable.
+ */
+internal fun epubPageBaseTextColor(page: ReaderPageUi, style: ReaderStyle): ReaderColor {
+    val publisherBackground = epubPageContainerBackgroundColor(page, style) ?: return style.textColor
+    return ReaderColor(
+        if (publisherBackground.toColor().luminance() > 0.5f) ReaderLightTextArgb else ReaderDarkTextArgb,
+    )
+}
+
+/** The EPUB body style with its unspecified-foreground fallback matched to the painted page. */
+internal fun epubPageTextStyle(page: ReaderPageUi, style: ReaderStyle): TextStyle =
+    style.readerTextStyle().copy(color = epubPageBaseTextColor(page, style).toColor())
 
 /**
  * This rect grown to include the box's own padding, so its border is drawn off the text rather than through
