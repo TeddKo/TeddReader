@@ -4,11 +4,11 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
 /**
- * The app's raw palette: the actual pigments every theme is mixed from.
+ * 모든 테마를 조합하는 실제 안료인 앱의 원시 팔레트입니다.
  *
- * Named after what they are — paper, ink, clay, sage, charcoal — rather than after the roles they fill, so
- * one pigment can serve several roles and a role can be re-pointed without renaming a colour. Roles live in
- * [TeddReaderColors]; these are the only literal colour values in the app.
+ * 역할이 아니라 실제 성격인 종이, 잉크, 점토, 세이지, 숯을 따라 이름을 붙였습니다. 따라서 한 안료가 여러
+ * 역할을 맡을 수 있고 색상 이름을 바꾸지 않고 역할의 연결 대상을 바꿀 수 있습니다. 역할은
+ * [TeddReaderColors]에 있으며, 앱에서 리터럴 색상 값을 선언하는 곳은 여기뿐입니다.
  */
 val PaperEggshell = Color(0xFFF7F1E7)
 val PaperWarm = Color(0xFFFBF7F0)
@@ -23,64 +23,62 @@ val CharcoalRaised = Color(0xFF242826)
 val EmberError = Color(0xFFB24C3B)
 
 /**
- * The app's colour roles, mixed from the pigments above.
+ * 위 안료를 조합한 앱의 색상 역할입니다.
  *
- * Mirrors Material 3's role names on purpose: the app hands this to `MaterialTheme` so stock components
- * pick the app's colours up, while screens read the same roles through the theme instead of reaching for a
- * pigment directly. A screen that names a role keeps working when the palette is re-mixed; a screen that
- * names a pigment does not.
+ * 의도적으로 Material 3의 역할 이름을 따릅니다. 앱이 이 값을 `MaterialTheme`에 전달하면 기본 컴포넌트가
+ * 앱 색상을 사용하고, 화면도 안료에 직접 접근하지 않고 테마를 통해 같은 역할을 읽습니다. 역할을 지정한
+ * 화면은 팔레트를 다시 조합해도 계속 동작하지만 안료를 지정한 화면은 그렇지 않습니다.
  *
- * `@Immutable` because the whole theme is passed down through composition locals — without it Compose
- * cannot skip a consumer that received the same colours again.
+ * 전체 테마가 컴포지션 로컬을 통해 전달되므로 `@Immutable`입니다. 이 지정이 없으면 Compose는 같은 색상을
+ * 다시 받은 소비자의 컴포지션을 생략할 수 없습니다.
  *
- * @property primary the brand accent: primary buttons, active controls, progress.
- * @property onPrimary content drawn on [primary].
- * @property primaryContainer the accent's tinted surface, for selected rows and chips.
- * @property onPrimaryContainer content drawn on [primaryContainer].
- * @property inversePrimary the accent as it reads on an inverted surface, e.g. a snackbar action.
- * @property secondary the supporting accent, for controls that must not compete with [primary].
- * @property onSecondary content drawn on [secondary].
- * @property secondaryContainer the supporting accent's tinted surface.
- * @property onSecondaryContainer content drawn on [secondaryContainer].
- * @property tertiary the third accent, used to separate a distinct kind of item from the first two.
- * @property onTertiary content drawn on [tertiary].
- * @property tertiaryContainer that accent's tinted surface.
- * @property onTertiaryContainer content drawn on [tertiaryContainer].
- * @property error a failed action or invalid input.
- * @property onError content drawn on [error].
- * @property errorContainer the error surface behind a message.
- * @property onErrorContainer content drawn on [errorContainer].
- * @property background the window behind everything.
- * @property onBackground content drawn straight on [background].
- * @property surface a card, bar or sheet.
- * @property onSurface content drawn on [surface] — the app's default text colour.
- * @property surfaceVariant a surface that has to read as recessed.
- * @property onSurfaceVariant secondary text and icons, one step quieter than [onSurface].
- * @property surfaceDim the darkest surface tone of the current theme.
- * @property surfaceBright the lightest surface tone of the current theme.
- * @property surfaceContainerLowest through [surfaceContainerHighest] the five surface elevation tones, from
- * furthest below the reader's eye to closest, so stacked surfaces stay distinguishable without shadows.
- * @property surfaceContainerLow one step above lowest.
- * @property surfaceContainer the resting surface tone for a container.
- * @property surfaceContainerHigh a raised container.
- * @property surfaceContainerHighest the topmost container tone.
- * @property inverseSurface a surface that inverts against the theme, e.g. a snackbar.
- * @property inverseOnSurface content drawn on [inverseSurface].
- * @property outline a visible border.
- * @property outlineVariant a divider or a quieter border.
- * @property scrim the dim behind a modal surface.
- * @property ripple The reference colour for all ripple indications throughout the app. Material's
- * default ripple derives from `LocalContentColor`, which makes the pressed feedback vary from
- * component to component. This role pins the ripple to one deliberate colour so the app has a
- * single, consistent tactile signal regardless of which surface is pressed.
- * @property outlineSubtle A quiet border for cards and containers. Today this carries the same
- * value as [outlineVariant], which is intentional: the two roles serve different purposes —
- * [outlineVariant] marks dividers and separators, while [outlineSubtle] frames cards and containers
- * — so they can diverge independently when the palette evolves without renaming either call site.
- * @property shadow The spot-and-ambient colour passed to `Modifier.shadow`. The alpha is baked
- * into this value so callers do not multiply it a second time; multiplying again would make
- * shadows either too transparent or fully opaque depending on the blend mode, rather than the
- * designed depth.
+ * @property primary 기본 버튼, 활성 컨트롤, 진행률에 사용하는 브랜드 강조색입니다.
+ * @property onPrimary [primary] 위에 그리는 콘텐츠 색상입니다.
+ * @property primaryContainer 선택된 행과 칩에 사용하는 강조색의 옅은 표면입니다.
+ * @property onPrimaryContainer [primaryContainer] 위에 그리는 콘텐츠 색상입니다.
+ * @property inversePrimary 스낵바 작업처럼 반전된 표면 위에서 보이는 강조색입니다.
+ * @property secondary [primary]와 경쟁하면 안 되는 컨트롤에 사용하는 보조 강조색입니다.
+ * @property onSecondary [secondary] 위에 그리는 콘텐츠 색상입니다.
+ * @property secondaryContainer 보조 강조색의 옅은 표면입니다.
+ * @property onSecondaryContainer [secondaryContainer] 위에 그리는 콘텐츠 색상입니다.
+ * @property tertiary 앞의 두 종류와 다른 항목을 구분하는 세 번째 강조색입니다.
+ * @property onTertiary [tertiary] 위에 그리는 콘텐츠 색상입니다.
+ * @property tertiaryContainer 세 번째 강조색의 옅은 표면입니다.
+ * @property onTertiaryContainer [tertiaryContainer] 위에 그리는 콘텐츠 색상입니다.
+ * @property error 실패한 작업이나 잘못된 입력을 나타내는 색상입니다.
+ * @property onError [error] 위에 그리는 콘텐츠 색상입니다.
+ * @property errorContainer 메시지 뒤의 오류 표면입니다.
+ * @property onErrorContainer [errorContainer] 위에 그리는 콘텐츠 색상입니다.
+ * @property background 모든 요소 뒤의 창 배경입니다.
+ * @property onBackground [background] 바로 위에 그리는 콘텐츠 색상입니다.
+ * @property surface 카드, 바, 시트의 표면색입니다.
+ * @property onSurface [surface] 위에 그리는 콘텐츠이자 앱의 기본 텍스트 색상입니다.
+ * @property surfaceVariant 들어간 것처럼 보여야 하는 표면입니다.
+ * @property onSurfaceVariant [onSurface]보다 한 단계 차분한 보조 텍스트와 아이콘 색상입니다.
+ * @property surfaceDim 현재 테마에서 가장 어두운 표면 색조입니다.
+ * @property surfaceBright 현재 테마에서 가장 밝은 표면 색조입니다.
+ * @property surfaceContainerLowest [surfaceContainerHighest]까지 이어지는 다섯 가지 표면 고도 색조 중
+ * 독자의 눈에서 가장 먼 색조입니다. 그림자 없이도 쌓인 표면을 구분할 수 있도록 가장 먼 곳부터 가장
+ * 가까운 곳까지 단계가 이어집니다.
+ * @property surfaceContainerLow 가장 낮은 단계보다 한 단계 위의 색조입니다.
+ * @property surfaceContainer 컨테이너의 기본 표면 색조입니다.
+ * @property surfaceContainerHigh 떠 있는 컨테이너의 색조입니다.
+ * @property surfaceContainerHighest 가장 위에 있는 컨테이너의 색조입니다.
+ * @property inverseSurface 스낵바처럼 테마와 반전되는 표면입니다.
+ * @property inverseOnSurface [inverseSurface] 위에 그리는 콘텐츠 색상입니다.
+ * @property outline 눈에 보이는 테두리 색상입니다.
+ * @property outlineVariant 구분선이나 더 차분한 테두리 색상입니다.
+ * @property scrim 모달 표면 뒤를 어둡게 하는 색상입니다.
+ * @property ripple 앱의 모든 리플 표시에 사용하는 기준 색상입니다. Material의 기본 리플은
+ * `LocalContentColor`에서 파생되어 컴포넌트마다 눌림 피드백이 달라집니다. 어떤 표면을 누르든 앱에서 하나의
+ * 일관된 촉각 신호를 제공하도록 이 역할은 리플을 의도한 단일 색상으로 고정합니다.
+ * @property outlineSubtle 카드와 컨테이너에 사용하는 차분한 테두리입니다. 현재 [outlineVariant]와 같은
+ * 값을 사용하는 것은 의도적입니다. [outlineVariant]는 구분선과 분리선을 표시하고 [outlineSubtle]은 카드와
+ * 컨테이너의 틀을 두르므로 두 역할의 목적이 다릅니다. 따라서 팔레트가 발전할 때 어느 호출 지점의 이름도
+ * 바꾸지 않고 두 값을 독립적으로 달리할 수 있습니다.
+ * @property shadow `Modifier.shadow`에 전달하는 직접광 및 주변광 색상입니다. 알파가 이 값에 이미 포함되어
+ * 있으므로 호출자가 두 번째로 곱하면 안 됩니다. 다시 곱하면 설계한 깊이가 아니라 혼합 모드에 따라 그림자가
+ * 지나치게 투명해지거나 완전히 불투명해집니다.
  */
 @Immutable
 data class TeddReaderColors(
@@ -124,7 +122,7 @@ data class TeddReaderColors(
     val shadow: Color,
 )
 
-/** The app's day palette: warm paper surfaces with clay and sage accents. */
+/** 따뜻한 종이 표면에 점토색과 세이지색 강조를 사용하는 앱의 주간 팔레트입니다. */
 val LightTeddReaderColors = TeddReaderColors(
     primary = ClayPrimary,
     onPrimary = PaperWarm,
@@ -166,7 +164,7 @@ val LightTeddReaderColors = TeddReaderColors(
     shadow = InkNearBlack.copy(alpha = 0.20f),
 )
 
-/** The app's night palette: charcoal surfaces carrying the same accents at their dark-theme tones. */
+/** 숯색 표면에 같은 강조색의 다크 테마 색조를 적용한 앱의 야간 팔레트입니다. */
 val DarkTeddReaderColors = TeddReaderColors(
     primary = Color(0xFFD5A38D),
     onPrimary = Color(0xFF3F2318),

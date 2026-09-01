@@ -12,22 +12,21 @@ import com.tedd.teddreader.core.common.model.ReaderSepiaTextArgb
 import com.tedd.teddreader.core.common.model.ReaderStyle
 
 /**
- * Every colour a reading page and its controls draw with.
+ * 읽기 페이지와 그 위의 컨트롤을 그리는 데 사용하는 모든 색상입니다.
  *
- * Separate from the app's own Material palette because a reading page is not app chrome: its ink and paper
- * are the reader's choice, and the controls floating over them have to stay legible against whatever that
- * choice is. Bundling them means a theme is one value to pass and one thing to swap.
+ * 읽기 페이지는 앱 크롬이 아니므로 앱 자체의 Material 팔레트와 분리되어 있습니다. 글자색과 종이색은
+ * 독자가 선택하며, 그 위에 떠 있는 컨트롤은 어떤 선택에서도 읽기 쉬워야 합니다. 한데 묶어 두면 테마를
+ * 하나의 값으로 전달하고 하나의 단위로 교체할 수 있습니다.
  *
- * @property text the ink the book is set in.
- * @property background the paper behind it.
- * @property controls the surface of the bars and sheets floating over the page, alpha'd so the page shows
- * through.
- * @property controlsContent ink for those controls, chosen to stay legible on [controls].
- * @property selection the wash behind selected text.
- * @property highlight the wash behind a search hit or a highlighted passage.
- * @property bookmark the accent that marks a saved place.
- * @property divider hairlines between control rows.
- * @property dimOverlay the scrim over the page while a sheet or dialog is open.
+ * @property text 책 본문에 사용하는 글자색입니다.
+ * @property background 본문 뒤의 종이색입니다.
+ * @property controls 페이지가 비쳐 보이도록 알파를 적용한, 페이지 위의 바와 시트 표면색입니다.
+ * @property controlsContent [controls] 위에서 읽기 쉽도록 선택한 컨트롤 글자색입니다.
+ * @property selection 선택한 텍스트 뒤에 칠하는 색상입니다.
+ * @property highlight 검색 결과나 강조한 구절 뒤에 칠하는 색상입니다.
+ * @property bookmark 저장한 위치를 표시하는 강조색입니다.
+ * @property divider 컨트롤 행 사이의 가는 구분선 색상입니다.
+ * @property dimOverlay 시트나 다이얼로그가 열렸을 때 페이지 위에 씌우는 스크림 색상입니다.
  */
 @Immutable
 data class ReaderColors(
@@ -42,7 +41,7 @@ data class ReaderColors(
     val dimOverlay: Color,
 )
 
-/** Day reading: warm paper and near-black ink, the reader's default. */
+/** 독자의 기본값인 주간 읽기 팔레트로, 따뜻한 종이색과 검정에 가까운 글자색을 사용합니다. */
 val LightReaderColors = ReaderColors(
     text = ReaderColor(ReaderLightTextArgb).toColor(),
     background = ReaderColor(ReaderLightBackgroundArgb).toColor(),
@@ -55,7 +54,7 @@ val LightReaderColors = ReaderColors(
     dimOverlay = Color(0x66000000),
 )
 
-/** Night reading in a dark room: dark paper, warm off-white ink to keep the glare down. */
+/** 어두운 방에서 눈부심을 줄이도록 어두운 종이색과 따뜻한 미색 글자를 사용하는 야간 읽기 팔레트입니다. */
 val DarkReaderColors = ReaderColors(
     text = ReaderColor(ReaderDarkTextArgb).toColor(),
     background = ReaderColor(ReaderDarkBackgroundArgb).toColor(),
@@ -68,7 +67,7 @@ val DarkReaderColors = ReaderColors(
     dimOverlay = Color(0x99000000),
 )
 
-/** Sepia: aged-paper tone for long sessions in warm light. */
+/** 따뜻한 조명에서 오래 읽을 때 사용하는 오래된 종이 느낌의 세피아 팔레트입니다. */
 val SepiaReaderColors = ReaderColors(
     text = ReaderColor(ReaderSepiaTextArgb).toColor(),
     background = ReaderColor(ReaderSepiaBackgroundArgb).toColor(),
@@ -81,7 +80,7 @@ val SepiaReaderColors = ReaderColors(
     dimOverlay = Color(0x66000000),
 )
 
-/** A deeper night than [DarkReaderColors], for reading with the lights off. */
+/** 불을 끄고 읽을 때 사용하는 [DarkReaderColors]보다 더 어두운 야간 팔레트입니다. */
 val NightReaderColors = ReaderColors(
     text = Color(0xFFF2EDE2),
     background = CharcoalNight,
@@ -94,7 +93,7 @@ val NightReaderColors = ReaderColors(
     dimOverlay = Color(0xB3000000),
 )
 
-/** Pure black on white with saturated accents, for readers who need maximum contrast. */
+/** 최대 대비가 필요한 독자를 위해 순수한 검정과 흰색에 채도 높은 강조색을 조합한 팔레트입니다. */
 val HighContrastReaderColors = ReaderColors(
     text = Color.White,
     background = Color.Black,
@@ -108,15 +107,15 @@ val HighContrastReaderColors = ReaderColors(
 )
 
 /**
- * Builds a page palette from the colours the reader chose themselves.
+ * 독자가 직접 선택한 색상으로 페이지 팔레트를 만듭니다.
  *
- * Only ink and paper come from the style — a reader picks those two, not nine — so the rest is derived:
- * controls take the page colour at 95% so the page shows through, their ink takes the text colour, and
- * dividers take the text colour at 16%. Selection, highlight and bookmark are kept from
- * [LightReaderColors] because they have to remain recognisable as *those* marks whatever the page is.
+ * 독자는 아홉 가지가 아니라 글자색과 종이색 두 가지만 선택하므로 나머지는 이 둘에서 파생합니다. 페이지가
+ * 비쳐 보이도록 컨트롤은 페이지 색상의 95%를 사용하고, 컨트롤 글자는 텍스트 색상을 사용하며, 구분선은
+ * 텍스트 색상의 16%를 사용합니다. 선택 영역, 강조 표시, 북마크는 페이지 색상과 관계없이 각각의 표시로
+ * 알아볼 수 있어야 하므로 [LightReaderColors]의 값을 유지합니다.
  *
- * @receiver the reader's own style, whose text and background colours drive everything here.
- * @return a palette that stays legible on the reader's own page colours.
+ * @receiver 여기의 모든 색상을 결정하는 텍스트색과 배경색을 담은 독자 고유의 스타일입니다.
+ * @return 독자가 선택한 페이지 색상 위에서도 읽기 쉬운 팔레트입니다.
  */
 fun ReaderStyle.readerColors(): ReaderColors = ReaderColors(
     text = textColor.toColor(),
@@ -131,10 +130,9 @@ fun ReaderStyle.readerColors(): ReaderColors = ReaderColors(
 )
 
 /**
- * Converts a stored colour into Compose's own, and the single crossing point between the model layer and
- * the UI layer's colour type.
+ * 저장된 색상을 Compose 색상으로 변환하며, 모델 계층과 UI 계층의 색상 타입이 만나는 유일한 지점입니다.
  *
- * @receiver the stored `0xAARRGGBB` value.
- * @return the same colour as Compose sees it, alpha included.
+ * @receiver 저장된 `0xAARRGGBB` 값입니다.
+ * @return 알파를 포함해 Compose에서 동일하게 보이는 색상입니다.
  */
 fun ReaderColor.toColor(): Color = Color(argb.toInt())

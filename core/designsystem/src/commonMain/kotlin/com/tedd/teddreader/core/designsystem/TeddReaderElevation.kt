@@ -5,15 +5,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * How far each kind of surface sits above the page, in one place so two surfaces of the same importance
- * cannot drift apart.
+ * 중요도가 같은 두 표면의 높이가 달라지지 않도록 한곳에서 정의한, 각 표면이 페이지 위에 떠 있는
+ * 거리입니다.
  *
- * @property none flat against the background.
- * @property xSmall a hairline lift, for a divider-like surface.
- * @property small a resting card.
- * @property medium a raised card or a bar.
- * @property large a sheet or menu.
- * @property xLarge a dialog, the highest surface the app draws.
+ * @property none 배경에 붙어 있는 평평한 표면입니다.
+ * @property xSmall 구분선 같은 표면에 사용하는 아주 얕은 높이입니다.
+ * @property small 평상시 카드의 높이입니다.
+ * @property medium 떠 있는 카드나 바의 높이입니다.
+ * @property large 시트나 메뉴의 높이입니다.
+ * @property xLarge 앱이 그리는 가장 높은 표면인 다이얼로그의 높이입니다.
  */
 @Immutable
 data class TeddReaderElevation(
@@ -25,5 +25,5 @@ data class TeddReaderElevation(
     val xLarge: Dp = 12.dp,
 )
 
-/** The elevation scale the theme installs unless a caller overrides it. */
+/** 호출자가 재정의하지 않을 때 테마가 설치하는 고도 척도입니다. */
 val DefaultTeddReaderElevation = TeddReaderElevation()
