@@ -4,14 +4,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins how both EPUB 3's nav document ([parseEpubNavDocument]) and EPUB 2's NCX ([parseNcxDocument])
- * are parsed into the same [ParsedNavigation] shape: heading label, nested label/level/href per entry,
- * and an inline image's `alt` text folding into its link's own label.
+ * EPUB 3의 nav 문서([parseEpubNavDocument])와 EPUB 2의 NCX([parseNcxDocument]) 모두
+ * 동일한 [ParsedNavigation] 구조로 파싱되는 방식을 고정한다: 헤딩 레이블, 항목별 중첩 레이블/레벨/href,
+ * 그리고 링크 텍스트 내 인라인 이미지의 `alt` 텍스트가 해당 링크의 레이블로 합쳐지는 것을 포함한다.
  */
 class EpubNavigationParserTest {
     /**
-     * A nav document's heading, nested `<li>` levels, and an inline `<img alt>` inside a link's text are
-     * all captured correctly.
+     * nav 문서의 헤딩, 중첩된 `<li>` 레벨, 그리고 링크 텍스트 내 인라인 `<img alt>`가
+     * 모두 올바르게 파싱됨을 검증한다.
      */
     @Test
     fun parsesEpub3NavHeadingNestedLabelsAndInlineImageAlt() {
@@ -38,7 +38,7 @@ class EpubNavigationParserTest {
         assertEquals(listOf("text/ch1.xhtml", "text/ch1.xhtml#scene"), parsed.entries.map { it.href })
     }
 
-    /** An NCX's `docTitle`, and its nested `navPoint` labels and levels, are captured correctly. */
+    /** NCX의 `docTitle`과 중첩된 `navPoint` 레이블 및 레벨이 올바르게 파싱됨을 검증한다. */
     @Test
     fun parsesNcxDocTitleAndNestedLabels() {
         val parsed = parseNcxDocument(

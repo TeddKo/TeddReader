@@ -11,49 +11,49 @@ import kotlinx.coroutines.flow.map
 import org.koin.core.annotation.Single
 
 /**
- * Saved places, backed by the bookmarks table.
+ * 저장된 위치들, bookmarks 테이블 기반.
  *
- * Nothing here but mapping and delegation, which is the point: a saved place has no rule of its own beyond
- * the composed id its caller builds (see [Bookmark.id]), so this stays data access and the reader keeps the
- * decision about *when* a place is saved.
+ * 여기엔 매핑과 위임 말고는 아무것도 없다는 게 핵심이다: 저장된 위치는 호출자가 만드는 합성 id
+ * ([Bookmark.id] 참고) 외에 자체 규칙이 없으므로, 이 클래스는 데이터 접근에 머물고 *언제* 위치를
+ * 저장할지에 대한 결정은 리더 쪽이 갖는다.
  *
- * @property bookmarkDao the table this reads and writes.
+ * @property bookmarkDao 읽고 쓰는 대상 테이블.
  */
 @Single(binds = [BookmarkRepository::class])
 class BookmarkRepositoryImpl(
     private val bookmarkDao: BookmarkDao,
 ) : BookmarkRepository {
     /**
-     * The saved places for [documentId], re-emitted whenever one is added or removed.
+     * [documentId]에 대해 저장된 위치들. 하나가 추가되거나 제거될 때마다 다시 방출된다.
      *
-     * @param documentId the document whose bookmarks to observe.
-     * @return the current list, and every later change, mapped from the stored entity shape.
+     * @param documentId 북마크를 관찰할 문서.
+     * @return 현재 목록과 이후의 모든 변경 사항. 저장된 엔티티 형태로부터 매핑됨.
      */
     override fun observeBookmarks(documentId: DocumentId): Flow<List<Bookmark>> =
         bookmarkDao.observeBookmarks(documentId.value).map { bookmarks -> bookmarks.map { it.toBookmark() } }
 
     /**
-     * One saved place by its id.
+     * id로 조회하는 저장된 위치 하나.
      *
-     * @param bookmarkId the bookmark's id.
-     * @return the bookmark, or null when no row matches [bookmarkId].
+     * @param bookmarkId 북마크의 id.
+     * @return 해당 북마크, 또는 [bookmarkId]와 일치하는 행이 없으면 null.
      */
     override suspend fun getBookmark(bookmarkId: String): Bookmark? =
         bookmarkDao.getBookmark(bookmarkId)?.toBookmark()
 
     /**
-     * Inserts [bookmark], or replaces the existing row with the same id.
+     * [bookmark]를 삽입하거나, 같은 id를 가진 기존 행을 대체한다.
      *
-     * @param bookmark the place to save.
+     * @param bookmark 저장할 위치.
      */
     override suspend fun saveBookmark(bookmark: Bookmark) {
         bookmarkDao.upsertBookmark(bookmark.toBookmarkEntity())
     }
 
     /**
-     * Removes the saved place with [bookmarkId], if one exists.
+     * [bookmarkId]에 해당하는 저장된 위치를 존재할 경우 제거한다.
      *
-     * @param bookmarkId the bookmark's id.
+     * @param bookmarkId 북마크의 id.
      */
     override suspend fun deleteBookmark(bookmarkId: String) {
         bookmarkDao.deleteBookmark(bookmarkId)

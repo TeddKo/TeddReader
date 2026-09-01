@@ -30,17 +30,16 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * Performance regression tests for the page-count finalization optimization. Each test asserts the
- * specific performance guarantee the optimization introduces, and would fail if that guarantee were
- * removed — by counting DAO call counts, verifying that expensive paths are not taken, and confirming
- * that the domain contract for incomplete imports remains intact.
+ * 페이지 수 최종화(finalization) 최적화에 대한 성능 회귀 테스트. 각 테스트는 이 최적화가 도입한
+ * 특정 성능 보장을 단언하며, 그 보장이 제거된다면 실패하도록 만들어졌다 — DAO 호출 횟수를 세고,
+ * 비용이 큰 경로가 타지 않았음을 검증하고, 임포트가 미완료일 때의 도메인 계약이 온전한지 확인함으로써.
  */
 class PageCountFinalizationPerformanceTest {
 
     /**
-     * Verifies that when `embeddedFontHrefsJson` is populated in the entity, `getReferencedEmbeddedFontHrefs`
-     * returns the indexed result without touching the blocks DAO at all. This is the core performance
-     * guarantee: O(F) font lookup instead of O(sections * blocks) full prewarm.
+     * 엔티티에 `embeddedFontHrefsJson`이 채워져 있을 때, `getReferencedEmbeddedFontHrefs`가 blocks
+     * DAO를 전혀 건드리지 않고 인덱싱된 결과를 반환하는지 검증한다. 이것이 핵심 성능 보장이다: O(섹션 *
+     * 블록)의 전체 프리워밍 대신 O(폰트 수)의 조회.
      */
     @Test
     fun indexedFontLookupDoesNotReadBlocksDao() = runTest {
@@ -78,8 +77,8 @@ class PageCountFinalizationPerformanceTest {
     }
 
     /**
-     * Verifies that incomplete import metadata masks character/word counts to null in the domain model.
-     * This preserves the existing domain contract that library UI relies on.
+     * 미완료 임포트 메타데이터가 도메인 모델에서 문자/단어 수를 null로 가리는지 검증한다. 이는
+     * 라이브러리 UI가 의존하는 기존 도메인 계약을 지킨다.
      */
     @Test
     fun incompleteMetadataCountsAreNull() = runTest {
@@ -101,7 +100,7 @@ class PageCountFinalizationPerformanceTest {
     }
 
     /**
-     * Verifies that once import completes, the stored accumulator counts become visible in domain metadata.
+     * 임포트가 완료되면, 저장된 누산 카운트가 도메인 메타데이터에 드러나는지 검증한다.
      */
     @Test
     fun completedMetadataCountsAreVisible() = runTest {
@@ -123,13 +122,14 @@ class PageCountFinalizationPerformanceTest {
     }
 
     /**
-     * Verifies that `finishEpubImport` uses targeted DAO queries: if `getDocumentSectionsWithoutBlocks`
-     * were called during finishEpubImport, `sectionsWithoutBlocksCallCount` would increase after the
-     * import-complete state change. This test exercises the contract through the entity layer since the
-     * actual finish path requires EPUB parsing infrastructure that is private to the main test suite.
+     * `finishEpubImport`가 목표가 분명한 DAO 쿼리를 사용하는지 검증한다: finishEpubImport 도중
+     * `getDocumentSectionsWithoutBlocks`가 호출되었다면, 임포트 완료 상태 변경 이후
+     * `sectionsWithoutBlocksCallCount`가 증가했을 것이다. 실제 finish 경로는 메인 테스트 스위트에
+     * 비공개인 EPUB 파싱 인프라가 필요하므로, 이 테스트는 엔티티 계층을 통해 그 계약을 검증한다.
      *
-     * The real end-to-end verification that finish skips full-text queries is covered in
-     * DocumentRepositoryImplTest.repeatedImportNextSectionsCompletesNavigationWithoutRestartFallback.
+     * finish가 전문(full-text) 쿼리를 건너뛴다는 실제 end-to-end 검증은
+     * DocumentRepositoryImplTest.repeatedImportNextSectionsCompletesNavigationWithoutRestartFallback에서
+     * 다룬다.
      */
     @Test
     fun finishUsesStoredCountsNotRecomputedFromText() = runTest {
@@ -160,8 +160,8 @@ class PageCountFinalizationPerformanceTest {
     }
 
     /**
-     * Verifies that legacy font fallback (null `embeddedFontHrefsJson`) does scan blocks, then backfills
-     * the index so subsequent calls are fast. Would fail if backfill were removed.
+     * 레거시 폰트 폴백(`embeddedFontHrefsJson`이 null)이 블록을 실제로 스캔한 뒤, 이후 호출이 빠르도록
+     * 인덱스를 백필하는지 검증한다. 백필이 제거되면 실패한다.
      */
     @Test
     fun legacyFontFallbackScansOnceThenBackfills() = runTest {
@@ -217,9 +217,9 @@ class PageCountFinalizationPerformanceTest {
 }
 
 /**
- * A [DocumentDao] that counts method invocations to verify performance guarantees.
+ * 성능 보장을 검증하기 위해 메서드 호출 횟수를 세는 [DocumentDao].
  *
- * @property document The single document stored, or null when empty.
+ * @property document 저장된 단일 문서, 비어 있으면 null.
  */
 private class CountingDocumentDao(
     var document: DocumentEntity? = null,
@@ -275,7 +275,7 @@ private class CountingDocumentDao(
 }
 
 /**
- * A [SearchIndexDao] that counts key method calls to verify performance contracts.
+ * 성능 계약을 검증하기 위해 핵심 메서드 호출을 세는 [SearchIndexDao].
  */
 private class CountingSearchIndexDao : SearchIndexDao {
     private val entries = mutableListOf<SearchIndexEntity>()
@@ -334,7 +334,7 @@ private class CountingSearchIndexDao : SearchIndexDao {
 }
 
 /**
- * A no-op [PageLayoutDao] for tests that don't exercise page layout storage.
+ * 페이지 레이아웃 저장을 다루지 않는 테스트를 위한 무동작(no-op) [PageLayoutDao].
  */
 private class NoOpPageLayoutDao : PageLayoutDao {
     override suspend fun upsertPageLayout(layout: PageLayoutEntity) = Unit

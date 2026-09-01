@@ -10,20 +10,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Guards [distributeBlocksIntoSections] against the per-section `blocksIn`/`rebasedBy` it replaced. The
- * reference implementation those cases check against is the exact expression the old
- * [DocumentRepositoryImpl.persistParsedDocument] ran, so any divergence in boundary-crossing, zero-width,
- * empty-input or ordering behavior fails here rather than silently changing what a stored section holds.
+ * [distributeBlocksIntoSections]를 구역별 `blocksIn`/`rebasedBy` 방식(대체 이전)으로부터 보호한다.
+ * 각 케이스가 비교하는 기준 구현은 이전 [DocumentRepositoryImpl.persistParsedDocument]가 실행하던
+ * 정확한 표현식이므로, 경계 교차·영폭·빈 입력·순서 동작에서 어떤 차이가 생기면 조용히 저장된
+ * 섹션의 내용을 바꾸는 대신 이 테스트에서 실패한다.
  */
 class SectionBlockDistributionTest {
     /**
-     * The reference the sweep must match block-for-block: the pre-refactor expression, run per section.
-     * Kept here rather than shared with production so a regression in the helper cannot also silently
-     * change the reference it is compared against.
+     * 스윕이 블록 단위로 일치해야 하는 기준: 리팩터 이전 표현식을 섹션마다 실행한 것이다.
+     * 헬퍼의 회귀가 비교 기준도 조용히 바꾸는 일이 없도록, 프로덕션 코드와 공유하지 않고 여기에 둔다.
      *
-     * @param sections the section ranges to distribute across.
-     * @param blocks the document's flat block list.
-     * @return each section's overlapping blocks, rebased section-relative, exactly as the old code built.
+     * @param sections 분배할 섹션 범위 목록.
+     * @param blocks 문서의 평탄한 블록 목록.
+     * @return 이전 코드가 구축하던 방식 그대로, 각 섹션의 겹치는 블록을 섹션 상대 좌표로 리베이스한 결과.
      */
     private fun referenceDistribution(
         sections: List<TextRange>,
@@ -33,19 +32,19 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * A paragraph block over `[start, end)`, the simplest kind carrying real text offsets, so a case can
-     * name only the offsets it is testing.
+     * `[start, end)` 범위의 단락 블록이다. 실제 텍스트 오프셋을 갖는 가장 단순한 종류이므로,
+     * 케이스는 테스트하려는 오프셋만 지정하면 된다.
      *
-     * @param start the block's absolute start offset.
-     * @param end the block's absolute end offset; equal to [start] makes a zero-width block.
-     * @return the paragraph block.
+     * @param start 블록의 절대 시작 오프셋.
+     * @param end 블록의 절대 끝 오프셋; [start]와 같으면 영폭(zero-width) 블록이 된다.
+     * @return 단락 블록.
      */
     private fun block(start: Long, end: Long): ReaderBlock =
         ReaderBlock(kind = ReaderBlockKind.PARAGRAPH, range = TextRange(start, end))
 
     /**
-     * Confirms an empty section list yields an empty result, and empty blocks yield one empty list per
-     * section — the two degenerate inputs the sweep short-circuits before sorting anything.
+     * 빈 섹션 목록은 빈 결과를, 빈 블록은 섹션마다 빈 목록 하나를 반환함을 확인한다 —
+     * 스윕이 정렬 전에 단락 처리하는 두 가지 퇴화 입력이다.
      */
     @Test
     fun emptyInputsMatchReference() {
@@ -60,8 +59,8 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms blocks that sit wholly inside one section land only in that section, rebased by its start,
-     * matching the reference for the ordinary non-crossing case.
+     * 한 섹션 안에 완전히 속하는 블록은 해당 섹션에만, 섹션 시작 기준으로 리베이스되어
+     * 배치됨을 확인하며, 일반적인 비교차 케이스에서 기준과 일치한다.
      */
     @Test
     fun containedBlocksMatchReference() {
@@ -75,8 +74,8 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms a non-zero block that straddles a section boundary is emitted into every section it
-     * overlaps, not just its starting one — the half-open overlap rule [blocksIn] applies.
+     * 섹션 경계를 걸치는 영폭이 아닌 블록이 시작 섹션에만 배치되지 않고
+     * 겹치는 모든 섹션에 배치됨을 확인한다 — [blocksIn]의 반개방 구간 겹침 규칙이 적용된다.
      */
     @Test
     fun boundaryCrossingBlockLandsInEveryOverlappingSection() {
@@ -92,9 +91,9 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms zero-width blocks follow [blocksIn]'s point rule: kept when the point sits in the section's
-     * half-open range, and kept in a degenerate empty section when the point equals its shared offset,
-     * exactly matching the reference across ordinary and empty sections.
+     * 영폭 블록이 [blocksIn]의 점 규칙을 따름을 확인한다: 점이 섹션의 반개방 범위 안에 있으면
+     * 유지되고, 점이 공유 오프셋과 같은 퇴화된 빈 섹션에서도 유지되며, 일반 섹션과 빈 섹션
+     * 모두에서 기준과 정확히 일치한다.
      */
     @Test
     fun zeroWidthBlocksMatchReference() {
@@ -108,11 +107,10 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms both output orders under input that does not form an ascending partition, so the fallback
-     * to per-section [blocksIn] is exercised: blocks keep their document order inside each section list,
-     * and the section lists keep [sections]' input order, even though the sections are given out of
-     * ascending order. Matching the reference here guards that the off-nominal fallback still preserves
-     * both orders exactly.
+     * 오름차순 파티션을 이루지 않는 입력에서 두 가지 출력 순서를 모두 확인하여,
+     * 섹션별 [blocksIn] 폴백이 실행되게 한다: 블록은 각 섹션 목록 안에서 문서 순서를 유지하고,
+     * 섹션 목록은 섹션이 오름차순이 아니더라도 [sections]의 입력 순서를 유지한다.
+     * 기준과의 일치를 확인함으로써 비정상 폴백이 두 순서를 정확히 보존하는지 보호한다.
      */
     @Test
     fun preservesBlockAndSectionOrderUnderUnsortedInput() {
@@ -126,9 +124,9 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms a zero-width block exactly on an ordinary partition boundary is owned only by the
-     * following section under [blocksIn]'s half-open rule. Unlike [zeroWidthBlocksMatchReference], this
-     * input remains an ascending non-empty partition and therefore exercises the optimized sweep itself.
+     * 일반 파티션 경계 위에 정확히 놓인 영폭 블록이 [blocksIn]의 반개방 규칙에 따라
+     * 앞 섹션이 아닌 뒤 섹션에만 속함을 확인한다. [zeroWidthBlocksMatchReference]와 달리,
+     * 이 입력은 오름차순 비어있지 않은 파티션 형태를 유지하므로 최적화된 스윕 자체를 실행한다.
      */
     @Test
     fun zeroWidthBlockAtPartitionBoundaryMatchesReferenceOnFastPath() {
@@ -143,11 +141,10 @@ class SectionBlockDistributionTest {
     }
 
     /**
-     * Confirms the sweep does not re-read the whole block list once per section. A [CountingBlockList]
-     * records how often each block index is read; with many sections and few blocks, the old
-     * `blocksIn` per section read every block once per section (`reads >= sections * blocks`), so the
-     * assertion that the busiest block is read far fewer times than the section count is exactly what
-     * fails if the O(S * B) rescan comes back.
+     * 스윕이 전체 블록 목록을 섹션마다 다시 읽지 않음을 확인한다. [CountingBlockList]가
+     * 각 블록 인덱스의 읽힌 횟수를 기록하며, 섹션이 많고 블록이 적을 때 이전 섹션별 `blocksIn`은
+     * 모든 블록을 섹션마다 한 번씩 읽었으므로 (`reads >= sections * blocks`), 가장 바쁜 블록의
+     * 읽기 횟수가 섹션 수보다 훨씬 적다는 단언이 O(S * B) 재탐색이 돌아올 경우 정확히 실패한다.
      */
     @Test
     fun doesNotRescanEveryBlockPerSection() {
@@ -171,26 +168,26 @@ class SectionBlockDistributionTest {
 }
 
 /**
- * A [ReaderBlock] list that counts how many times each index is read, so a test can prove
- * [distributeBlocksIntoSections] does not touch every block once per section.
+ * 각 인덱스가 읽힌 횟수를 세는 [ReaderBlock] 목록이다. 테스트가
+ * [distributeBlocksIntoSections]가 섹션마다 모든 블록을 접근하지 않음을 증명하는 데 사용한다.
  *
- * Backed by a plain list and delegating [size], it is a read-only view whose only added behavior is the
- * per-index tally; it never mutates or reorders the blocks it wraps.
+ * 단순 목록을 기반으로 [size]를 위임하며, 유일한 추가 동작은 인덱스별 집계다;
+ * 래핑하는 블록을 변경하거나 재정렬하지 않는 읽기 전용 뷰다.
  *
- * @property backing the blocks this view serves and counts reads of.
+ * @property backing 이 뷰가 제공하고 읽기를 집계하는 블록 목록.
  */
 private class CountingBlockList(private val backing: List<ReaderBlock>) : AbstractList<ReaderBlock>() {
-    /** Read tally per index, grown lazily so an index never read simply stays absent. */
+    /** 인덱스별 읽기 집계; 한 번도 읽히지 않은 인덱스는 그냥 부재한다. */
     private val readsByIndex = HashMap<Int, Int>()
 
-    /** The wrapped list's size, unchanged. */
+    /** 래핑된 목록의 크기, 변경 없음. */
     override val size: Int get() = backing.size
 
     /**
-     * Serves the [index]th block and records the read.
+     * [index]번째 블록을 반환하고 읽기를 기록한다.
      *
-     * @param index the position being read.
-     * @return the block at [index] from [backing].
+     * @param index 읽는 위치.
+     * @return [backing]에서 [index]번째 블록.
      */
     override fun get(index: Int): ReaderBlock {
         readsByIndex[index] = (readsByIndex[index] ?: 0) + 1
@@ -198,23 +195,22 @@ private class CountingBlockList(private val backing: List<ReaderBlock>) : Abstra
     }
 
     /**
-     * The largest read count any single index accumulated, or zero when nothing was read.
+     * 단일 인덱스가 누적한 가장 큰 읽기 횟수, 아무것도 읽히지 않았으면 0이다.
      *
-     * @return the busiest index's read count, the figure a per-section rescan would inflate to at least
-     *   the section count.
+     * @return 가장 바쁜 인덱스의 읽기 횟수 — 섹션별 재탐색이 있으면 최소 섹션 수만큼 늘어날 값.
      */
     fun maxReadsPerIndex(): Int = readsByIndex.values.maxOrNull() ?: 0
 }
 
 /**
- * Guards [concatPageStarts] against the `existing.toList() + appended.flatMap { it.toList() }` boxing it
- * replaced: the joined array must hold the pieces in order, for the empty, single, many, and large-offset
- * shapes the append path actually produces.
+ * [concatPageStarts]를 `existing.toList() + appended.flatMap { it.toList() }`의 박싱 방식(대체 이전)으로부터
+ * 보호한다: 결합된 배열은 조각들을 순서대로 담아야 하며, append 경로가 실제로 생성하는
+ * 빈·단일·다수·대형 오프셋 형태를 모두 검증한다.
  */
 class ConcatPageStartsTest {
     /**
-     * Confirms an empty existing array and empty appended list join to an empty array, the base case an
-     * append with nothing measured yet reaches.
+     * 비어있는 existing 배열과 빈 appended 목록을 결합하면 빈 배열이 됨을 확인한다.
+     * 아직 측정된 것이 없는 append의 기본 케이스다.
      */
     @Test
     fun joinsEmptyPiecesIntoEmptyArray() {
@@ -222,8 +218,8 @@ class ConcatPageStartsTest {
     }
 
     /**
-     * Confirms a single appended array is placed after the existing offsets in order, the ordinary
-     * one-section-batch shape.
+     * 단일 appended 배열이 기존 오프셋 뒤에 순서대로 배치됨을 확인한다.
+     * 일반적인 단일 섹션 배치 형태다.
      */
     @Test
     fun joinsExistingThenOneAppendedArrayInOrder() {
@@ -234,8 +230,8 @@ class ConcatPageStartsTest {
     }
 
     /**
-     * Confirms multiple appended arrays are concatenated in list order, each after the last, so a
-     * multi-section batch extends the layout in reading order rather than interleaving.
+     * 여러 appended 배열이 목록 순서대로, 각각 이전 배열 뒤에 이어붙여짐을 확인한다.
+     * 다중 섹션 배치가 레이아웃을 읽기 순서대로 확장하며 인터리빙되지 않는다.
      */
     @Test
     fun joinsMultipleAppendedArraysInListOrder() {
@@ -249,9 +245,8 @@ class ConcatPageStartsTest {
     }
 
     /**
-     * Confirms large, realistic-book-sized offsets survive the join in order and at the right length,
-     * the scale [encodePageStartsBlob]'s own test names (3.5M-character books, tens of thousands of
-     * pages).
+     * 실제 책 크기의 대형 오프셋들이 결합 후 순서를 유지하고 올바른 길이를 가짐을 확인한다.
+     * [encodePageStartsBlob]의 자체 테스트가 명시하는 규모다(350만 자 분량 책, 수만 페이지).
      */
     @Test
     fun joinsLargeAscendingOffsetsInOrder() {

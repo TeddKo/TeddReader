@@ -21,24 +21,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins [TextPageLayoutEngine]'s pagination contract: a page never spans two sections, a cover image
- * gets a page of its own, an estimate reserves real room for wide glyphs, wrapped words and inline
- * images the same way the renderer does, a real measurement is used verbatim over the estimate, and
- * [TextPageLayoutEngine.reconstruct] rebuilds from stored page starts the exact page list
- * [TextPageLayoutEngine.paginate] produced — whether the caller's block lookup answers with absolute
- * or section-relative ranges. Several of these tests exist because one of those guarantees broke in
- * production: a clipped inline image, a chapter heading stranded mid-page, or blocks corrupted by a
- * double rebase once storage started handing sections' blocks over section-relative.
+ * [TextPageLayoutEngine]의 페이지네이션 계약을 고정한다: 한 페이지는 두 섹션에 걸쳐 있을 수 없고, 표지 이미지는
+ * 자신만의 페이지를 가지며, 추정치는 넓은 글리프·줄바꿈된 단어·인라인 이미지를 위해 렌더러와 동일한 방식으로
+ * 실제 공간을 확보하고, 실측값이 있으면 추정치 대신 그대로 사용되며, [TextPageLayoutEngine.reconstruct]는
+ * 저장된 페이지 시작 지점으로부터 [TextPageLayoutEngine.paginate]가 만들어낸 것과 정확히 같은 페이지 목록을
+ * 재구성한다 — 호출자의 블록 조회가 절대 범위로 답하든 섹션 상대 범위로 답하든 상관없이. 이 테스트들 중 몇몇은
+ * 실제로 이런 보장 중 하나가 프로덕션에서 깨졌기 때문에 존재한다: 잘려나간 인라인 이미지, 페이지 중간에 붕
+ * 뜬 챕터 제목, 혹은 저장소가 섹션의 블록을 섹션 상대로 넘기기 시작하면서 이중 리베이스로 손상된 블록들.
  */
 class TextPageLayoutEngineTest {
-    /** The pagination engine under test. */
+    /** 테스트 대상 페이지네이션 엔진. */
     private val engine = TextPageLayoutEngine()
 
     /**
-     * [TextPageLayoutEngine.defaultSectionBlocks] rebases a section's blocks to that section's own start
-     * before handing them to the [ReaderPageBreaker] — this pins that the rebase reaches into a block's
-     * own [ReaderSpan]s too, not just the block's outer range, once the section is not section 0 (a cover
-     * image occupies section 0 here, so the body section's absolute start is 2, not 0).
+     * [TextPageLayoutEngine.defaultSectionBlocks]는 [ReaderPageBreaker]에 넘기기 전에 섹션의 블록들을 그
+     * 섹션 자신의 시작 지점으로 리베이스한다 — 이 테스트는 그 리베이스가 블록의 바깥 범위뿐 아니라 블록 자신의
+     * [ReaderSpan]들에까지 미치는지 고정한다. 섹션이 0번이 아닐 때(여기서는 표지 이미지가 섹션 0을 차지하므로,
+     * 본문 섹션의 절대 시작 지점은 0이 아니라 2다) 이 확인이 성립해야 한다.
      */
     @Test
     fun pageBreakerBlockShiftAlsoShiftsInlineSpanRangesAfterCover() {
@@ -85,15 +84,14 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * When pagination has no real measurement to use — here because no [ReaderPageBreaker] was
-     * supplied, the same estimate a section past [TextPageLayoutEngine]'s measurement cap falls back
-     * to — a tall inline image has to reserve real vertical room. An image used to count as only the
-     * single newline character it carries in the text, so the estimate packed a whole page of text
-     * around it and the renderer clipped the image by the pane it overflowed; this pins that the
-     * image's own page now holds far less text than a text-only page does, because the image claims
-     * real height on its page rather than the single line a newline would. The fixture's image is a
-     * portrait plate, half as wide as it is tall (`imageAspectRatio = 0.5f`), deliberately too tall to
-     * share a page with text.
+     * 페이지네이션에 사용할 실측값이 없을 때 — 여기서는 [ReaderPageBreaker]가 주어지지 않았기 때문이며,
+     * [TextPageLayoutEngine]의 측정 상한을 넘긴 섹션이 폴백하는 것과 같은 추정치 — 키가 큰 인라인 이미지는
+     * 실제 세로 공간을 확보해야 한다. 예전에는 이미지가 텍스트 안에 갖고 있는 개행 문자 한 글자로만 취급되어,
+     * 추정치는 이미지 주위로 한 페이지 분량의 텍스트를 통째로 채웠고 렌더러는 이미지가 넘친 만큼 페이지에서
+     * 잘라냈다. 이 테스트는 이미지가 자기 페이지에서 개행 하나가 아니라 실제 높이를 차지하게 되었으므로, 이미지
+     * 페이지가 순수 텍스트 페이지보다 훨씬 적은 텍스트를 담게 됨을 고정한다. 픽스처의 이미지는 세로가 가로의
+     * 두 배인 세로형 삽화판(`imageAspectRatio = 0.5f`)으로, 텍스트와 한 페이지를 공유하기에는 일부러 너무
+     * 크게 만들었다.
      */
     @Test
     fun estimatedPaginationReservesRoomForATallInlineImage() {
@@ -139,8 +137,8 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A cover image section becomes page 0 on its own, at [ReaderLocation.EpubOffset] `(0, 0)`, even when
-     * pagination falls back to the estimate because no [ReaderPageBreaker] was supplied.
+     * 표지 이미지 섹션은, [ReaderPageBreaker]가 주어지지 않아 페이지네이션이 추정치로 폴백하는 경우에도,
+     * [ReaderLocation.EpubOffset] `(0, 0)`에서 독자적인 페이지 0이 된다.
      */
     @Test
     fun coverSectionGetsItsOwnFirstPageWithoutPageBreaker() {
@@ -170,11 +168,10 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * The same cover-gets-its-own-page split as
-     * [coverSectionGetsItsOwnFirstPageWithoutPageBreaker], now with a real [ReaderPageBreaker]: the
-     * cover still becomes page 0 by itself, and the first measured content page starts the body section
-     * at its own relative offset 0 ([ReaderLocation.EpubOffset] `(1, 0)`), not the document's absolute
-     * offset.
+     * [coverSectionGetsItsOwnFirstPageWithoutPageBreaker]와 같은 "표지는 독자적인 페이지" 분할을, 이번에는
+     * 실제 [ReaderPageBreaker]로 확인한다: 표지는 여전히 독자적인 페이지 0이 되고, 첫 실측 콘텐츠 페이지는
+     * 문서의 절대 오프셋이 아니라 본문 섹션 자신의 상대 오프셋 0([ReaderLocation.EpubOffset] `(1, 0)`)에서
+     * 시작한다.
      */
     @Test
     fun coverSectionGetsItsOwnFirstPageWithPageBreaker() {
@@ -208,8 +205,8 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * Baseline: a plain TXT document too long for one page splits into more than one, the first page is
-     * numbered 0, and its location is [ReaderLocation.TextOffset] `0`.
+     * 기본 확인: 한 페이지에 담기에 너무 긴 평문 TXT 문서는 둘 이상으로 나뉘고, 첫 페이지는 0번이며, 그
+     * 위치는 [ReaderLocation.TextOffset] `0`이다.
      */
     @Test
     fun paginatesTextByViewportAndStyle() {
@@ -234,9 +231,9 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * Adjoining pages must not gap or overlap: each page's [PageWindow.textRange] ends exactly where
-     * the next one starts, and concatenating every page's text in order reproduces the section's
-     * original text verbatim.
+     * 인접한 페이지들은 틈이 벌어지거나 겹치면 안 된다: 각 페이지의 [PageWindow.textRange]는 정확히 다음
+     * 페이지가 시작하는 지점에서 끝나고, 모든 페이지의 텍스트를 순서대로 이어 붙이면 섹션의 원본 텍스트를
+     * 그대로 재현해야 한다.
      */
     @Test
     fun paginatedPagesKeepTextContinuous() {
@@ -262,10 +259,10 @@ class TextPageLayoutEngineTest {
         assertEquals(text, pages.joinToString(separator = "") { page -> page.text })
     }
     /**
-     * A page of wide (CJK) glyphs holds far fewer characters than the same viewport would hold of
-     * narrow Latin ones once line height is 1x: the estimate must charge a full-width glyph its whole
-     * line-width budget instead of the fractional advance a Latin letter gets, so this bounds the
-     * wide-glyph page at 25 characters for a 100x100 viewport at 20sp.
+     * 줄 높이가 1배일 때, 폭이 넓은(CJK) 글리프로 채운 페이지는 같은 뷰포트라도 폭이 좁은 라틴 문자로 채운
+     * 페이지보다 훨씬 적은 글자만 담는다: 추정치는 전각 글리프에게 라틴 문자가 받는 부분적인 advance가 아니라
+     * 한 줄 너비 예산 전체를 부과해야 한다. 그래서 100x100 뷰포트, 20sp에서 전각 글리프 페이지의 상한을
+     * 25자로 확인한다.
      */
     @Test
     fun usesConservativePageSizeForWideGlyphs() {
@@ -289,11 +286,10 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A narrow glyph's estimated advance is a measured proportional fraction of an em (~0.45em), not
-     * half an em. At 480px/20sp/line-height 1 the line holds 24 em: a wide glyph takes a whole em and a
-     * narrow one 0.45em, so the first page holds 265 narrow-glyph (English) characters and 120
-     * wide-glyph (Korean) ones over 5 lines — the old half-em budget would have stopped English at only
-     * 240 characters.
+     * 폭이 좁은 글리프의 추정 advance는 반 em이 아니라 실측된 em의 비례 분수(~0.45em)다. 480px/20sp/줄 높이
+     * 1에서 한 줄은 24em을 담을 수 있다: 전각 글리프는 한 em 전체를, 반각 글리프는 0.45em을 차지하므로, 첫
+     * 페이지는 5줄에 걸쳐 반각(영문) 문자 265개와 전각(한글) 문자 120개를 담는다 — 예전의 반 em 예산이었다면
+     * 영문은 240자에서 멈췄을 것이다.
      */
     @Test
     fun narrowGlyphsUseTheProportionalAdvanceInsteadOfHalfAnEm() {
@@ -325,10 +321,10 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * The estimate wraps at spaces the same way the renderer does: at 10 narrow-glyph units per line,
-     * "aaaa bbbb cccc ..." breaks the line after "aaaa bbbb" rather than mid-word, so the estimate has
-     * to hold back the word that would have split and start the next line with it instead — and no page
-     * may start with the leading space a wrap left behind.
+     * 추정치는 렌더러와 같은 방식으로 공백에서 줄을 바꾼다: 폭이 좁은 글리프 기준 한 줄에 10단위일 때,
+     * "aaaa bbbb cccc ..."는 단어 중간이 아니라 "aaaa bbbb" 뒤에서 줄이 바뀐다. 그래서 추정치는 줄이 나뉠
+     * 뻔했던 단어를 붙잡아 두었다가 다음 줄을 그 단어로 시작해야 하며, 어떤 페이지도 줄바꿈이 남긴 선행
+     * 공백으로 시작해서는 안 된다.
      */
     @Test
     fun estimatedLinesWrapAtSpacesLikeTheRendererDoes() {
@@ -354,10 +350,9 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A real [ReaderPageBreaker] is used exactly as it reports its breaks — modeled here with a fake
-     * standing in for the reader's own text layout that reports a page break every 150 characters — so
-     * every page but the last comes out exactly that long, and joining every page back together
-     * reproduces the original text untouched.
+     * 실제 [ReaderPageBreaker]는 그것이 보고하는 페이지 나눔 그대로 사용된다 — 리더 자신의 텍스트 레이아웃을
+     * 대신하는 가짜가 150자마다 페이지 나눔을 보고하도록 여기서 모델링했다. 그래서 마지막을 뺀 모든 페이지는
+     * 정확히 그 길이로 나오고, 모든 페이지를 다시 이어 붙이면 원본 텍스트를 손대지 않고 그대로 재현한다.
      */
     @Test
     fun measuredPageBreaksAreUsedVerbatim() {
@@ -389,11 +384,10 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A real measurement's page starts do not have to line up with any arithmetic line count — the
-     * fake [ReaderPageBreaker] here reports breaks every 137 characters, deliberately farther apart than
-     * any real layout would produce, specifically to prove the estimate plays no part once a
-     * measurement exists: pagination gives the exact same page ranges whether it is asked for at an
-     * 8sp/1x style or a 40sp/3x one.
+     * 실측값의 페이지 시작 지점은 어떤 산술적 줄 수와도 맞아떨어질 필요가 없다 — 여기서 가짜 [ReaderPageBreaker]는
+     * 137자마다 나눔을 보고하도록, 실제 레이아웃이라면 절대 만들어내지 않을 만큼 일부러 간격을 벌려서, 실측값이
+     * 존재하는 한 추정치는 전혀 관여하지 않음을 증명한다: 8sp/1배 스타일로 요청하든 40sp/3배 스타일로 요청하든
+     * 페이지네이션은 정확히 같은 페이지 범위를 내놓는다.
      */
     @Test
     fun measuredPagesIgnoreTheEstimatedLineCountAcrossFontSizes() {
@@ -431,9 +425,8 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A section longer than [TextPageLayoutEngine]'s measurement cap (200,000 characters) never reaches
-     * the supplied [ReaderPageBreaker] at all — pagination falls straight back to the estimate, which
-     * still covers the whole text without dropping any of it.
+     * [TextPageLayoutEngine]의 측정 상한(200,000자)을 넘는 섹션은 주어진 [ReaderPageBreaker]에 전혀 도달하지
+     * 않는다 — 페이지네이션은 곧바로 추정치로 폴백하며, 그래도 텍스트 전체를 하나도 빠뜨리지 않고 커버한다.
      */
     @Test
     fun oversizedContentSkipsPageBreakerAndFallsBackToEstimatedRanges() {
@@ -475,9 +468,8 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * An explicit `\n` counts as a line the same way a wrapped line does: a page never holds more
-     * non-empty lines than its estimated line capacity, however many of them come from real newlines
-     * in the source text rather than from wrapping.
+     * 명시적인 `\n`은 줄바꿈으로 감싼 줄과 똑같이 한 줄로 취급된다: 소스 텍스트의 실제 개행에서 나왔든
+     * 줄바꿈에서 나왔든, 어떤 페이지도 자신의 추정 줄 수용량보다 많은 비어있지 않은 줄을 담아서는 안 된다.
      */
     @Test
     fun explicitLineBreaksDoNotOverflowPageLineCapacity() {
@@ -502,13 +494,12 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A chapter never shares a page with the one before it, however generous the viewport — the rule
-     * [TextPageLayoutEngine] rests every entry point on: one EPUB spine item is a document of its own,
-     * and no reading system runs two of them together on a screen. Paginating the whole book as one
-     * long string used to put a chapter's title halfway down the previous chapter's last page, which is
-     * exactly where the table of contents then jumped a reader to; here the viewport is deliberately
-     * large enough to fit the whole book on one screen by measurement alone, and the chapters must
-     * still land on separate pages.
+     * 뷰포트가 아무리 넉넉해도 챕터는 앞 챕터와 페이지를 공유하지 않는다 — [TextPageLayoutEngine]이 모든
+     * 진입점을 이 규칙 위에 둔다: EPUB spine 항목 하나는 그 자체로 하나의 문서이고, 어떤 리딩 시스템도 둘을
+     * 한 화면에 함께 띄우지 않는다. 책 전체를 하나의 긴 문자열처럼 페이지네이션하면 챕터 제목이 앞 챕터의
+     * 마지막 페이지 중간에 놓이곤 했는데, 목차가 독자를 정확히 그 지점으로 점프시키는 바람에 문제가 됐다.
+     * 여기서는 뷰포트를 일부러 측정만으로 책 전체가 한 화면에 들어갈 만큼 크게 잡았고, 그래도 챕터는 반드시
+     * 서로 다른 페이지에 놓여야 한다.
      */
     @Test
     fun everyChapterStartsItsOwnPageSoItsHeadingSitsAtTheTop() {
@@ -551,9 +542,8 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * A page's [PageWindow.blocks] holds exactly the blocks whose range intersects that page's
-     * [PageWindow.textRange] — including a block that straddles the boundary between two pages, which
-     * therefore appears in both pages' lists rather than being dropped from either.
+     * 페이지의 [PageWindow.blocks]는 그 페이지의 [PageWindow.textRange]와 겹치는 블록만 정확히 담는다 —
+     * 두 페이지의 경계에 걸쳐 있는 블록도 어느 한쪽에서 빠지지 않고 양쪽 페이지의 목록에 모두 나타난다.
      */
     @Test
     fun pageWindowsKeepOnlyIntersectingBlocks() {
@@ -592,14 +582,13 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * [TextPageLayoutEngine.reconstruct] rebuilds, from nothing but the absolute page starts a real
-     * measurement produced, the exact same page list [TextPageLayoutEngine.paginate] gave it — for a
-     * book shaped like a stored layout actually has to survive: a cover section that is a single image,
-     * followed by two ordinary chapters. The fake [ReaderPageBreaker] used to measure (a page break
-     * every 3 characters of whichever section is being measured, standing in for the reader's own text
-     * layout) only ever produces the content pages' starts; the cover page is never stored at all — it
-     * is always rebuilt the same way, with no measurement involved — yet [TextPageLayoutEngine.reconstruct]
-     * still has to reproduce it identically.
+     * [TextPageLayoutEngine.reconstruct]는 실측값이 만들어낸 절대 페이지 시작 지점만으로,
+     * [TextPageLayoutEngine.paginate]가 준 것과 정확히 같은 페이지 목록을 재구성한다 — 저장된 레이아웃이
+     * 실제로 견뎌내야 하는 형태의 책, 즉 이미지 한 장뿐인 표지 섹션 뒤에 평범한 챕터 두 개가 이어지는 책을
+     * 대상으로 한다. 측정에 쓰인 가짜 [ReaderPageBreaker](측정 대상 섹션의 3자마다 페이지 나눔을 만들며,
+     * 리더 자신의 텍스트 레이아웃을 대신한다)는 콘텐츠 페이지의 시작 지점만 만들어낸다. 표지 페이지는 애초에
+     * 저장되지 않는다 — 측정 없이 항상 같은 방식으로 재구성될 뿐이다 — 그런데도
+     * [TextPageLayoutEngine.reconstruct]는 여전히 이를 동일하게 재현해야 한다.
      */
     @Test
     fun reconstructFromStoredStartsMatchesMeasuredPaginateExactly() {
@@ -636,16 +625,14 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * [TextPageLayoutEngine.reconstruct] decodes a section's blocks only once a page belonging to it is
-     * actually read. Three ordinary chapters, no cover, one page per chapter is enough sections to
-     * prove that reading the third page (which belongs to "Chapter 3", `contentPageStarts[2]`) must not
-     * also decode "Chapter 2" in between — a bug that decoded every section eagerly would be
-     * indistinguishable from correct behaviour on a page that only ever needs its own section.
-     * `sectionBlocks` is passed by name because [TextPageLayoutEngine.reconstruct] takes two trailing
-     * functional parameters; an unnamed lambda would bind to `isSectionReady` instead of the block
-     * lookup this test is watching. Cover detection always checks section 0 up front — nothing else has
-     * been asked for yet at that point — so constructing the list alone already decodes `{0}` before
-     * any page is read.
+     * [TextPageLayoutEngine.reconstruct]는 실제로 읽힌 페이지가 속한 섹션의 블록만 디코딩한다. 표지 없이
+     * 평범한 챕터 셋, 챕터당 한 페이지면 세 번째 페이지("Chapter 3", `contentPageStarts[2]`에 속함)를 읽는
+     * 것이 그 사이의 "Chapter 2"까지 디코딩해서는 안 됨을 증명하기에 충분하다 — 모든 섹션을 즉시 디코딩하는
+     * 버그는, 오직 자기 섹션만 필요로 하는 페이지에서는 올바른 동작과 구분이 안 될 것이다. `sectionBlocks`는
+     * 이름으로 넘긴다. [TextPageLayoutEngine.reconstruct]가 후행 함수형 매개변수를 두 개 받기 때문에, 이름
+     * 없는 람다는 이 테스트가 지켜보는 블록 조회가 아니라 `isSectionReady`에 바인딩될 것이다. 표지 판정은
+     * 항상 섹션 0을 앞서 확인한다 — 이 시점에 다른 것은 아직 요청된 적이 없다 — 그래서 목록을 만드는 것만으로도
+     * 어떤 페이지도 읽기 전에 이미 `{0}`을 디코딩한다.
      */
     @Test
     fun reconstructOnlyDecodesSectionsItsRequestedPagesTouch() {
@@ -682,20 +669,19 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * Section-relative block storage (see [DocumentRepositoryImpl.persistParsedDocument]) shifts each
-     * section's blocks to read relative to that section's own start before they are ever handed to
-     * [TextPageLayoutEngine.paginate]/[TextPageLayoutEngine.reconstruct] — this and the following three
-     * tests are exactly the tests that had to fail against the pre-change code: `sectionPageRanges` used
-     * to rebase its `sectionBlocks` argument itself, on the assumption it was always absolute, so a
-     * block that arrived already section-relative got rebased a second time and corrupted.
+     * 섹션 상대 블록 저장([DocumentRepositoryImpl.persistParsedDocument] 참고)은 각 섹션의 블록들을
+     * [TextPageLayoutEngine.paginate]/[TextPageLayoutEngine.reconstruct]에 넘기기 전에 그 섹션 자신의
+     * 시작 지점을 기준으로 읽히도록 이동시킨다 — 이 테스트와 뒤이은 세 테스트는 변경 이전 코드로는 반드시
+     * 실패했어야 했던 바로 그 테스트들이다: `sectionPageRanges`는 자신의 `sectionBlocks` 인자가 항상
+     * 절대값이라고 가정하고 스스로 리베이스했었는데, 그래서 이미 섹션 상대로 도착한 블록이 두 번째로
+     * 리베이스되어 손상됐다.
      *
-     * [TextPageLayoutEngine.paginate] must always hand back blocks in absolute document offsets
-     * regardless of which shape its `sectionBlocks` lookup answers with. Section 1's absolute start
-     * here is 6, not 0: a cover section always starts at 0, the one place a forgotten un-rebase would
-     * still look correct by accident, so this deliberately exercises a section that would expose the
-     * bug. A page's blocks have to stay absolute because `ReaderSemanticText` locates a block within
-     * `page.text` by subtracting the page's own absolute `textRange.start` from the block's
-     * `range.start`.
+     * [TextPageLayoutEngine.paginate]는 `sectionBlocks` 조회가 어떤 형태로 답하든 상관없이 블록을 항상
+     * 절대 문서 오프셋으로 돌려줘야 한다. 여기서 섹션 1의 절대 시작 지점은 0이 아니라 6이다: 표지 섹션은
+     * 항상 0에서 시작하는데, 그곳은 잊혀진 리베이스 누락이 그래도 우연히 맞아 보일 수 있는 유일한 지점이므로,
+     * 이 테스트는 일부러 버그를 드러낼 섹션을 다룬다. 페이지의 블록은 절대값을 유지해야 하는데,
+     * `ReaderSemanticText`가 블록의 `range.start`에서 페이지 자신의 절대 `textRange.start`를 빼서
+     * `page.text` 안에서 블록의 위치를 찾기 때문이다.
      */
     @Test
     fun paginateReturnsAbsoluteBlockRangesEvenWhenSectionBlocksArriveSectionRelative() {
@@ -733,12 +719,11 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * [TextPageLayoutEngine.paginate]'s default path — no explicit `sectionBlocks` lambda, so it groups
-     * [ReaderDocument.blocks] itself, which a fresh parse still hands over as absolute ranges — and the
-     * cache-backed path a stored book takes, which hands over blocks already section-relative, must
-     * produce exactly the same pages either way. The cover section is included deliberately: it always
-     * starts at absolute offset 0, which is exactly the one case where a forgotten rebase would still
-     * look correct by accident, so proving equality there is the point, not an afterthought.
+     * [TextPageLayoutEngine.paginate]의 기본 경로 — 명시적인 `sectionBlocks` 람다 없이 [ReaderDocument.blocks]를
+     * 스스로 그룹화하는 경로로, 새로 파싱했을 때는 여전히 절대 범위로 넘어온다 — 와, 저장된 책이 밟는
+     * 캐시 기반 경로 — 이미 섹션 상대로 넘어오는 경로 — 는 어느 쪽이든 정확히 같은 페이지를 만들어내야 한다.
+     * 표지 섹션을 일부러 포함시켰다: 표지는 항상 절대 오프셋 0에서 시작하는데, 이는 잊혀진 리베이스가 그래도
+     * 우연히 맞아 보일 수 있는 바로 그 한 경우이므로, 여기서 동등함을 증명하는 것이 부수적인 게 아니라 핵심이다.
      */
     @Test
     fun paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
@@ -777,11 +762,9 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * The same guarantee as
-     * [paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath],
-     * for [TextPageLayoutEngine.reconstruct]: the default grouping path (absolute blocks) and a lookup
-     * that already answers section-relative must reconstruct exactly the same pages, cover section
-     * included.
+     * [paginateProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath]와
+     * 같은 보장을 [TextPageLayoutEngine.reconstruct]에 대해서도 확인한다: 기본 그룹화 경로(절대 블록)와 이미
+     * 섹션 상대로 답하는 조회는, 표지 섹션을 포함해서 정확히 같은 페이지를 재구성해야 한다.
      */
     @Test
     fun reconstructProducesIdenticalPageWindowsWhetherSectionBlocksAreSectionRelativeOrTheDefaultGroupingPath() {
@@ -819,11 +802,11 @@ class TextPageLayoutEngineTest {
     }
 
     /**
-     * Restoring a document from stored page-start boundaries must not change either the total page
-     * count or which page any character offset lands on: for every offset across the document,
-     * rebuilding pages from [TextPageLayoutEngine.reconstruct] must land it on the same page index a
-     * linear scan of the freshly measured pages would, checked here via [pageOfOffset] — the same
-     * binary search `ReaderViewModel.pageOfOffset` runs against a book's page windows.
+     * 저장된 페이지 시작 경계로부터 문서를 복원해도 전체 페이지 수나 어떤 문자 오프셋이 어느 페이지에
+     * 놓이는지는 바뀌면 안 된다: 문서 전체의 모든 오프셋에 대해,
+     * [TextPageLayoutEngine.reconstruct]로 페이지를 재구성한 결과는 방금 실측한 페이지들을 선형 탐색했을 때와
+     * 같은 페이지 인덱스에 도달해야 하며, 이는 여기서 [pageOfOffset]으로 확인한다 —
+     * `ReaderViewModel.pageOfOffset`이 책의 페이지 윈도우에 대해 실행하는 것과 같은 이진 탐색이다.
      */
     @Test
     fun reconstructTotalPageCountAndOffsetLookupMatchMeasuredPagination() {
@@ -868,14 +851,14 @@ class TextPageLayoutEngineTest {
 }
 
 /**
- * The index of the page whose [PageWindow.textRange] contains [offset], found by binary search since
- * the receiver's ranges are ascending and non-overlapping — the same lookup `ReaderViewModel` runs
- * against a book's page windows to answer "which page is this offset on."
+ * [offset]을 포함하는 [PageWindow.textRange]를 가진 페이지의 인덱스를, 이진 탐색으로 찾는다 — 수신자의
+ * 범위가 오름차순이고 겹치지 않기 때문에 가능하며, `ReaderViewModel`이 "이 오프셋이 어느 페이지에 있는가"를
+ * 답하기 위해 책의 페이지 윈도우에 대해 실행하는 것과 같은 조회다.
  *
- * @receiver the page windows to search, in ascending, non-overlapping [PageWindow.textRange] order.
- * @param offset an absolute document offset to locate.
- * @return the index of the page containing [offset], or null when no page's range covers it (a page
- * with no [PageWindow.textRange] at all, or an offset outside every page).
+ * @receiver 탐색할 페이지 윈도우들. 오름차순이고 겹치지 않는 [PageWindow.textRange] 순서여야 한다.
+ * @param offset 찾을 절대 문서 오프셋.
+ * @return [offset]을 포함하는 페이지의 인덱스, 또는 어떤 페이지의 범위도 이를 커버하지 못하면 null([PageWindow.textRange]가
+ * 전혀 없는 페이지이거나, 모든 페이지 바깥의 오프셋).
  */
 private fun List<PageWindow>.pageOfOffset(offset: Long): Int? {
     var low = 0

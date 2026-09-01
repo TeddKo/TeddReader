@@ -9,15 +9,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * Pins [PdfDocumentParser]'s delegation contract to its injected [PdfMetadataReader]: the reader's page
- * count and cover bytes pass through unchanged, and an invalid (zero or negative) page count is
- * floored to 1 rather than producing a page-less document. Also verifies the location-first contract:
- * callers may pass `bytes = null` when [DocumentLocation.sourceUri] points at a reachable local file.
+ * [PdfDocumentParser]가 주입된 [PdfMetadataReader]에 위임하는 계약을 고정한다: 리더의 페이지 수와 표지
+ * 바이트는 변형 없이 그대로 통과하고, 유효하지 않은(0 이하) 페이지 수는 페이지 없는 문서를 만드는 대신
+ * 1로 바닥값이 매겨진다. 위치 우선 계약도 함께 검증한다: [DocumentLocation.sourceUri]가 접근 가능한
+ * 로컬 파일을 가리킬 때 호출자는 `bytes = null`을 넘길 수 있다.
  */
 class PdfDocumentParserTest {
     /**
-     * A fixed [DocumentLocation] fixture shared by every test in this file; its field values are not
-     * exercised by the parser itself, only passed through to the fake [PdfMetadataReader].
+     * 이 파일의 모든 테스트가 공유하는 고정 [DocumentLocation] 픽스처. 필드 값 자체는 파서에서 검증되지
+     * 않고, 그저 가짜 [PdfMetadataReader]로 그대로 전달될 뿐이다.
      */
     private val location = DocumentLocation(
         sourceUri = "file:///book.pdf",
@@ -27,8 +27,8 @@ class PdfDocumentParserTest {
     )
 
     /**
-     * The parser's page count and format come straight from the injected [PdfMetadataReader], and no
-     * sections are produced. Bytes are passed through to the reader unchanged.
+     * 파서의 페이지 수와 포맷은 주입된 [PdfMetadataReader]에서 그대로 나오며, 섹션은 만들어지지 않는다.
+     * 바이트는 변형 없이 리더로 그대로 전달된다.
      */
     @Test
     fun usesPlatformMetadataReaderPageCount() {
@@ -52,8 +52,8 @@ class PdfDocumentParserTest {
     }
 
     /**
-     * Regression guard: a platform reader reporting 0 pages (a malformed or unreadable PDF) must not
-     * produce a page-less document — the count is floored to 1.
+     * 회귀 가드: 플랫폼 리더가 0페이지를 보고하면(손상되었거나 읽을 수 없는 PDF) 페이지 없는 문서를
+     * 만들면 안 된다 — 개수는 1로 바닥값이 매겨진다.
      */
     @Test
     fun coercesInvalidPlatformPageCountToOne() {
@@ -69,7 +69,7 @@ class PdfDocumentParserTest {
         assertEquals(1, document.pageCount)
     }
 
-    /** The platform reader's cover bytes pass through [PdfDocumentParser.coverImageBytes] unchanged. */
+    /** 플랫폼 리더의 표지 바이트는 [PdfDocumentParser.coverImageBytes]를 변형 없이 그대로 통과한다. */
     @Test
     fun passesThroughPlatformCoverBytes() {
         val bytes = byteArrayOf(9, 8, 7)
@@ -87,8 +87,8 @@ class PdfDocumentParserTest {
     }
 
     /**
-     * When bytes are null (location-first path), the parser passes null through to the metadata
-     * reader, which resolves the document from [DocumentLocation.sourceUri] instead.
+     * bytes가 null이면(위치 우선 경로), 파서는 null을 메타데이터 리더로 그대로 넘기고, 리더는 대신
+     * [DocumentLocation.sourceUri]로부터 문서를 해석한다.
      */
     @Test
     fun passesNullBytesToMetadataReaderWhenLocationFirst() {
@@ -111,9 +111,9 @@ class PdfDocumentParserTest {
     }
 
     /**
-     * Cover extraction with null bytes delegates to [PdfMetadataReader.coverImageBytes] with null,
-     * so the platform reader resolves from location. A fake that returns null when bytes are null
-     * confirms the null is forwarded.
+     * bytes가 null인 표지 추출은 null과 함께 [PdfMetadataReader.coverImageBytes]에 위임되어, 플랫폼
+     * 리더가 위치로부터 해석한다. bytes가 null일 때 null을 반환하는 가짜가 그 null이 그대로
+     * 전달됐음을 확인해 준다.
      */
     @Test
     fun coverImageBytesWithNullBytesDelegatesToLocation() {
@@ -131,9 +131,9 @@ class PdfDocumentParserTest {
     }
 
     /**
-     * Mutation guard: verifies that a metadata reader that distinguishes between a location-only
-     * call (bytes = null) and a bytes-provided call yields different results through the parser,
-     * proving the parser does not silently supply a default or ignore the null.
+     * 뮤테이션 가드: 위치만 있는 호출(bytes = null)과 bytes가 주어진 호출을 구분하는 메타데이터
+     * 리더가 파서를 거쳐 서로 다른 결과를 내놓는지 검증해, 파서가 조용히 기본값을 채우거나 null을
+     * 무시하지 않음을 증명한다.
      */
     @Test
     fun metadataReaderReceivesDistinctBytesPresence() {
