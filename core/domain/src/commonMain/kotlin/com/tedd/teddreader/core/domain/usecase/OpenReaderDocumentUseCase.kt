@@ -21,7 +21,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 
-/** Everything the reader needs for its first open publish, kept in domain/common types only. */
+/** 리더가 처음 열릴 때 게시하는 데 필요한 모든 값으로, domain/common 타입만 사용한다. */
 data class OpenReaderDocument(
     val metadata: DocumentMetadata?,
     val readerDocument: ReaderDocument?,
