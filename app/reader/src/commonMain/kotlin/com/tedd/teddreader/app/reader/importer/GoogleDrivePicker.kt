@@ -11,18 +11,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * What a completed Google Drive picker/authorization flow hands back, still platform-specific:
- * the OAuth token good for downloading, and the ids of whichever Drive files the user picked. Both
- * Android's Identity `AuthorizationClient` flow and iOS's [GoogleDrivePickerBridge] produce one of
- * these before their own platform-specific download step, which fetches each file's metadata and
- * bytes and turns them into a [GoogleDriveFileMetadata]/`DocumentImportSource`, takes over.
+ * 완료된 Google Drive 선택기/인증 흐름이 반환하는 플랫폼별 결과다. 다운로드에 사용할 OAuth 토큰과
+ * 사용자가 선택한 Drive 파일의 id를 담는다. Android의 Identity `AuthorizationClient` 흐름과 iOS의
+ * [GoogleDrivePickerBridge]는 각각 플랫폼별 다운로드 단계가 시작되기 전에 이 결과를 만든다. 이후
+ * 다운로드 단계가 각 파일의 메타데이터와 바이트를 가져와
+ * [GoogleDriveFileMetadata]/`DocumentImportSource`로 변환한다.
  *
- * @property accessToken the bearer token to attach to the Google Drive REST calls that fetch
- *   metadata and content for [fileIds]. Must not be blank.
- * @property fileIds the Drive file ids the user selected. Must be non-empty, and no entry may be
- *   blank.
- * @throws IllegalArgumentException if [accessToken] is blank, [fileIds] is empty, or any entry in
- *   [fileIds] is blank.
+ * @property accessToken [fileIds]의 메타데이터와 콘텐츠를 가져오는 Google Drive REST 호출에 붙일
+ *   bearer 토큰이다. 비어 있으면 안 된다.
+ * @property fileIds 사용자가 선택한 Drive 파일 id다. 비어 있지 않아야 하며 각 항목도 비어 있으면 안
+ *   된다.
+ * @throws IllegalArgumentException [accessToken]이 비었거나 [fileIds]가 비었거나 [fileIds] 안에 빈
+ *   항목이 있을 때 발생한다.
  */
 public class GoogleDrivePickerResult(
     val accessToken: String,
@@ -36,29 +36,27 @@ public class GoogleDrivePickerResult(
 }
 
 /**
- * A platform-supplied bridge to whatever native Google Drive picker UI and OAuth flow that
- * platform actually uses, so the shared reader code depends only on this small surface instead of
- * a platform SDK. iOS supplies its implementation (typically backed by native Google Sign-In UI)
- * from outside this module; on Android the picker itself is built directly on the Identity
- * `AuthorizationClient` inside `DocumentImporter.android.kt` rather than through this interface —
- * see [com.tedd.teddreader.app.reader.importer.DocumentImporter.supportsGoogleDrivePicker] for how
- * each platform decides whether Drive import is available at all.
+ * 플랫폼이 실제로 사용하는 네이티브 Google Drive 선택기 UI와 OAuth 흐름을 공유 리더 코드에
+ * 제공하는 브리지다. 공유 코드는 플랫폼 SDK 대신 이 작은 인터페이스에만 의존한다. iOS는 보통
+ * 네이티브 Google Sign-In UI 기반 구현을 이 모듈 밖에서 제공한다. Android 선택기는 이 인터페이스
+ * 대신 `DocumentImporter.android.kt` 안에서 Identity `AuthorizationClient`로 직접 구성한다. 각
+ * 플랫폼에서 Drive 가져오기 가능 여부를 결정하는 방식은
+ * [com.tedd.teddreader.app.reader.importer.DocumentImporter.supportsGoogleDrivePicker]를 참고한다.
  */
 public interface GoogleDrivePickerBridge {
     /**
-     * Whether this bridge has everything it needs — client id, native SDK setup — to actually open
-     * a picker. False means [open] would fail immediately, so callers should hide the Drive entry
-     * point entirely rather than invoke it.
+     * 이 브리지가 실제 선택기를 여는 데 필요한 client id와 네이티브 SDK 설정을 모두 갖췄는지
+     * 나타낸다. false면 [open]이 즉시 실패하므로 호출자는 Drive 진입점을 호출하지 말고 완전히 숨겨야
+     * 한다.
      */
     val isConfigured: Boolean
 
     /**
-     * Opens the native Google Drive picker/authorization UI.
+     * 네이티브 Google Drive 선택기/인증 UI를 연다.
      *
-     * @param onPicked called with the resulting access token and selected file ids once the user
-     *   completes picking.
-     * @param onCancelled called if the user dismisses the flow without picking anything.
-     * @param onError called with a user-facing message if the flow could not start or failed.
+     * @param onPicked 사용자가 선택을 완료하면 결과 액세스 토큰과 선택한 파일 id를 전달하여 호출한다.
+     * @param onCancelled 사용자가 아무것도 선택하지 않고 흐름을 닫으면 호출한다.
+     * @param onError 흐름을 시작하지 못했거나 실패했을 때 사용자에게 표시할 메시지와 함께 호출한다.
      */
     fun open(
         onPicked: (GoogleDrivePickerResult) -> Unit,
@@ -68,21 +66,20 @@ public interface GoogleDrivePickerBridge {
 }
 
 /**
- * The subset of a Google Drive file's metadata the importer needs to decide whether the file is
- * importable and to build the [com.tedd.teddreader.core.domain.repository.DocumentImportSource]
- * that represents it, parsed from the Drive REST API's `files.get` JSON response by
- * [parseDriveFileMetadata].
+ * 파일을 가져올 수 있는지 결정하고 이를 나타내는
+ * [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 구성하는 데 임포터가 필요한 Google
+ * Drive 파일 메타데이터의 일부다. Drive REST API의 `files.get` JSON 응답을
+ * [parseDriveFileMetadata]가 파싱하여 만든다.
  *
- * @property id the Drive file id, used to build the metadata and download URLs.
- * @property name the file's display name, used both for the imported document's display name and
- *   for extension-based format detection in [isImportSupported].
- * @property mimeType the MIME type Drive reports for the file, or null when Drive did not report
- *   one; [isImportSupported] falls back to [name]'s extension in that case.
- * @property sizeBytes the file's size in bytes as Drive reports it, or `0L` when Drive omitted the
- *   field.
- * @property canDownload whether the signed-in account's Drive permissions actually allow
- *   downloading this file's content; [isImportSupported] refuses to treat a file as importable
- *   when this is false, since the download step would fail regardless of format.
+ * @property id 메타데이터 및 다운로드 URL을 구성하는 데 사용하는 Drive 파일 id다.
+ * @property name 파일 표시 이름이다. 가져온 문서의 표시 이름과 [isImportSupported]의 확장자 기반 형식
+ *   감지에 모두 사용한다.
+ * @property mimeType Drive가 보고한 파일의 MIME 타입이다. Drive가 보고하지 않았으면 null이며 이때
+ *   [isImportSupported]는 [name]의 확장자를 사용한다.
+ * @property sizeBytes Drive가 보고한 파일의 바이트 크기다. Drive가 필드를 생략했으면 `0L`이다.
+ * @property canDownload 로그인한 계정의 Drive 권한으로 이 파일의 콘텐츠를 실제로 다운로드할 수
+ *   있는지 나타낸다. false면 형식과 관계없이 다운로드 단계가 실패하므로 [isImportSupported]는 해당
+ *   파일을 가져올 수 있다고 판단하지 않는다.
  */
 internal data class GoogleDriveFileMetadata(
     val id: String,
@@ -93,12 +90,11 @@ internal data class GoogleDriveFileMetadata(
 )
 
 /**
- * Splits and de-duplicates the comma-joined list of Drive file ids the Android
- * `AuthorizationResult`'s picker extras carry, preserving the order ids first appeared in and
- * discarding any blank entries.
+ * Android `AuthorizationResult`의 선택기 부가 정보가 전달하는 쉼표로 연결된 Drive 파일 id 목록을
+ * 분리하고 중복을 제거한다. id가 처음 나타난 순서를 유지하며 빈 항목은 버린다.
  *
- * @param rawValue the raw comma-separated id string as read from the authorization result.
- * @return the distinct, non-blank file ids in their original order.
+ * @param rawValue 인증 결과에서 읽은 원본 쉼표 구분 id 문자열이다.
+ * @return 원래 순서를 유지한 중복 없는 비어 있지 않은 파일 id다.
  */
 internal fun parsePickedFileIds(rawValue: String): List<String> {
     val seen = linkedSetOf<String>()
@@ -110,13 +106,13 @@ internal fun parsePickedFileIds(rawValue: String): List<String> {
 }
 
 /**
- * Parses a Drive REST API `files.get` JSON response — as requested with
- * `fields=id,name,mimeType,size,capabilities(canDownload)` by each platform's metadata fetch —
- * into a [GoogleDriveFileMetadata].
+ * 각 플랫폼의 메타데이터 요청이
+ * `fields=id,name,mimeType,size,capabilities(canDownload)`로 받은 Drive REST API `files.get` JSON
+ * 응답을 [GoogleDriveFileMetadata]로 파싱한다.
  *
- * @param json the raw JSON response body.
- * @return the parsed metadata.
- * @throws IllegalStateException if the response is missing the required `id` or `name` fields.
+ * @param json 원본 JSON 응답 본문이다.
+ * @return 파싱한 메타데이터다.
+ * @throws IllegalStateException 응답에 필수 `id` 또는 `name` 필드가 없을 때 발생한다.
  */
 internal fun parseDriveFileMetadata(json: String): GoogleDriveFileMetadata {
     val root = Json.parseToJsonElement(json).jsonObject
@@ -131,12 +127,12 @@ internal fun parseDriveFileMetadata(json: String): GoogleDriveFileMetadata {
 }
 
 /**
- * Whether this Drive file can actually be imported: the account must be able to download it, and
- * either its reported MIME type or its file-name extension must be one TeddReader parses.
+ * 이 Drive 파일을 실제로 가져올 수 있는지 판단한다. 계정이 파일을 다운로드할 수 있어야 하며,
+ * 보고된 MIME 타입이나 파일 이름 확장자 중 하나를 TeddReader가 파싱할 수 있어야 한다.
  *
- * @receiver the file metadata to check.
- * @return true when [GoogleDriveFileMetadata.canDownload] is true and the file's MIME type or
- *   extension is supported.
+ * @receiver 검사할 파일 메타데이터다.
+ * @return [GoogleDriveFileMetadata.canDownload]가 true이고 파일의 MIME 타입이나 확장자가 지원되면
+ *   true다.
  */
 internal fun GoogleDriveFileMetadata.isImportSupported(): Boolean {
     if (!canDownload) return false
@@ -145,14 +141,14 @@ internal fun GoogleDriveFileMetadata.isImportSupported(): Boolean {
 }
 
 /**
- * Wraps this Drive file's metadata and already-downloaded content into the
- * [DocumentImportSource] the shared [com.tedd.teddreader.core.domain.repository.DocumentRepository]
- * import path expects, using a synthetic `gdrive://` locator since a real Drive file has no
- * platform file-system URI of its own.
+ * 이 Drive 파일의 메타데이터와 이미 다운로드한 콘텐츠를 공유
+ * [com.tedd.teddreader.core.domain.repository.DocumentRepository] 가져오기 경로가 요구하는
+ * [DocumentImportSource]로 감싼다. 실제 Drive 파일에는 플랫폼 파일 시스템 URI가 없으므로 합성
+ * `gdrive://` 위치를 사용한다.
  *
- * @receiver the file metadata to wrap.
- * @param bytes the file's full downloaded content.
- * @return a [DocumentImportSource] ready to hand to `DocumentRepository.importDocument`.
+ * @receiver 감쌀 파일 메타데이터다.
+ * @param bytes 다운로드한 파일의 전체 콘텐츠다.
+ * @return `DocumentRepository.importDocument`에 전달할 준비가 된 [DocumentImportSource]다.
  */
 internal fun GoogleDriveFileMetadata.toDocumentImportSource(bytes: ByteArray): DocumentImportSource =
     DocumentImportSource(
@@ -166,14 +162,14 @@ internal fun GoogleDriveFileMetadata.toDocumentImportSource(bytes: ByteArray): D
     )
 
 /**
- * Reads a required, non-blank string field out of a parsed Drive metadata JSON object, failing
- * loudly instead of letting [parseDriveFileMetadata] silently produce a [GoogleDriveFileMetadata]
- * with a blank id or name.
+ * 파싱한 Drive 메타데이터 JSON 객체에서 비어 있지 않은 필수 문자열 필드를 읽는다.
+ * [parseDriveFileMetadata]가 빈 id나 이름을 가진 [GoogleDriveFileMetadata]를 조용히 만들지 않고 즉시
+ * 실패하게 한다.
  *
- * @receiver the parsed JSON object to read from.
- * @param key the field name expected to hold a non-blank string value.
- * @return the field's string value.
- * @throws IllegalStateException if [key] is absent, not a string, or blank.
+ * @receiver 값을 읽을 파싱된 JSON 객체다.
+ * @param key 비어 있지 않은 문자열 값을 담아야 하는 필드 이름이다.
+ * @return 필드의 문자열 값이다.
+ * @throws IllegalStateException [key]가 없거나 문자열이 아니거나 비어 있을 때 발생한다.
  */
 private fun kotlinx.serialization.json.JsonObject.requiredString(key: String): String =
     get(key)?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)

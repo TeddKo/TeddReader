@@ -5,25 +5,21 @@ import com.tedd.teddreader.core.common.model.DocumentId
 import kotlinx.coroutines.CancellationException
 
 /**
- * A document handed to the app from outside its own pickers — an incoming Android `Intent`
- * (`VIEW`/`SEND`) or an OS-level "open with"/share target — carrying just enough information for
- * [DocumentImporter.importExternal] to resolve, materialize, and import it the same way a
- * user-driven pick would be.
+ * 앱 자체 선택기 밖에서 전달된 문서를 나타낸다. 수신 Android `Intent`(`VIEW`/`SEND`)나 OS 수준의
+ * "다음으로 열기"/공유 대상에서 [DocumentImporter.importExternal]이 사용자 선택 문서와 같은 방식으로
+ * 해석하고 앱 저장소에 구체화하여 가져오는 데 필요한 정보만 담는다.
  *
- * @property sourceUri an opaque, platform-specific locator for the document (for example, an
- *   Android `content://` URI rendered to a string). Must not be blank.
- * @property displayName the file name the source reports, used for user-facing display and as a
- *   fallback for extension-based format detection when [mimeType] is absent; null when the caller
- *   could not resolve one.
- * @property mimeType the MIME type the source reports, or null when the caller could not resolve
- *   one and format detection must fall back to [displayName]'s extension.
- * @property sizeBytes the document's size in bytes if known, defaulting to `0L`; must be zero or
- *   positive.
- * @property grantFlags the Android URI permission grant flags carried by the originating intent
- *   (e.g. `FLAG_GRANT_READ_URI_PERMISSION`), forwarded so the Android importer can persist read
- *   access to [sourceUri] beyond the lifetime of that intent. Always `0` on platforms with no such
- *   concept.
- * @throws IllegalArgumentException if [sourceUri] is blank or [sizeBytes] is negative.
+ * @property sourceUri 문서를 가리키는 불투명한 플랫폼별 위치다. 예를 들면 문자열로 표현한 Android
+ *   `content://` URI이며 비어 있으면 안 된다.
+ * @property displayName 소스가 보고한 파일 이름이다. 사용자 표시와 [mimeType]이 없을 때 확장자 기반
+ *   형식 감지의 대체값으로 사용한다. 호출자가 해석하지 못했으면 null이다.
+ * @property mimeType 소스가 보고한 MIME 타입이다. 호출자가 해석하지 못해 형식 감지가
+ *   [displayName]의 확장자를 사용해야 하면 null이다.
+ * @property sizeBytes 알려진 경우 문서의 바이트 크기이며 기본값은 `0L`이다. 0 이상이어야 한다.
+ * @property grantFlags 원본 인텐트가 전달한 Android URI 권한 부여 플래그다(예:
+ *   `FLAG_GRANT_READ_URI_PERMISSION`). Android 임포터가 해당 인텐트의 수명 이후에도 [sourceUri] 읽기
+ *   권한을 유지할 수 있도록 전달한다. 이 개념이 없는 플랫폼에서는 항상 `0`이다.
+ * @throws IllegalArgumentException [sourceUri]가 비어 있거나 [sizeBytes]가 음수일 때 발생한다.
  */
 data class ExternalDocumentImportRequest(
     val sourceUri: String,
@@ -39,34 +35,30 @@ data class ExternalDocumentImportRequest(
 }
 
 /**
- * The composition root's single entry point for bringing a document into the library, behind
- * which each platform hides its own picker UI, permission model, and file materialization
- * strategy. Screens call only these methods and never touch platform file APIs directly;
- * `rememberDocumentImporter` supplies the Android SAF/Intent-based or iOS
- * `UIDocumentPickerViewController`-backed implementation for whichever platform is running.
+ * 문서를 라이브러리로 가져오는 컴포지션 루트의 단일 진입점이다. 각 플랫폼은 이 인터페이스 뒤에
+ * 자체 선택기 UI, 권한 모델, 파일 구체화 전략을 숨긴다. 화면은 이 메서드만 호출하고 플랫폼 파일
+ * API에 직접 접근하지 않는다. `rememberDocumentImporter`는 실행 중인 플랫폼에 맞춰 Android
+ * SAF/Intent 기반 구현 또는 iOS `UIDocumentPickerViewController` 기반 구현을 제공한다.
  *
- * Every entry point takes its result as `onImported`/`onError` callbacks rather than returning a
- * suspend value, because opening a picker is inherently a fire-and-forget UI interaction (an
- * Android `ActivityResultLauncher` callback, an iOS delegate callback) that outlives the call that
- * launched it; there is no value to hand back synchronously.
+ * 모든 진입점은 suspend 값을 반환하지 않고 `onImported`/`onError` 콜백으로 결과를 전달한다. 선택기
+ * 열기는 호출보다 오래 지속되는 본질적으로 비동기적인 UI 상호작용이기 때문이다(Android
+ * `ActivityResultLauncher` 콜백, iOS delegate 콜백). 동기적으로 반환할 값이 없다.
  */
 interface DocumentImporter {
     /**
-     * Whether [openGoogleDrive] can currently do anything useful on this platform/device — for
-     * example, false when no activity is available to host the Android authorization flow, or when
-     * the platform's [GoogleDrivePickerBridge] was never configured. Callers use this to decide
-     * whether to show a Google Drive entry point at all, rather than showing one that always fails.
+     * 현재 플랫폼/기기에서 [openGoogleDrive]가 실제로 동작할 수 있는지 나타낸다. 예를 들어 Android
+     * 인증 흐름을 호스팅할 activity가 없거나 플랫폼의 [GoogleDrivePickerBridge]가 구성되지 않았으면
+     * false다. 호출자는 항상 실패할 Google Drive 진입점을 표시하지 않도록 이 값을 사용한다.
      */
     val supportsGoogleDrivePicker: Boolean
 
     /**
-     * Opens the platform's picker for one or more individual document files and imports each one
-     * selected.
+     * 플랫폼 선택기를 열어 하나 이상의 개별 문서 파일을 선택하고 각각 가져온다.
      *
-     * @param onImported called once with the [DocumentId] of every file that imported
-     *   successfully; not called at all if the user picked nothing or every pick failed.
-     * @param onError called with a user-facing message if the batch had any failures, or if the
-     *   platform picker itself could not be opened.
+     * @param onImported 가져오기에 성공한 모든 파일의 [DocumentId]와 함께 한 번 호출한다. 사용자가
+     *   아무것도 선택하지 않았거나 모든 선택 항목이 실패하면 호출하지 않는다.
+     * @param onError 배치에 실패 항목이 있거나 플랫폼 선택기 자체를 열지 못했을 때 사용자에게 표시할
+     *   메시지와 함께 호출한다.
      */
     fun openFiles(
         onImported: (List<DocumentId>) -> Unit,
@@ -74,13 +66,13 @@ interface DocumentImporter {
     )
 
     /**
-     * Opens the platform's picker for a whole folder and imports every supported document found
-     * inside it, recursing into subfolders where the platform allows browsing them.
+     * 플랫폼 선택기를 열어 폴더 전체를 선택하고 그 안에서 찾은 지원 문서를 모두 가져온다. 플랫폼이
+     * 하위 폴더 탐색을 허용하면 재귀적으로 탐색한다.
      *
-     * @param onImported called once with the [DocumentId] of every document imported from the
-     *   folder; not called if none imported.
-     * @param onError called with a user-facing message if any document in the folder failed to
-     *   import, or if the folder picker itself could not be opened.
+     * @param onImported 폴더에서 가져온 모든 문서의 [DocumentId]와 함께 한 번 호출한다. 가져온 문서가
+     *   없으면 호출하지 않는다.
+     * @param onError 폴더 안의 문서 가져오기가 실패했거나 폴더 선택기 자체를 열지 못했을 때 사용자에게
+     *   표시할 메시지와 함께 호출한다.
      */
     fun openFolder(
         onImported: (List<DocumentId>) -> Unit,
@@ -88,14 +80,13 @@ interface DocumentImporter {
     )
 
     /**
-     * Starts the Google Drive picker flow — authorization first if needed, then file selection —
-     * and imports whatever the user picks. Callers should gate showing this entry point on
-     * [supportsGoogleDrivePicker] rather than calling it unconditionally.
+     * 필요하면 먼저 인증한 뒤 파일을 선택하는 Google Drive 선택기 흐름을 시작하고 사용자가 고른
+     * 항목을 가져온다. 호출자는 무조건 호출하지 말고 [supportsGoogleDrivePicker]에 따라 이 진입점의
+     * 표시 여부를 결정해야 한다.
      *
-     * @param onImported called once with the [DocumentId] of every Drive file imported.
-     * @param onError called with a user-facing message if authorization, download, or import
-     *   failed, including when [supportsGoogleDrivePicker] is false and the platform refuses the
-     *   request outright.
+     * @param onImported 가져온 모든 Drive 파일의 [DocumentId]와 함께 한 번 호출한다.
+     * @param onError 인증, 다운로드 또는 가져오기가 실패했을 때 사용자에게 표시할 메시지와 함께
+     *   호출한다. [supportsGoogleDrivePicker]가 false라서 플랫폼이 요청을 즉시 거부한 경우도 포함한다.
      */
     fun openGoogleDrive(
         onImported: (List<DocumentId>) -> Unit,
@@ -103,14 +94,13 @@ interface DocumentImporter {
     )
 
     /**
-     * Imports the single document described by an externally delivered
-     * [ExternalDocumentImportRequest] — one the OS handed the app rather than one the user picked
-     * from inside it.
+     * 사용자가 앱 안에서 선택한 문서가 아니라 OS가 앱에 전달한 [ExternalDocumentImportRequest] 하나를
+     * 가져온다.
      *
-     * @param request the document to import, as resolved from the incoming intent or share target.
-     * @param onImported called once with the imported document's [DocumentId] on success.
-     * @param onError called with a user-facing message if the import failed, or if this platform
-     *   has not wired external import up yet.
+     * @param request 수신 인텐트나 공유 대상에서 해석한 가져올 문서다.
+     * @param onImported 성공 시 가져온 문서의 [DocumentId]와 함께 한 번 호출한다.
+     * @param onError 가져오기가 실패했거나 이 플랫폼에 아직 외부 가져오기가 연결되지 않았을 때
+     *   사용자에게 표시할 메시지와 함께 호출한다.
      */
     fun importExternal(
         request: ExternalDocumentImportRequest,
@@ -120,16 +110,15 @@ interface DocumentImporter {
 }
 
 /**
- * Resolves this platform's [DocumentImporter] implementation, scoped to the current composition:
- * Android's SAF/Intent-based pickers plus Google Drive OAuth, or iOS's
- * `UIDocumentPickerViewController` plus security-scoped resource handling. Called once from
- * `TeddReaderApp` and the resulting importer threaded down to the navigation host and the screens
- * that trigger imports.
+ * 현재 컴포지션 범위에 맞는 플랫폼 [DocumentImporter] 구현을 해석한다. Android에서는 Google Drive
+ * OAuth를 포함한 SAF/Intent 기반 선택기를, iOS에서는 보안 범위 리소스 처리를 포함한
+ * `UIDocumentPickerViewController`를 사용한다. `TeddReaderApp`에서 한 번 호출하며, 생성한 임포터는
+ * 내비게이션 호스트와 가져오기를 실행하는 화면에 전달한다.
  *
- * @param googleDrivePickerBridge the platform bridge for the Google Drive picker/authorization
- *   flow, or null when Drive import is not configured for this build; forwarded to the platform
- *   implementation so it can decide [DocumentImporter.supportsGoogleDrivePicker].
- * @return the platform's [DocumentImporter], remembered for the composition's lifetime.
+ * @param googleDrivePickerBridge Google Drive 선택기/인증 흐름의 플랫폼 브리지다. 이 빌드에 Drive
+ *   가져오기가 구성되지 않았으면 null이며, 플랫폼 구현이
+ *   [DocumentImporter.supportsGoogleDrivePicker]를 결정할 수 있도록 전달한다.
+ * @return 컴포지션 수명 동안 기억되는 플랫폼 [DocumentImporter]다.
  */
 @Composable
 internal expect fun rememberDocumentImporter(
@@ -137,16 +126,15 @@ internal expect fun rememberDocumentImporter(
 ): DocumentImporter
 
 /**
- * The outcome of importing a batch of documents picked together — a multi-file selection, or every
- * supported file inside a picked folder: which ones made it into the library, how many did not,
- * and, for [toImportErrorMessage] to report, why the first one failed.
+ * 함께 선택한 문서 배치의 가져오기 결과다. 여러 파일 선택이나 선택한 폴더 안의 모든 지원 파일 중
+ * 라이브러리에 들어온 항목, 실패한 개수, [toImportErrorMessage]가 보고할 첫 실패 이유를 담는다.
  *
- * @property importedDocumentIds the [DocumentId] of every document that imported successfully, in
- *   the order [importDocuments] processed them.
- * @property failedCount how many items in the batch failed to import.
- * @property firstFailureReason the reason the first failed item gave (see
- *   [Throwable.importFailureReason]), or null when nothing failed. Only the first reason is kept —
- *   see [importDocuments] for why a bare failure count on its own is not enough.
+ * @property importedDocumentIds [importDocuments]가 처리한 순서대로 가져오기에 성공한 모든 문서의
+ *   [DocumentId]다.
+ * @property failedCount 배치에서 가져오기에 실패한 항목 수다.
+ * @property firstFailureReason 첫 실패 항목이 제공한 이유다([Throwable.importFailureReason] 참고).
+ *   실패가 없으면 null이다. 첫 번째 이유만 보존한다. 실패 개수만으로 충분하지 않은 이유는
+ *   [importDocuments]를 참고한다.
  */
 internal data class DocumentImportBatchResult(
     val importedDocumentIds: List<DocumentId>,
@@ -155,26 +143,22 @@ internal data class DocumentImportBatchResult(
 )
 
 /**
- * Imports a batch of items one at a time, letting each failure fall through instead of aborting
- * the whole batch, so that one unreadable file in a ten-file folder import does not cost the other
- * nine.
+ * 배치의 항목을 한 번에 하나씩 가져오며, 한 항목의 실패가 전체 배치를 중단하지 않도록 다음 항목을
+ * 계속 처리한다. 따라서 10개 파일이 있는 폴더에서 읽을 수 없는 파일 하나 때문에 나머지 9개까지
+ * 가져오지 못하는 일을 막는다.
  *
- * A [CancellationException] thrown by [importItem] is always rethrown rather than counted as a
- * failure, so cancelling the enclosing coroutine — for example, navigating away mid-import — still
- * cancels promptly instead of being absorbed as one failure among many.
+ * [importItem]이 던진 [CancellationException]은 실패로 집계하지 않고 항상 다시 던진다. 예를 들어
+ * 가져오기 도중 화면을 떠나 바깥 코루틴이 취소되면 여러 실패 중 하나로 흡수되지 않고 즉시 취소된다.
  *
- * Only the first failure's reason is kept, in the returned result's `firstFailureReason`.
- * Reporting a bare failure count left the reader with no way to tell an unreadable file, a wrong
- * format, and an empty file apart — the count looked identical for all three, and nothing else was
- * logged either — so the first concrete reason is surfaced instead of the count alone; later
- * failures in the same batch may have different causes, but the first is enough to tell the user
- * something actionable happened.
+ * 첫 실패 이유만 반환 결과의 `firstFailureReason`에 보존한다. 실패 개수만 보고하면 읽을 수 없는 파일,
+ * 잘못된 형식, 빈 파일을 구분할 방법이 없었고 세 경우 모두 개수가 같게 보였으며 별도 로그도 없었다.
+ * 따라서 개수만 표시하지 않고 첫 구체적 이유를 노출한다. 같은 배치의 이후 실패 원인은 다를 수
+ * 있지만, 첫 이유만으로도 사용자에게 조치 가능한 문제가 발생했음을 알릴 수 있다.
  *
- * @param items the items to import, in iteration order.
- * @param importItem imports a single item and returns its resulting [DocumentId]; may throw on
- *   failure, including [CancellationException] to cancel the whole batch.
- * @return a [DocumentImportBatchResult] summarizing which items succeeded, how many failed, and
- *   why the first failure happened.
+ * @param items 반복 순서대로 가져올 항목이다.
+ * @param importItem 항목 하나를 가져와 결과 [DocumentId]를 반환한다. 실패 시 예외를 던질 수 있으며,
+ *   전체 배치를 취소하는 [CancellationException]도 포함한다.
+ * @return 성공 항목, 실패 개수, 첫 실패 이유를 요약한 [DocumentImportBatchResult]다.
  */
 internal suspend fun <T> importDocuments(
     items: Collection<T>,
@@ -203,27 +187,26 @@ internal suspend fun <T> importDocuments(
 }
 
 /**
- * The best available human-readable reason this throwable represents an import failure: its own
- * message when present and non-blank, falling back to the exception's simple class name, and
- * finally to a fixed "unknown error" string when even the class name is unavailable, as for an
- * anonymous or local exception type.
+ * 이 throwable이 나타내는 가져오기 실패를 사람이 읽을 수 있게 설명하는 최선의 이유다. 비어 있지
+ * 않은 자체 메시지를 우선 사용하고, 없으면 예외의 단순 클래스 이름을 사용하며, 익명 또는 로컬 예외
+ * 타입처럼 클래스 이름도 없으면 고정된 "unknown error" 문자열을 사용한다.
  *
- * @receiver the throwable caught while importing a single document.
- * @return a non-blank string safe to show to the user or fold into
- *   [DocumentImportBatchResult.firstFailureReason].
+ * @receiver 문서 하나를 가져오다가 잡은 throwable이다.
+ * @return 사용자에게 표시하거나 [DocumentImportBatchResult.firstFailureReason]에 포함해도 안전한 비어
+ *   있지 않은 문자열이다.
  */
 internal fun Throwable.importFailureReason(): String =
     message?.takeIf { it.isNotBlank() } ?: this::class.simpleName ?: "unknown error"
 
 /**
- * Decides the user-facing message, if any, for a completed import batch.
+ * 완료된 가져오기 배치에 표시할 사용자 메시지가 있는지 결정한다.
  *
- * @receiver the batch result to summarize.
- * @return `"No supported documents found."` when nothing was picked and nothing failed, as for an
- *   empty folder or a picker that returned zero usable files; null when every item imported
- *   successfully, since a fully successful batch needs no error message at all; otherwise a count
- *   of failures, with [DocumentImportBatchResult.firstFailureReason] appended when one is known so
- *   the message says what actually went wrong instead of just how many files failed.
+ * @receiver 요약할 배치 결과다.
+ * @return 빈 폴더나 사용 가능한 파일을 하나도 반환하지 않은 선택기처럼 선택 항목도 실패도 없으면
+ *   `"No supported documents found."`를 반환한다. 모든 항목을 성공적으로 가져왔으면 오류 메시지가
+ *   필요 없으므로 null을 반환한다. 그 외에는 실패 개수를 반환하고, 알려진
+ *   [DocumentImportBatchResult.firstFailureReason]이 있으면 덧붙여 실패한 파일 수뿐 아니라 실제 원인을
+ *   설명한다.
  */
 internal fun DocumentImportBatchResult.toImportErrorMessage(): String? = when {
     importedDocumentIds.isEmpty() && failedCount == 0 -> "No supported documents found."
