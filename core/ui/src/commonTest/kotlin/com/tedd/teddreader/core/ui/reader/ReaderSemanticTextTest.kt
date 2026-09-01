@@ -19,21 +19,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Pins what a page's rendered text contains, and that every added character still maps back to the document.
+ * 페이지의 렌더링된 텍스트가 무엇을 담는지, 그리고 더해진 모든 문자가 여전히 문서로 되돌아 매핑됨을
+ * 고정한다.
  *
- * The cases are the decisions rendering makes that a reader would notice if they broke: what marks a block,
- * how much space is left between two blocks, whether a plate gets its own paragraph, whether a picture inside
- * a sentence stays in it, and where a heading is aligned.
+ * 여기 케이스들은 깨졌을 때 사용자가 알아챌 렌더링의 결정들이다: 무엇이 블록을 표시하는지, 두 블록
+ * 사이에 얼마의 공간이 남는지, 판형 그림이 자기만의 문단을 갖는지, 문장 안의 그림이 그 안에
+ * 머무는지, 그리고 제목이 어디에 정렬되는지.
  */
 class ReaderSemanticTextTest {
     /**
-     * Two paragraphs the book separates by a stated margin are separated by exactly that much, and by one
-     * character that draws nothing.
+     * 책이 명시한 margin으로 구분되는 두 문단은 정확히 그만큼, 그리고 아무것도 그리지 않는 문자 하나로
+     * 구분된다.
      *
-     * The stored text puts a blank line between two blocks, and drawing it costs a whole line of the reader's
-     * own line height whatever the book asked for — a book stating `margin-bottom: 10px` (0.625em) had its
-     * paragraphs pushed nearly three times that far apart. The gap is one line set to the collapsed margin
-     * instead.
+     * 저장된 텍스트는 두 블록 사이에 빈 줄을 두는데, 그것을 그리면 책이 요구한 것과 무관하게 리더 자체
+     * 줄 높이만큼의 온전한 한 줄을 비용으로 치른다 — `margin-bottom: 10px`(0.625em)를 명시한 책은 그
+     * 문단들이 그것의 거의 세 배만큼 떨어져 밀려났었다. 대신 이 간격은 합쳐진 margin으로 설정된 한
+     * 줄이다.
      */
     @Test
     fun aStatedMarginBecomesAGapOfExactlyThatHeight() {
@@ -62,10 +63,10 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A book stating no margin gets no gap where its own indents already separate its paragraphs.
+     * margin을 명시하지 않는 책은 그 자체의 들여쓰기가 이미 문단을 구분하는 곳에서는 간격을 얻지 않는다.
      *
-     * `margin: 0` with a first-line indent is the classic setting for running prose, and giving it a blank
-     * line anyway spread every such book to about twice its length.
+     * 첫 줄 들여쓰기가 있는 `margin: 0`은 이어지는 산문의 전형적인 설정이며, 그런데도 빈 줄을 주면 그런
+     * 모든 책이 원래 길이의 약 두 배로 늘어났다.
      */
     @Test
     fun aMarginOfZeroLeavesNoGapWhereAnIndentAlreadySeparates() {
@@ -92,11 +93,11 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * Two paragraphs a book separates by neither a gap nor an indent still get the smallest gap that keeps
-     * them apart.
+     * 책이 간격도 들여쓰기도 두지 않고 구분한 두 문단도 여전히 그것들을 떼어 놓는 가장 작은 간격을
+     * 얻는다.
      *
-     * On the wide page such a book was typeset for, line length alone made the breaks legible; in a phone's
-     * column the same setting is a wall of type where one paragraph ends and the next begins mid-line.
+     * 그런 책이 조판된 넓은 페이지에서는 줄 길이만으로도 문단 나눔이 읽을 만했다; 폰의 컬럼에서는 같은
+     * 설정이 한 문단이 끝나고 다음 문단이 줄 중간에서 시작되는 활자 벽이 된다.
      */
     @Test
     fun paragraphsWithNeitherGapNorIndentAreStillToldApart() {
@@ -118,7 +119,7 @@ class ReaderSemanticTextTest {
         assertEquals(0.35.em, gap.item.lineHeight)
     }
 
-    /** Adjacent margins collapse to the larger of the two, and a padding on either side adds to it. */
+    /** 인접한 margin은 둘 중 더 큰 값으로 합쳐지고, 양쪽의 padding은 거기에 더해진다. */
     @Test
     fun adjacentMarginsCollapseAndPaddingAddsToThem() {
         val text = "First.\n\nSecond."
@@ -144,8 +145,8 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A quotation is inset by the space the book gives it, on every line, with `text-indent` added on the
-     * first line only — which is how CSS composes the two.
+     * 인용문은 모든 줄에서 책이 준 공간만큼 들여지고, `text-indent`는 첫 줄에만 더해진다 — CSS가 둘을
+     * 합성하는 방식 그대로다.
      */
     @Test
     fun aBlockIsInsetByTheSpaceTheBookGivesIt() {
@@ -167,11 +168,11 @@ class ReaderSemanticTextTest {
         assertEquals(1.5.em, indent?.restLine)
     }
     /**
-     * Renders a slice of a document — offsets 8..30 of a longer text — with one block of every kind.
+     * 더 긴 텍스트의 오프셋 8..30 구간 — 문서의 한 조각 — 을 모든 종류의 블록 하나씩과 함께 렌더링한다.
      *
-     * Rendering a slice rather than the whole thing is the point: blocks are clamped to the range, the
-     * heading that starts before it contributes nothing, and the picture's placeholder still reports the
-     * document offsets 29..30 rather than positions inside the slice.
+     * 전체가 아니라 한 조각을 렌더링하는 것이 핵심이다: 블록들은 범위에 clamp되고, 그 앞에서 시작하는
+     * 제목은 아무것도 기여하지 않으며, 그림의 placeholder는 조각 안의 위치가 아니라 여전히 문서 오프셋
+     * 29..30을 보고한다.
      */
     @Test
     fun helperAddsVisibleSemanticsAndClampsInlineStyles() {
@@ -211,10 +212,10 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A picture alone in its block gets a paragraph of its own, carrying the alignment the book asked for.
+     * 자기 블록에 홀로 있는 그림은 책이 요구한 정렬을 지닌, 자기만의 문단을 갖는다.
      *
-     * Without it the picture shared a line with the prose around it — which is what made the text run across
-     * the plate — and the centring the book asked for was thrown away.
+     * 이것이 없으면 그림은 주위 산문과 줄을 공유했다 — 이것이 텍스트가 판형 그림을 가로질러 흐르게
+     * 만든 원인이다 — 그리고 책이 요구한 가운데 정렬은 사라져 버렸다.
      */
     @Test
     fun aStandaloneImageIsItsOwnCentredParagraph() {
@@ -242,11 +243,11 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * The mirror image of the case above: `<p>앞 문장이 있고 <img/> 뒤 문장이 이어진다.</p>`.
+     * 위 케이스의 거울상: `<p>앞 문장이 있고 <img/> 뒤 문장이 이어진다.</p>`.
      *
-     * The picture belongs to the sentence, so it gets no paragraph of its own — giving it one would break
-     * the sentence and overlap the enclosing paragraph style, which `AnnotatedString` rejects outright. The
-     * one paragraph that remains is the sentence's own, spanning the picture with it.
+     * 그림은 문장에 속하므로 자기만의 문단을 갖지 않는다 — 하나를 주면 문장을 끊고 감싸는 문단
+     * 스타일과 겹칠 것이며, 이는 `AnnotatedString`이 곧바로 거부하는 것이다. 남는 하나의 문단은 그림을
+     * 함께 아우르는, 문장 자체의 것이다.
      */
     @Test
     fun aPictureWrittenInsideASentenceStaysInThatParagraph() {
@@ -275,12 +276,12 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A book's `text-align: justify` is honored where justification can actually be set, and falls back to a
-     * ragged edge where it cannot.
+     * 책의 `text-align: justify`는 양쪽 정렬이 실제로 설정될 수 있는 곳에서는 존중되고, 그럴 수 없는
+     * 곳에서는 들쭉날쭉한 가장자리로 대체된다.
      *
-     * Justifying here can only widen the spaces between words. A Latin column absorbs that; a CJK one has
-     * few spaces and breaks between characters instead, so the same setting tore holes across every line of
-     * Korean prose wide enough to read as a second column.
+     * 여기서 양쪽 정렬은 단어 사이 공백만 넓힐 수 있다. 라틴 문자 컬럼은 그것을 흡수하지만, CJK 컬럼은
+     * 공백이 적고 대신 문자 사이에서 끊기므로, 같은 설정이 한글 산문의 모든 줄에 걸쳐 두 번째 컬럼처럼
+     * 읽힐 만큼 넓은 구멍을 뚫었다.
      */
     @Test
     fun justificationIsKeptWhereTheColumnCanCarryIt() {
@@ -323,11 +324,11 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A heading the book does not align itself keeps the alignment of the prose around it, and its words are
-     * the only thing rendered.
+     * 책이 스스로 정렬을 지정하지 않은 제목은 주위 산문의 정렬을 유지하며, 렌더링되는 것은 오직 그
+     * 단어들뿐이다.
      *
-     * Deciding an alignment the book never stated would fight the book's own layout, and prefixing a marker
-     * would put a character in front of every title that the document does not have.
+     * 책이 결코 명시하지 않은 정렬을 결정하는 것은 책 자체의 레이아웃과 충돌할 것이고, 마커를
+     * 접두하는 것은 문서에는 없는 문자를 모든 제목 앞에 두게 될 것이다.
      */
     @Test
     fun aChapterHeadingTheBookDoesNotAlignIsLeftAsTheBookWroteIt() {
@@ -452,9 +453,9 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A container contributes decorations only — never a span. Its inherited styling is baked into the
-     * leaf blocks by the parser, and a container span also covered the zero-width gap characters between
-     * paragraphs, which is how underline fragments and mis-sized gaps appeared in the blank space.
+     * 컨테이너는 장식만 기여할 뿐 — 결코 span은 기여하지 않는다. 그 상속된 스타일링은 파서에 의해 리프
+     * 블록에 구워져 있고, 컨테이너 span은 문단 사이 폭 없는 간격 문자까지 덮었는데, 이것이 밑줄 조각과
+     * 잘못된 크기의 간격이 빈 공간에 나타났던 이유다.
      */
     @Test
     fun aContainerContributesNoSpanOfItsOwn() {
@@ -482,22 +483,22 @@ class ReaderSemanticTextTest {
 
         val gapIndex = semantic.annotatedString.text.indexOf('​')
         assertTrue(gapIndex >= 0)
-        // The gap character carries only its own size-defining span, never styling from any block.
+        // 간격 문자는 오직 자기 크기를 정의하는 span만 지닐 뿐, 어떤 블록의 스타일링도 지니지 않는다.
         assertTrue(
             semantic.annotatedString.spanStyles
                 .filter { it.start <= gapIndex && gapIndex < it.end }
                 .all { it.start == gapIndex && it.end == gapIndex + 1 },
         )
-        // And the container itself produced no text-decoration or font-scale span at all.
+        // 그리고 컨테이너 자체는 text-decoration이나 font-scale span을 전혀 만들지 않았다.
         assertTrue(semantic.annotatedString.spanStyles.none { it.item.textDecoration != null })
         assertEquals(1, semantic.containerDecorations.size)
     }
 
     /**
-     * The book's line height rides the reader's slider, anchored at the slider's neutral point: at the
-     * default the block draws exactly what the book stated, and doubling the slider doubles it. Replacing
-     * the slider's value outright made it dead in styled books; multiplying by its raw value drew every
-     * styled book 45% looser than it asked for before the reader touched anything.
+     * 책의 줄 높이는 슬라이더의 중립점에 고정되어 사용자의 슬라이더에 올라탄다: 기본값에서는 블록이
+     * 책이 명시한 그대로를 그리고, 슬라이더를 두 배로 하면 그것도 두 배가 된다. 슬라이더 값으로 통째로
+     * 대체하면 스타일이 적용된 책에서는 그것이 죽어 버렸고; 원시 값을 그대로 곱하면 사용자가 아무것도
+     * 건드리기 전부터 스타일이 적용된 모든 책이 요구한 것보다 45% 더 헐겁게 그려졌다.
      */
     @Test
     fun publisherLineHeightIsExactAtTheDefaultSliderAndScalesWithIt() {
@@ -522,10 +523,10 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A genuine wrapper whose range happens to coincide with its only child's — a chapter-title box
-     * holding one heading — keeps its own padding in the gap after it. Treating every range-coincident
-     * container as the leaf's twin dropped that reservation while the painter still grew the box by its
-     * padding, which drew the box's bottom border straight through the prose below it.
+     * 그 범위가 우연히 유일한 자식의 범위와 일치하는 진짜 래퍼 — 제목 하나를 담은 챕터 제목 박스 — 는
+     * 그 뒤 간격에 자기 padding을 유지한다. 범위가 일치하는 모든 컨테이너를 리프의 쌍둥이로 취급하면
+     * 그 예약이 사라지는 반면 페인터는 여전히 그 padding만큼 박스를 키워, 박스의 아래쪽 테두리가 그
+     * 아래 산문을 그대로 관통해 그려졌다.
      */
     @Test
     fun aWrapperBoxAroundASingleHeadingReservesItsOwnPadding() {
@@ -551,15 +552,15 @@ class ReaderSemanticTextTest {
         )
 
         val gap = semantic.annotatedString.paragraphStyles.single { it.item.lineHeight != androidx.compose.ui.unit.TextUnit.Unspecified && it.end == it.start + 1 }
-        // Heading default margin (0.67) collapses with the paragraph's (1) to 1, plus the wrapper's own
-        // 3em padding and its 2px border (2/16 em).
+        // 제목 기본 margin(0.67)이 문단의 것(1)과 합쳐져 1이 되고, 여기에 래퍼 자체의 3em padding과
+        // 2px 테두리(2/16 em)가 더해진다.
         assertEquals(1f + 3f + 2f / 16f, gap.item.lineHeight.value, 0.001f)
     }
 
     /**
-     * A plate boxed in a wrapper CONTAINER still gets its own centred paragraph. The wrapper used to
-     * count as a text block enclosing the image, which cost the plate its standalone line and set it
-     * flush left while its caption centred beside it.
+     * 래퍼 CONTAINER 안에 박스로 감싸진 판형 그림도 여전히 자기만의 가운데 정렬된 문단을 갖는다. 예전에는
+     * 래퍼가 이미지를 감싸는 텍스트 블록으로 취급되어, 판형 그림이 그 독립된 줄을 잃고 캡션이 옆에서
+     * 가운데 정렬되는 동안 그것은 왼쪽으로 붙여졌다.
      */
     @Test
     fun aPlateInsideAWrapperContainerStillGetsItsCentredParagraph() {
@@ -597,9 +598,9 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A leaf block with its own box styling paints its own decoration — the box a styled paragraph used
-     * to get from its parse-time CONTAINER twin now comes straight from the leaf — and a genuine wrapper
-     * still paints beneath it.
+     * 자체 박스 스타일링을 가진 리프 블록은 자기 장식을 스스로 그린다 — 예전에 스타일이 적용된 문단이
+     * 파싱 시점의 CONTAINER 쌍둥이로부터 받던 박스가 이제는 리프에서 곧바로 나온다 — 그리고 진짜
+     * 래퍼는 여전히 그 아래에 그려진다.
      */
     @Test
     fun aStyledLeafBlockPaintsItsOwnBoxDecoration() {
@@ -632,14 +633,15 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A styled paragraph's own margin sizes the gap after it exactly once. The parser records no
-     * CONTAINER twin beside a styled leaf any more, so there is nothing left to double-count it with.
+     * 스타일이 적용된 문단 자체의 margin은 그 뒤 간격의 크기를 정확히 한 번만 정한다. 파서는 더 이상
+     * 스타일이 적용된 리프 옆에 CONTAINER 쌍둥이를 기록하지 않으므로, 그것을 이중으로 계산할 대상이
+     * 남아 있지 않다.
      */
     @Test
     fun aStyledParagraphsGapCountsItsMarginExactlyOnce() {
-        // The parser no longer records a same-range-same-style CONTAINER twin beside a styled leaf —
-        // a CONTAINER is always a genuine wrapper now — so the leaf's own margins reach the gap exactly
-        // once, through blockGapEm, with nothing to re-add them.
+        // 파서는 더 이상 스타일이 적용된 리프 옆에 같은 범위·같은 스타일의 CONTAINER 쌍둥이를
+        // 기록하지 않는다 — CONTAINER는 이제 항상 진짜 래퍼다 — 그래서 리프 자체의 margin은
+        // blockGapEm을 통해 정확히 한 번만 간격에 반영되고, 그것을 다시 더할 대상이 없다.
         val text = "First.\n\nSecond."
         val semantic = buildReaderSemanticText(
             text = text,
@@ -663,10 +665,10 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * No span ever covers a placeholder character. A placeholder's reserved box is stated in em, and
-     * Compose resolves that em against the font in force at its position — inside a `0.85em` block span
-     * the picture was reserved 15% smaller than the size every other consumer computed in base em, which
-     * clipped the text fitted beside a float.
+     * 어떤 span도 placeholder 문자를 덮지 않는다. placeholder의 예약된 박스는 em 단위로 명시되고,
+     * Compose는 그 em을 그 위치에서 적용 중인 글꼴을 기준으로 해석한다 — `0.85em` 블록 span 안에서
+     * 그림은 다른 모든 소비자가 기준 em으로 계산한 크기보다 15% 더 작게 예약되었고, 이는 float 옆에
+     * 맞춰진 텍스트를 잘라 버렸다.
      */
     @Test
     fun noSpanCoversAPlaceholderCharacter() {
@@ -695,7 +697,7 @@ class ReaderSemanticTextTest {
         )
     }
 
-    /** The parser-accumulated inset is what indents a paragraph, wrappers included. */
+    /** 파서가 누적한 인셋이 래퍼를 포함해 문단을 들여쓰는 것이다. */
     @Test
     fun theAccumulatedInsetIndentsTheParagraph() {
         val text = "Quoted."
@@ -716,13 +718,13 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A reader-chosen font reaches the two runs this renderer sets in monospace on the document's behalf.
+     * 사용자가 선택한 글꼴이, 이 렌더러가 문서를 대신해 monospace로 설정하는 두 런에도 미친다.
      *
-     * A `<pre>` block and a `<code>` run take their monospace from a browser default this renderer stands in
-     * for, not from anything the book's CSS states, so the publisher-font gate used to pass straight over
-     * them: choosing Serif set the prose in serif and left every preformatted block and inline code run in
-     * mono, the only text on the page still ignoring the choice. Both are gated now. Both keep their
-     * monospace under the document font, where that browser default is exactly what the reader asked to see.
+     * `<pre>` 블록과 `<code>` 런은 책의 CSS가 명시한 무언가가 아니라 이 렌더러가 대신하는 브라우저
+     * 기본값에서 monospace를 가져오므로, 예전에는 출판사 글꼴 게이트가 그것들을 그냥 지나쳤다: Serif를
+     * 고르면 산문은 세리프로 설정되었지만 모든 preformatted 블록과 인라인 코드 런은 mono로 남아, 여전히
+     * 그 선택을 무시하는 페이지 위 유일한 텍스트가 되었다. 이제 둘 다 게이트된다. 둘 다 그 브라우저
+     * 기본값이 정확히 사용자가 보기를 요청한 것인 문서 글꼴 아래에서 자신의 monospace를 유지한다.
      */
     @Test
     fun aReaderChosenFontReplacesTheMonospaceOfPreformattedAndCodeRuns() {
@@ -757,15 +759,15 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A heading, a table header cell, and an inline bold run each draw at exactly today's fixed
-     * 700/600/700 when the reader sits at its default base weight — this change makes emphasis relative
-     * to that base instead of fixed, and this pins the case that must stay pixel-identical: an untouched
-     * font-weight setting must draw no differently than before this change existed.
+     * 사용자가 기본 기준 굵기에 있을 때 제목, 표 헤더 셀, 인라인 굵은 텍스트 런은 각각 정확히 오늘날의
+     * 고정된 700/600/700로 그려진다 — 이 변경은 강조를 고정값이 아니라 그 기준에 대해 상대적으로
+     * 만드는데, 이것이 픽셀 단위로 동일하게 유지되어야 하는 케이스를 고정한다: 건드리지 않은
+     * font-weight 설정은 이 변경이 존재하기 전과 다르지 않게 그려져야 한다.
      *
-     * Falsification: this fails if the step emphasis is drawn above the base is weakened from +300 to
-     * +200 for strong emphasis — the heading and the inline bold run would then assert FontWeight(700)
-     * against an actual FontWeight(600), which was confirmed by making that exact change and running
-     * this test (see the task's build-gate report for the captured failure text).
+     * 반증: 기준 위로 그려지는 강조의 단계가 강한 강조에 대해 +300에서 +200으로 약해지면 이것이
+     * 실패한다 — 그러면 제목과 인라인 굵은 텍스트 런이 실제 FontWeight(600)에 대해 FontWeight(700)를
+     * 단언하게 되며, 이는 정확히 그 변경을 만들고 이 테스트를 실행해 확인되었다(포착된 실패 텍스트는
+     * 작업의 build-gate 리포트 참고).
      */
     @Test
     fun emphasisAtTheDefaultBaseWeightMatchesTodaysFixedWeights() {
@@ -802,14 +804,14 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * Emphasis keeps a constant 300/200-weight lead over whatever base the reader chose, at both ends of
-     * the font-weight setting's 300..600 range — a heavier or lighter body still reads as body, and a
-     * heading, a table header cell, and a bold run still read as heavier than it by the same amount.
+     * font-weight 설정의 300..600 범위 양 끝에서, 강조는 사용자가 선택한 어떤 기준에 대해서도 일정한
+     * 300/200 굵기 차이를 유지한다 — 더 무겁거나 가벼운 본문도 여전히 본문으로 읽히고, 제목, 표 헤더
+     * 셀, 굵은 텍스트 런도 여전히 그것보다 같은 양만큼 무겁게 읽힌다.
      *
-     * Falsification: reverting the helper to draw emphasis at the fixed [FontWeight.Bold] /
-     * [FontWeight.SemiBold] the reader used to draw at makes this fail — a base of 600 would then assert
-     * FontWeight(900) against an actual FontWeight(700), which was confirmed by making that exact
-     * reversion and running this test (see the task's build-gate report for the captured failure text).
+     * 반증: 헬퍼를 예전에 그렸던 고정된 [FontWeight.Bold] / [FontWeight.SemiBold]로 강조를 그리도록
+     * 되돌리면 이것이 실패한다 — 그러면 기준 600이 실제 FontWeight(700)에 대해 FontWeight(900)을
+     * 단언하게 되며, 이는 정확히 그 되돌림을 만들고 이 테스트를 실행해 확인되었다(포착된 실패 텍스트는
+     * 작업의 build-gate 리포트 참고).
      */
     @Test
     fun emphasisContrastAgainstTheBaseStaysConstantAcrossTheWeightRange() {
@@ -850,14 +852,13 @@ class ReaderSemanticTextTest {
     }
 
     /**
-     * A book that states `font-weight: normal` to cancel an inherited bold — inside a heading, which
-     * would otherwise draw as emphasis on its own — resolves to the reader's own base weight, not to a
-     * fixed [FontWeight.Normal] (400), once that base differs from [com.tedd.teddreader.core.common.model.ReaderDefaultFontWeight].
+     * 상속된 굵게를 취소하기 위해 `font-weight: normal`을 명시하는 책 — 그렇지 않으면 그 자체로 강조로
+     * 그려질 제목 안에서 — 은, 그 기준이 [com.tedd.teddreader.core.common.model.ReaderDefaultFontWeight]와
+     * 다를 때 고정된 [FontWeight.Normal](400)이 아니라 리더 자체 기준 굵기로 귀결된다.
      *
-     * Falsification: resolving an explicit non-bold to the fixed [FontWeight.Normal] instead of the base
-     * weight makes this fail — a base of 600 would then assert FontWeight(400) against an actual
-     * FontWeight(600), which was confirmed by making that exact change and running this test (see the
-     * task's build-gate report for the captured failure text).
+     * 반증: 명시적 비굵게를 기준 굵기가 아니라 고정된 [FontWeight.Normal]로 귀결시키면 이것이 실패한다
+     * — 그러면 기준 600이 실제 FontWeight(600)에 대해 FontWeight(400)을 단언하게 되며, 이는 정확히 그
+     * 변경을 만들고 이 테스트를 실행해 확인되었다(포착된 실패 텍스트는 작업의 build-gate 리포트 참고).
      */
     @Test
     fun explicitNonBoldInsideABoldContextResolvesToTheBaseWeight() {

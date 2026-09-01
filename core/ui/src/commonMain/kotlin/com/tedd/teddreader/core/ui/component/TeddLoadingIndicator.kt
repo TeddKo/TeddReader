@@ -17,12 +17,11 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
- * A [LoadingIndicator] with an optional caption underneath (e.g. "Loading document"), so any screen
- * that needs to explain what it is waiting for does not have to hand-assemble a [Column] pairing the
- * spinner with a [TeddText].
+ * 아래에 선택적 캡션(예: "문서 불러오는 중")이 붙는 [LoadingIndicator]로, 무엇을 기다리는지 설명해야
+ * 하는 화면이 스피너와 [TeddText]를 짝짓는 [Column]을 직접 조립할 필요가 없게 한다.
  *
- * @param modifier Modifier applied to the indicator's root [Column].
- * @param message Caption shown under the spinner in a muted color; omitted when null.
+ * @param modifier 인디케이터 루트 [Column]에 적용되는 modifier.
+ * @param message 스피너 아래 흐린 색상으로 표시되는 캡션. null이면 생략된다.
  */
 @Composable
 fun TeddLoadingIndicator(
@@ -48,11 +47,11 @@ fun TeddLoadingIndicator(
 }
 
 /**
- * [TeddLoadingIndicator] centered in the full available space, for screens that are entirely blocked
- * on a load (e.g. opening a document) rather than showing a spinner inline among other content.
+ * 가용 공간 전체 가운데에 [TeddLoadingIndicator]를 놓는다. 다른 콘텐츠 사이에 스피너를 인라인으로
+ * 보여주는 대신, 로드(예: 문서 열기)에 화면 전체가 막혀 있는 경우를 위한 것이다.
  *
- * @param modifier Modifier applied before `fillMaxSize()` is added.
- * @param message Caption shown under the spinner in a muted color; omitted when null.
+ * @param modifier `fillMaxSize()`가 더해지기 전에 적용되는 modifier.
+ * @param message 스피너 아래 흐린 색상으로 표시되는 캡션. null이면 생략된다.
  */
 @Composable
 fun TeddFullScreenLoadingIndicator(
@@ -67,7 +66,7 @@ fun TeddFullScreenLoadingIndicator(
     }
 }
 
-/** Compose preview rendering [TeddLoadingIndicator] with a message and extra padding. */
+/** 메시지와 추가 패딩을 갖춘 [TeddLoadingIndicator]를 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddLoadingIndicatorPreview() {

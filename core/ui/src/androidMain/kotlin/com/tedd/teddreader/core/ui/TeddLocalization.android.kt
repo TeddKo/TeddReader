@@ -7,29 +7,29 @@ import androidx.compose.ui.platform.LocalContext
 import java.util.Locale
 
 /**
- * The device's own default locale, captured the first time [LocalAppLocale.provides] runs, before
- * any in-app override is applied. Kept so a null `value` passed to that function (meaning "clear the
- * override") can restore exactly what the device had, rather than falling back to whatever
- * `Locale.getDefault()` happens to return after it has already been mutated by a previous override.
+ * 어떤 인앱 재정의도 적용되기 전, [LocalAppLocale.provides]가 처음 실행될 때 캡처한 기기 자체의 기본
+ * 로케일이다. 이 함수에 `value`로 null이 전달되면("재정의 해제"를 의미) 이전 재정의로 이미 변형된
+ * `Locale.getDefault()`가 그 시점에 반환하는 값에 의존하는 대신, 기기가 원래 가지고 있던 값을 정확히
+ * 복원할 수 있도록 이 값을 보관한다.
  */
 private var default: Locale? = null
 
 /**
- * Android's [LocalAppLocale]: there is no scoped, Compose-local way to change which locale
- * `stringResource`/Android resource lookups use, so this mutates process-global state — both the JVM
- * default [Locale] and the [LocalContext]'s [android.content.res.Resources] `Configuration` — every
- * time the override changes.
+ * [LocalAppLocale]의 Android 구현체. `stringResource`/Android 리소스 조회가 사용하는 로케일을 범위가
+ * 한정된 Compose-local 방식으로 바꿀 방법이 없으므로, 재정의가 바뀔 때마다 JVM의 기본 [Locale]과
+ * [LocalContext]의 [android.content.res.Resources] `Configuration`이라는 프로세스 전역 상태를 함께
+ * 변형한다.
  */
 actual object LocalAppLocale {
-    /** Reads the JVM's process-wide default locale, which [provides] is what actually mutates. */
+    /** [provides]가 실제로 변형하는 대상인, JVM의 프로세스 전역 기본 로케일을 읽는다. */
     actual val current: String
         @Composable get() = Locale.getDefault().toString()
 
     /**
-     * Mutates the process's default [Locale] and the current [LocalContext]'s resource configuration
-     * to [value] (or back to the device's original [default] locale when [value] is null), via the
-     * deprecated `updateConfiguration` — the only API that reliably re-resolves already-loaded
-     * resources on the API levels this app supports.
+     * 프로세스의 기본 [Locale]과 현재 [LocalContext]의 리소스 설정을 [value]로 변형한다([value]가
+     * null이면 기기의 원래 [default] 로케일로 되돌린다). 이 앱이 지원하는 API 레벨에서 이미 로드된
+     * 리소스를 안정적으로 다시 해석해 주는 유일한 API인, deprecated된 `updateConfiguration`을 통해
+     * 이루어진다.
      */
     @Composable
     actual infix fun provides(value: String?): ProvidedValue<*> {

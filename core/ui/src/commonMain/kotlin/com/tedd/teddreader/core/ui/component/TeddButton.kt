@@ -29,53 +29,50 @@ import com.tedd.teddreader.core.ui.extension.teddClickable
 import com.tedd.teddreader.core.ui.extension.teddSelectable
 
 /**
- * Visual weight of a [TeddButton], chosen by how much attention the action deserves rather than by
- * which background/border/content combination backs it. A screen picks one value per action instead
- * of hand-assembling that combination itself, so emphasis stays a design decision rather than a
- * choice repeated at each call site.
+ * [TeddButton]의 시각적 무게로, 어떤 배경/테두리/콘텐츠 조합이 뒷받침하는지가 아니라 그 액션이 얼마나
+ * 주목받을 만한지에 따라 선택한다. 화면은 그 조합을 직접 조립하는 대신 액션마다 값을 하나씩
+ * 고르므로, 강조는 각 호출부마다 반복되는 선택이 아니라 디자인 결정으로 남는다.
  */
 enum class TeddButtonEmphasis {
-    /** The filled, highest-weight action on a screen — solid background color. */
+    /** 화면에서 가장 무게가 큰 채워진 액션 — 단색 배경. */
     Primary,
 
-    /** A secondary action alongside a primary one — outlined, same shape and padding as [Primary]. */
+    /** 주 액션과 나란히 놓이는 보조 액션 — 윤곽선 스타일이며 [Primary]와 모양·패딩이 같다. */
     Secondary,
 
-    /** A low-emphasis action with no border or fill, for dismissive or optional actions. */
+    /** 테두리나 채우기가 없는 낮은 강조 액션으로, 닫기나 선택적 동작에 쓰인다. */
     Text,
 
-    /** A `Text`-styled action that signals an irreversible choice by rendering in the error color. */
+    /** 오류 색상으로 렌더링되어 되돌릴 수 없는 선택임을 알리는, `Text` 스타일의 액션. */
     Destructive,
 }
 
 /**
- * The app's single button surface: a [TeddText] label built directly on [teddClickable] instead of
- * Material's `Button`/`OutlinedButton`/`TextButton`. Every one of those three derives its ripple's
- * colour from the button's own content colour, which is exactly what this app's ripple policy forbids
- * — a consistent tactile colour across the whole app, regardless of which surface is pressed (see
- * [teddClickable]). Building the button by hand is the only way to keep that one ripple colour while
- * still letting each [emphasis] choose its own background, border, and content colour. The touch
- * target, corner shape, and label style are pinned once here so no [emphasis] branch can drift from
- * the others by accident.
+ * 앱의 단일 버튼 서피스: Material의 `Button`/`OutlinedButton`/`TextButton` 대신 [teddClickable] 위에
+ * 직접 만든 [TeddText] 라벨이다. 이 세 Material 컴포넌트는 모두 리플 색상을 버튼 자체의 콘텐츠 색상에서
+ * 가져오는데, 이는 이 앱의 리플 정책이 정확히 금지하는 것이다 — 어느 서피스가 눌리든 앱 전체에서
+ * 일관된 촉각적 색상을 유지해야 한다([teddClickable] 참고). 각 [emphasis]가 자체 배경, 테두리, 콘텐츠
+ * 색상을 선택하면서도 이 단일 리플 색상을 유지하는 유일한 방법이 버튼을 직접 만드는 것이다. 터치
+ * 타깃, 모서리 모양, 라벨 스타일을 여기서 한 번 고정해 두어 어떤 [emphasis] 분기도 실수로 다른
+ * 분기와 어긋날 수 없게 한다.
  *
- * The label is the button's root instead of sitting inside a `Row` or `Box` kept only to center it:
- * with one child and no overlay, the alignment such a wrapper would give for free is exactly what the
- * label's own modifier and parameters already express — `TextAlign.Center` centers it horizontally,
- * and `Modifier.wrapContentHeight(Alignment.CenterVertically)` centers it vertically — so a second
- * layout node buys nothing. That vertical centering has to be the innermost modifier, applied after
- * `padding`, because `defaultMinSize` only ever raises the *constraint* handed to whatever it wraps;
- * it does not itself center a child that ends up smaller than that minimum. Left off, a short label
- * would sit at the top of the 48dp touch target instead of its middle. `background`, the border, and
- * [teddClickable] all sit further out in the chain than `padding`, so the fill, the outline, and the
- * ripple all cover the full enforced height instead of shrinking down to the label's own natural size.
+ * 라벨은 오직 중앙 정렬을 위해서만 존재하는 `Row`나 `Box` 안에 놓이는 대신 버튼의 루트가 된다.
+ * 자식이 하나뿐이고 오버레이가 없으므로, 그런 래퍼가 공짜로 제공했을 정렬은 라벨 자체의 modifier와
+ * 파라미터가 이미 표현하는 것과 정확히 같다 — `TextAlign.Center`가 수평으로 중앙 정렬하고,
+ * `Modifier.wrapContentHeight(Alignment.CenterVertically)`가 수직으로 중앙 정렬하므로, 두 번째 레이아웃
+ * 노드는 아무 것도 얻지 못한다. 이 수직 중앙 정렬은 `padding` 뒤에 적용되는 가장 안쪽 modifier여야
+ * 하는데, `defaultMinSize`는 자신이 감싼 것에 전달되는 *제약*만 끌어올릴 뿐 그 최소값보다 작게 끝나는
+ * 자식을 스스로 중앙 정렬하지는 않기 때문이다. 이를 빠뜨리면 짧은 라벨이 48dp 터치 타깃의 중앙이
+ * 아니라 위쪽에 놓이게 된다. `background`, 테두리, [teddClickable]은 모두 체인에서 `padding`보다
+ * 바깥쪽에 있으므로, 채우기·윤곽선·리플이 라벨 자체의 자연스러운 크기로 줄어들지 않고 강제된 전체
+ * 높이를 모두 덮는다.
  *
- * @param text The button's label, rendered with [teddReaderTypography]'s `labelLarge` style.
- * @param onClick Invoked when the button is tapped; never invoked while [enabled] is false.
- * @param modifier Modifier applied to the button's root, before the enforced 48dp minimum height.
- * @param enabled Whether the button responds to taps; false also switches it to its disabled colors.
- * @param emphasis Which visual treatment to render — see [TeddButtonEmphasis].
- * @param contentPadding Padding between the button's edge and its label; null means the theme's
- * large/small combination is used.
+ * @param text [teddReaderTypography]의 `labelLarge` 스타일로 렌더링되는 버튼 라벨.
+ * @param onClick 버튼이 탭될 때 호출된다. [enabled]가 false인 동안에는 호출되지 않는다.
+ * @param modifier 강제된 48dp 최소 높이가 적용되기 전, 버튼 루트에 적용되는 modifier.
+ * @param enabled 버튼이 탭에 반응할지 여부. false이면 비활성 색상으로도 전환된다.
+ * @param emphasis 어떤 시각적 처리를 렌더링할지 — [TeddButtonEmphasis] 참고.
+ * @param contentPadding 버튼 가장자리와 라벨 사이의 패딩. null이면 테마의 large/small 조합을 사용한다.
  */
 @Composable
 fun TeddButton(
@@ -145,39 +142,37 @@ fun TeddButton(
 }
 
 /**
- * A pill-shaped tag used for filters and inline labels. Renders as a tappable pill built on
- * [teddSelectable] when [onClick] is supplied, rather than Material's `Surface(selected = ...)`: that
- * surface's ripple derives its colour from `contentColor` like every other Material clickable, which
- * this app's ripple policy forbids (see [teddClickable]), and its own minimum-touch-target handling
- * grows the visible pill along with the tap target, which would misalign a compact filter row.
+ * 필터와 인라인 라벨에 쓰이는 알약 모양 태그. [onClick]이 주어지면 Material의
+ * `Surface(selected = ...)` 대신 [teddSelectable] 위에 만든 탭 가능한 알약으로 렌더링된다: 그 서피스의
+ * 리플은 다른 모든 Material 클릭 가능 요소와 마찬가지로 `contentColor`에서 색상을 가져오는데 이는 이
+ * 앱의 리플 정책이 금지하는 것이고([teddClickable] 참고), 자체 최소 터치 타깃 처리가 탭 타깃과 함께
+ * 눈에 보이는 알약도 함께 키워 버려 촘촘한 필터 행의 정렬이 어긋나게 된다.
  *
- * `minimumInteractiveComponentSize` reserves the 48dp touch floor without touching what is drawn, which
- * is the whole reason it sits outermost in the chain. Measured on the semantics tree: with it, the text
- * node stays 25dp — the pill's own height, a `labelLarge` line plus 4dp of padding either side — while
- * the node that owns the interaction measures 48dp square. Without it both collapse to 25dp. The
- * background, border and ripple all attach inside it, so they follow the pill rather than the floor:
- * the ripple stays clipped to the visible shape and the pill never inflates.
+ * `minimumInteractiveComponentSize`는 그려지는 것을 건드리지 않고 48dp 터치 하한을 확보하며, 이것이
+ * 체인에서 가장 바깥에 놓이는 이유의 전부다. semantics 트리에서 측정해 보면: 이것이 있으면 텍스트
+ * 노드는 알약 자체의 높이인 25dp — `labelLarge` 한 줄에 양쪽 4dp 패딩을 더한 값 — 로 유지되는 반면,
+ * 상호작용을 소유한 노드는 48dp 정사각형으로 측정된다. 이것이 없으면 둘 다 25dp로 줄어든다. 배경,
+ * 테두리, 리플은 모두 그 안쪽에 붙으므로 하한이 아니라 알약을 따라간다: 리플은 보이는 모양에 클립된
+ * 채로 유지되고 알약은 결코 부풀지 않는다.
  *
- * Relying on Compose stretching the hit test on its own is not enough here. That fallback only applies
- * where no node claims the inbound touch, and it competes with siblings by distance — in the filter
- * rows these chips live in, spaced 8dp apart, adjacent chips split the gap between them and the
- * effective target lands well under 48dp. Reserving the space is what makes the floor real.
+ * 여기서는 Compose가 스스로 히트 테스트를 늘려 주는 데 기대는 것으로는 부족하다. 그 대체 동작은
+ * 인바운드 터치를 아무 노드도 차지하지 않을 때만 적용되고, 거리로 형제 노드와 경쟁한다 — 이 칩들이
+ * 놓이는 필터 행에서는 8dp 간격으로 배치되어 인접한 칩들이 그 간격을 나눠 가지므로 실효 타깃이 48dp에
+ * 한참 못 미치게 된다. 공간을 미리 확보해야만 그 하한이 실제로 성립한다.
  *
- * When [onClick] is null, the same border, background, and pill
- * shape are drawn by hand on plain [TeddText] instead, because even a non-clickable interactive
- * modifier would still take part in touch/semantics handling that a purely informational chip should
- * not. [selected] swaps the fill/content colors to the secondary-container pair, and on the
- * non-interactive path also marks the semantics as selected so accessibility services announce the
- * state that would otherwise come for free from a selectable container's own `selected` parameter.
+ * [onClick]이 null이면, 클릭 불가능한 상호작용 modifier조차 순수하게 정보 전달용인 칩이 관여해서는
+ * 안 되는 터치/semantics 처리에 관여하게 되므로, 같은 테두리·배경·알약 모양을 대신 일반 [TeddText]
+ * 위에 직접 그린다. [selected]는 채우기/콘텐츠 색상을 secondary-container 조합으로 바꾸고,
+ * 비상호작용 경로에서는 semantics도 selected로 표시해, 선택 가능한 컨테이너 자체의 `selected`
+ * 파라미터에서 공짜로 나왔을 상태를 접근성 서비스가 알릴 수 있게 한다.
  *
- * @param text The chip's label, shown on a single line with ellipsis truncation.
- * @param onClick Invoked when the chip is tapped; when null, the chip renders as static, unclickable
- * text instead of a tappable pill.
- * @param modifier Modifier applied to the chip's root.
- * @param enabled Whether the chip responds to taps; only meaningful when [onClick] is non-null.
- * @param selected Whether the chip is drawn in its selected (secondary-container) colors.
- * @param contentPadding Padding between the chip's edge and its label; null means the theme's
- * medium/xSmall combination is used.
+ * @param text 한 줄로 표시되며 말줄임표로 잘리는 칩 라벨.
+ * @param onClick 칩이 탭될 때 호출된다. null이면 칩은 탭 가능한 알약이 아니라 정적인, 클릭 불가능한
+ * 텍스트로 렌더링된다.
+ * @param modifier 칩 루트에 적용되는 modifier.
+ * @param enabled 칩이 탭에 반응할지 여부. [onClick]이 non-null일 때만 의미가 있다.
+ * @param selected 칩을 선택된(secondary-container) 색상으로 그릴지 여부.
+ * @param contentPadding 칩 가장자리와 라벨 사이의 패딩. null이면 테마의 medium/xSmall 조합을 사용한다.
  */
 @Composable
 fun TeddChip(
@@ -241,7 +236,7 @@ fun TeddChip(
     }
 }
 
-/** Compose preview rendering [TeddButton] at its default (primary-emphasis) styling. */
+/** [TeddButton]을 기본(primary-emphasis) 스타일로 렌더링하는 Compose 프리뷰. */
 @Preview
 @Composable
 private fun TeddButtonPreview() {
