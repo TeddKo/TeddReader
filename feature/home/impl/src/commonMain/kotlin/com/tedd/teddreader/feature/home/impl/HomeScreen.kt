@@ -130,22 +130,21 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * The stateful entry point for the home screen: wires [HomeViewModel]'s state and actions into the
- * stateless [HomeScreen], the way `ReaderRouteScreen` does for the reader.
+ * 홈 화면의 상태 보유 진입점이다. reader의 `ReaderRouteScreen`과 같은 방식으로 [HomeViewModel]의 상태와
+ * 동작을 상태 없는 [HomeScreen]에 연결한다.
  *
- * @param modifier The modifier applied to [HomeScreen]'s root.
- * @param importMessage An error message from an import that just completed elsewhere in the app
- *   (e.g. a file picker result), shown in place of the view model's own error until the next state
- *   update replaces it.
- * @param onOpenFilesClick Called when the user chooses to add documents by picking files.
- * @param onOpenFolderClick Called when the user chooses to add documents by picking a folder.
- * @param onOpenGoogleDriveClick Called when the user chooses to add documents from Google Drive;
- *   null hides that option entirely where the platform does not support it.
- * @param onSettingsClick Called when the settings action is tapped.
- * @param onDocumentClick Called with the id of a document the user tapped to open.
- * @param onOpenLibraryClick Called when the user asks to see the full library beyond the preview.
- * @param onOpenLibraryFolderClick Called with a folder id when the user opens a library folder.
- * @param viewModel The screen's view model, obtained through Koin by default.
+ * @param modifier [HomeScreen] root에 적용할 modifier.
+ * @param importMessage 앱의 다른 곳에서 방금 완료된 가져오기(예: file picker 결과)의 오류 메시지. 다음 상태
+ *   갱신이 교체할 때까지 뷰 모델 자체 오류 대신 표시한다.
+ * @param onOpenFilesClick 사용자가 파일을 선택해 문서를 추가할 때 호출한다.
+ * @param onOpenFolderClick 사용자가 폴더를 선택해 문서를 추가할 때 호출한다.
+ * @param onOpenGoogleDriveClick 사용자가 Google Drive에서 문서를 추가할 때 호출한다. 플랫폼에서 지원하지
+ *   않는 곳에서는 null로 옵션 자체를 숨긴다.
+ * @param onSettingsClick 설정 동작을 누를 때 호출한다.
+ * @param onDocumentClick 사용자가 열려고 누른 문서 id를 전달해 호출한다.
+ * @param onOpenLibraryClick 사용자가 미리보기 너머의 전체 라이브러리를 보려고 할 때 호출한다.
+ * @param onOpenLibraryFolderClick 사용자가 라이브러리 폴더를 열 때 폴더 id를 전달해 호출한다.
+ * @param viewModel 화면의 뷰 모델. 기본값은 Koin에서 가져온다.
  */
 @Composable
 fun HomeRouteScreen(
@@ -186,69 +185,62 @@ fun HomeRouteScreen(
 }
 
 /**
- * The home screen's UI: masthead, favourites/recent-reading carousels, a library preview grid, and
- * the dialogs (add-documents, delete-confirmation) and multi-select top bar that overlay it.
+ * 홈 화면 UI다. masthead, 즐겨찾기/최근 읽기 carousel, 라이브러리 미리보기 그리드와 그 위에 표시되는
+ * 문서 추가/삭제 확인 dialog 및 다중 선택 top bar를 구성한다.
  *
- * The screen's scrolling body is one [LazyColumn] whose every child is a [TeddSection] — a masthead,
- * zero or more status blocks (error banners, empty states), a form block (sort/filter), and the
- * three document collections. Routing every block through [TeddSection] is what replaced an
- * anonymous header `Column` plus three differently-shaped section composables that used to disagree
- * on gaps and horizontal inset; see [TeddSection] for why that mattered.
+ * 화면의 스크롤 영역은 모든 child가 [TeddSection]인 하나의 [LazyColumn]이다. masthead, 0개 이상의 상태
+ * block(오류 banner, 빈 상태), form block(정렬/필터), 세 문서 collection을 담는다. 모든 block을
+ * [TeddSection]으로 통과시키면서 익명 header `Column`과 간격 및 가로 inset이 서로 달랐던 세 가지 형태의
+ * 섹션 composable을 대체했다. 이것이 중요했던 이유는 [TeddSection]을 참고한다.
  *
- * Library-grid multi-select is owned entirely inside this composable rather than in the view
- * model — [selectedDocumentIds] never outlives navigation away from this screen, and the system
- * back gesture is wired (via [NavigationBackHandler]) to clear a selection before it does anything
- * else, the same way a picker UI elsewhere in the app would.
+ * 라이브러리 그리드 다중 선택은 뷰 모델이 아니라 이 composable 내부에서 전적으로 관리한다.
+ * [selectedDocumentIds]는 이 화면을 떠나는 navigation 이후까지 유지되지 않으며, 시스템 뒤로 가기 gesture는
+ * 앱의 다른 picker UI와 마찬가지로 다른 작업보다 먼저 선택을 지우도록 [NavigationBackHandler]를 통해
+ * 연결한다.
  *
- * The top inset the `LazyColumn` receives is read from `TeddScaffold`'s own `scaffoldPadding`
- * alone, never from a second, independent `WindowInsets` read. That works because the selection
- * top bar's slot is wrapped in `AnimatedVisibility`, and Compose's animation runtime stops emitting
- * any layout node for an `AnimatedVisibility` once it is fully hidden and no longer animating —
- * so once a selection ends and its exit animation settles, that slot becomes genuinely empty rather
- * than merely zero-height. Material's `Scaffold` treats an empty bar slot as "no bar," and falls
- * back to measuring `contentWindowInsets` (`TeddScaffold`'s default, `WindowInsets.safeDrawing`) for
- * that edge instead — which is why `scaffoldPadding.calculateTopPadding()` already equals the
- * status bar's height while idle, without this composable reading `WindowInsets.statusBars` a
- * second time. While a selection is active, the same value instead reports the selection top bar's
- * real measured height, which already accounts for its own internal status-bar consumption. The one
- * piece `scaffoldPadding` cannot supply on its own is the masthead's extra breathing room below the
- * status bar, which is why [contentPadding] is still added on top of it while idle — the selection
- * top bar needs no such margin beneath it, so that addition is skipped once a selection is active.
+ * `LazyColumn`이 받는 위쪽 inset은 두 번째 독립적인 `WindowInsets` 읽기 없이 `TeddScaffold` 자체의
+ * `scaffoldPadding`에서만 읽는다. 선택 top bar slot을 `AnimatedVisibility`로 감쌌고 Compose animation
+ * runtime은 `AnimatedVisibility`가 완전히 숨겨지고 더는 animation 중이 아니면 layout node를 전혀
+ * 발행하지 않으므로 이 방식이 동작한다. 선택이 끝나고 exit animation이 안정되면 해당 slot은 단순히
+ * 높이가 0인 것이 아니라 실제로 비게 된다. Material의 `Scaffold`는 빈 bar slot을 "no bar"로 취급하고
+ * 해당 edge에서 `contentWindowInsets`(`TeddScaffold`의 기본값인 `WindowInsets.safeDrawing`) 측정으로
+ * 돌아간다. 따라서 이 composable이 `WindowInsets.statusBars`를 두 번째로 읽지 않아도 유휴 상태에서
+ * `scaffoldPadding.calculateTopPadding()`은 이미 status bar 높이와 같다. 선택 중에는 같은 값이 자체 내부의
+ * status bar 소비를 반영한 선택 top bar의 실제 측정 높이를 대신 보고한다. `scaffoldPadding`만으로 제공할
+ * 수 없는 유일한 부분은 masthead의 status bar 아래 추가 여백이므로 유휴 상태에서는 [contentPadding]을
+ * 여전히 더한다. 선택 top bar 아래에는 이런 margin이 필요 없으므로 선택 중에는 더하지 않는다.
  *
- * That measured height has to change smoothly across the whole transition rather than snapping once
- * it finishes, which is why the selection top bar's `enter`/`exit` combine `fadeIn`/`fadeOut` and
- * `slideInVertically`/`slideOutVertically` with `expandVertically`/`shrinkVertically`, sharing each
- * phase's own `tween` duration. Fade and slide alone never shrink the size an `AnimatedVisibility`
- * reports to its parent, so without the size animation `Scaffold`'s `topBarPlaceables` would hold the
- * bar's full height for the entire fade/slide and only collapse to nothing in the single frame the
- * node is finally removed — which, combined with [contentPadding] switching on or off
- * `resolvedTopPadding` the instant the selection set becomes empty or non-empty, used to jump the
- * scrolling content by the bar's whole height (about 56dp) in one frame, in both directions.
+ * 측정 높이는 transition이 끝날 때 한 번에 바뀌지 않고 전체 transition 동안 부드럽게 변해야 한다. 그래서
+ * 선택 top bar의 `enter`/`exit`는 `fadeIn`/`fadeOut`, `slideInVertically`/`slideOutVertically`와
+ * `expandVertically`/`shrinkVertically`를 조합하며 각 phase의 `tween` duration을 공유한다. fade와 slide만
+ * 사용하면 `AnimatedVisibility`가 부모에 보고하는 크기는 줄지 않는다. 크기 animation이 없으면 `Scaffold`의
+ * `topBarPlaceables`가 fade/slide 내내 bar의 전체 높이를 유지하다가 node가 최종 제거되는 한 frame에만
+ * 0으로 줄어든다. 여기에 선택 집합이 비거나 비지 않는 순간 [contentPadding]이 `resolvedTopPadding`에서
+ * 켜지거나 꺼지는 동작까지 겹쳐, 과거에는 양방향 모두 스크롤 콘텐츠가 한 frame에 bar 전체 높이(약 56dp)만큼
+ * 튀었다.
  *
- * @param uiState The screen's data: documents, sections, sort/filter, loading and error state.
- * @param onOpenFilesClick Called when the user chooses to add documents by picking files.
- * @param onOpenFolderClick Called when the user chooses to add documents by picking a folder.
- * @param onOpenGoogleDriveClick Called when the user chooses to add documents from Google Drive;
- *   null hides that option in the add-documents dialog.
- * @param onSettingsClick Called when the settings action is tapped.
- * @param onDocumentClick Called with the id of a document the user tapped to open, unless a
- *   library selection is active, in which case a tap toggles selection instead.
- * @param scrollState The scroll state for the screen's [LazyColumn], owned by the caller so it can
- *   survive recomposition/navigation the same way any other hoisted scroll state does.
- * @param onOpenLibraryClick Called when the user asks to see the full library beyond the preview.
- * @param onOpenLibraryFolderClick Called with a folder id when the user opens a library folder.
- * @param onDocumentBookmarkChange Called with a document id and the bookmark state to set for it.
- * @param onSelectionBookmarkChange Called with the currently selected document ids and the
- *   bookmark state to set for all of them at once.
- * @param onDeleteDocuments Called with the document ids to remove once a delete is confirmed.
- * @param onSortChange Called when the library sort order changes.
- * @param onFormatFilterChange Called when the library format filter changes.
- * @param modifier The modifier applied to the screen's root.
- * @param contentPadding Extra vertical spacing placed above the masthead and below the screen's
- *   last section, on top of the safe-area/top-bar inset [TeddScaffold] already contributes through
- *   its `scaffoldPadding`; null resolves to the theme's screenPadding for both the top and the
- *   bottom. Only the vertical components are read here — horizontal inset around every section's
- *   content is owned by [TeddSection], not by this parameter.
+ * @param uiState 문서, 섹션, 정렬/필터, 로딩과 오류 상태를 담은 화면 데이터.
+ * @param onOpenFilesClick 사용자가 파일을 선택해 문서를 추가할 때 호출한다.
+ * @param onOpenFolderClick 사용자가 폴더를 선택해 문서를 추가할 때 호출한다.
+ * @param onOpenGoogleDriveClick 사용자가 Google Drive에서 문서를 추가할 때 호출한다. null이면 문서 추가
+ *   dialog에서 해당 옵션을 숨긴다.
+ * @param onSettingsClick 설정 동작을 누를 때 호출한다.
+ * @param onDocumentClick 사용자가 열려고 누른 문서 id를 전달해 호출한다. 라이브러리 선택이 활성화되어
+ *   있으면 대신 tap으로 선택 상태를 전환한다.
+ * @param scrollState 화면 [LazyColumn]의 스크롤 상태. 다른 hoist된 스크롤 상태처럼 recomposition/navigation을
+ *   견딜 수 있도록 호출자가 소유한다.
+ * @param onOpenLibraryClick 사용자가 미리보기 너머의 전체 라이브러리를 보려고 할 때 호출한다.
+ * @param onOpenLibraryFolderClick 사용자가 라이브러리 폴더를 열 때 폴더 id를 전달해 호출한다.
+ * @param onDocumentBookmarkChange 설정할 즐겨찾기 상태와 문서 id를 전달해 호출한다.
+ * @param onSelectionBookmarkChange 현재 선택한 문서 id와 모두에게 한 번에 설정할 즐겨찾기 상태를 전달해 호출한다.
+ * @param onDeleteDocuments 삭제 확인 후 제거할 문서 id를 전달해 호출한다.
+ * @param onSortChange 라이브러리 정렬 순서가 바뀔 때 호출한다.
+ * @param onFormatFilterChange 라이브러리 형식 필터가 바뀔 때 호출한다.
+ * @param modifier 화면 root에 적용할 modifier.
+ * @param contentPadding masthead 위와 화면 마지막 섹션 아래에 놓는 추가 세로 간격. [TeddScaffold]가
+ *   `scaffoldPadding`으로 이미 제공하는 safe area/top bar inset 위에 더한다. null이면 위아래 모두 테마의
+ *   screenPadding을 사용한다. 여기서는 세로 성분만 읽는다. 각 섹션 콘텐츠의 가로 inset은 이 매개변수가
+ *   아니라 [TeddSection]이 소유한다.
  */
 @Composable
 fun HomeScreen(
@@ -599,29 +591,29 @@ fun HomeScreen(
 }
 
 /**
- * The bookmark state a bulk action on [selectedDocuments] should set: favourite when any selected
- * document is not yet a favourite, unfavourite only once every selected document already is one.
- * This is what lets one button in [SelectionTopBar] read as "add" or "remove" depending on the
- * mixed selection, rather than requiring the two actions to be offered separately.
+ * [selectedDocuments]의 일괄 동작이 설정해야 할 즐겨찾기 상태다. 선택한 문서 중 하나라도 아직 즐겨찾기가
+ * 아니면 즐겨찾기에 추가하고, 모든 선택 문서가 이미 즐겨찾기일 때만 제거한다. 이 규칙으로
+ * [SelectionTopBar]의 button 하나가 두 동작을 따로 제공하지 않고 혼합 선택에 따라 "add" 또는 "remove"로
+ * 동작한다.
  *
- * @param selectedDocuments The documents currently selected in the library grid.
- * @return True (favourite) if any document in [selectedDocuments] is not bookmarked; false
- *   (unfavourite) only when all of them already are.
+ * @param selectedDocuments 라이브러리 그리드에서 현재 선택한 문서.
+ * @return [selectedDocuments] 중 즐겨찾기 아닌 문서가 하나라도 있으면 true(즐겨찾기 추가), 모두 이미
+ *   즐겨찾기이면 false(즐겨찾기 제거).
  */
 internal fun homeSelectionBookmarkTarget(selectedDocuments: Collection<DocumentMetadata>): Boolean =
     selectedDocuments.any { !it.isBookmarked }
 
 /**
- * The top bar shown in place of the masthead while a library multi-select is active: a count,
- * a bulk bookmark toggle, and a bulk delete action.
+ * 라이브러리 다중 선택 중 masthead 대신 표시하는 top bar다. 선택 개수, 일괄 즐겨찾기 전환과 일괄 삭제
+ * 동작을 제공한다.
  *
- * @param selectedCount The number of documents currently selected, shown as the title.
- * @param bookmarkTarget The bookmark state the bulk action button will apply; see
- *   [homeSelectionBookmarkTarget]. Also chooses which icon (filled/outline) the button shows.
- * @param onCancelClick Called when the user backs out of selection mode without acting.
- * @param onBookmarkClick Called when the bulk bookmark-toggle action is tapped.
- * @param onDeleteClick Called when the bulk delete action is tapped.
- * @param modifier The modifier applied to the bar's root.
+ * @param selectedCount 현재 선택한 문서 수. 제목에 표시한다.
+ * @param bookmarkTarget 일괄 동작 button이 적용할 즐겨찾기 상태. [homeSelectionBookmarkTarget] 참고.
+ *   button에 표시할 icon(filled/outline)도 선택한다.
+ * @param onCancelClick 사용자가 동작 없이 선택 모드를 나갈 때 호출한다.
+ * @param onBookmarkClick 일괄 즐겨찾기 전환 동작을 누를 때 호출한다.
+ * @param onDeleteClick 일괄 삭제 동작을 누를 때 호출한다.
+ * @param modifier bar root에 적용할 modifier.
  */
 @Composable
 private fun SelectionTopBar(
@@ -675,34 +667,33 @@ private fun SelectionTopBar(
 }
 
 /**
- * The library section of the home screen: an All/Folders toggle plus a bounded grid preview of
- * either loose documents or folder covers, with a "show all" action into the full library.
+ * 홈 화면의 라이브러리 섹션이다. All/Folders 전환과 개별 문서 또는 폴더 표지의 제한된 그리드 미리보기를
+ * 제공하며, 전체 라이브러리로 이동하는 "show all" 동작을 포함한다.
  *
- * Rendered as a [TeddSectionKind.Collection] with `fullBleed = false`: the preview is a fixed-column
- * grid rather than a horizontally scrolling shelf, so it has no reason to ignore the screen's
- * horizontal inset the way [HomeDocumentCollection]'s pager-backed shelves do.
+ * `fullBleed = false`인 [TeddSectionKind.Collection]으로 렌더링한다. 미리보기는 가로 스크롤 선반이 아니라
+ * 열 수가 고정된 그리드이므로 [HomeDocumentCollection]의 pager 기반 선반처럼 화면의 가로 inset을 무시할
+ * 이유가 없다.
  *
- * @param previewMode Whether the grid currently shows all documents or folders.
- * @param onPreviewModeChange Called when the All/Folders chip selection changes.
- * @param previewDocuments The (already limited) documents to show in All mode.
- * @param allDocuments The full library document list, used to compute each folder's own preview
- *   thumbnails in Folders mode.
- * @param folders The library's folders, further limited to [previewLimit] before being shown.
- * @param previewLimit How many tiles this preview may show, chosen from the available screen
- *   size (see `libraryPreviewLimit`); also selects a 2- or 4-column grid.
- * @param selectedDocumentIds The document ids currently selected for bulk action.
- * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
- * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
- * @param onDocumentClick Called with a document id on tap.
- * @param onStartSelection Called with a document id to begin a multi-select from a long press.
- * @param onShowActions Called with a document id to open its overflow menu.
- * @param onDismissActions Called to close whichever overflow menu is open.
- * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
- * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
- * @param onFolderClick Called with a folder id when a folder tile is tapped.
- * @param onViewAllClick Called when the "show all" action is tapped.
- * @param onLoadCover Called with a document id whose cover should be decoded and cached.
- * @param modifier The modifier applied to the section's root.
+ * @param previewMode 그리드가 현재 모든 문서와 폴더 중 무엇을 표시하는지 나타낸다.
+ * @param onPreviewModeChange All/Folders chip 선택이 바뀔 때 호출한다.
+ * @param previewDocuments All 모드에 표시할 이미 제한된 문서.
+ * @param allDocuments Folders 모드에서 각 폴더의 미리보기 썸네일을 계산할 전체 라이브러리 문서 목록.
+ * @param folders 표시 전에 [previewLimit]로 한 번 더 제한할 라이브러리 폴더.
+ * @param previewLimit 가용 화면 크기에 따라 선택한 미리보기 최대 타일 수(`libraryPreviewLimit` 참고).
+ *   2열 또는 4열 그리드도 선택한다.
+ * @param selectedDocumentIds 일괄 동작을 위해 현재 선택한 문서 id.
+ * @param actionDocumentTarget 현재 더보기 메뉴가 열린 섹션/문서. 없으면 null.
+ * @param documentCoverImages 문서 id를 키로 하는 미리 디코딩된 표지 바이트.
+ * @param onDocumentClick tap한 문서 id를 전달해 호출한다.
+ * @param onStartSelection 길게 눌러 다중 선택을 시작할 문서 id를 전달해 호출한다.
+ * @param onShowActions 더보기 메뉴를 열 문서 id를 전달해 호출한다.
+ * @param onDismissActions 열려 있는 더보기 메뉴를 닫을 때 호출한다.
+ * @param onBookmarkClick 더보기 메뉴에서 즐겨찾기를 전환할 문서를 전달해 호출한다.
+ * @param onDeleteClick 더보기 메뉴에서 삭제를 요청할 문서를 전달해 호출한다.
+ * @param onFolderClick 폴더 타일을 누를 때 폴더 id를 전달해 호출한다.
+ * @param onViewAllClick "show all" 동작을 누를 때 호출한다.
+ * @param onLoadCover 디코딩하고 캐시할 표지의 문서 id를 전달해 호출한다.
+ * @param modifier 섹션 root에 적용할 modifier.
  */
 @Composable
 private fun HomeLibraryPreviewSection(
@@ -843,33 +834,30 @@ private fun HomeLibraryPreviewSection(
 }
 
 /**
- * A titled, horizontally-paged shelf of documents — used for both the favourites and recent-
- * reading collections, which share this layout and differ only in their title/description/icon and
- * the documents they carry.
+ * 제목이 있고 가로 페이지 방식으로 넘기는 문서 선반이다. 즐겨찾기와 최근 읽기 collection이 이 layout을
+ * 공유하며 제목/설명/icon과 담은 문서만 다르다.
  *
- * Rendered as a [TeddSectionKind.Collection] with `fullBleed = true`, so the pager's cards can scroll
- * to the screen edge while the heading above it stays aligned with every other section on the
- * screen; see [TeddSection] for why the two need different insets. [showFavoriteIcon] moves what
- * used to be a leading bookmark glyph before the title into [TeddSection]'s trailing `action` slot,
- * since a plain heading has no leading-icon slot of its own to reuse.
+ * `fullBleed = true`인 [TeddSectionKind.Collection]으로 렌더링한다. 위쪽 heading은 화면의 다른 모든
+ * 섹션과 맞추면서 pager 카드는 화면 edge까지 스크롤할 수 있다. 두 부분에 서로 다른 inset이 필요한
+ * 이유는 [TeddSection]을 참고한다. [showFavoriteIcon]은 이전에 제목 앞에 있던 bookmark glyph를
+ * [TeddSection]의 뒤쪽 `action` slot으로 옮긴다. 일반 heading에는 재사용할 leading icon slot이 없기 때문이다.
  *
- * @param section Which shelf this is (favourites vs. recent), passed through to
- *   [HomeDocumentPager] and combined with a document id to identify which card's overflow menu is
- *   open.
- * @param title The section's title.
- * @param description The section's supporting description text.
- * @param documents The documents shown in this shelf.
- * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
- * @param onDocumentClick Called with a document id on tap.
- * @param onShowActions Called with a document id to open its overflow menu.
- * @param onDismissActions Called to close whichever overflow menu is open.
- * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
- * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
- * @param modifier The modifier applied to the section's root.
- * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
- * @param onLoadCover Called with a document id whose cover should be decoded and cached.
- * @param showFavoriteIcon Whether a bookmark icon is shown in the section heading's trailing slot,
- *   used to mark the favourites collection specifically.
+ * @param section 이 선반의 종류(즐겨찾기 또는 최근). [HomeDocumentPager]로 전달하며 문서 id와 조합해
+ *   어느 카드의 더보기 메뉴가 열렸는지 식별한다.
+ * @param title 섹션 제목.
+ * @param description 섹션 보조 설명 text.
+ * @param documents 이 선반에 표시할 문서.
+ * @param actionDocumentTarget 현재 더보기 메뉴가 열린 섹션/문서. 없으면 null.
+ * @param onDocumentClick tap한 문서 id를 전달해 호출한다.
+ * @param onShowActions 더보기 메뉴를 열 문서 id를 전달해 호출한다.
+ * @param onDismissActions 열려 있는 더보기 메뉴를 닫을 때 호출한다.
+ * @param onBookmarkClick 더보기 메뉴에서 즐겨찾기를 전환할 문서를 전달해 호출한다.
+ * @param onDeleteClick 더보기 메뉴에서 삭제를 요청할 문서를 전달해 호출한다.
+ * @param modifier 섹션 root에 적용할 modifier.
+ * @param documentCoverImages 문서 id를 키로 하는 미리 디코딩된 표지 바이트.
+ * @param onLoadCover 디코딩하고 캐시할 표지의 문서 id를 전달해 호출한다.
+ * @param showFavoriteIcon 섹션 heading의 뒤쪽 slot에 bookmark icon을 표시할지 여부. 즐겨찾기 collection을
+ *   특별히 표시할 때 사용한다.
  */
 @Composable
 private fun HomeDocumentCollection(
@@ -924,27 +912,25 @@ private fun HomeDocumentCollection(
 }
 
 /**
- * A fixed-width [HorizontalPager] of [DocumentCard]s, used to render a shelf's document list for
- * [HomeDocumentCollection].
+ * [HomeDocumentCollection]에서 선반의 문서 목록을 렌더링하는 고정 너비 [DocumentCard]의
+ * [HorizontalPager]다.
  *
- * Cards here are never selectable: [DocumentCard.selected] is hard-wired to false, and no
- * long-press starts a selection. Favourites and recent reading are shortcuts into a book, not a
- * place to manage the library — selecting here would also duplicate a book that appears in both
- * this shelf and the library grid, and the bulk actions selection offers all belong to the
- * library section instead.
+ * 여기의 카드는 선택할 수 없다. [DocumentCard.selected]는 false로 고정하고 길게 눌러도 선택을 시작하지
+ * 않는다. 즐겨찾기와 최근 읽기는 책으로 들어가는 바로 가기이지 라이브러리 관리 장소가 아니다. 여기에서
+ * 선택하면 이 선반과 라이브러리 그리드에 모두 있는 책이 중복되며, 선택이 제공하는 일괄 동작은 모두
+ * 라이브러리 섹션에 속한다.
  *
- * @param section Which shelf this is, combined with a document id to identify an open overflow
- *   menu.
- * @param documents The documents to show, one per page.
- * @param actionDocumentTarget The section/document whose overflow menu is currently open, if any.
- * @param onDocumentClick Called with a document id on tap.
- * @param onShowActions Called with a document id to open its overflow menu.
- * @param onDismissActions Called to close whichever overflow menu is open.
- * @param onBookmarkClick Called with a document to toggle its bookmark from the overflow menu.
- * @param onDeleteClick Called with a document to request its deletion from the overflow menu.
- * @param documentCoverImages Pre-decoded cover bytes, keyed by document id.
- * @param onLoadCover Called with a document id whose cover should be decoded and cached.
- * @param modifier The modifier applied to the pager's root.
+ * @param section 이 선반의 종류. 문서 id와 조합해 열린 더보기 메뉴를 식별한다.
+ * @param documents 페이지마다 하나씩 표시할 문서.
+ * @param actionDocumentTarget 현재 더보기 메뉴가 열린 섹션/문서. 없으면 null.
+ * @param onDocumentClick tap한 문서 id를 전달해 호출한다.
+ * @param onShowActions 더보기 메뉴를 열 문서 id를 전달해 호출한다.
+ * @param onDismissActions 열려 있는 더보기 메뉴를 닫을 때 호출한다.
+ * @param onBookmarkClick 더보기 메뉴에서 즐겨찾기를 전환할 문서를 전달해 호출한다.
+ * @param onDeleteClick 더보기 메뉴에서 삭제를 요청할 문서를 전달해 호출한다.
+ * @param documentCoverImages 문서 id를 키로 하는 미리 디코딩된 표지 바이트.
+ * @param onLoadCover 디코딩하고 캐시할 표지의 문서 id를 전달해 호출한다.
+ * @param modifier pager root에 적용할 modifier.
  */
 @Composable
 private fun HomeDocumentPager(
@@ -991,18 +977,17 @@ private fun HomeDocumentPager(
     }
 }
 
-/** The fixed width of a document card inside [HomeDocumentPager]'s shelves. */
+/** [HomeDocumentPager] 선반 안 문서 카드의 고정 너비. */
 private val HomeDocumentCardWidth = 180.dp
 
 /**
- * The home screen's header block: the "Library" label, app name, tagline, and the add-documents
- * and settings actions.
+ * 홈 화면의 header block이다. "Library" 레이블, 앱 이름, tagline, 문서 추가와 설정 동작을 담는다.
  *
- * @param showAddAction Whether the add-documents button is shown; hidden once the library already
- *   has documents, where the empty-state's own add action would otherwise duplicate it.
- * @param onAddDocumentsClick Called when the add-documents action is tapped.
- * @param onSettingsClick Called when the settings action is tapped.
- * @param modifier The modifier applied to the masthead's root.
+ * @param showAddAction 문서 추가 button 표시 여부. 라이브러리에 이미 문서가 있으면 빈 상태 자체의 추가
+ *   동작과 중복되지 않도록 숨긴다.
+ * @param onAddDocumentsClick 문서 추가 동작을 누를 때 호출한다.
+ * @param onSettingsClick 설정 동작을 누를 때 호출한다.
+ * @param modifier masthead root에 적용할 modifier.
  */
 @Composable
 private fun HomeMasthead(
@@ -1053,14 +1038,12 @@ private fun HomeMasthead(
 }
 
 /**
- * The dialog offered by the add-documents action: local file/folder picking, plus Google Drive
- * when the platform supports it.
+ * 문서 추가 동작이 제공하는 dialog다. 로컬 파일/폴더 선택과 플랫폼이 지원할 때 Google Drive를 제공한다.
  *
- * @param onDismissRequest Called when the dialog should close without an action.
- * @param onSelectFilesClick Called when the "select files" row is tapped.
- * @param onSelectFolderClick Called when the "select folder" row is tapped.
- * @param onSelectGoogleDriveClick Called when the Google Drive row is tapped; null hides that row
- *   entirely.
+ * @param onDismissRequest 동작 없이 dialog를 닫아야 할 때 호출한다.
+ * @param onSelectFilesClick "select files" 행을 누를 때 호출한다.
+ * @param onSelectFolderClick "select folder" 행을 누를 때 호출한다.
+ * @param onSelectGoogleDriveClick Google Drive 행을 누를 때 호출한다. null이면 해당 행을 완전히 숨긴다.
  */
 @Composable
 private fun HomeAddDocumentsDialog(
@@ -1137,11 +1120,11 @@ private fun HomeAddDocumentsDialog(
 }
 
 /**
- * The empty state shown when a library format filter matches no documents, distinct from the
- * whole-library empty state so the recovery action here clears the filter instead of importing.
+ * 라이브러리 형식 필터에 일치하는 문서가 없을 때 표시하는 빈 상태다. 전체 라이브러리의 빈 상태와 구분하여
+ * 여기의 복구 동작은 가져오기 대신 필터를 해제한다.
  *
- * @param onShowAllClick Called when the user asks to clear the active filter.
- * @param modifier The modifier applied to the empty state's root.
+ * @param onShowAllClick 사용자가 활성 필터를 해제하려고 할 때 호출한다.
+ * @param modifier 빈 상태 root에 적용할 modifier.
  */
 @Composable
 private fun HomeFilteredEmptyState(
@@ -1174,13 +1157,13 @@ private fun HomeFilteredEmptyState(
 }
 
 /**
- * The library's sort-order and format-filter chip rows, shown above the library preview grid.
+ * 라이브러리 미리보기 그리드 위에 표시하는 정렬 순서와 형식 필터 chip 행이다.
  *
- * @param sort The currently selected sort order.
- * @param formatFilter The currently selected format filter.
- * @param onSortChange Called when a sort chip is tapped.
- * @param onFormatFilterChange Called when a format-filter chip is tapped.
- * @param modifier The modifier applied to the controls' root.
+ * @param sort 현재 선택한 정렬 순서.
+ * @param formatFilter 현재 선택한 형식 필터.
+ * @param onSortChange 정렬 chip을 누를 때 호출한다.
+ * @param onFormatFilterChange 형식 필터 chip을 누를 때 호출한다.
+ * @param modifier control root에 적용할 modifier.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1229,13 +1212,13 @@ private fun HomeSortFilterControls(
 }
 
 /**
- * A labelled, wrapping row of chips — the shared layout behind both the sort and format-filter
- * rows in [HomeSortFilterControls].
+ * 레이블이 있고 줄바꿈되는 chip 행이다. [HomeSortFilterControls]의 정렬 행과 형식 필터 행이 공유하는
+ * layout이다.
  *
- * @param label The row's caption, shown above the chips.
- * @param style The text style applied to [label].
- * @param contentColor The color applied to [label].
- * @param content The chips themselves.
+ * @param label chip 위에 표시할 행 caption.
+ * @param style [label]에 적용할 text style.
+ * @param contentColor [label]에 적용할 색상.
+ * @param content chip 자체.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1263,10 +1246,10 @@ private fun HomeChipGroup(
 }
 
 /**
- * The localized chip label for a sort option.
+ * 정렬 옵션의 현지화된 chip 레이블이다.
  *
- * @receiver The sort option to label.
- * @return The chip's display text.
+ * @receiver 레이블을 만들 정렬 옵션.
+ * @return chip 표시 text.
  */
 @Composable
 private fun HomeSort.chipLabel(): String = when (this) {
@@ -1276,11 +1259,11 @@ private fun HomeSort.chipLabel(): String = when (this) {
 }
 
 /**
- * The chip label for a format filter: the "All" option is localized, the rest are shown as the
- * format's own short code (e.g. "PDF") since those are not translated elsewhere in the app either.
+ * 형식 필터의 chip 레이블이다. "All" 옵션은 현지화하고 나머지는 앱의 다른 곳에서도 번역하지 않는 형식
+ * 자체의 짧은 코드(예: "PDF")로 표시한다.
  *
- * @receiver The format filter to label.
- * @return The chip's display text.
+ * @receiver 레이블을 만들 형식 필터.
+ * @return chip 표시 text.
  */
 @Composable
 private fun HomeFormatFilter.chipLabel(): String = when (this) {
@@ -1293,28 +1276,27 @@ private fun HomeFormatFilter.chipLabel(): String = when (this) {
 }
 
 /**
- * Adds [value] to this set if absent, or removes it if present — the standard toggle used to
- * flip a document's membership in the library multi-selection.
+ * 이 집합에 [value]가 없으면 추가하고 있으면 제거한다. 라이브러리 다중 선택에서 문서 소속을 뒤집는 표준
+ * toggle이다.
  *
- * @receiver The current set.
- * @param value The element to toggle.
- * @return A new set with [value]'s membership flipped.
+ * @receiver 현재 집합.
+ * @param value 소속을 전환할 원소.
+ * @return [value]의 소속을 뒤집은 새 집합.
  */
 private fun Set<String>.toggle(value: String): Set<String> =
     if (value in this) this - value else this + value
 
 /**
- * A document's page count when known, otherwise its format name — a short line meant for a
- * supporting-text slot in a list item.
+ * 알 수 있으면 문서의 페이지 수, 아니면 형식 이름이다. list item의 supporting text slot에 넣을 짧은 줄이다.
  *
- * @receiver The document to describe.
- * @return The formatted page count, or the format name when no page count is known.
+ * @receiver 설명할 문서.
+ * @return 형식화한 페이지 수. 페이지 수를 알 수 없으면 형식 이름.
  */
 @Composable
 private fun DocumentMetadata.supportingText(): String =
     pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name
 
-/** Compose preview of [HomeScreen] with no documents in the library yet. */
+/** 아직 라이브러리에 문서가 없는 [HomeScreen]의 Compose preview. */
 @Preview(widthDp = 240)
 @Preview(widthDp = 280)
 @Composable
@@ -1336,8 +1318,8 @@ private fun HomeScreenEmptyPreview() {
 }
 
 /**
- * Compose preview of [HomeScreen] with favourites, recent reading, and a library folder
- * populated, across compact/medium/expanded widths.
+ * 즐겨찾기, 최근 읽기와 라이브러리 폴더를 채운 [HomeScreen]의 Compose preview. compact/medium/expanded
+ * 너비를 모두 표시한다.
  */
 @Preview(widthDp = 240)
 @Preview(widthDp = 280)

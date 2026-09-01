@@ -54,47 +54,44 @@ import com.tedd.teddreader.core.ui.generated.resources.select_document
 import com.tedd.teddreader.core.ui.icon.TeddIcons
 import org.jetbrains.compose.resources.stringResource
 
-/** Requested cover decode width, in pixels, for a full-size [DocumentCard]. */
+/** 전체 크기 [DocumentCard]가 요청하는 표지 디코딩 너비(px). */
 internal const val DocumentCardCoverWidthPx = 360
 
-/** Requested cover decode height, in pixels, for a full-size [DocumentCard]. */
+/** 전체 크기 [DocumentCard]가 요청하는 표지 디코딩 높이(px). */
 internal const val DocumentCardCoverHeightPx = 480
 
-/** Requested cover decode width, in pixels, for the smaller covers shown in a folder mosaic. */
+/** 폴더 모자이크에 표시하는 작은 표지가 요청하는 디코딩 너비(px). */
 internal const val DocumentMosaicCoverWidthPx = 120
 
-/** Requested cover decode height, in pixels, for the smaller covers shown in a folder mosaic. */
+/** 폴더 모자이크에 표시하는 작은 표지가 요청하는 디코딩 높이(px). */
 internal const val DocumentMosaicCoverHeightPx = 160
 
 /**
- * A single document tile in the home library grid: cover art, format chip, title, and metadata,
- * with a per-card overflow menu and an optional multi-select affordance.
+ * 홈 라이브러리 그리드의 단일 문서 타일이다. 표지 그림, 형식 chip, 제목과 메타데이터를 표시하며 카드별
+ * 더보기 메뉴와 선택적인 다중 선택 affordance를 제공한다.
  *
- * @param document The document this card represents.
- * @param coverImageBytes Pre-decoded cover bytes, when available, so the card does not have to
- *   decode the source file itself; null falls back to decoding [document]'s source URI for image
- *   documents, or to [BookCoverFallback] otherwise.
- * @param selected Whether this card is part of the current multi-select. Selection dims the cover
- *   (see [SelectedCoverDimAlpha]) because the border alone never showed against a cover that fills
- *   the whole card, the way a picker in a gallery dims its chosen items.
- * @param onClick Called on a plain tap.
- * @param singleClick Whether this card's tap joins the app-wide single-click navigation guard (see
- *   `teddClickable`'s own `singleClick` parameter). The card cannot decide this for itself because
- *   the very same [onClick] slot serves two different jobs depending on the caller: opening the
- *   document in the reader (a destination push, where a duplicate tap must be swallowed) while no
- *   selection is active, or toggling this card's membership in a multi-select (where a caller may
- *   legitimately tap several different cards in quick succession, and the guard's app-wide sharing
- *   would otherwise eat the second of two intentional taps) once one is. The caller passes true only
- *   for the former.
- * @param onLongClick Called on a long press; null where the surrounding section does not offer
- *   selection, which leaves the long press unhandled rather than starting a selection nothing can
- *   act on.
- * @param actionsExpanded Whether this card's overflow menu is currently open.
- * @param onShowActions Called when the overflow button is tapped to open the menu.
- * @param onDismissActions Called when the overflow menu should close.
- * @param onBookmarkClick Called when the menu's favourite/unfavourite item is tapped.
- * @param onDeleteClick Called when the menu's delete item is tapped.
- * @param modifier The modifier applied to the card's root.
+ * @param document 이 카드가 나타내는 문서.
+ * @param coverImageBytes 사용할 수 있을 때 제공하는 미리 디코딩된 표지 바이트. 카드가 원본 파일을 직접
+ *   디코딩하지 않아도 된다. null이면 이미지 문서는 [document]의 원본 URI를 디코딩하고, 그 외에는
+ *   [BookCoverFallback]을 사용한다.
+ * @param selected 이 카드가 현재 다중 선택에 포함되는지 여부. 카드 전체를 채우는 표지 위에서는 테두리만
+ *   보이지 않았으므로 갤러리 picker가 선택 항목을 어둡게 하는 것처럼 표지를 어둡게 한다
+ *   ([SelectedCoverDimAlpha] 참고).
+ * @param onClick 일반 tap 때 호출한다.
+ * @param singleClick 이 카드의 tap이 앱 전체 단일 클릭 navigation guard에 참여할지 여부
+ *   (`teddClickable`의 `singleClick` 매개변수 참고). 같은 [onClick] slot이 호출자에 따라 서로 다른 두
+ *   작업을 하므로 카드 자체는 이를 결정할 수 없다. 선택이 없으면 문서를 reader에서 여는 destination
+ *   push로 중복 tap을 막아야 한다. 선택이 있으면 이 카드의 다중 선택 소속을 전환하는 작업으로, 호출자가
+ *   여러 카드를 빠르게 연속 tap할 수 있으며 앱 전체를 공유하는 guard가 의도한 두 번째 tap을 삼키면 안
+ *   된다. 호출자는 앞의 경우에만 true를 전달한다.
+ * @param onLongClick 길게 누를 때 호출한다. 주변 섹션이 선택을 제공하지 않는 곳에서는 null이며, 아무 작업도
+ *   할 수 없는 선택을 시작하는 대신 길게 누르기를 처리하지 않는다.
+ * @param actionsExpanded 이 카드의 더보기 메뉴가 현재 열려 있는지 여부.
+ * @param onShowActions 더보기 button을 눌러 메뉴를 열 때 호출한다.
+ * @param onDismissActions 더보기 메뉴를 닫아야 할 때 호출한다.
+ * @param onBookmarkClick 메뉴의 즐겨찾기 추가/제거 항목을 누를 때 호출한다.
+ * @param onDeleteClick 메뉴의 삭제 항목을 누를 때 호출한다.
+ * @param modifier 카드 root에 적용할 modifier.
  */
 @Composable
 fun DocumentCard(
@@ -245,18 +242,16 @@ fun DocumentCard(
 }
 
 /**
- * The cover artwork for a document: a decoded image over [BookCoverFallback], or just the
- * fallback when no image data is available yet.
+ * 문서 표지 그림이다. [BookCoverFallback] 위에 디코딩한 이미지를 표시하거나 아직 이미지 데이터가 없으면
+ * fallback만 표시한다.
  *
- * @param coverImageBytes Pre-decoded cover bytes; takes priority over [sourceUri] when both are
- *   non-null.
- * @param sourceUri A URI Coil can decode directly, used only when [coverImageBytes] is null (an
- *   image-format document without a cached cover).
- * @param selected Forwarded to [BookCoverFallback] so its color matches the card's own selection
- *   state even while no cover has loaded.
- * @param widthPx The width, in pixels, requested from Coil for the decoded image.
- * @param heightPx The height, in pixels, requested from Coil for the decoded image.
- * @param modifier The modifier applied to the cover's root.
+ * @param coverImageBytes 미리 디코딩된 표지 바이트. [sourceUri]와 둘 다 null이 아니면 우선한다.
+ * @param sourceUri Coil이 직접 디코딩할 수 있는 URI. [coverImageBytes]가 null인 이미지 형식 문서에만 사용한다.
+ * @param selected 표지가 아직 로드되지 않았을 때 fallback 색상이 카드의 선택 상태와 일치하도록
+ *   [BookCoverFallback]에 전달한다.
+ * @param widthPx Coil에 요청할 디코딩 이미지 너비(px).
+ * @param heightPx Coil에 요청할 디코딩 이미지 높이(px).
+ * @param modifier 표지 root에 적용할 modifier.
  */
 @Composable
 internal fun DocumentCover(
@@ -294,12 +289,12 @@ internal fun DocumentCover(
 }
 
 /**
- * A drawn book-spine placeholder shown under (or instead of) a document's real cover, so a card
- * never renders as an empty box while artwork is still loading or unavailable.
+ * 문서의 실제 표지 아래나 그 대신 표시하는 책등 모양 placeholder다. 그림을 로드하는 중이거나 사용할 수
+ * 없어도 카드가 빈 상자로 렌더링되지 않게 한다.
  *
- * @param selected Whether the owning card is selected; tints the spine and surface to match the
- *   card's own selection colors instead of leaving the fallback visually out of step.
- * @param modifier The modifier applied to the fallback's root.
+ * @param selected 이 fallback을 소유한 카드의 선택 여부. fallback이 시각적으로 어긋나지 않도록 책등과
+ *   surface를 카드 자체의 선택 색상에 맞춘다.
+ * @param modifier fallback root에 적용할 modifier.
  */
 @Composable
 internal fun BookCoverFallback(
@@ -341,11 +336,10 @@ internal fun BookCoverFallback(
 }
 
 /**
- * Builds the card's bullet-separated metadata line: file size, and page count when known.
+ * 파일 크기와, 알 수 있을 때는 페이지 수를 bullet로 구분한 카드 메타데이터 줄을 만든다.
  *
- * @param document The document whose location size and page count are formatted.
- * @return The metadata line, e.g. "42 KB • 120 pages", with a bullet only between parts that are
- *   actually present.
+ * @param document 위치 크기와 페이지 수를 형식화할 문서.
+ * @return 실제 존재하는 부분 사이에만 bullet을 넣은 메타데이터 줄. 예: "42 KB • 120 pages".
  */
 @Composable
 private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
@@ -354,12 +348,11 @@ private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
 }.joinToString(" • ")
 
 /**
- * Formats a byte count as a short human-readable size, rounding down to whole MB/KB/B rather than
- * showing decimals, since a card's metadata line has no room for precision.
+ * 바이트 수를 짧고 읽기 쉬운 크기로 형식화한다. 카드의 메타데이터 줄에는 정밀한 값을 표시할 공간이 없으므로
+ * 소수점을 표시하지 않고 정수 MB/KB/B로 내림한다.
  *
- * @receiver A size in bytes.
- * @return The size formatted with the largest unit ("MB", "KB", or "B") that keeps the number
- *   whole.
+ * @receiver 바이트 단위 크기.
+ * @return 숫자를 정수로 유지하는 가장 큰 단위("MB", "KB", "B")로 형식화한 크기.
  */
 private fun Long.toReadableSize(): String = when {
     this >= 1_000_000L -> "${this / 1_000_000L} MB"
@@ -367,7 +360,7 @@ private fun Long.toReadableSize(): String = when {
     else -> "$this B"
 }
 
-/** Compose preview of [DocumentCard] with a long Korean file name, unselected. */
+/** 긴 한국어 파일 이름을 사용하고 선택하지 않은 [DocumentCard]의 Compose preview. */
 @Preview(widthDp = 270, heightDp = 360)
 @Composable
 private fun DocumentCardPreview() {
@@ -397,7 +390,7 @@ private fun DocumentCardPreview() {
     }
 }
 
-/** How far a selected card is dimmed: dark enough to read as chosen, light enough to still see it. */
+/** 선택한 카드를 어둡게 하는 정도다. 선택 상태로 인식할 만큼 어둡고 내용을 볼 수 있을 만큼 밝다. */
 private fun DocumentMetadata.supportsRepositoryCover(): Boolean =
     format == DocumentFormat.PDF || format == DocumentFormat.EPUB || format == DocumentFormat.CBZ
 

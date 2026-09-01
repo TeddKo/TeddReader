@@ -69,8 +69,8 @@ class HomeViewModel(
     }
 
     /**
-     * Document-derived home content that changes only with repository rows or controls, allowing cover
-     * emissions to reuse its immutable lists instead of sorting and grouping the library again.
+     * 저장소 행이나 컨트롤이 바뀔 때만 달라지는 문서 기반 홈 콘텐츠다. 표지 발행 때 라이브러리를 다시
+     * 정렬하고 그룹화하지 않고 이 불변 목록을 재사용할 수 있게 한다.
      */
     private val library: StateFlow<HomeLibrary> = combine(
         recentDocuments,
@@ -217,37 +217,33 @@ private data class HomeControls(
 )
 
 /**
- * The document-derived half of [HomeUiState], computed from the recent-document list and the
- * user's [HomeControls] alone — everything the home screen shows that does not depend on cover
- * bytes. It exists so cover emissions can be merged in without recomputing any of it: the sort,
- * filter, favorite/recent split, and folder grouping run once per document-or-control change in
- * [buildHomeLibrary], and a later cover-only emission reuses the very same
- * [ImmutableList][kotlinx.collections.immutable.ImmutableList] instances held here rather than
- * rebuilding them (see [toUiState]).
+ * 최근 문서 목록과 사용자의 [HomeControls]만으로 계산하는 [HomeUiState]의 문서 기반 절반이다. 홈 화면이
+ * 표시하는 항목 중 표지 바이트에 의존하지 않는 모든 것을 담는다. 표지 발행과 병합할 때 다시 계산하지 않기
+ * 위해 존재한다. 정렬, 필터, 즐겨찾기/최근 분리와 폴더 그룹화는 문서 또는 컨트롤이 바뀔 때마다
+ * [buildHomeLibrary]에서 한 번 실행하고, 이후 표지만 발행되면 여기에 저장된 바로 그
+ * [ImmutableList][kotlinx.collections.immutable.ImmutableList] 인스턴스를 다시 만들지 않고 재사용한다
+ * ([toUiState] 참고).
  *
- * [visibleDocumentIds] is the membership set the cover map is filtered against — a `Set<String>`
- * so a cover key is tested with a single `contains` instead of scanning [libraryDocuments] per
- * key. It holds exactly the ids in [libraryDocuments], the documents that survive the current
- * format filter, so a cover fetched for a now-hidden document is dropped from the published state
- * rather than shown.
+ * [visibleDocumentIds]는 표지 map을 거르는 소속 집합이다. `Set<String>`이므로 표지 키마다
+ * [libraryDocuments]를 훑지 않고 한 번의 `contains`로 검사한다. 현재 형식 필터를 통과한 문서인
+ * [libraryDocuments]의 id만 정확히 담으므로, 가져온 뒤 숨겨진 문서의 표지는 표시하지 않고 발행 상태에서
+ * 제거한다.
  *
- * @property favoriteDocuments Bookmarked documents, filtered and sorted like [libraryDocuments];
- *   the value handed straight to [HomeUiState.favoriteDocuments].
- * @property recentDocuments The newest 20 non-bookmarked filter-matching documents in
- *   last-opened order; the value handed straight to [HomeUiState.recentDocuments].
- * @property libraryDocuments Every filter-matching document in sort order; the value handed
- *   straight to [HomeUiState.libraryDocuments].
- * @property libraryFolders Folders built from the whole unfiltered document list; the value
- *   handed straight to [HomeUiState.libraryFolders].
- * @property visibleDocumentIds The ids in [libraryDocuments], used to keep only visible covers
- *   when merging with the cover map.
- * @property hasDocuments Whether the library holds any document at all, independent of the
- *   filter; distinguishes an empty library from a filter that matches nothing.
- * @property sort The sort order these lists were built with, echoed into [HomeUiState.sort].
- * @property formatFilter The format filter these lists were built with, echoed into
- *   [HomeUiState.formatFilter].
- * @property isLoading True until the document list has been read at least once.
- * @property errorMessage The most recent load/write failure message, or null.
+ * @property favoriteDocuments [libraryDocuments]처럼 필터링하고 정렬한 즐겨찾기 문서.
+ *   [HomeUiState.favoriteDocuments]에 그대로 전달한다.
+ * @property recentDocuments 필터에 일치하는 즐겨찾기 아닌 문서 중 최근에 연 순서의 최신 20개.
+ *   [HomeUiState.recentDocuments]에 그대로 전달한다.
+ * @property libraryDocuments 필터에 일치하는 모든 문서를 정렬 순서로 담은 목록.
+ *   [HomeUiState.libraryDocuments]에 그대로 전달한다.
+ * @property libraryFolders 필터링하지 않은 전체 문서 목록에서 만든 폴더.
+ *   [HomeUiState.libraryFolders]에 그대로 전달한다.
+ * @property visibleDocumentIds [libraryDocuments]의 id. 표지 map과 병합할 때 표시 가능한 표지만 유지한다.
+ * @property hasDocuments 필터와 관계없이 라이브러리에 문서가 하나라도 있는지 여부. 빈 라이브러리와
+ *   일치 항목이 없는 필터를 구분한다.
+ * @property sort 이 목록들을 만들 때 사용한 정렬 순서. [HomeUiState.sort]에 반영한다.
+ * @property formatFilter 이 목록들을 만들 때 사용한 형식 필터. [HomeUiState.formatFilter]에 반영한다.
+ * @property isLoading 문서 목록을 한 번 이상 읽을 때까지 true.
+ * @property errorMessage 가장 최근의 로드/쓰기 실패 메시지. 없으면 null.
  */
 private data class HomeLibrary(
     val favoriteDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
@@ -262,19 +258,18 @@ private data class HomeLibrary(
     val errorMessage: String? = null,
 ) {
     /**
-     * Merges this document-derived snapshot with the current cover map into the published
-     * [HomeUiState], keeping only covers whose document id is still in [visibleDocumentIds].
+     * 이 문서 기반 스냅샷과 현재 표지 map을 발행할 [HomeUiState]로 병합하며, 문서 id가
+     * [visibleDocumentIds]에 남아 있는 표지만 유지한다.
      *
-     * Every list field is forwarded by reference, so a cover-only emission produces a new
-     * [HomeUiState] whose [HomeUiState.libraryDocuments], [HomeUiState.favoriteDocuments],
-     * [HomeUiState.recentDocuments], and [HomeUiState.libraryFolders] are the identical instances
-     * from the previous emission — the point of splitting the derivation in two. Only
-     * [HomeUiState.documentCoverImages] is rebuilt, and only from [coverImages] entries that pass
-     * the [visibleDocumentIds] membership test.
+     * 모든 목록 필드는 참조 그대로 전달한다. 따라서 표지만 발행되면 새 [HomeUiState]의
+     * [HomeUiState.libraryDocuments], [HomeUiState.favoriteDocuments], [HomeUiState.recentDocuments],
+     * [HomeUiState.libraryFolders]는 이전 발행과 동일한 인스턴스가 된다. 도출 과정을 둘로 나눈 목적이다.
+     * [HomeUiState.documentCoverImages]만 다시 만들며, [visibleDocumentIds] 소속 검사를 통과한
+     * [coverImages] 항목만 사용한다.
      *
-     * @param coverImages The current cover bytes keyed by document id, already narrowed by the
-     *   view model to loaded documents; narrowed once more here to visible ones.
-     * @return The full [HomeUiState] to publish for this document/cover combination.
+     * @param coverImages 문서 id를 키로 하는 현재 표지 바이트. 뷰 모델에서 로드된 문서로 이미 범위를 좁혔으며
+     *   여기에서 표시 가능한 문서로 한 번 더 좁힌다.
+     * @return 이 문서/표지 조합으로 발행할 전체 [HomeUiState].
      */
     fun toUiState(coverImages: Map<String, ByteArray>): HomeUiState {
         val visibleCoverImages = coverImages.filterKeys { it in visibleDocumentIds }
@@ -294,20 +289,18 @@ private data class HomeLibrary(
 }
 
 /**
- * Runs the whole document-side derivation once — filter, sort, favorite/recent split, folder
- * grouping, and the visible-id set — for a given recent-document list and [HomeControls].
- * Extracted from the state combine so it happens only when the documents or controls actually
- * change, never on a cover-only emission.
+ * 주어진 최근 문서 목록과 [HomeControls]에 대해 필터, 정렬, 즐겨찾기/최근 분리, 폴더 그룹화와 표시 가능한
+ * id 집합까지 문서 쪽 도출 전체를 한 번 실행한다. 상태 combine에서 추출하여 표지만 발행될 때는 실행하지
+ * 않고 실제 문서나 컨트롤이 바뀔 때만 실행한다.
  *
- * A null [documents] means the recent-document flow has not produced its first value yet, which is
- * the sole signal for [HomeLibrary.isLoading]; it is treated as an empty list for every other
- * field. [HomeLibrary.libraryFolders] is built from the unfiltered list on purpose, matching
- * [HomeUiState.libraryFolders]' contract that a folder stays visible even while the format filter
- * hides all of its contents.
+ * [documents]가 null이면 최근 문서 flow가 아직 첫 값을 만들지 않았다는 뜻이며, 이것만이
+ * [HomeLibrary.isLoading]의 신호다. 다른 모든 필드에서는 빈 목록으로 취급한다.
+ * [HomeLibrary.libraryFolders]는 의도적으로 필터링하지 않은 목록에서 만든다. 형식 필터가 폴더의 모든
+ * 내용을 숨기는 동안에도 폴더는 표시된다는 [HomeUiState.libraryFolders]의 계약과 일치한다.
  *
- * @param documents The latest recent-document emission, or null before the first one arrives.
- * @param controls The current sort, format filter, and error message.
- * @return The document-derived snapshot for these inputs, ready to merge with the cover map.
+ * @param documents 가장 최근의 최근 문서 발행 값. 첫 값이 도착하기 전에는 null.
+ * @param controls 현재 정렬, 형식 필터와 오류 메시지.
+ * @return 이 입력으로 만든 문서 기반 스냅샷. 표지 map과 병합할 준비가 된 값이다.
  */
 private fun buildHomeLibrary(
     documents: List<DocumentMetadata>?,
