@@ -15,14 +15,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins what a reader's settings file may contain and what it must read back as.
+ * 독자의 설정 파일이 포함할 수 있는 내용과 읽은 결과를 규정한다.
  *
- * Every case here is an upgrade path: a file written by an older build, a key a newer build added, a value
- * out of range. Getting one wrong loses a reader's settings on update — which is silent, and only visible
- * as "the app forgot my font size".
+ * 여기의 모든 사례는 이전 빌드가 작성한 파일, 새 빌드가 추가한 키, 범위를 벗어난 값에 대한
+ * 업그레이드 경로다. 하나라도 잘못 처리하면 업데이트 시 독자의 설정이 조용히 사라지고, 사용자는
+ * "앱이 내 글꼴 크기를 잊었다"는 현상으로만 이를 알 수 있다.
  */
 class ReaderPreferencesSerializerTest {
-    /** Everything stored survives a write and read unchanged. */
+    /** 저장된 모든 값이 쓰기와 읽기를 거쳐 변경 없이 유지되는지 검증한다. */
     @Test
     fun preferencesRoundTripThroughJson() = runTest {
         val preferences = ReaderPreferences(
@@ -37,7 +37,7 @@ class ReaderPreferencesSerializerTest {
         assertEquals(preferences, ReaderPreferencesSerializer.readFrom(buffer))
     }
 
-    /** An empty file is a fresh install, not a corrupt one: it reads as the defaults. */
+    /** 빈 파일을 손상이 아닌 새 설치로 취급해 기본값으로 읽는지 검증한다. */
     @Test
     fun blankJsonReturnsDefaultPreferences() = runTest {
         assertEquals(
@@ -51,7 +51,7 @@ class ReaderPreferencesSerializerTest {
         assertEquals(ReaderThemeMode.PUBLISHER, ReaderPreferencesSerializer.readFrom(Buffer()).style.themeMode)
     }
 
-    /** Values from replaced pagers and page modes read back as what replaced them. */
+    /** 교체된 페이저와 페이지 모드의 값을 대체 값으로 읽는지 검증한다. */
     @Test
     fun legacyJsonValuesReadBackAsCanonicalValues() = runTest {
         val legacyContinuousJson = """{"pageTurnMode":"CONTINUOUS"}"""
@@ -80,7 +80,7 @@ class ReaderPreferencesSerializerTest {
         )
     }
 
-    /** A legacy value read from disk is not written straight back out; the file heals itself. */
+    /** 디스크에서 읽은 레거시 값을 그대로 다시 쓰지 않아 파일이 스스로 정상화되는지 검증한다. */
     @Test
     fun legacyValuesWriteBackAsCanonicalJson() = runTest {
         val buffer = Buffer()
@@ -115,7 +115,7 @@ class ReaderPreferencesSerializerTest {
         assertTrue(sheetFlipJson.contains("SLIDE"))
     }
 
-    /** A key a newer build added is absent from an older file, and falls back rather than failing. */
+    /** 새 빌드가 추가한 키가 이전 파일에 없어도 실패하지 않고 대체 값을 사용하는지 검증한다. */
     @Test
     fun missingAppLanguageDefaultsToSystem() = runTest {
         assertEquals(
@@ -124,7 +124,7 @@ class ReaderPreferencesSerializerTest {
         )
     }
 
-    /** A speed outside the supported range is clamped on read, so no screen has to defend against it. */
+    /** 지원 범위 밖의 속도를 읽을 때 제한해 각 화면이 별도로 방어할 필요가 없는지 검증한다. */
     @Test
     fun outOfRangeAutoScrollSpeedReadBackWithinSupportedRange() = runTest {
         assertEquals(
