@@ -2,15 +2,14 @@ package com.tedd.teddreader.feature.home.api
 
 import kotlinx.serialization.Serializable
 
-/** Navigates to the app's home screen — the entry point shown after launch. */
+/** 앱 실행 후 표시되는 진입점인 홈 화면으로 이동한다. */
 @Serializable
 data object HomeRoute
 
 /**
- * Navigates to the document library.
+ * 문서 라이브러리로 이동한다.
  *
- * @property folderId the folder to show, or null to show the whole library rather than any single
- *   folder.
+ * @property folderId 표시할 폴더. null이면 특정 폴더 대신 전체 라이브러리를 표시한다.
  */
 @Serializable
 data class LibraryRoute(
