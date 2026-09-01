@@ -5,9 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
- * Pins the invariant that keeps a library row from claiming a folder it cannot name: folder id and folder
- * name are either both present or both absent, and a half-filled pair is rejected at construction rather
- * than rendered as a blank folder chip.
+ * 서재 행이 이름 없는 폴더에 속한다고 표시하지 못하게 하는 불변식을 고정한다. 폴더 ID와 폴더 이름은 둘 다 있거나 둘 다 없으며, 한쪽만 채운 쌍은 빈 폴더 칩으로 렌더링하지 않고 생성할 때 거부한다.
  */
 class DocumentModelsTest {
     @Test

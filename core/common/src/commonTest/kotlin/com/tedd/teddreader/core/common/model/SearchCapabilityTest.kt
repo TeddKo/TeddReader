@@ -5,11 +5,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins when the reader offers to search a document.
+ * 리더가 문서 검색을 제공하는 조건을 고정한다.
  *
- * Both cases are about not offering a search that can only answer "no results": a PDF with no extracted
- * text has nothing to match, and a book whose sections exist but are still blank is mid-import rather than
- * empty.
+ * 두 경우 모두 "결과 없음"만 답할 수 있는 검색을 제공하지 않기 위한 것이다. 추출된 텍스트가 없는 PDF에는 일치할 내용이 없고, 섹션은 있지만 아직 공백인 책은 빈 책이 아니라 가져오기 중이다.
  */
 class SearchCapabilityTest {
     @Test

@@ -5,72 +5,80 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlin.jvm.JvmInline
 
-/** Storage tag for [ReaderLocation.TextOffset], the prefix [parseReaderLocation] matches to rebuild it. */
+/**
+ * [ReaderLocation.TextOffset]의 저장 태그로, [parseReaderLocation]이 이를 다시 만들기 위해 일치시키는 접두사이다.
+ */
 private const val TEXT_LOCATION_PREFIX = "txt"
 
-/** Storage tag for [ReaderLocation.EpubOffset], the prefix [parseReaderLocation] matches to rebuild it. */
+/**
+ * [ReaderLocation.EpubOffset]의 저장 태그로, [parseReaderLocation]이 이를 다시 만들기 위해 일치시키는 접두사이다.
+ */
 private const val EPUB_LOCATION_PREFIX = "epub"
 
-/** Storage tag for [ReaderLocation.PdfPage], the prefix [parseReaderLocation] matches to rebuild it. */
+/**
+ * [ReaderLocation.PdfPage]의 저장 태그로, [parseReaderLocation]이 이를 다시 만들기 위해 일치시키는 접두사이다.
+ */
 private const val PDF_LOCATION_PREFIX = "pdf"
 
 /**
- * Milliseconds in a minute, the divisor [ReadingStats.wordsPerMinute] uses to turn a millisecond
- * duration into a per-minute rate.
+ * 1분의 밀리초 수로, [ReadingStats.wordsPerMinute]이 밀리초 기간을 분당 속도로 변환할 때 사용하는 나눗수이다.
  */
 private const val MILLIS_PER_MINUTE = 60_000f
 
 /**
- * The reader's built-in page colours, as ARGB, shared by every theme that is not the reader's own
- * custom one.
+ * 리더 자체 사용자 지정 테마 이외의 모든 테마가 공유하는, ARGB로 표현한 리더 내장 페이지 색상이다.
  *
- * They live here rather than in the design system because a stored [ReaderStyle] holds concrete
- * colours: a theme is applied by copying these into the style (see [withThemeMode]), so the same
- * constants have to be reachable from the model layer that persists them.
+ * 저장된 [ReaderStyle]이 구체적 색상을 보관하므로 디자인 시스템이 아니라 여기에 둔다. 테마는 이 색상을 스타일에 복사하여 적용하므로([withThemeMode] 참고), 이를 영속화하는 모델 계층에서 같은 상수에 접근할 수 있어야 한다.
  */
 const val ReaderLightTextArgb: Long = 0xFF1F1F1FL
 
-/** The light theme's page background colour, paired with [ReaderLightTextArgb]. */
+/**
+ * [ReaderLightTextArgb]와 짝을 이루는 라이트 테마의 페이지 배경 색상이다.
+ */
 const val ReaderLightBackgroundArgb: Long = 0xFFFFFBF2L
 
-/** The dark theme's ink colour, paired with [ReaderDarkBackgroundArgb]. */
+/**
+ * [ReaderDarkBackgroundArgb]와 짝을 이루는 다크 테마의 잉크 색상이다.
+ */
 const val ReaderDarkTextArgb: Long = 0xFFECE6D6L
 
-/** The dark theme's page background colour, paired with [ReaderDarkTextArgb]. */
+/**
+ * [ReaderDarkTextArgb]와 짝을 이루는 다크 테마의 페이지 배경 색상이다.
+ */
 const val ReaderDarkBackgroundArgb: Long = 0xFF12100DL
 
-/** The sepia theme's ink colour, paired with [ReaderSepiaBackgroundArgb]. */
+/**
+ * [ReaderSepiaBackgroundArgb]와 짝을 이루는 세피아 테마의 잉크 색상이다.
+ */
 const val ReaderSepiaTextArgb: Long = 0xFF3B2F24L
 
-/** The sepia theme's page background colour, paired with [ReaderSepiaTextArgb]. */
+/**
+ * [ReaderSepiaTextArgb]와 짝을 이루는 세피아 테마의 페이지 배경 색상이다.
+ */
 const val ReaderSepiaBackgroundArgb: Long = 0xFFF4ECD8L
 
 /**
- * Where a reader is in a document, in terms the document's own format can answer for.
+ * 문서 자체 형식이 답할 수 있는 용어로 나타낸 독자의 문서 내 위치이다.
  *
- * A page number cannot be stored — it only means something for one type size on one screen — so every
- * position is expressed as something intrinsic to the book: a character offset for reflowable text, a
- * spine item plus an offset for EPUB, a page number for PDF, where the page *is* the document's own
- * unit. Reading positions and saved places are both kept this way, which is what lets them survive a
- * font-size change, a re-import, and a different device.
+ * 페이지 번호는 한 화면의 한 글자 크기에서만 의미가 있으므로 저장할 수 없다. 따라서 모든 위치를 책 고유의 값으로 표현한다. 재배치 가능 텍스트의 문자 오프셋, EPUB의 스파인 항목과 오프셋, 페이지 자체가 문서 고유 단위인 PDF의 페이지 번호가 이에 해당한다. 독서 위치와 저장된 장소를 모두 이 방식으로 보관하므로 글꼴 크기 변경, 다시 가져오기, 다른 기기에서도 유지된다.
  *
- * Being sealed is the point: adding a format means adding a case here, and every `when` that resolves a
- * position stops compiling until it has an answer for it.
+ * 봉인된 것이 핵심이다. 형식을 추가하면 여기에 경우를 추가해야 하며, 위치를 해석하는 모든 `when`은 해당 답을 제공할 때까지 컴파일되지 않는다.
  *
- * [asStorageString] is the on-disk form, deliberately a short prefixed string rather than the
- * serializer's JSON, so a stored position is greppable in the database and cheap to compare — and
- * [parseReaderLocation] is its exact inverse.
+ * [asStorageString]은 디스크 형식이다. 의도적으로 직렬화용 JSON 대신 짧은 접두사 문자열을 사용하여 저장된 위치를 데이터베이스에서 `grep`으로 찾을 수 있고 저렴하게 비교할 수 있게 하며, [parseReaderLocation]은 정확한 역변환이다.
  */
 @Serializable
 sealed interface ReaderLocation {
-    /** The compact `prefix:…` form written to storage, read back by [parseReaderLocation]. */
+    /**
+     * 저장소에 기록하고 [parseReaderLocation]으로 다시 읽는 간결한 `prefix:…` 형식이다.
+     */
     fun asStorageString(): String
 
-    /** A character offset into the whole joined text — how a plain text document, and reflowable text
-     *  in general, names a place. *
- * @property offset the character position in the whole joined text.
- * @throws IllegalArgumentException if [offset] is negative, which marks a corrupt stored row.
- */
+    /**
+     * 전체 결합된 텍스트의 문자 오프셋으로, 일반 텍스트 문서와 일반적인 재배치 가능 텍스트가 장소를 나타내는 방식이다.
+     *
+     * @property offset 전체 결합된 텍스트의 문자 위치.
+     * @throws IllegalArgumentException [offset]이 음수인 경우. 손상된 저장 행을 나타낸다.
+     */
     @Serializable
     @SerialName(TEXT_LOCATION_PREFIX)
     data class TextOffset(val offset: Long) : ReaderLocation {
@@ -82,14 +90,12 @@ sealed interface ReaderLocation {
     }
 
     /**
-     * A spine item plus a character offset inside it. Carrying the spine index as well as the offset is
-     * what keeps an EPUB position meaningful while the book is still being imported: the offsets of
-     * later chapters are not known yet, but the chapter the reader is in already is.
+     * 스파인 항목과 그 내부의 문자 오프셋이다. 오프셋과 함께 스파인 인덱스를 보관하므로 책을 가져오는 중에도 EPUB 위치가 의미를 유지한다. 뒤 장의 오프셋은 아직 알 수 없어도 독자가 있는 장은 이미 알 수 있다.
      *
- * @property spineIndex the spine item, known from the moment the book's manifest is read.
- * @property offset the character position inside the document as a whole.
- * @throws IllegalArgumentException if either value is negative.
- */
+     * @property spineIndex 책 매니페스트를 읽는 순간부터 알 수 있는 스파인 항목.
+     * @property offset 문서 전체 안의 문자 위치.
+     * @throws IllegalArgumentException 두 값 중 하나가 음수인 경우.
+     */
     @Serializable
     @SerialName(EPUB_LOCATION_PREFIX)
     data class EpubOffset(
@@ -104,10 +110,12 @@ sealed interface ReaderLocation {
         override fun asStorageString(): String = "$EPUB_LOCATION_PREFIX:$spineIndex:$offset"
     }
 
-    /** A page number, for a format whose pages are fixed by the file itself and never re-flow. *
- * @property pageIndex the zero-based page of the file itself.
- * @throws IllegalArgumentException if [pageIndex] is negative.
- */
+    /**
+     * 파일 자체에서 페이지가 고정되어 절대 재배치되지 않는 형식의 페이지 번호이다.
+     *
+     * @property pageIndex 파일 자체에서 0부터 시작하는 페이지.
+     * @throws IllegalArgumentException [pageIndex]가 음수인 경우.
+     */
     @Serializable
     @SerialName(PDF_LOCATION_PREFIX)
     data class PdfPage(val pageIndex: Int) : ReaderLocation {
@@ -120,16 +128,13 @@ sealed interface ReaderLocation {
 }
 
 /**
- * Reads back a position written by [ReaderLocation.asStorageString].
+ * [ReaderLocation.asStorageString]으로 기록한 위치를 다시 읽는다.
  *
- * A malformed value throws rather than resolving to the first page: a stored position that cannot be
- * parsed means the row was written by something this build does not understand, and silently sending
- * the reader to the beginning of the book would hide that while losing their place.
+ * 잘못된 값을 첫 페이지로 해석하지 않고 예외를 던진다. 파싱할 수 없는 저장 위치는 이 빌드가 이해하지 못하는 무언가가 행을 기록했다는 뜻이며, 독자를 조용히 책 처음으로 보내면 위치를 잃으면서 문제를 숨기게 된다.
  *
- * @param value a string produced by [ReaderLocation.asStorageString].
- * @return the position it names.
- * @throws IllegalStateException if the prefix is unknown or its numbers are missing or unparseable —
- * which means the row was written by something this build does not understand.
+ * @param value [ReaderLocation.asStorageString]이 생성한 문자열.
+ * @return 문자열이 나타내는 위치.
+ * @throws IllegalStateException 접두사를 알 수 없거나 숫자가 없거나 파싱할 수 없는 경우. 이 빌드가 이해하지 못하는 무언가가 행을 기록했다는 뜻이다.
  */
 fun parseReaderLocation(value: String): ReaderLocation {
     val parts = value.split(":")
@@ -145,42 +150,37 @@ fun parseReaderLocation(value: String): ReaderLocation {
 }
 
 /**
- * The [index]th colon-separated field of a stored [ReaderLocation], read as an [Int].
+ * 콜론으로 구분된 저장 [ReaderLocation]의 [index]번째 필드를 [Int]로 읽는다.
  *
- * @receiver the fields of a stored value, already split on `:` by [parseReaderLocation].
- * @param index which field to read.
- * @param source the original stored string, echoed into the error so a corrupt row is traceable.
- * @return the field parsed as an [Int].
- * @throws IllegalStateException if the field is missing or is not a valid integer.
+ * @receiver [parseReaderLocation]이 이미 `:`으로 나눈 저장 값의 필드.
+ * @param index 읽을 필드.
+ * @param source 원본 저장 문자열로, 손상된 행을 추적할 수 있도록 오류에 포함한다.
+ * @return [Int]로 파싱한 필드.
+ * @throws IllegalStateException 필드가 없거나 유효한 정수가 아닌 경우.
  */
 private fun List<String>.requireInt(index: Int, source: String): Int =
     getOrNull(index)?.toIntOrNull() ?: error("Invalid ReaderLocation: $source")
 
 /**
- * The [index]th colon-separated field of a stored [ReaderLocation], read as a [Long].
+ * 콜론으로 구분된 저장 [ReaderLocation]의 [index]번째 필드를 [Long]으로 읽는다.
  *
- * @receiver the fields of a stored value, already split on `:` by [parseReaderLocation].
- * @param index which field to read.
- * @param source the original stored string, echoed into the error so a corrupt row is traceable.
- * @return the field parsed as a [Long].
- * @throws IllegalStateException if the field is missing or is not a valid integer.
+ * @receiver [parseReaderLocation]이 이미 `:`으로 나눈 저장 값의 필드.
+ * @param index 읽을 필드.
+ * @param source 원본 저장 문자열로, 손상된 행을 추적할 수 있도록 오류에 포함한다.
+ * @return [Long]으로 파싱한 필드.
+ * @throws IllegalStateException 필드가 없거나 유효한 정수가 아닌 경우.
  */
 private fun List<String>.requireLong(index: Int, source: String): Long =
     getOrNull(index)?.toLongOrNull() ?: error("Invalid ReaderLocation: $source")
 
 /**
- * The page the reader is on out of the pages currently known, as the page counter and progress bar
- * show it.
+ * 페이지 표시기와 진행률 막대가 표시하는, 현재까지 알려진 전체 페이지 중 독자가 있는 페이지이다.
  *
- * [total] is "known so far", not "in the book": while an import or a measurement is still running it
- * grows, and the reader is told the truth at each step rather than shown a guess that later corrects
- * itself. [progress] is computed here so every screen derives the same fraction from the same pair, and
- * a total of zero yields zero instead of dividing by it.
+ * [total]은 "책 전체"가 아니라 "현재까지 알려진 수"이다. 가져오기나 측정이 계속되는 동안 커지며 리더는 나중에 수정할 추정값 대신 각 단계의 사실을 보여준다. [progress]를 여기서 계산하므로 모든 화면이 같은 쌍으로 같은 비율을 얻고, 전체가 0이면 나누지 않고 0을 반환한다.
  *
- * @property current the page being shown, zero-based.
- * @property total pages known so far, which grows while an import or a measurement is still running.
- * @throws IllegalArgumentException if either value is negative, or if [current] exceeds a non-zero
- * [total].
+ * @property current 현재 표시 중인 0부터 시작하는 페이지.
+ * @property total 현재까지 알려진 페이지 수로, 가져오기나 측정이 계속되는 동안 커진다.
+ * @throws IllegalArgumentException 두 값 중 하나가 음수이거나 [current]가 0이 아닌 [total]을 초과하는 경우.
  */
 @Serializable
 data class PageIndex(
@@ -193,19 +193,19 @@ data class PageIndex(
         require(current <= total || total == 0) { "current page must less than total." }
     }
 
-    /** [current] as a fraction of [total], computed here so every screen agrees; 0f when [total] is zero. */
+    /**
+     * 모든 화면이 일치하도록 여기서 계산한 [total] 대비 [current]의 비율이다. [total]이 0이면 0f이다.
+     */
     val progress: Float = if (total == 0) 0f else current.toFloat() / total.toFloat()
 }
 
 /**
- * An ARGB colour a reader page is drawn with, validated on construction so a stored style can never
- * carry a value that is not a colour.
+ * 리더 페이지를 그릴 ARGB 색상으로, 생성할 때 검증하여 저장된 스타일이 색상이 아닌 값을 지닐 수 없게 한다.
  *
- * Inline over the `Long` so the model layer stays free of any UI colour type — the design system
- * converts at the edge — while costing nothing at runtime.
+ * `Long`을 인라인으로 감싸 모델 계층이 UI 색상 타입에 의존하지 않게 하고, 디자인 시스템은 경계에서 변환한다. 런타임 비용은 없다.
  *
- * @property argb the colour as `0xAARRGGBB`.
- * @throws IllegalArgumentException if [argb] does not fit that range.
+ * @property argb `0xAARRGGBB`로 나타낸 색상.
+ * @throws IllegalArgumentException [argb]가 해당 범위에 들어가지 않는 경우.
  */
 @Serializable
 @JvmInline
@@ -215,18 +215,20 @@ value class ReaderColor(val argb: Long) {
     }
 }
 
-/** Lower bound of a valid [ReaderColor], every channel at zero. */
+/**
+ * 모든 채널이 0인 유효한 [ReaderColor]의 하한이다.
+ */
 private const val MIN_ARGB = 0x00000000L
 
-/** Upper bound of a valid [ReaderColor], every channel at its maximum (`0xFFFFFFFF`). */
+/**
+ * 모든 채널이 최댓값인 유효한 [ReaderColor]의 상한이다(`0xFFFFFFFF`).
+ */
 private const val MAX_ARGB = 0xFFFFFFFFL
 
 /**
- * The language the app's own interface is shown in — independent of the language a book happens to be
- * written in.
+ * 책의 작성 언어와 독립적으로 앱 자체 인터페이스를 표시하는 언어이다.
  *
- * [SYSTEM] follows the platform's own locale; choosing [ENGLISH] or [KOREAN] pins the interface to that
- * language even if the device's locale later changes.
+ * [SYSTEM]은 플랫폼 자체 로캘을 따르며 [ENGLISH]나 [KOREAN]을 선택하면 이후 기기 로캘이 바뀌어도 인터페이스를 해당 언어로 고정한다.
  */
 @Serializable
 enum class AppLanguage {
@@ -236,11 +238,9 @@ enum class AppLanguage {
 }
 
 /**
- * Which set of page colours a reader is using, remembered alongside the colours themselves.
+ * 독자가 사용하는 페이지 색상 집합으로, 색상 자체와 함께 기억한다.
  *
- * The mode is stored as well as the colours because the colours alone cannot say *why* they are what
- * they are: [CUSTOM] means the reader chose them and nothing may overwrite them, while [SYSTEM] means
- * they are still following the platform and may be replaced when it changes.
+ * 색상만으로는 그 값의 *이유*를 알 수 없으므로 모드도 저장한다. [CUSTOM]은 독자가 선택하여 어떤 것도 덮어쓸 수 없다는 뜻이고, [SYSTEM]은 여전히 플랫폼을 따라 플랫폼 변경 시 교체할 수 있다는 뜻이다.
  */
 @Serializable
 enum class ReaderThemeMode {
@@ -253,15 +253,13 @@ enum class ReaderThemeMode {
 }
 
 /**
- * A picture drawn behind the reader's text, for a [ReaderStyle] that wants more than one of the built-in
- * page colours.
+ * 내장 페이지 색상만으로 부족한 [ReaderStyle]에서 리더 텍스트 뒤에 그리는 그림이다.
  *
- * Switching to a built-in theme drops this (see [withThemeMode]), because a picture chosen to sit under
- * one set of page colours can leave text illegible under another.
+ * 내장 테마로 전환하면 이를 제거한다([withThemeMode] 참고). 한 페이지 색상 집합 아래에 두려고 선택한 그림은 다른 색상 아래에서 텍스트를 읽기 어렵게 할 수 있기 때문이다.
  *
- * @property uri where the picture is.
- * @property opacity how strongly it shows through, 0..1, so text stays legible over it.
- * @throws IllegalArgumentException if [uri] is blank or [opacity] falls outside 0..1.
+ * @property uri 그림 위치.
+ * @property opacity 텍스트를 읽을 수 있도록 그림이 비치는 강도로, 0..1이다.
+ * @throws IllegalArgumentException [uri]가 공백이거나 [opacity]가 0..1 밖인 경우.
  */
 @Serializable
 data class BackgroundImage(
@@ -275,37 +273,22 @@ data class BackgroundImage(
 }
 
 /**
- * Everything about how a page looks, and the value the reader both stores and draws from.
+ * 페이지의 외형에 관한 모든 정보로, 리더가 저장하고 그릴 때 모두 사용하는 값이다.
  *
- * The type fields and the colour fields sit together for storage, but they are not equal: only type
- * moves where pages break, which is why [layoutKey] exists and why measurement keys on it instead of on
- * this whole object.
+ * 활자 필드와 색상 필드는 저장을 위해 함께 있지만 동등하지 않다. 활자만 페이지 경계를 움직이므로 [layoutKey]가 존재하며, 전체 객체 대신 이를 기준으로 측정한다.
  *
- * The bounds in `init` are what a stored style is trusted to hold — 8..80sp, 1..3× line height,
- * 300..600 font weight — so every screen can render a persisted style without re-validating it.
+ * `init`의 범위는 저장된 스타일이 보장해야 하는 값이다. 8..80sp, 1..3× 줄 높이, 300..600 글꼴 굵기이므로 모든 화면은 영속화된 스타일을 다시 검증하지 않고 렌더링할 수 있다.
  *
- * @property fontSizeSp type size in sp; changing it re-measures the book.
- * @property fontFamilyName the family the reader chose, or null to honor publisher fonts before falling
- * back to the system default; also re-measures.
- * @property publisherFontKey a non-persisted cache-buster for embedded publisher fonts: null until the
- * reader knows which embedded fonts loaded or failed for this document, then a stable summary string that
- * forces a fresh measurement for that resolved set without polluting stored settings.
- * @property lineHeightMultiplier line height as a multiple of the font size; also re-measures.
- * @property fontWeight the base weight the reading surface's body text is drawn at — one of 300, 400,
- * 500, or 600 — also re-measures, since a heavier or lighter weight changes every glyph's advance and so
- * moves where lines break exactly like size, line height, and family do. Publisher emphasis (bold runs,
- * headings) is derived from this value rather than fixed: a heading or a book-stated bold run draws at
- * this weight plus 300, a table header cell at this weight plus 200, and a book's explicit
- * `font-weight: normal` inside a bold context resolves back to this weight itself — see
- * `readerEmphasisWeights` in `core/ui`'s `ReaderSemanticText.kt`. At the default of 400 this reproduces
- * the previous fixed 700/600/400 exactly, so only a reader who moves this setting away from its default
- * sees emphasis shift with it.
- * @property textColor the ink colour, which cannot move a line break.
- * @property backgroundColor the page colour, which cannot move a line break either.
- * @property backgroundImage a picture behind the text, or null for a plain page.
- * @property themeMode which theme these colours came from, so [withThemeMode] knows what may be replaced.
- * @throws IllegalArgumentException if [fontSizeSp] is outside 8..80, [lineHeightMultiplier] outside 1..3,
- * or [fontWeight] outside 300..600.
+ * @property fontSizeSp sp 단위 활자 크기이며 바꾸면 책을 다시 측정한다.
+ * @property fontFamilyName 독자가 선택한 패밀리이며, 출판사 글꼴을 먼저 존중하고 시스템 기본값으로 대체하려면 `null`이다. 이 값도 다시 측정한다.
+ * @property publisherFontKey 내장 출판사 글꼴을 위한 비영속 캐시 무효화 표식이다. 이 문서에서 어떤 내장 글꼴의 불러오기가 성공하거나 실패했는지 알기 전에는 `null`이고, 이후에는 해석된 집합의 안정적인 요약 문자열이다. 저장 설정을 오염시키지 않고 해당 집합을 새로 측정하게 한다.
+ * @property lineHeightMultiplier 글꼴 크기의 배수로 나타낸 줄 높이이며, 이 값도 다시 측정한다.
+ * @property fontWeight 읽기 표면의 본문 텍스트를 그리는 기준 굵기로 300, 400, 500, 600 중 하나이다. 무겁거나 가벼운 굵기는 모든 글리프 진행 폭을 바꿔 크기, 줄 높이, 패밀리처럼 줄바꿈 위치를 움직이므로 이 값도 다시 측정한다. 출판사 강조(굵게 표시한 구간, 머리말)는 고정값 대신 이 값에서 파생한다. 머리말이나 책이 지정한 굵게 표시한 구간은 이 굵기에 300을 더하고, 표 머리글 셀은 200을 더하며, 굵게 표시한 문맥 내부의 명시적 `font-weight: normal`은 이 굵기 자체로 해석된다. `core/ui`의 `ReaderSemanticText.kt`에 있는 `readerEmphasisWeights`를 참고한다. 기본값 400에서는 이전의 고정 700/600/400을 정확히 재현하므로 이 설정을 기본값에서 바꾼 독자만 강조도 함께 달라진다.
+ * @property textColor 잉크 색상이며 줄바꿈을 움직일 수 없다.
+ * @property backgroundColor 페이지 색상이며 역시 줄바꿈을 움직일 수 없다.
+ * @property backgroundImage 텍스트 뒤의 그림이며 일반 페이지이면 `null`.
+ * @property themeMode 이 색상이 나온 테마로, [withThemeMode]가 교체 가능한 값을 판단할 때 사용한다.
+ * @throws IllegalArgumentException [fontSizeSp]가 8..80 밖이거나, [lineHeightMultiplier]가 1..3 밖이거나, [fontWeight]가 300..600 밖인 경우.
  */
 @Serializable
 data class ReaderStyle(
@@ -327,35 +310,25 @@ data class ReaderStyle(
 }
 
 /**
- * The line-height slider's neutral point, and the reader's out-of-the-box line height.
+ * 줄 높이 슬라이더의 중립점이자 리더의 기본 줄 높이이다.
  *
- * This is part of the line-height contract, not just a default: a block whose book states its own line
- * height draws it *exactly as stated* while the slider sits here, and scales it proportionally as the
- * slider moves (see the renderer's paragraph styling). Multiplying the book's value by the slider's raw
- * value instead set every styled book's lines 45% looser than the book asked for before the reader
- * touched anything.
+ * 단순한 기본값이 아니라 줄 높이 계약의 일부다. 책이 자체 줄 높이를 지정한 블록은 슬라이더가 이 위치일 때 지정값 *그대로* 그리며, 슬라이더가 움직이면 비례해 조정한다(렌더러의 문단 스타일링 참고). 책의 값에 슬라이더 원시 값을 곱하면 독자가 아무것도 만지기 전부터 스타일 있는 모든 책의 줄이 책의 요청보다 45% 넓어졌다.
  */
 const val ReaderDefaultLineHeightMultiplier: Float = 1.45f
 
 /**
- * The reader's out-of-the-box body-text weight, the middle of the four weights the font-weight setting
- * offers — 300, 400, 500, 600 — and what an ordinary system or web font calls "regular." [layoutKey]
- * treats this specific value as the case that needs no extra token in its stored key, so a reader who
- * never touches the setting keeps every layout already measured for their books.
+ * 글꼴 굵기 설정이 제공하는 네 굵기 300, 400, 500, 600의 가운데이자 일반 시스템 또는 웹 글꼴에서 "regular"라 부르는, 리더의 기본 본문 텍스트 굵기이다. [layoutKey]는 이 특정 값을 저장 키에 추가 토큰이 필요 없는 경우로 처리하므로, 설정을 건드리지 않은 독자는 책에 이미 측정된 모든 레이아웃을 유지한다.
  */
 const val ReaderDefaultFontWeight: Int = 400
 
 /**
- * The part of a [ReaderStyle] that decides where the pages break.
+ * 페이지 경계를 결정하는 [ReaderStyle]의 일부이다.
  *
- * Laying a book out is the most expensive thing the reader does, and only type decides the outcome:
- * the same text at the same size, line height and family breaks in the same places whatever colour
- * it is drawn in. Comparing whole styles instead made a theme switch look like a new measurement and
- * laid the entire book out again for a change that cannot move a single line.
+ * 책 배치는 리더에서 가장 비싼 작업이며 활자만 결과를 결정한다. 같은 텍스트를 같은 크기, 줄 높이, 패밀리로 표시하면 색상과 관계없이 같은 위치에서 페이지가 나뉜다. 전체 스타일을 비교하면 테마 전환이 새 측정처럼 보여 단 한 줄도 움직일 수 없는 변경 때문에 책 전체를 다시 배치했다.
  *
- * @property fontSizeSp the type size pages were measured at.
- * @property lineHeightMultiplier the line height they were measured at.
- * @property fontFamilyName the family they were measured with, or null for the system default.
+ * @property fontSizeSp 페이지를 측정한 활자 크기.
+ * @property lineHeightMultiplier 페이지를 측정한 줄 높이.
+ * @property fontFamilyName 측정에 사용한 패밀리이며 시스템 기본값이면 `null`.
  */
 data class ReaderLayoutKey(
     val fontSizeSp: Float,
@@ -364,20 +337,10 @@ data class ReaderLayoutKey(
 )
 
 /**
- * The [ReaderLayoutKey] for this style — what to compare when the question is "must this be measured
- * again?". [ReaderStyle.fontWeight] belongs in this key exactly as much as size, line height, and family
- * do — a heavier or lighter weight changes every glyph's advance and moves line breaks — but
- * [ReaderLayoutKey] itself gains no fourth column for it: the Room layer keys a stored layout on exactly
- * [ReaderLayoutKey.fontSizeSp], [ReaderLayoutKey.lineHeightMultiplier], and
- * [ReaderLayoutKey.fontFamilyName] (see `DocumentRepositoryImpl.newestStoredViewportSize`), so a fourth
- * field would mean a schema migration. [fontWeightToken] folds the weight into the family string
- * instead, the same way [ReaderStyle.publisherFontKey] already is, and it answers the empty string at
- * [ReaderDefaultFontWeight] specifically so a reader who never touches this setting keeps every layout
- * already measured for their books instead of every one of them going stale the moment this setting
- * shipped.
+ * 이 스타일의 [ReaderLayoutKey]로, "다시 측정해야 하는가?"라는 질문에 답할 때 비교하는 값이다. [ReaderStyle.fontWeight]는 크기, 줄 높이, 패밀리와 마찬가지로 이 키에 속한다. 무겁거나 가벼운 굵기가 모든 글리프 진행 폭을 바꿔 줄바꿈을 움직이기 때문이다. 하지만 [ReaderLayoutKey] 자체에는 네 번째 열을 추가하지 않는다. Room 계층은 저장된 레이아웃을 정확히 [ReaderLayoutKey.fontSizeSp], [ReaderLayoutKey.lineHeightMultiplier], [ReaderLayoutKey.fontFamilyName]을 키로 사용한다(`DocumentRepositoryImpl.newestStoredViewportSize` 참고). 네 번째 필드는 스키마 마이그레이션을 뜻한다. 대신 [fontWeightToken]이 굵기를 패밀리 문자열에 합친다. [ReaderStyle.publisherFontKey]와 같은 방식이며, [ReaderDefaultFontWeight]에서는 빈 문자열을 반환한다. 따라서 이 설정 출시 순간 모든 책의 기존 레이아웃이 오래된 상태가 되지 않고, 설정을 건드리지 않은 독자는 이미 측정한 모든 레이아웃을 유지한다.
  *
- * @receiver the style to reduce.
- * @return only the fields that decide page boundaries.
+ * @receiver 축약할 스타일.
+ * @return 페이지 경계를 결정하는 필드만 포함한 값.
  */
 fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
     fontSizeSp = fontSizeSp,
@@ -386,42 +349,24 @@ fun ReaderStyle.layoutKey(): ReaderLayoutKey = ReaderLayoutKey(
 )
 
 /**
- * The token [layoutKey] folds into its family string for [ReaderStyle.fontWeight], since
- * [ReaderLayoutKey] has no column of its own for the weight (see [layoutKey]'s own doc for why).
+ * [ReaderLayoutKey] 자체에 굵기 열이 없으므로 [layoutKey]가 [ReaderStyle.fontWeight]를 패밀리 문자열에 합칠 때 사용하는 토큰이다. 이유는 [layoutKey] 자체 문서를 참고한다.
  *
- * @receiver the style to read the weight from.
- * @return the empty string at [ReaderDefaultFontWeight], so an untouched setting changes no stored key
- * at all; `"|w<weight>"` otherwise, which is what forces a fresh measurement — and a distinct stored
- * layout — once the weight actually differs from the default.
+ * @receiver 굵기를 읽을 스타일.
+ * @return [ReaderDefaultFontWeight]에서는 빈 문자열로, 건드리지 않은 설정은 저장 키를 전혀 바꾸지 않는다. 그 외에는 `"|w<weight>"`이며, 굵기가 실제로 기본값과 달라지면 새 측정과 별도 저장 레이아웃을 강제한다.
  */
 private fun ReaderStyle.fontWeightToken(): String =
     if (fontWeight == ReaderDefaultFontWeight) "" else "|w$fontWeight"
 
 /**
- * This style with its layout-affecting fields replaced by [measured]'s, used to draw a set of pages
- * with the type they were actually paginated under while keeping every other choice — colour,
- * background image, theme — live.
+ * 실시간 스타일의 다른 모든 선택, 즉 색상, 배경 이미지, 테마는 유지하면서 레이아웃에 영향을 주는 필드를 [measured]의 값으로 교체한 스타일이다. 실제로 페이지를 나눌 때 사용한 활자로 페이지 집합을 그리는 데 사용한다.
  *
- * A layout-affecting setting change (font family, font size, line height, font weight) publishes the new
- * [ReaderStyle] to the render path immediately, but the page slices on screen were sliced for the
- * *previous* style and only get re-measured once the pane recomposes, remeasures, and reports back —
- * an asynchronous round-trip a setting change cannot wait for without blanking the book. Drawing
- * those slices with the new style in that window mixes a page measured for one font/size/line-height
- * with glyphs laid out for another, which is exactly how a page clips its last line or leaves a gap
- * at the bottom. This function is the exact inverse of [layoutKey]: it copies precisely the fields
- * that decide where pages break, so a caller can build "the live style, but with the on-screen
- * slices' own type" — see `ReaderUiState.pageDrawStyle`, the one place this is meant to be used from.
+ * 레이아웃에 영향을 주는 설정(글꼴 패밀리, 글꼴 크기, 줄 높이, 글꼴 굵기)을 바꾸면 렌더링 경로에는 새 [ReaderStyle]을 즉시 게시하지만 화면의 페이지 조각은 *이전* 스타일로 잘라져 있다. 창이 재구성·재측정·보고한 뒤에야 다시 측정되며, 설정 변경이 책을 비우지 않고 기다릴 수 없는 비동기 왕복 과정이다. 그 사이 새 스타일로 기존 조각을 그리면 한 글꼴/크기/줄 높이로 측정한 페이지에 다른 글리프 레이아웃을 섞어 마지막 줄이 잘리거나 아래에 빈틈이 생긴다. 이 함수는 [layoutKey]의 정확한 역변환이다. 페이지 경계를 결정하는 필드만 복사하여 호출자가 "실시간 스타일이되 화면 조각 자체 활자를 사용한 값"을 만들 수 있게 한다. 이 함수의 유일한 사용 위치인 `ReaderUiState.pageDrawStyle`을 참고한다.
  *
- * The fields copied here must stay in lockstep with [layoutKey]'s own fields, because this is now the
- * second place in the codebase that has to agree on "what counts as layout." A layout field added to
- * one without the other silently reopens the stale-slice defect this function exists to close.
+ * 여기서 복사하는 필드는 [layoutKey] 자체 필드와 반드시 함께 변경해야 한다. 이제 코드베이스에서 두 번째로 "레이아웃에 포함되는 것"에 합의해야 하는 위치이기 때문이다. 한쪽에만 레이아웃 필드를 추가하면 이 함수가 막으려는 오래된 조각 결함이 조용히 다시 열린다.
  *
- * @receiver the live style, whose colour and theme fields survive into the result unchanged.
- * @param measured the style the on-screen page slices were actually measured and laid out under.
- * @return this style with [ReaderStyle.fontSizeSp], [ReaderStyle.fontFamilyName],
- * [ReaderStyle.publisherFontKey], [ReaderStyle.lineHeightMultiplier], and [ReaderStyle.fontWeight] taken
- * from [measured], and every other field — colour, background image, theme mode — taken from the
- * receiver.
+ * @receiver 실시간 스타일로, 색상과 테마 필드는 결과에서도 바뀌지 않는다.
+ * @param measured 화면 페이지 조각을 실제로 측정하고 배치할 때 사용한 스타일.
+ * @return [ReaderStyle.fontSizeSp], [ReaderStyle.fontFamilyName], [ReaderStyle.publisherFontKey], [ReaderStyle.lineHeightMultiplier], [ReaderStyle.fontWeight]는 [measured]에서 가져오고, 색상, 배경 이미지, 테마 모드 등 나머지는 수신 객체에서 가져온 스타일.
  */
 fun ReaderStyle.withLayoutFieldsOf(measured: ReaderStyle): ReaderStyle = copy(
     fontSizeSp = measured.fontSizeSp,
@@ -432,28 +377,20 @@ fun ReaderStyle.withLayoutFieldsOf(measured: ReaderStyle): ReaderStyle = copy(
 )
 
 /**
- * Marker folded into every [ReaderLayoutKey]'s family field, bumped whenever the *layout algorithm*
- * changes — gap sizing, style resolution, anything that moves a line without moving a character.
+ * *레이아웃 알고리즘*이 바뀔 때마다 올려 모든 [ReaderLayoutKey]의 패밀리 필드에 합치는 표식이다. 간격 크기 계산, 스타일 해석 등 문자를 움직이지 않고 줄을 움직이는 모든 변경이 해당한다.
  *
- * Stored page layouts are keyed by the layout key plus a character count, so an algorithm change that
- * left the text identical would otherwise keep serving page breaks measured by the old code, clipping
- * pages until the user happened to change a setting. Folding the version into the key makes every stored
- * layout from an older algorithm a clean cache miss instead; the store's own trimming then discards them.
+ * 저장된 페이지 레이아웃은 레이아웃 키와 문자 수를 키로 삼으므로, 텍스트가 그대로인 알고리즘 변경은 그렇지 않으면 이전 코드로 측정한 페이지 경계를 계속 제공하여 사용자가 우연히 설정을 바꿀 때까지 페이지를 자른다. 키에 버전을 합치면 이전 알고리즘의 모든 저장 레이아웃이 명확한 캐시 미스가 되고 저장소 자체 정리가 이를 제거한다.
  */
 private const val LayoutAlgorithmVersionSuffix = "#layout8"
 
 /**
- * This style under [mode], which is how a theme choice is applied: the mode's colours are copied in and
- * the mode is recorded with them.
+ * 테마 선택을 적용하는 방식으로 [mode]를 적용한 스타일이다. 모드의 색상을 복사하고 해당 모드도 함께 기록한다.
  *
- * Switching to a built-in theme also drops any background image, because a picture chosen for one set
- * of page colours makes text illegible under another. [ReaderThemeMode.CUSTOM] keeps every colour as it
- * is — it means "the reader chose these", so there is nothing to overwrite.
+ * 내장 테마로 전환하면 배경 이미지도 제거한다. 한 페이지 색상 집합을 위해 고른 그림은 다른 색상에서 텍스트를 읽기 어렵게 할 수 있기 때문이다. [ReaderThemeMode.CUSTOM]은 모든 색상을 그대로 둔다. "독자가 이 색상을 선택했다"는 뜻이므로 덮어쓸 것이 없다.
  *
- * @receiver the style to convert.
- * @param mode the theme to apply.
- * @return this style under [mode]: a built-in theme replaces the colours and drops any background image,
- * while `CUSTOM` keeps every colour and only records the mode.
+ * @receiver 변환할 스타일.
+ * @param mode 적용할 테마.
+ * @return [mode]를 적용한 스타일. 내장 테마는 색상을 교체하고 배경 이미지를 제거하며, `CUSTOM`은 모든 색상을 유지하고 모드만 기록한다.
  */
 fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) {
     ReaderThemeMode.PUBLISHER,
@@ -492,20 +429,15 @@ fun ReaderStyle.withThemeMode(mode: ReaderThemeMode): ReaderStyle = when (mode) 
 }
 
 /**
- * Applies the platform's current dark-theme setting to a style whose fallback colours follow it.
+ * 대체값 색상이 플랫폼의 현재 다크 테마 설정을 따르는 스타일에 해당 설정을 적용한다.
  *
- * [ReaderThemeMode.SYSTEM] and [ReaderThemeMode.PUBLISHER] both drive app chrome from the live system
- * setting. Their stored fallback stays light because that setting can change later; on a dark device
- * this function resolves both to dark paper and light ink so ReaderScreen does not combine dark chrome
- * with a black-text fallback. EPUB foreground/background colours explicitly supplied by the publisher
- * still override these fallbacks in the renderer because the mode remains [ReaderThemeMode.PUBLISHER].
+ * [ReaderThemeMode.SYSTEM]과 [ReaderThemeMode.PUBLISHER]는 모두 실시간 시스템 설정으로 앱 UI 외곽을 구동한다. 해당 설정은 나중에 바뀔 수 있으므로 저장 대체값은 라이트 모드로 유지한다. 다크 모드 기기에서는 이 함수가 둘 다 어두운 종이와 밝은 잉크로 해석하여 ReaderScreen이 어두운 UI 외곽과 검은색 텍스트 대체값을 결합하지 않게 한다. 출판사가 명시적으로 제공한 EPUB 전경/배경 색상은 모드가 [ReaderThemeMode.PUBLISHER]로 유지되므로 렌더러에서 여전히 이 대체값을 재정의한다.
  *
- * Explicit light, dark, sepia, and custom modes are returned untouched. Page layout is unaffected:
- * [layoutKey] contains no colour fields.
+ * 명시적 라이트, 다크, 세피아, 사용자 지정 모드는 그대로 반환한다. 페이지 레이아웃에는 영향이 없다. [layoutKey]에는 색상 필드가 없다.
  *
- * @receiver the persisted style, whose [ReaderStyle.themeMode] decides whether anything changes.
- * @param systemInDarkTheme the platform's live dark-theme flag, sampled by the UI layer.
- * @return this style with dark fallback colours when its mode follows a dark system, otherwise unchanged.
+ * @receiver 영속화된 스타일로, [ReaderStyle.themeMode]가 변경 여부를 결정한다.
+ * @param systemInDarkTheme UI 계층에서 읽은 플랫폼의 실시간 다크 테마 플래그.
+ * @return [ReaderStyle.themeMode]가 다크 시스템을 따를 때 다크 대체 색상을 적용한 스타일이며, 그 외에는 변경하지 않는다.
  */
 fun ReaderStyle.resolveSystemTheme(systemInDarkTheme: Boolean): ReaderStyle =
     if (
@@ -520,8 +452,10 @@ fun ReaderStyle.resolveSystemTheme(systemInDarkTheme: Boolean): ReaderStyle =
         this
     }
 
-/** A whole style in the dark theme, for a caller that has no existing style to convert. *
- * @return a complete style in the dark theme, with default type.
+/**
+ * 변환할 기존 스타일이 없는 호출자를 위한 전체 다크 테마 스타일이다.
+ *
+ * @return 기본 활자를 사용하는 완전한 다크 테마 스타일.
  */
 fun darkReaderStyle(): ReaderStyle = ReaderStyle(
     textColor = ReaderColor(ReaderDarkTextArgb),
@@ -529,8 +463,10 @@ fun darkReaderStyle(): ReaderStyle = ReaderStyle(
     themeMode = ReaderThemeMode.DARK,
 )
 
-/** A whole style in the sepia theme, for a caller that has no existing style to convert. *
- * @return a complete style in the sepia theme, with default type.
+/**
+ * 변환할 기존 스타일이 없는 호출자를 위한 전체 세피아 테마 스타일이다.
+ *
+ * @return 기본 활자를 사용하는 완전한 세피아 테마 스타일.
  */
 fun sepiaReaderStyle(): ReaderStyle = ReaderStyle(
     textColor = ReaderColor(ReaderSepiaTextArgb),
@@ -539,10 +475,9 @@ fun sepiaReaderStyle(): ReaderStyle = ReaderStyle(
 )
 
 /**
- * Which way a page turn goes, which also decides how a swipe or an edge tap is read.
+ * 페이지 전환 방향으로, 스와이프나 가장자리 탭을 해석하는 방식도 결정한다.
  *
- * [CONTINUOUS] is only ever read, never written: it is a value older installs stored, kept in the enum
- * so their settings still deserialize, and treated as [VERTICAL] wherever it is resolved.
+ * [CONTINUOUS]는 읽기만 하고 쓰지 않는다. 이전 설치가 저장한 값이므로 설정을 계속 역직렬화할 수 있게 열거형에 남겨 두며, 해석하는 모든 곳에서 [VERTICAL]로 처리한다.
  */
 @Serializable
 enum class PageTurnMode {
@@ -552,11 +487,9 @@ enum class PageTurnMode {
 }
 
 /**
- * How a page turn is animated. The reader picks its pager implementation from this value, so the set is
- * the list of pagers that exist, not a list of visual effects.
+ * 페이지 전환을 애니메이션하는 방식이다. 리더는 이 값으로 페이저 구현을 선택하므로, 이 집합은 시각 효과 목록이 아니라 실제 존재하는 페이저 목록이다.
  *
- * [BOOK_CURL] and [SHEET_FLIP] are read-only leftovers of pagers that were replaced: they stay so older
- * stored settings still deserialize, and resolve to [CURL_PAGER] and [SLIDE] respectively.
+ * [BOOK_CURL]과 [SHEET_FLIP]은 교체된 페이저의 읽기 전용 잔여 값이다. 이전 저장 설정을 계속 역직렬화할 수 있도록 남겨 두고 각각 [CURL_PAGER]와 [SLIDE]로 해석한다.
  */
 @Serializable
 enum class PageAnimation {
@@ -575,8 +508,7 @@ enum class PageAnimation {
 }
 
 /**
- * What auto-scroll advances by: pixels for a smooth crawl, whole lines for a paced read, or whole pages.
- * The unit changes what "speed" means, which is why the two are stored together in [AutoScrollConfig].
+ * 자동 스크롤이 이동하는 단위로, 부드러운 이동의 픽셀, 일정한 읽기를 위한 전체 줄, 전체 페이지 중 하나이다. 단위에 따라 "속도"의 의미가 달라지므로 [AutoScrollConfig]에 둘을 함께 저장한다.
  */
 @Serializable
 enum class AutoScrollMode {
@@ -586,18 +518,14 @@ enum class AutoScrollMode {
 }
 
 /**
- * Auto-scroll as one setting: whether it is on, what it advances by, and how fast.
+ * 활성화 여부, 이동 단위, 속도를 하나로 묶은 자동 스크롤 설정이다.
  *
- * Speed is normalised to `MIN_SPEED..MAX_SPEED` rather than stored in pixels or lines per second,
- * because its real-world meaning depends on [mode] and on the device's own density; each pager converts
- * it at the point of use. [clampSpeed] is exposed so a slider can clamp before constructing, since the
- * `init` bound rejects rather than corrects.
+ * 실제 의미가 [mode]와 기기 밀도에 따라 달라지므로 속도를 초당 픽셀 또는 줄 수가 아닌 `MIN_SPEED..MAX_SPEED`로 정규화하여 저장한다. 각 페이저가 사용하는 지점에서 변환한다. `init` 경계는 보정하지 않고 거부하므로 슬라이더가 생성 전에 제한할 수 있도록 [clampSpeed]를 공개한다.
  *
- * @property enabled whether auto-scroll is running.
- * @property mode what it advances by, which is what gives [speed] its meaning.
- * @property speed normalised 0.01..1, converted to pixels or lines by each pager at the point of use.
- * @throws IllegalArgumentException if [speed] is not positive — use [AutoScrollConfig.clampSpeed] on a
- * slider value first, since `init` rejects rather than corrects.
+ * @property enabled 자동 스크롤이 실행 중인지 여부.
+ * @property mode 이동 단위로, [speed]의 의미를 결정한다.
+ * @property speed 0.01..1로 정규화한 값이며 각 페이저가 사용하는 지점에서 픽셀 또는 줄로 변환한다.
+ * @throws IllegalArgumentException [speed]가 양수가 아닌 경우. `init`은 보정하지 않고 거부하므로 슬라이더 값에는 먼저 [AutoScrollConfig.clampSpeed]를 사용한다.
  */
 @Serializable
 data class AutoScrollConfig(
@@ -609,38 +537,38 @@ data class AutoScrollConfig(
         require(speed > 0f) { "Auto-scroll speed must be positive." }
     }
 
-    /** Bounds and a clamp helper for [AutoScrollConfig.speed]. */
+    /**
+     * [AutoScrollConfig.speed]의 경계와 제한 도우미이다.
+     */
     companion object {
-        /** The slowest speed [speed] accepts; the `init` block rejects anything at or below zero. */
+        /**
+         * [speed]가 허용하는 가장 느린 속도이다. `init` 블록은 0 이하 값을 거부한다.
+         */
         const val MIN_SPEED: Float = 0.01f
 
-        /** The fastest speed [speed] accepts, and the default a config is built with when none is given. */
+        /**
+         * [speed]가 허용하는 가장 빠른 속도이자, 값을 제공하지 않을 때 설정이 사용하는 기본값이다.
+         */
         const val MAX_SPEED: Float = 1f
 
         /**
-         * Clamps a raw value, e.g. straight off a slider, into the range [AutoScrollConfig] accepts —
-         * for a caller that must not risk the `init` block's [IllegalArgumentException] on an
-         * out-of-range speed.
+         * 슬라이더에서 직접 받은 값과 같은 원시 값을 [AutoScrollConfig]가 허용하는 범위로 제한한다. 범위 밖 속도 때문에 `init` 블록의 [IllegalArgumentException]이 발생해서는 안 되는 호출자가 사용한다.
          *
-         * @param speed a raw speed value to clamp.
-         * @return [speed] coerced into [MIN_SPEED]..[MAX_SPEED].
+         * @param speed 제한할 원시 속도 값.
+         * @return [MIN_SPEED]..[MAX_SPEED]로 제한한 [speed].
          */
         fun clampSpeed(speed: Float): Float = speed.coerceIn(MIN_SPEED, MAX_SPEED)
     }
 }
 
 /**
- * The size of the area a page is laid out into. Part of what a stored page layout is keyed on, since the
- * same book at the same type breaks differently in a different box.
+ * 페이지를 배치할 영역의 크기이다. 같은 책과 활자도 다른 상자에서는 다르게 나뉘므로 저장 페이지 레이아웃의 키 일부이다.
  *
- * The unit is whichever the caller works in and is not encoded here — the reader keeps its pagination
- * viewport in sp and its pane-measurement viewport in px — so callers on both sides of that line must
- * not mix the two.
+ * 단위는 호출자가 사용하는 것을 따르며 여기에 인코딩하지 않는다. 리더는 페이지 나누기 뷰포트에 sp를, 창 측정 뷰포트에 px를 사용하므로 그 경계 양쪽의 호출자는 둘을 섞으면 안 된다.
  *
- * @property widthPx width of the box a page is laid out into.
- * @property heightPx height of that box.
- * @throws IllegalArgumentException if either is not positive, since a page cannot be laid out into
- * nothing.
+ * @property widthPx 페이지를 배치할 상자의 너비.
+ * @property heightPx 해당 상자의 높이.
+ * @throws IllegalArgumentException 둘 중 하나가 양수가 아닌 경우. 빈 공간에는 페이지를 배치할 수 없다.
  */
 @Serializable
 data class ViewportSize(
@@ -654,24 +582,17 @@ data class ViewportSize(
 }
 
 /**
- * One page as the reader draws it: its number, where it starts in the document, its text, and the block
- * structure that styles that text.
+ * 리더가 그리는 페이지 하나로, 번호·문서 내 시작 위치·텍스트·텍스트를 스타일링하는 블록 구조를 담는다.
  *
- * [location] is what makes a page addressable after re-pagination — the reader saves it, and finds the
- * page again from it once the pages change shape. [textRange] is the same span as absolute document
- * offsets, which is what search results, bookmarks and the section lookups compare against.
+ * [location]은 페이지를 다시 나눈 뒤에도 페이지를 찾을 수 있게 한다. 리더는 이를 저장하고 페이지 모양이 바뀌면 이 값으로 다시 찾는다. [textRange]는 절대 문서 오프셋으로 나타낸 같은 범위이며 검색 결과, 책갈피, 섹션 조회가 이를 비교한다.
  *
- * [blocks] arriving empty is not a bug but a state: a section whose block structure has not been decoded
- * yet produces a page with plain text, and the same page is published again once it has. A caller that
- * needs styled text must ensure the blocks are decoded before it builds the page, not after.
+ * [blocks]가 비어 있는 것은 버그가 아니라 상태이다. 블록 구조를 아직 디코딩하지 않은 섹션은 일반 텍스트 페이지를 만들고, 디코딩한 뒤 같은 페이지를 다시 게시한다. 스타일 적용 텍스트가 필요한 호출자는 페이지를 만든 뒤가 아니라 만들기 전에 블록이 디코딩됐는지 확인해야 한다.
  *
- * @property pageIndex this page's number and the total known when it was built.
- * @property location where the page starts, which is how it is found again after re-pagination.
- * @property text the page's text, ready to draw.
- * @property textRange the same span as absolute document offsets, for search, bookmarks and section
- * lookups.
- * @property blocks the structure that styles [text]; empty means the section's blocks are not decoded
- * yet, so the page renders as plain text and is published again once they are.
+ * @property pageIndex 이 페이지의 번호와 생성 시점에 알려진 전체 페이지 수.
+ * @property location 페이지를 다시 나눈 뒤 다시 찾을 때 사용하는 페이지 시작 위치.
+ * @property text 바로 그릴 수 있는 페이지 텍스트.
+ * @property textRange 검색, 책갈피, 섹션 조회에 사용하는 절대 문서 오프셋의 같은 범위.
+ * @property blocks [text]를 스타일링하는 구조. 비어 있으면 섹션 블록을 아직 디코딩하지 않아 페이지를 일반 텍스트로 렌더링하며, 디코딩한 뒤 다시 게시한다.
  */
 @Serializable
 data class PageWindow(
@@ -683,17 +604,15 @@ data class PageWindow(
 )
 
 /**
- * Reading totals for one document, as the document-info screen shows them.
+ * 문서 정보 화면에 표시할 문서 하나의 독서 합계이다.
  *
- * [wordsPerMinute] is derived rather than stored so it can never disagree with the figures it comes
- * from, and it answers zero when there is no measured reading time — which today is always, since
- * nothing records reading sessions (see ReadingStatsRepository).
+ * [wordsPerMinute]은 저장하지 않고 파생하므로 원본 수치와 다를 수 없다. 측정된 독서 시간이 없으면 0을 반환하며, 현재는 독서 세션을 아무것도 기록하지 않으므로 항상 해당한다(ReadingStatsRepository 참고).
  *
- * @property documentId the document summarised.
- * @property activeMillis summed reading time — zero today, since no session is ever recorded.
- * @property charactersRead characters in the book, from the document itself.
- * @property wordsRead words in the book, from the document itself.
- * @throws IllegalArgumentException if any figure is negative.
+ * @property documentId 요약 대상 문서.
+ * @property activeMillis 합산한 독서 시간으로, 현재는 어떤 세션도 기록하지 않아 0이다.
+ * @property charactersRead 문서 자체에서 얻은 책의 문자 수.
+ * @property wordsRead 문서 자체에서 얻은 책의 단어 수.
+ * @throws IllegalArgumentException 수치 중 하나가 음수인 경우.
  */
 @Serializable
 data class ReadingStats(
@@ -708,7 +627,9 @@ data class ReadingStats(
         require(wordsRead >= 0L) { "wordsRead must be positive." }
     }
 
-    /** [wordsRead] per minute of [activeMillis], derived so it can never disagree with those two figures; 0f while no reading time is recorded. */
+    /**
+     * [activeMillis] 1분당 [wordsRead]로, 두 수치와 다를 수 없도록 파생한다. 기록된 독서 시간이 없으면 0f이다.
+     */
     val wordsPerMinute: Float = if (activeMillis == 0L) {
         0f
     } else {
