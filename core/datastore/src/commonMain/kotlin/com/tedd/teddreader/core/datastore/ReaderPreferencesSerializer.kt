@@ -11,43 +11,43 @@ import okio.BufferedSink
 import okio.BufferedSource
 
 /**
- * Reads and writes [ReaderPreferences] as JSON, and the one place stored settings are made sane before
- * anything else sees them.
+ * [ReaderPreferences]를 JSON으로 읽고 쓰며, 저장된 설정을 다른 코드가 보기 전에 정상화하는 유일한
+ * 지점이다.
  *
- * Okio-based rather than platform file APIs because this runs on both Android and iOS from common code.
- * Note the shape of [readFrom] and [writeTo]: they take Okio's own source and sink, and must not be
- * rewritten to use `use {}` — that extension compiles on Android and fails on Kotlin/Native.
+ * 공통 코드에서 Android와 iOS 모두 실행되므로 플랫폼 파일 API 대신 Okio를 사용한다. [readFrom]과
+ * [writeTo]는 Okio 자체 소스와 싱크를 받으며 `use {}`를 사용하도록 다시 작성하면 안 된다. 해당
+ * 확장 함수는 Android에서는 컴파일되지만 Kotlin/Native에서는 실패한다.
  *
- * Normalising on both read and write is deliberate. Legacy enum values written by older builds are mapped
- * to what replaced them, and an out-of-range speed is clamped, so nothing downstream has to know that a
- * stored value might name a pager that no longer exists.
+ * 읽기와 쓰기 양쪽에서 의도적으로 정상화한다. 이전 빌드가 기록한 레거시 열거형 값을 대체 값으로
+ * 매핑하고 범위를 벗어난 속도를 제한하므로, 하위 코드는 저장된 값이 더 이상 존재하지 않는 페이저를
+ * 가리킬 수 있다는 사실을 알 필요가 없다.
  *
- * An unparseable file raises `CorruptionException`, which is DataStore's signal to replace it with
- * [defaultValue] rather than crash: settings are worth losing before a launch is.
+ * 파싱할 수 없는 파일은 `CorruptionException`을 발생시킨다. 이는 앱을 비정상 종료하는 대신
+ * [defaultValue]로 교체하라는 DataStore의 신호이며, 앱 실행에 실패하는 것보다 설정을 잃는 편이
+ * 낫기 때문이다.
  */
 object ReaderPreferencesSerializer : OkioSerializer<ReaderPreferences> {
     /**
-     * The codec behind [readFrom] and [writeTo]. `ignoreUnknownKeys = true` so a file written by a
-     * newer build — carrying a preference this build does not know about — still decodes instead of
-     * throwing and losing every other stored setting. `encodeDefaults = true` so every field is
-     * written out explicitly rather than omitted when it happens to match its Kotlin default,
-     * making a stored file a complete snapshot of [ReaderPreferences] that reads the same way
-     * regardless of what this class's own defaults are at the time it is read. Neither flag can be
-     * flipped without checking that every existing stored file still reads the same afterward.
+     * [readFrom]과 [writeTo]가 사용하는 코덱이다. `ignoreUnknownKeys = true`이므로 이 빌드가
+     * 모르는 환경설정을 포함한 새 빌드의 파일도 예외를 발생시켜 나머지 저장 설정을 모두 잃는 대신
+     * 정상적으로 디코딩된다. `encodeDefaults = true`이므로 Kotlin 기본값과 우연히 일치하는 필드도
+     * 생략하지 않고 모두 명시적으로 기록한다. 따라서 저장 파일은 [ReaderPreferences]의 완전한
+     * 스냅샷이며, 읽는 시점의 이 클래스 기본값과 관계없이 같은 방식으로 읽힌다. 모든 기존 저장
+     * 파일이 이후에도 동일하게 읽히는지 확인하지 않고 어느 플래그도 바꾸면 안 된다.
      */
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
 
-    /** What a missing or corrupt file reads as: every preference at its default. */
+    /** 파일이 없거나 손상됐을 때 읽히는 값으로, 모든 환경설정이 기본값이다. */
     override val defaultValue: ReaderPreferences = ReaderPreferences()
 
     /**
-     * @param source the file's bytes, or an empty source when the file does not exist yet.
-     * @return the stored preferences, normalised; [defaultValue] for an empty file.
-     * @throws CorruptionException when the JSON cannot be parsed, which tells DataStore to fall back to
-     * [defaultValue] instead of failing the read.
+     * @param source 파일의 바이트이며, 파일이 아직 없으면 빈 소스.
+     * @return 정상화된 저장 환경설정. 빈 파일이면 [defaultValue].
+     * @throws CorruptionException JSON을 파싱할 수 없을 때 발생하며, DataStore에 읽기 실패 대신
+     * [defaultValue]를 사용하도록 알린다.
      */
     override suspend fun readFrom(source: BufferedSource): ReaderPreferences = try {
         val raw = source.readUtf8()
@@ -60,20 +60,20 @@ object ReaderPreferencesSerializer : OkioSerializer<ReaderPreferences> {
     }
 
     /**
-     * @param t the preferences to store; normalised first, so a legacy value read from an old file is not
-     * written straight back out.
-     * @param sink where the JSON goes.
+     * @param t 저장할 환경설정. 먼저 정상화하므로 이전 파일에서 읽은 레거시 값을 그대로 다시
+     * 기록하지 않는다.
+     * @param sink JSON을 기록할 대상.
      */
     override suspend fun writeTo(t: ReaderPreferences, sink: BufferedSink) {
         sink.writeUtf8(json.encodeToString(normalize(t)))
     }
 
     /**
-     * Replaces values that no longer mean anything with the ones that do.
+     * 더 이상 의미 없는 값을 현재 유효한 값으로 바꾼다.
      *
-     * @param preferences preferences as read from, or about to be written to, disk.
-     * @return the same preferences with `CONTINUOUS` read as vertical, `BOOK_CURL` as the curl pager,
-     * `SHEET_FLIP` as slide, and the auto-scroll speed clamped into range.
+     * @param preferences 디스크에서 읽었거나 디스크에 기록하려는 환경설정.
+     * @return `CONTINUOUS`를 `VERTICAL`로, `BOOK_CURL`을 `CURL_PAGER`로, `SHEET_FLIP`을 `SLIDE`로
+     * 해석하고 자동 스크롤 속도를 범위 안으로 제한한 동일 환경설정.
      */
     private fun normalize(preferences: ReaderPreferences): ReaderPreferences = preferences.copy(
         pageTurnMode = when (preferences.pageTurnMode) {
