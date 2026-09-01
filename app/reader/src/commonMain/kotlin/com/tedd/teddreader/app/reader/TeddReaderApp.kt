@@ -29,29 +29,27 @@ import org.koin.compose.koinInject
 import org.koin.dsl.koinConfiguration
 
 /**
- * The composition root of TeddReader: the single Composable both `androidApp`'s `MainActivity` and
- * iOS's `MainViewController` call to stand up the entire app. It starts this composable's own
- * [org.koin.compose.KoinApplication] — combining [com.tedd.teddreader.app.reader.di.readerAppModule]
- * with the platform module from `rememberPlatformReaderModule` — rather than a process-wide
- * `startKoin()`, so the DI graph's lifetime is tied to this Composable's own lifetime instead of
- * living for the whole process; reads the persisted [ReaderSettings] to decide dark/light and
- * localization, and hands the resolved [DocumentImporter] and any pending external import request
- * down into [ReaderNavHost], which owns navigation and screen content from here on.
+ * TeddReader의 컴포지션 루트로, `androidApp`의 `MainActivity`와 iOS의 `MainViewController`가
+ * 전체 앱을 구성하기 위해 호출하는 단일 Composable이다. 프로세스 전역 `startKoin()` 대신
+ * [com.tedd.teddreader.app.reader.di.readerAppModule]과 `rememberPlatformReaderModule`의 플랫폼
+ * 모듈을 결합한 이 Composable 전용 [org.koin.compose.KoinApplication]을 시작하므로 DI 그래프의
+ * 수명이 전체 프로세스가 아니라 이 Composable 자체의 수명에 묶인다. 저장된 [ReaderSettings]를
+ * 읽어 다크/라이트 모드와 현지화를 결정하고, 해석된 [DocumentImporter]와 대기 중인 외부 가져오기
+ * 요청을 이후의 내비게이션과 화면 콘텐츠를 소유하는 [ReaderNavHost]로 전달한다.
  *
- * @param initialExternalImportRequest a document import that should be handled once at launch —
- *   typically a file the OS handed the app through an incoming intent or a share target — passed
- *   straight through to [ReaderNavHost] to import and open. Null means the app started plainly,
- *   with no document attached.
- * @param googleDrivePickerBridge the platform bridge that can open a Google Drive file picker and
- *   exchange the result for an access token, or null when the current platform/build has no Drive
- *   integration configured. Forwarded to [rememberDocumentImporter] so the resulting
- *   [DocumentImporter] only advertises Drive import as available when a working bridge exists.
- * @param modifier applied to the [Box] that hosts [ReaderNavHost], letting a caller size or
- *   position the whole app content.
- * @param darkTheme the platform's system dark-theme signal; consulted when the user's saved theme
- *   mode is [ReaderThemeMode.SYSTEM] or [ReaderThemeMode.PUBLISHER] — see [appUsesDarkTheme] for how
- *   it combines with that setting. Defaulted to the live [isSystemInDarkTheme] reading so callers
- *   do not need to sample it themselves.
+ * @param initialExternalImportRequest 시작 시 한 번 처리할 문서 가져오기 요청으로, 일반적으로 OS가
+ *   수신 인텐트나 공유 대상으로 앱에 전달한 파일이다. 가져와 열도록 [ReaderNavHost]에 그대로
+ *   전달한다. null이면 첨부 문서 없이 일반적으로 앱을 시작했음을 뜻한다.
+ * @param googleDrivePickerBridge Google Drive 파일 선택기를 열고 결과를 액세스 토큰으로 교환할 수 있는
+ *   플랫폼 브리지이며, 현재 플랫폼/빌드에 Drive 연동이 구성되지 않았으면 null이다. 정상 동작하는
+ *   브리지가 있을 때만 생성된 [DocumentImporter]가 Drive 가져오기를 사용 가능하다고 알리도록
+ *   [rememberDocumentImporter]에 전달한다.
+ * @param modifier [ReaderNavHost]를 담는 [Box]에 적용하여 호출자가 전체 앱 콘텐츠의 크기나 위치를
+ *   정할 수 있게 하는 수정자다.
+ * @param darkTheme 플랫폼의 시스템 다크 테마 신호다. 사용자가 저장한 테마 모드가
+ *   [ReaderThemeMode.SYSTEM] 또는 [ReaderThemeMode.PUBLISHER]일 때 참조하며, 해당 설정과 결합하는
+ *   방식은 [appUsesDarkTheme]을 참고한다. 호출자가 직접 값을 읽지 않아도 되도록 현재
+ *   [isSystemInDarkTheme] 값이 기본값이다.
  */
 @Composable
 fun TeddReaderApp(
@@ -96,23 +94,22 @@ fun TeddReaderApp(
     }
 }
 
-/** Resolves the persisted global theme to the opaque colour drawn behind every system bar. */
+/** 저장된 전역 테마를 모든 시스템 바 뒤에 그릴 불투명 색상으로 해석한다. */
 internal fun appSystemBarBackground(style: ReaderStyle, systemInDarkTheme: Boolean) =
     style.resolveSystemTheme(systemInDarkTheme).readerColors().background.copy(alpha = 1f)
 
 /**
- * Resolves the user's saved [ReaderThemeMode] and the platform's live system setting into the
- * single boolean [TeddReaderTheme] needs. [ReaderThemeMode.SYSTEM] and
- * [ReaderThemeMode.PUBLISHER] consult [systemInDarkTheme]; the publisher mode follows the system since
- * it keeps the document's own page colours and has no separate app-chrome palette of its own,
- * while [ReaderThemeMode.LIGHT], [ReaderThemeMode.SEPIA], and [ReaderThemeMode.CUSTOM] all resolve
- * to light chrome regardless of the system setting because each supplies its own reading-surface
- * palette elsewhere in the design system rather than following Material's dark scheme.
+ * 사용자가 저장한 [ReaderThemeMode]와 플랫폼의 현재 시스템 설정을 [TeddReaderTheme]에 필요한 단일
+ * 불리언 값으로 해석한다. [ReaderThemeMode.SYSTEM]과 [ReaderThemeMode.PUBLISHER]는
+ * [systemInDarkTheme]을 참조한다. 출판사 모드는 문서 자체의 페이지 색상을 유지하고 별도의 앱 크롬
+ * 팔레트가 없으므로 시스템을 따른다. 반면 [ReaderThemeMode.LIGHT], [ReaderThemeMode.SEPIA],
+ * [ReaderThemeMode.CUSTOM]은 Material의 다크 색상표를 따르지 않고 디자인 시스템의 다른 위치에서
+ * 자체 읽기 표면 팔레트를 제공하므로 시스템 설정과 관계없이 모두 라이트 크롬으로 해석된다.
  *
- * @param themeMode the reader theme the user has chosen and had persisted in [ReaderSettings].
- * @param systemInDarkTheme the platform's current system-wide dark-theme flag, sampled once by the
- *   caller so this function stays a pure decision rather than a Composable itself.
- * @return true when the app chrome should render with [TeddReaderTheme]'s dark scheme.
+ * @param themeMode 사용자가 선택하여 [ReaderSettings]에 저장한 리더 테마다.
+ * @param systemInDarkTheme 이 함수가 Composable이 아닌 순수 결정 함수로 유지되도록 호출자가 한 번
+ *   읽어 전달하는 플랫폼의 현재 시스템 전역 다크 테마 플래그다.
+ * @return 앱 크롬을 [TeddReaderTheme]의 다크 색상표로 렌더링해야 하면 true다.
  */
 internal fun appUsesDarkTheme(themeMode: ReaderThemeMode, systemInDarkTheme: Boolean): Boolean =
     when (themeMode) {

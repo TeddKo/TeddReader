@@ -20,27 +20,26 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * The OAuth scope requested for Google Drive authorization: `drive.file`, which only grants access
- * to files the user explicitly picks or creates through this app, rather than the broader
- * `drive`/`drive.readonly` scopes that would expose the user's entire Drive.
+ * Google Drive 인증에 요청하는 OAuth 범위 `drive.file`이다. 사용자의 Drive 전체를 노출하는 더 넓은
+ * `drive`/`drive.readonly` 범위와 달리, 사용자가 이 앱을 통해 명시적으로 선택하거나 만든 파일에만
+ * 접근 권한을 부여한다.
  */
 private const val GoogleDriveScope = "https://www.googleapis.com/auth/drive.file"
 
 /**
- * The key under which the Drive picker's chosen file ids come back in an
- * [AuthorizationResult]'s `tokenResponseParams`, matching the `PICKER_OAUTH_TRIGGER`/picker
- * resource parameters set in [buildGoogleDriveAuthorizationRequest].
+ * Drive 선택기가 고른 파일 id가 [AuthorizationResult]의 `tokenResponseParams`에서 반환되는 키다.
+ * [buildGoogleDriveAuthorizationRequest]에 설정한 `PICKER_OAUTH_TRIGGER`/선택기 리소스 매개변수와
+ * 일치한다.
  */
 private const val PickedFileIdsKey = "picked_file_ids"
 
 /**
- * Builds the request that starts Android's combined Google Drive authorization-and-picker flow:
- * asks for the [GoogleDriveScope] scope, always re-prompts for consent and account selection
- * rather than silently reusing a prior grant, and turns on the picker resource parameters so the
- * same `authorize()` call both authorizes and lets the user pick files, filtered to
- * [AndroidGoogleDriveMimeTypes], in one step.
+ * Android의 통합 Google Drive 인증 및 선택기 흐름을 시작하는 요청을 구성한다.
+ * [GoogleDriveScope] 범위를 요청하고, 이전 권한을 조용히 재사용하지 않고 항상 동의와 계정 선택을
+ * 다시 요청하며, 선택기 리소스 매개변수를 켠다. 따라서 한 번의 `authorize()` 호출로 인증과 파일
+ * 선택을 모두 수행하고 [AndroidGoogleDriveMimeTypes]로 필터링한다.
  *
- * @return the configured [AuthorizationRequest].
+ * @return 구성한 [AuthorizationRequest]다.
  */
 internal fun buildGoogleDriveAuthorizationRequest(): AuthorizationRequest =
     AuthorizationRequest.builder()
@@ -56,13 +55,13 @@ internal fun buildGoogleDriveAuthorizationRequest(): AuthorizationRequest =
         .build()
 
 /**
- * Converts Play Services Identity's own result type into the shared, platform-independent
- * [GoogleDrivePickerResult] the rest of the importer works with.
+ * Play Services Identity 자체의 결과 타입을 임포터의 나머지 부분이 사용하는 공유 플랫폼 독립
+ * [GoogleDrivePickerResult]로 변환한다.
  *
- * @receiver the raw authorization result, whether returned directly from `authorize()` or decoded
- *   from the resolution activity's result intent.
- * @return the equivalent [GoogleDrivePickerResult].
- * @throws IllegalStateException if the result carries no access token.
+ * @receiver `authorize()`가 직접 반환했거나 해석 activity의 결과 인텐트에서 디코딩한 원본 인증
+ *   결과다.
+ * @return 동등한 [GoogleDrivePickerResult]다.
+ * @throws IllegalStateException 결과에 액세스 토큰이 없을 때 발생한다.
  */
 internal fun AuthorizationResult.toGoogleDrivePickerResult(): GoogleDrivePickerResult {
     val accessToken = accessToken?.takeIf(String::isNotBlank)
@@ -72,41 +71,39 @@ internal fun AuthorizationResult.toGoogleDrivePickerResult(): GoogleDrivePickerR
 }
 
 /**
- * Suspends until Play Services Identity's asynchronous `authorize()` [com.google.android.gms.tasks.Task]
- * completes, adapting its callback-based API to a coroutine.
+ * Play Services Identity의 비동기 `authorize()` [com.google.android.gms.tasks.Task]가 끝날 때까지
+ * 중단하며 콜백 기반 API를 코루틴으로 변환한다.
  *
- * @receiver the client to authorize through.
- * @param request the authorization request to send.
- * @return the resulting [AuthorizationResult].
+ * @receiver 인증을 수행할 client다.
+ * @param request 전송할 인증 요청이다.
+ * @return 결과 [AuthorizationResult]다.
  */
 internal suspend fun AuthorizationClient.awaitAuthorize(
     request: AuthorizationRequest,
 ): AuthorizationResult = authorize(request).await()
 
 /**
- * Revokes a previously issued Google Drive access token, used after a request authenticated with
- * it comes back `HTTP 401` so a stale, expired token is not kept around to fail the same way
- * again on a retry.
+ * 이전에 발급된 Google Drive 액세스 토큰을 취소한다. 해당 토큰으로 인증한 요청이 `HTTP 401`을
+ * 반환한 뒤 오래되어 만료된 토큰이 재시도에서도 같은 방식으로 계속 실패하지 않게 한다.
  *
- * @receiver the client the token was issued through.
- * @param token the access token to revoke.
+ * @receiver 토큰을 발급한 client다.
+ * @param token 취소할 액세스 토큰이다.
  */
 internal suspend fun AuthorizationClient.clearAccessToken(token: String) {
     clearToken(ClearTokenRequest.builder().setToken(token).build()).await()
 }
 
 /**
- * Downloads every file a completed Google Drive pick selected, clearing the access token and
- * raising a clear message if any download comes back unauthorized, since Drive tokens are
- * short-lived and a batch import can easily outlast one.
+ * 완료된 Google Drive 선택에서 고른 모든 파일을 다운로드한다. Drive 토큰은 수명이 짧아 배치
+ * 가져오기보다 먼저 만료될 수 있으므로 다운로드가 인증 실패를 반환하면 액세스 토큰을 지우고 명확한
+ * 메시지를 발생시킨다.
  *
- * @param authorizationClient the client the token was issued through, used to clear it on a
- *   401 response.
- * @param pickerResult the completed pick, carrying the access token and the ids to download.
- * @return one [com.tedd.teddreader.core.domain.repository.DocumentImportSource] per picked file,
- *   in the order [GoogleDrivePickerResult.fileIds] listed them.
- * @throws java.io.IOException if any download fails, including with a clarifying message when the
- *   token had expired (`HTTP 401`).
+ * @param authorizationClient 토큰을 발급한 client이며 401 응답에서 토큰을 지우는 데 사용한다.
+ * @param pickerResult 액세스 토큰과 다운로드할 id를 담은 완료된 선택 결과다.
+ * @return [GoogleDrivePickerResult.fileIds]에 나열된 순서대로 선택한 파일마다 하나의
+ *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 반환한다.
+ * @throws java.io.IOException 다운로드가 실패하면 발생한다. 토큰이 만료된 `HTTP 401`에는 설명
+ *   메시지를 포함한다.
  */
 internal suspend fun fetchGoogleDriveImportSources(
     authorizationClient: AuthorizationClient,
@@ -126,18 +123,17 @@ internal suspend fun fetchGoogleDriveImportSources(
 }
 
 /**
- * Fetches one Drive file's metadata and content and validates both before committing to a
- * download: refusing early on a file the account cannot download or a format this app does not
- * parse avoids paying for a full download only to discard it, and refusing an empty download
- * catches a Drive response that came back with no body without silently importing a zero-byte
- * document.
+ * Drive 파일 하나의 메타데이터와 콘텐츠를 가져오고 다운로드를 확정하기 전에 둘 다 검증한다. 계정이
+ * 다운로드할 수 없는 파일이나 앱이 파싱하지 않는 형식을 일찍 거부하여 전체를 다운로드한 뒤 버리는
+ * 비용을 피한다. 빈 다운로드도 거부하여 본문 없는 Drive 응답을 0바이트 문서로 조용히 가져오지
+ * 않는다.
  *
- * @param fileId the Drive file id to fetch.
- * @param accessToken the bearer token authorizing the request.
- * @return the file wrapped as a [com.tedd.teddreader.core.domain.repository.DocumentImportSource]
- *   ready to import.
- * @throws IllegalStateException if the file cannot be downloaded, is not an importable format, or
- *   downloads empty.
+ * @param fileId 가져올 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @return 가져올 준비가 된 [com.tedd.teddreader.core.domain.repository.DocumentImportSource]로 감싼
+ *   파일이다.
+ * @throws IllegalStateException 파일을 다운로드할 수 없거나 가져올 수 없는 형식이거나 다운로드
+ *   결과가 비어 있으면 발생한다.
  */
 private fun fetchGoogleDriveImportSource(
     fileId: String,
@@ -152,11 +148,11 @@ private fun fetchGoogleDriveImportSource(
 }
 
 /**
- * Requests and parses one Drive file's metadata via the `files.get` REST endpoint.
+ * `files.get` REST 엔드포인트로 Drive 파일 하나의 메타데이터를 요청하고 파싱한다.
  *
- * @param fileId the Drive file id to describe.
- * @param accessToken the bearer token authorizing the request.
- * @return the parsed [GoogleDriveFileMetadata].
+ * @param fileId 설명할 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @return 파싱한 [GoogleDriveFileMetadata]다.
  */
 private fun fetchGoogleDriveMetadata(
     fileId: String,
@@ -170,11 +166,11 @@ private fun fetchGoogleDriveMetadata(
     )
 
 /**
- * Downloads one Drive file's full content via the `files.get?alt=media` REST endpoint.
+ * `files.get?alt=media` REST 엔드포인트로 Drive 파일 하나의 전체 콘텐츠를 다운로드한다.
  *
- * @param fileId the Drive file id to download.
- * @param accessToken the bearer token authorizing the request.
- * @return the file's raw bytes.
+ * @param fileId 다운로드할 Drive 파일 id다.
+ * @param accessToken 요청을 인증하는 bearer 토큰이다.
+ * @return 파일의 원본 바이트다.
  */
 private fun downloadGoogleDriveFile(
     fileId: String,
@@ -185,14 +181,13 @@ private fun downloadGoogleDriveFile(
 )
 
 /**
- * Runs one authenticated `GET` request against the Google Drive REST API — used for both the
- * metadata and download endpoints, since both are simple bearer-authenticated `GET`s that only
- * differ by URL.
+ * Google Drive REST API에 인증된 `GET` 요청 하나를 실행한다. 메타데이터와 다운로드 엔드포인트는
+ * URL만 다르고 둘 다 단순한 bearer 인증 `GET`이므로 함께 사용한다.
  *
- * @param url the full request URL, built by [googleDriveMetadataUrl] or [googleDriveDownloadUrl].
- * @param accessToken the bearer token to send in the `Authorization` header.
- * @return the response body's raw bytes.
- * @throws GoogleDriveHttpException if the response status is outside the 200-299 range.
+ * @param url [googleDriveMetadataUrl] 또는 [googleDriveDownloadUrl]이 구성한 전체 요청 URL이다.
+ * @param accessToken `Authorization` 헤더에 보낼 bearer 토큰이다.
+ * @return 응답 본문의 원본 바이트다.
+ * @throws GoogleDriveHttpException 응답 상태가 200-299 범위 밖이면 발생한다.
  */
 private fun executeGoogleDriveRequest(
     url: String,
@@ -217,45 +212,45 @@ private fun executeGoogleDriveRequest(
 }
 
 /**
- * Builds the `files.get` metadata URL for one Drive file, requesting only the fields
- * [GoogleDriveFileMetadata] needs and `supportsAllDrives=true` so a file living in a shared drive
- * resolves the same as one in the user's own Drive.
+ * Drive 파일 하나의 `files.get` 메타데이터 URL을 구성한다. [GoogleDriveFileMetadata]에 필요한
+ * 필드만 요청하고 `supportsAllDrives=true`를 사용하여 공유 drive의 파일도 사용자 자신의 Drive
+ * 파일과 같은 방식으로 해석한다.
  *
- * @param fileId the Drive file id, URL-encoded via [encodeGoogleDriveFileId].
- * @return the full metadata request URL.
+ * @param fileId [encodeGoogleDriveFileId]로 URL 인코딩할 Drive 파일 id다.
+ * @return 전체 메타데이터 요청 URL이다.
  */
 private fun googleDriveMetadataUrl(fileId: String): String =
     "https://www.googleapis.com/drive/v3/files/${encodeGoogleDriveFileId(fileId)}" +
         "?fields=id,name,mimeType,size,capabilities(canDownload)&supportsAllDrives=true"
 
 /**
- * Builds the `files.get?alt=media` download URL for one Drive file's content, with the same
- * shared-drive support as [googleDriveMetadataUrl].
+ * Drive 파일 하나의 콘텐츠를 위한 `files.get?alt=media` 다운로드 URL을 구성한다.
+ * [googleDriveMetadataUrl]과 동일하게 공유 drive를 지원한다.
  *
- * @param fileId the Drive file id, URL-encoded via [encodeGoogleDriveFileId].
- * @return the full download request URL.
+ * @param fileId [encodeGoogleDriveFileId]로 URL 인코딩할 Drive 파일 id다.
+ * @return 전체 다운로드 요청 URL이다.
  */
 private fun googleDriveDownloadUrl(fileId: String): String =
     "https://www.googleapis.com/drive/v3/files/${encodeGoogleDriveFileId(fileId)}" +
         "?alt=media&supportsAllDrives=true"
 
 /**
- * URL-encodes a Drive file id for safe use as a URL path segment.
+ * Drive 파일 id를 URL 경로 세그먼트에 안전하게 사용하도록 URL 인코딩한다.
  *
- * @param fileId the raw Drive file id.
- * @return the encoded id.
+ * @param fileId 원본 Drive 파일 id다.
+ * @return 인코딩한 id다.
  */
 private fun encodeGoogleDriveFileId(fileId: String): String =
     URLEncoder.encode(fileId, Charsets.UTF_8.name())
 
 /**
- * Adapts a Play Services [Task]'s callback-based completion into a suspend call, so the rest of
- * this file can `await()` a Task the same way it awaits any other suspend function.
+ * Play Services [Task]의 콜백 기반 완료를 suspend 호출로 변환한다. 이 파일의 나머지 부분에서 다른
+ * suspend 함수와 같은 방식으로 Task에 `await()`를 사용할 수 있게 한다.
  *
- * @receiver the task to await.
- * @return the task's successful result.
- * @throws Exception whatever exception the task failed with, or a
- *   [java.util.concurrent.CancellationException] if the task was cancelled.
+ * @receiver 기다릴 task다.
+ * @return task의 성공 결과다.
+ * @throws Exception task가 실패하며 전달한 예외 또는 task가 취소되었을 때의
+ *   [java.util.concurrent.CancellationException]이다.
  */
 private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { continuation ->
     addOnSuccessListener { result -> continuation.resume(result) }
@@ -264,12 +259,12 @@ private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { conti
 }
 
 /**
- * Runs a block against this connection and disconnects it afterward regardless of outcome, since
- * [HttpURLConnection] has no `Closeable`/`use` support of its own.
+ * 이 연결에서 블록을 실행하고 결과와 관계없이 이후 연결을 끊는다. [HttpURLConnection] 자체에는
+ * `Closeable`/`use` 지원이 없다.
  *
- * @receiver the connection to run the block against and then disconnect.
- * @param block the work to perform while the connection is open.
- * @return whatever [block] returns.
+ * @receiver 블록을 실행한 뒤 연결을 끊을 connection이다.
+ * @param block 연결이 열린 동안 수행할 작업이다.
+ * @return [block]이 반환한 값이다.
  */
 private inline fun <T> HttpURLConnection.useAndDisconnect(block: (HttpURLConnection) -> T): T =
     try {
@@ -279,25 +274,25 @@ private inline fun <T> HttpURLConnection.useAndDisconnect(block: (HttpURLConnect
     }
 
 /**
- * Signals that a Google Drive REST call returned a non-2xx status, carrying the status code so
- * [fetchGoogleDriveImportSources] can special-case `HTTP 401` to clear the stale access token
- * before reporting the failure.
+ * Google Drive REST 호출이 2xx가 아닌 상태를 반환했음을 나타낸다. 상태 코드를 담아
+ * [fetchGoogleDriveImportSources]가 `HTTP 401`을 별도 처리하여 실패를 보고하기 전에 오래된 액세스
+ * 토큰을 지울 수 있게 한다.
  *
- * @property statusCode the HTTP status code the request failed with.
+ * @property statusCode 요청이 실패한 HTTP 상태 코드다.
  */
 private class GoogleDriveHttpException(
     val statusCode: Int,
 ) : IOException("Google Drive request failed with HTTP $statusCode.")
 
 /**
- * Walks a [Context]'s `ContextWrapper` chain to find the hosting [Activity], since
- * `LocalContext.current` in a Compose hierarchy is often an activity-wrapping context (e.g. a
- * theme-overridden or view-wrapped context) rather than the [Activity] itself, and the Google
- * Drive authorization flow needs a real [Activity] to launch through.
+ * [Context]의 `ContextWrapper` 체인을 따라 호스팅 [Activity]를 찾는다. Compose 계층의
+ * `LocalContext.current`는 대개 [Activity] 자체가 아니라 activity를 감싼 컨텍스트(예: 테마를
+ * 재정의하거나 view가 감싼 컨텍스트)이며, Google Drive 인증 흐름을 실행하려면 실제 [Activity]가
+ * 필요하다.
  *
- * @receiver the context to search from.
- * @return the hosting [Activity], or null if none of the wrapped contexts is one — for example, an
- *   application [Context] with no activity behind it.
+ * @receiver 검색을 시작할 context다.
+ * @return 호스팅 [Activity]다. 감싼 컨텍스트 중 activity가 없으면 null이며, 예를 들면 뒤에
+ *   activity가 없는 애플리케이션 [Context]가 해당한다.
  */
 internal tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
