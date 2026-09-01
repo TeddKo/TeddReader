@@ -1,16 +1,15 @@
 import buildlogic.Material3ImportCheckTask
 
-// Material 3 import policy gate.
+// Material 3 import 정책 gate.
 //
-// The app wraps every Material component it keeps behind its own design system, so colour, shape, type
-// and ripple all come from the app's tokens rather than Material's defaults. That only holds while
-// nothing else can import androidx.compose.material3 directly, so this registers a verification task
-// per module and hangs it off `check`. Applied transitively through teddreader.kmp.compose, which every
-// Compose-using module already applies.
+// 앱이 사용하는 모든 Material 컴포넌트는 자체 디자인 시스템으로 감싸므로 색상, 모양, 서체, ripple은
+// Material 기본값이 아니라 앱 토큰에서 온다. 다른 어떤 코드도 androidx.compose.material3를 직접
+// import할 수 없을 때만 이 조건이 유지되므로, 모듈별 검증 태스크를 등록해 `check`에 연결한다. Compose를
+// 사용하는 모든 모듈이 이미 적용하는 teddreader.kmp.compose를 통해 전이적으로 적용된다.
 //
-// The scanning logic lives in buildlogic.Material3ImportCheckTask rather than in a doLast block here:
-// a lambda in a script body captures the enclosing script object, which the configuration cache cannot
-// serialize, and the build fails with "cannot serialize Gradle script object references".
+// 검사 로직은 여기의 doLast 블록이 아니라 buildlogic.Material3ImportCheckTask에 둔다. 스크립트 본문의
+// lambda는 configuration cache가 직렬화할 수 없는 바깥 스크립트 객체를 캡처하므로 빌드가
+// "cannot serialize Gradle script object references" 오류로 실패하기 때문이다.
 
 val checkMaterial3Imports = tasks.register<Material3ImportCheckTask>("checkMaterial3Imports") {
     group = "verification"
@@ -18,13 +17,13 @@ val checkMaterial3Imports = tasks.register<Material3ImportCheckTask>("checkMater
 
     modulePath.set(project.path)
 
-    // The two modules whose job is wrapping Material: designsystem hands the app's colours and shapes
-    // to MaterialTheme, and core:ui owns the wrappers around the components the app keeps.
+    // Material을 감싸는 역할의 두 모듈이다. designsystem은 앱의 색상과 모양을 MaterialTheme에
+    // 전달하고, core:ui는 앱이 사용하는 컴포넌트의 wrapper를 소유한다.
     fullyAllowedModulePaths.set(setOf(":core:ui", ":core:designsystem"))
 
-    // The reader's table-of-contents drawer delegates its swipe gesture, back handling and focus trap
-    // to the platform, has a single usage site, and gains nothing from a wrapper. A deliberate
-    // exception — extending this list is a design decision, not a convenience.
+    // 리더의 목차 drawer는 swipe gesture, back 처리, focus trap을 플랫폼에 위임하며
+    // 사용처가 하나뿐이라 wrapper로 얻는 이점이 없다. 의도적인 예외이며, 이 목록의 확장은 편의가
+    // 아니라 설계 결정이다.
     allowedSymbols.set(
         setOf(
             "DrawerValue",
@@ -42,8 +41,8 @@ val checkMaterial3Imports = tasks.register<Material3ImportCheckTask>("checkMater
     marker.set(project.layout.buildDirectory.file("reports/material3-gate/passed.txt"))
 }
 
-// plugins.withId fires only once the base plugin has registered `check`, so this stays safe on a
-// module that never gets it.
+// plugins.withId는 base plugin이 `check`를 등록한 뒤에만 실행되므로, 이를 등록하지 않는 모듈에서도
+// 안전하다.
 plugins.withId("org.gradle.base") {
     tasks.named("check") {
         dependsOn(checkMaterial3Imports)
