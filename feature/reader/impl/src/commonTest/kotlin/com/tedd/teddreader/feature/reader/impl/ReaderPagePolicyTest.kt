@@ -15,12 +15,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Pins the reader's page policy — the decisions that used to live inside ReaderViewModel and could only be
- * observed by standing up four fake repositories and driving a coroutine dispatcher.
+ * 리더의 페이지 정책 — 예전에는 ReaderViewModel 안에 있어서 가짜 저장소 네 개를 세우고 코루틴 디스패처를
+ * 직접 돌려야만 관찰할 수 있었던 결정들 — 을 고정한다.
  *
- * Every case here is a rule a reader would notice breaking: which page a resumed book opens on, what the
- * page counter claims before anything is measured, what an outline tap can reach, and whether a pane's
- * repeated size report costs the book a full re-measurement.
+ * 여기 있는 각 케이스는 독자가 깨졌을 때 바로 알아챌 규칙이다: 재개한 책이 어느 페이지에서 열리는지,
+ * 아무것도 측정되기 전에 페이지 카운터가 무엇을 표시하는지, 아웃라인 탭이 어디까지 닿을 수 있는지,
+ * pane의 반복된 크기 보고가 책 전체를 다시 측정하게 만드는지.
  */
 class ReaderPagePolicyTest {
     private val style = ReaderStyle(fontSizeSp = 18f)
@@ -30,7 +30,7 @@ class ReaderPagePolicyTest {
     private val viewportSp = ViewportSize(widthPx = 360, heightPx = 640)
     private val otherViewportSp = ViewportSize(widthPx = 360, heightPx = 540)
 
-    /** Two sections, so a section-relative EPUB position has a non-zero base to be resolved against. */
+    /** 섹션 두 개를 둔다 — section 상대 EPUB 위치가 0이 아닌 기준점을 두고 해석되도록 하기 위함이다. */
     private fun document(
         format: DocumentFormat = DocumentFormat.EPUB,
         navigation: ReaderNavigation? = null,
@@ -50,7 +50,7 @@ class ReaderPagePolicyTest {
         navigation = navigation,
     )
 
-    /** Publisher/system-follow is one adaptive option, never two rows for the same fallback policy. */
+    /** 출판사 스타일 따르기/시스템 따르기는 하나의 적응형 옵션이며, 같은 폴백 정책을 두 행으로 나누지 않는다. */
     @Test
     fun documentDefaultThemeIsOneOptionAdaptedToTheFormat() {
         val publisherOptions = listOf(
@@ -73,7 +73,7 @@ class ReaderPagePolicyTest {
         }
     }
 
-    /** Legacy values normalize both ways so the single adaptive row is selected for every format. */
+    /** 레거시 값은 양방향으로 정규화되어, 모든 형식에서 이 단일 적응형 행이 선택된다. */
     @Test
     fun documentDefaultThemeModeAdaptsToTheFormat() {
         val publisherStyle = ReaderStyle(themeMode = ReaderThemeMode.PUBLISHER)
@@ -124,23 +124,23 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** The mount window is the one definition of "pages the pager keeps ready": two back, three forward. */
+    /** mount window는 "pager가 미리 준비해 두는 페이지"의 유일한 정의다: 뒤로 둘, 앞으로 셋. */
     @Test
     fun mountWindowSpansTwoPagesBackAndThreeForward() {
         assertEquals(3..8, pagerMountWindow(5))
     }
 
-    /** It is not clamped here — a caller near page zero receives the negative half and filters it itself. */
+    /** 여기서는 clamp하지 않는다 — 0페이지 근처의 호출자는 음수 절반을 그대로 받아 스스로 걸러낸다. */
     @Test
     fun mountWindowIsNotClampedAtTheStartOfTheBook() {
         assertEquals(-2..3, pagerMountWindow(0))
     }
 
     /**
-     * A visual document's outline is one entry per page, and each entry is a [ReaderLocation.PdfPage].
+     * visual 문서의 아웃라인은 페이지당 항목 하나이며, 각 항목은 [ReaderLocation.PdfPage]다.
      *
-     * That shape is load-bearing: it is the only location kind an outline tap on a PDF or comic produces, and
-     * a text-offset lookup cannot resolve it, which is why `moveToLocation` keeps its own branch for it.
+     * 이 형태는 구조적으로 중요하다: PDF나 만화에서 아웃라인 탭이 만들어내는 유일한 위치 종류이며,
+     * text-offset 조회로는 이를 해석할 수 없다 — 그래서 `moveToLocation`은 이를 위한 전용 분기를 둔다.
      */
     @Test
     fun visualOutlineIsOnePdfPageEntryPerPage() {
@@ -154,7 +154,7 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** A book that carries its own table of contents is shown that, with the levels it declares. */
+    /** 자체 목차를 가진 책은 그것을, 선언된 레벨과 함께 그대로 보여준다. */
     @Test
     fun epubOutlineUsesTheBooksOwnNavigationWhenItHasSome() {
         val navigation = ReaderNavigation(
@@ -170,7 +170,7 @@ class ReaderPagePolicyTest {
         assertEquals(ReaderLocation.EpubOffset(1, 12), items[1].location)
     }
 
-    /** Without navigation the sections themselves are the outline, so a book always has one. */
+    /** navigation이 없으면 섹션 자체가 아웃라인이 되므로, 책은 항상 아웃라인을 하나 갖는다. */
     @Test
     fun epubOutlineFallsBackToSections() {
         val items = readerOutlineItems(DocumentFormat.EPUB, document(), totalPages = 9)
@@ -179,7 +179,7 @@ class ReaderPagePolicyTest {
         assertEquals(ReaderLocation.EpubOffset(0, 0), items.first().location)
     }
 
-    /** An untitled section still gets a usable label rather than an empty row. */
+    /** 제목 없는 섹션도 빈 행이 아니라 사용 가능한 레이블을 받는다. */
     @Test
     fun sectionOutlineNamesAnUntitledSectionByItsNumber() {
         val items = readerOutlineItems(
@@ -191,7 +191,7 @@ class ReaderPagePolicyTest {
         assertEquals("Section 1", items.first().title)
     }
 
-    /** A plain text document's outline points at absolute text offsets, not spine positions. */
+    /** 순수 텍스트 문서의 아웃라인은 spine 위치가 아니라 절대 text offset을 가리킨다. */
     @Test
     fun textOutlinePointsAtAbsoluteOffsets() {
         val items = readerOutlineItems(DocumentFormat.TXT, document(format = DocumentFormat.TXT), totalPages = 4)
@@ -201,11 +201,11 @@ class ReaderPagePolicyTest {
     }
 
     /**
-     * A report describing the measurement the reader already holds is ignored.
+     * 리더가 이미 갖고 있는 측정값을 그대로 설명하는 보고는 무시된다.
      *
-     * The reporting pane composes fresh breaker instances on every page turn, and a page effect may compose
-     * the page twice while it animates; treating those as new measurements laid the whole document out again
-     * on every turn, so the comparison is by what the measurement describes, never by instance.
+     * 보고하는 pane은 페이지를 넘길 때마다 새 breaker 인스턴스를 구성하며, 페이지 효과가 애니메이션되는
+     * 동안 페이지를 두 번 구성할 수도 있다. 이를 새로운 측정값으로 취급하면 넘길 때마다 문서 전체를 다시
+     * 레이아웃하게 되므로, 비교는 인스턴스가 아니라 측정값이 무엇을 설명하는지를 기준으로 한다.
      */
     @Test
     fun paneReportIsIgnoredWhenItDescribesTheMeasurementAlreadyHeld() {
@@ -224,12 +224,12 @@ class ReaderPagePolicyTest {
     }
 
     /**
-     * The first real report after a stored layout was adopted is recorded without a reload.
+     * 저장된 레이아웃이 채택된 뒤 처음 도착하는 실제 보고는 다시 로드하지 않고 기록된다.
      *
-     * Opening a document adopts a stored layout's viewport and the style it was measured for before any pane
-     * has reported, while the breaker itself is still absent. This report is that adoption's confirmation —
-     * the same physical screen, so the same sp size the pages were already cached under — and reloading would
-     * only ask for the answer a second time.
+     * 문서를 열면 어떤 pane이 보고하기도 전에, breaker 자체는 아직 없는 상태로, 저장된 레이아웃의
+     * viewport와 그것이 측정될 때 쓰인 스타일을 채택한다. 이 보고는 그 채택을 확인하는 것일 뿐이다 —
+     * 같은 물리 화면이므로 페이지들이 이미 캐시된 것과 같은 sp 크기이며, 다시 로드하는 것은 같은 답을
+     * 한 번 더 묻는 셈이다.
      */
     @Test
     fun paneReportIsRecordedWithoutReloadWhenItConfirmsAnAdoptedViewport() {
@@ -247,7 +247,7 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** A report for a different type is a real measurement change: the book has to be laid out again. */
+    /** 다른 type에 대한 보고는 실제 측정값 변화다: 책을 다시 레이아웃해야 한다. */
     @Test
     fun paneReportTriggersReloadForADifferentStyle() {
         assertEquals(
@@ -264,7 +264,7 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** So is a report for a different pane size at the same type. */
+    /** 같은 type에서 다른 pane 크기에 대한 보고도 마찬가지다. */
     @Test
     fun paneReportTriggersReloadForADifferentMeasuredSize() {
         assertEquals(
@@ -282,8 +282,8 @@ class ReaderPagePolicyTest {
     }
 
     /**
-     * A first report whose sp viewport differs from the adopted one is not a confirmation — the pages cached
-     * under the adopted size describe a different box, so this one has to be measured.
+     * 채택된 것과 sp viewport가 다른 첫 보고는 확인이 아니다 — 채택된 크기로 캐시된 페이지들은 다른 박스를
+     * 설명하므로, 이번에는 측정해야 한다.
      */
     @Test
     fun paneReportTriggersReloadWhenTheAdoptedViewportDoesNotMatch() {
@@ -301,7 +301,7 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** With nothing adopted and nothing measured, the very first report is a real measurement. */
+    /** 아무것도 채택되지 않고 아무것도 측정되지 않은 상태에서, 맨 처음 보고는 실제 측정값이다. */
     @Test
     fun theFirstReportOfAFreshDocumentTriggersReload() {
         assertEquals(
@@ -318,7 +318,7 @@ class ReaderPagePolicyTest {
         )
     }
 
-    /** Only the primary pane owns whole-document measurement and viewport reporting. */
+    /** 문서 전체 측정과 viewport 보고는 primary pane만이 담당한다. */
     @Test
     fun secondaryPaneDoesNotCreateAPageBreaker() {
         assertEquals(true, readerPagePaneShouldMeasure(reportViewportSize = true))

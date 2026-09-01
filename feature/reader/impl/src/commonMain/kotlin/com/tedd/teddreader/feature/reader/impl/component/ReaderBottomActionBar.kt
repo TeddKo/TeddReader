@@ -43,49 +43,46 @@ internal fun readerChapterPageLabel(chapterTitle: String?, chapterPageIndex: Pag
     }
 
 /**
- * The reader's bottom chrome: the page-position slider/label and the previous/next/auto-scroll
- * controls, faded in and out together with the rest of the reader controls.
+ * 리더의 하단 chrome: 페이지 위치 슬라이더/라벨과 이전/다음/자동 스크롤 컨트롤로, 리더의 나머지
+ * 컨트롤들과 함께 페이드 인/아웃된다.
  *
- * The slider is driven from [sliderValue] rather than owning its own state, so a drag in progress
- * and the page index committed by [onPageSelected] can disagree without fighting each other — the
- * caller is expected to hold the live drag value (e.g. `ReaderScreen`'s `bottomSliderValue`) and only
- * call [onPageSelected] once the gesture finishes. Internally, [latestSelectedPage] mirrors the
- * rounded target page and is what the drag reports back through [onPageSelected], since the slider
- * itself only carries a continuous [Float].
+ * 슬라이더는 자신만의 상태를 갖는 대신 [sliderValue]로 구동된다, 그래야 진행 중인 드래그와
+ * [onPageSelected]가 커밋한 페이지 인덱스가 서로 다투지 않고 어긋날 수 있다 — 호출자는 실시간 드래그
+ * 값(예: `ReaderScreen`의 `bottomSliderValue`)을 보유하고 있다가 제스처가 끝나야만 [onPageSelected]를
+ * 호출할 것으로 기대된다. 내부적으로 [latestSelectedPage]는 반올림된 목표 페이지를 그대로 반영하며,
+ * 슬라이더 자체는 연속적인 [Float] 값만 가지고 있으므로 드래그가 [onPageSelected]를 통해 되돌려 보고하는
+ * 값이 바로 이것이다.
  *
- * @param pageIndex The current page and the total page count the slider's range and label are built
- *   from.
- * @param style The active reader style, forwarded to [ReaderBottomControls] for theming.
- * @param isAutoScrollEnabled True while auto-scroll is running; disables the slider and the
- *   previous/next buttons so a manual page change cannot race the automatic one, and swaps the
- *   auto-scroll button's icon/label to "pause."
- * @param showProgress Whether the page-position row (label + slider) is shown at all; the
- *   previous/next/auto-scroll buttons always show regardless.
- * @param isPaginationComplete False only while the book is still being imported in the background
- *   (see `ReaderUiState.isPaginationComplete`). The slider stays visible but disabled rather than
- *   hidden — a thumb that slides on its own as the total grows is worse than one that waits — and the
- *   page label keeps counting up with a trailing "+" instead of showing a fixed, wrong total.
- * @param onAutoScrollToggle Called when the auto-scroll play/pause button is tapped.
- * @param onPreviousPage Called when the previous-page button is tapped.
- * @param onNextPage Called when the next-page button is tapped.
- * @param onPageSelected Called with the rounded target page once a slider drag finishes.
- * @param sliderValue The slider's current (possibly mid-drag) value, owned by the caller.
- * @param onSliderValueChange Called continuously as the slider is dragged, before the drag finishes.
- * @param modifier The modifier applied to the whole bottom bar.
- * @param chapterTitle EPUB chapter title shown before its local page fraction; null keeps the
- *   document-wide page label.
- * @param chapterPageIndex Zero-based position and total inside [chapterTitle]; null or an empty total
- *   keeps the document-wide page label.
- * @param windowInsets Insets reserved so the bar avoids system chrome (e.g. the navigation bar).
- * @param canGoPrevious Whether the previous-page button is enabled; defaults to "not on the first
- *   page."
- * @param canGoNext Whether the next-page button is enabled; defaults to "not on the last known
- *   page."
+ * @param pageIndex 슬라이더의 범위와 라벨이 만들어지는 기준이 되는 현재 페이지와 전체 페이지 수.
+ * @param style [ReaderBottomControls]에 테마 설정을 위해 넘겨지는 활성 리더 style.
+ * @param isAutoScrollEnabled 자동 스크롤이 실행 중인 동안 true; 수동 페이지 변경이 자동 변경과 경쟁하지
+ *   않도록 슬라이더와 이전/다음 버튼을 비활성화하고, 자동 스크롤 버튼의 아이콘/라벨을 "일시정지"로
+ *   바꾼다.
+ * @param showProgress 페이지 위치 행(라벨 + 슬라이더)을 아예 보여줄지 여부; 이전/다음/자동 스크롤
+ *   버튼은 이와 무관하게 항상 보인다.
+ * @param isPaginationComplete 책이 아직 백그라운드에서 import되고 있는 동안에만 false다
+ *   (`ReaderUiState.isPaginationComplete` 참고). 이때 슬라이더는 숨겨지는 대신 보이는 채로 비활성화된
+ *   상태를 유지한다 — 전체 수가 늘어나면서 엄지 손잡이가 저절로 미끄러지는 것은 기다리는 것보다 더
+ *   나쁘다 — 그리고 페이지 라벨은 고정된 잘못된 총합을 보여주는 대신 끝에 "+"를 붙인 채로 계속 늘어난다.
+ * @param onAutoScrollToggle 자동 스크롤 재생/일시정지 버튼을 탭했을 때 호출된다.
+ * @param onPreviousPage 이전 페이지 버튼을 탭했을 때 호출된다.
+ * @param onNextPage 다음 페이지 버튼을 탭했을 때 호출된다.
+ * @param onPageSelected 슬라이더 드래그가 끝나면 반올림된 목표 페이지와 함께 호출된다.
+ * @param sliderValue 호출자가 소유하는, 슬라이더의 현재(드래그 도중일 수 있는) 값.
+ * @param onSliderValueChange 드래그가 끝나기 전, 슬라이더가 드래그되는 동안 계속 호출된다.
+ * @param modifier 하단 바 전체에 적용되는 modifier.
+ * @param chapterTitle 로컬 페이지 분수 앞에 보여줄 EPUB 챕터 제목; null이면 문서 전체 기준 페이지
+ *   라벨을 유지한다.
+ * @param chapterPageIndex [chapterTitle] 안에서의 0-기반 위치와 전체 수; null이거나 전체 수가 비어
+ *   있으면 문서 전체 기준 페이지 라벨을 유지한다.
+ * @param windowInsets 바가 시스템 chrome(예: 내비게이션 바)을 피하도록 남겨두는 인셋.
+ * @param canGoPrevious 이전 페이지 버튼이 활성화되어 있는지 여부; 기본값은 "첫 페이지가 아님"이다.
+ * @param canGoNext 다음 페이지 버튼이 활성화되어 있는지 여부; 기본값은 "알려진 마지막 페이지가 아님"이다.
  *
- * `latestSelectedPage` mirrors the rounded target page, so `onPageSelected` reports an `Int` even though
- * the slider only ever produces a continuous `Float`. It is remembered against the last page rather than
- * unconditionally, so a repagination that changes the page count resets it along with the slider's range
- * instead of reporting a stale page number.
+ * `latestSelectedPage`는 반올림된 목표 페이지를 그대로 반영하므로, 슬라이더 자체는 언제나 연속적인
+ * `Float`만 만들어내지만 `onPageSelected`는 `Int`를 보고한다. 이는 무조건이 아니라 마지막 페이지를
+ * 기준으로 remember되므로, 페이지 수를 바꾸는 재 페이지 나누기가 일어나면 슬라이더의 범위와 함께
+ * 초기화되어 오래된 페이지 번호를 보고하지 않는다.
  */
 @Composable
 fun ReaderBottomActionBar(
@@ -202,7 +199,7 @@ fun ReaderBottomActionBar(
     }
 }
 
-/** Compose preview of [ReaderBottomActionBar] mid-book, with progress shown and auto-scroll off. */
+/** 책 중간 지점에서, 진행률이 보이고 자동 스크롤이 꺼진 [ReaderBottomActionBar]의 Compose 미리보기. */
 @Preview(widthDp = 360)
 @Composable
 private fun ReaderBottomActionBarPreview() {

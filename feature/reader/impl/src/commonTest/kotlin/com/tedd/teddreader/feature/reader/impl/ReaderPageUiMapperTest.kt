@@ -80,9 +80,9 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * A block whose image href, block-style font href, and span font hrefs repeat within the page
-     * must collapse to one entry each — the resource maps and sets are keyed by href, so a
-     * duplicate reference never produces a second entry and never disturbs first-reference order.
+     * 이미지 href, 블록 스타일 폰트 href, span 폰트 href가 페이지 안에서 반복되는 블록은 각각 항목 하나로
+     * 합쳐져야 한다 — 리소스 맵과 집합은 href를 키로 하므로, 중복 참조는 두 번째 항목을 만들지 않고
+     * 최초 참조 순서도 흐트러뜨리지 않는다.
      */
     @Test
     fun pageUiDeduplicatesRepeatedHrefs() {
@@ -129,9 +129,8 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * The loaded-font map and the failed-font set are resolved against independent inputs, so an
-     * href that both has a loaded file and is marked failed must appear in both — one must never
-     * suppress the other.
+     * 로드된 폰트 맵과 실패한 폰트 집합은 서로 독립적인 입력에 대해 해석되므로, 로드된 파일도 있고
+     * 실패로 표시도 된 href는 양쪽 모두에 나타나야 한다 — 어느 한쪽이 다른 쪽을 가려서는 안 된다.
      */
     @Test
     fun pageUiKeepsHrefInBothLoadedAndFailed() {
@@ -166,8 +165,8 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * A block's own style font is offered before that block's span fonts, and blocks keep list
-     * order, so the resolved font map iterates style-font-then-span-font per block.
+     * 블록 자체의 스타일 폰트는 그 블록의 span 폰트보다 먼저 제공되며, 블록들은 목록 순서를 유지하므로,
+     * 해석된 폰트 맵은 블록마다 스타일 폰트 다음 span 폰트 순으로 순회한다.
      */
     @Test
     fun pageUiOrdersStyleFontBeforeSpanFont() {
@@ -209,8 +208,7 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * A page with no blocks resolves to empty resource collections and touches nothing in the
-     * context maps or sets.
+     * 블록이 없는 페이지는 빈 리소스 컬렉션으로 해석되며 context의 맵이나 집합 어느 것도 건드리지 않는다.
      */
     @Test
     fun pageUiWithNoBlocksHasEmptyResources() {
@@ -273,12 +271,12 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * A list that counts every element read, so a mapper walking its blocks N times is caught as N
-     * reads. The single-pass mapper reads each block index exactly once regardless of how many
-     * resource kinds a block contributes.
+     * 모든 원소 읽기를 세는 목록이다 — 블록을 N번 순회하는 매퍼가 있다면 N번의 읽기로 그대로 잡힌다.
+     * 단일 패스 매퍼는 블록이 몇 가지 리소스 종류를 제공하든 상관없이 각 블록 인덱스를 정확히 한 번씩만
+     * 읽는다.
      *
-     * @property delegate the backing block list every read is forwarded to.
-     * @property readCount how many element reads have been served, one per [get] call.
+     * @property delegate 모든 읽기가 위임되는 실제 블록 목록.
+     * @property readCount [get] 호출 한 번당 하나씩, 지금까지 처리된 원소 읽기 횟수.
      */
     private class CountingBlockList(private val delegate: List<ReaderBlock>) : AbstractList<ReaderBlock>() {
         var readCount = 0
@@ -293,10 +291,10 @@ class ReaderPageUiMapperTest {
     }
 
     /**
-     * Guards the near-single-pass invariant on resource resolution. Mapping one page reads its block
-     * list four times by design: the immutable copy, the chapter-title and chapter-page cover scans,
-     * and one resource walk that folds images, fonts, and failures together. The old mapper's four
-     * separate resource walks would still cost seven passes with both chapter queries present.
+     * 리소스 해석에 대한 거의-단일-패스 불변 조건을 지킨다. 페이지 하나를 매핑하면 설계상 블록 목록을
+     * 네 번 읽는다: 불변 복사본, 챕터 제목·챕터 페이지 커버리지 스캔 두 번, 그리고 이미지·폰트·실패를
+     * 하나로 접는 리소스 순회 한 번. 예전 매퍼의 네 번 분리된 리소스 순회는 두 챕터 조회까지 더하면
+     * 여전히 일곱 번의 패스가 들었을 것이다.
      */
     @Test
     fun pageUiWalksBlocksInOneResourcePassBeyondTheCopy() {
