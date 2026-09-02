@@ -2402,9 +2402,12 @@ internal data class FoundationReferenceThreeDCurlStripSpec(
  * 목적지가 소스와 반대로 줄어들기 때문에 뒷면 콘텐츠는 좌우 반전되어 나타나며, 이는 종이 한 장이
  * 실제로 뒤집히는 모습이다.
  *
- * crease는 `1 - progress * (1 + PI * radius / 2)`로 움직인다. 정지 상태에서는 1이라 매핑이 항등이고,
- * 완료 시점에는 시트의 끝이 정확히 `-1`, 즉 spine 왼쪽으로 페이지 한 장 만큼 나간 곳에 놓인다 —
- * 그래야 반대쪽 pane을 빈틈없이 덮으며 착지한다.
+ * crease는 시트의 끝(tip)이 progress에 대해 `1 - 2 * progress`로 선형 이동하도록 역산한
+ * `1 - progress - PI * radius / 2`다. 그래서 tip은 progress 0.5에서 정확히 spine을 통과하고, turn
+ * 후반부 내내 시트가 반대쪽 pane을 덮으며 넘어간다 — 책장 한 장이 반대쪽 페이지를 덮는 동작이며,
+ * 이 선형성이 없으면 시트가 spine 쪽으로 줄어들다 사라지는 것처럼 보인다. 정지 상태에서는 반지름이
+ * 0이라 crease가 1이 되어 매핑이 항등이고, 완료 시점에는 tip이 `-1`에 놓여 반대쪽 pane을 빈틈없이
+ * 덮는다.
  *
  * 반지름은 시작과 끝 [FoundationReferenceThreeDCurlRadiusRampEnd] 구간에서 각각 0으로 수렴한다:
  * 정지와 완료 양쪽에서 시트가 평평해야 다음 spread로 스냅 없이 이어진다. 반지름이 0으로 가는
@@ -2428,7 +2431,7 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
         min(1f, clamped / ramp) * min(1f, (1f - clamped) / ramp)
     val grid = foundationPagerRenderProfile.threeDCurlGrid
     val wrapArc = PI.toFloat() * radius
-    val crease = 1f - clamped * (1f + wrapArc / 2f)
+    val crease = 1f - clamped - wrapArc / 2f
     val boundaries = FloatArray(grid + 1)
     val depths = FloatArray(grid + 1)
     val wrapped = BooleanArray(grid + 1)
@@ -2556,7 +2559,8 @@ internal fun foundationReferenceThreeDCurlMeshExtent(
  * @param mirrorHorizontally 이 노드에서 leaf의 spine이 노드의 오른쪽 edge에 있는지 여부. mesh는
  *   spine을 x = 0에 두고 계산되므로, 참이면 배치가 좌우로 뒤집힌다.
  * @param hostsOppositePane 이 노드가 leaf 자신의 pane이 아니라 spine 반대쪽 pane인지 여부. 참이면
- *   mesh의 음수 목적지(spine을 넘어간 부분)가 이 노드에서 보이는 영역이 된다.
+ *   이 노드에서 보이는 leaf 프레임 범위가 `[0, width]`가 아니라 `[-width, 0]`, 즉 spine을 넘어간
+ *   음수 목적지 구간이 되며, strip 클립 범위도 그쪽으로 바뀐다.
  */
 private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     strips: List<FoundationReferenceThreeDCurlStripSpec>,
@@ -2573,6 +2577,8 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     val visibleRight = meshExtent.rightPx
     val shadowStart = visibleRight
     val shadowEnd = shadowStart + width * FoundationReferenceThreeDCurlShadowSpread
+    val clipLow = if (hostsOppositePane) -width else 0f
+    val clipHigh = if (hostsOppositePane) 0f else width
     withTransform({
         when {
             !hostsOppositePane && mirrorHorizontally -> scale(-1f, 1f)
@@ -2595,8 +2601,8 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
         strips.forEach { strip ->
             val destStart = strip.destinationStartFraction * width
             val destEnd = strip.destinationEndFraction * width
-            val left = min(destStart, destEnd).coerceIn(0f, width)
-            val right = max(destStart, destEnd).coerceIn(0f, width)
+            val left = min(destStart, destEnd).coerceIn(clipLow, clipHigh)
+            val right = max(destStart, destEnd).coerceIn(clipLow, clipHigh)
             if (right - left < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
             val sourceStart = strip.sourceStartFraction * width
             val sourceEnd = strip.sourceEndFraction * width
@@ -2604,9 +2610,9 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
             if (abs(sourceSpan) < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
             val scaleX = (destEnd - destStart) / sourceSpan
             clipRect(
-                left = (left - FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtLeast(0f),
+                left = (left - FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtLeast(clipLow),
                 top = 0f,
-                right = (right + FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtMost(width),
+                right = (right + FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtMost(clipHigh),
                 bottom = height,
             ) {
                 withTransform({ translate(destStart - sourceStart, 0f) }) {
