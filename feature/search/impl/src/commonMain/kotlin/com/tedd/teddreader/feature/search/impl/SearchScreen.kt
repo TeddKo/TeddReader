@@ -180,7 +180,7 @@ fun SearchScreen(
                     bottom = resolvedContentPadding.calculateBottomPadding(),
                 ),
             ) {
-                item {
+                item(contentType = "form") {
                     TeddSection(kind = TeddSectionKind.Form) {
                         SearchForm(
                             query = uiState.query,
@@ -193,23 +193,23 @@ fun SearchScreen(
                 }
 
                 when {
-                    uiState.isSearchUnsupported -> item {
+                    uiState.isSearchUnsupported -> item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddErrorBanner(message = stringResource(Res.string.search_pdf_unsupported))
                         }
                     }
-                    uiState.errorMessage != null -> item {
+                    uiState.errorMessage != null -> item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddErrorBanner(message = uiState.errorMessage)
                         }
                     }
-                    uiState.isLoading -> item {
+                    uiState.isLoading -> item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddLoadingIndicator(message = stringResource(Res.string.search_loading))
                         }
                     }
                     uiState.query.isBlank() -> Unit
-                    uiState.results.isEmpty() -> item {
+                    uiState.results.isEmpty() -> item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             Column(verticalArrangement = Arrangement.spacedBy(spacing.xxSmall)) {
                                 TeddText(text = stringResource(Res.string.search_no_results_title), style = typography.titleMedium)
@@ -222,14 +222,18 @@ fun SearchScreen(
                         }
                     }
                     else -> {
-                        item {
+                        item(contentType = "resultsHeader") {
                             TeddSection(
                                 kind = TeddSectionKind.Collection,
                                 title = stringResource(Res.string.search_matches_count, uiState.results.size),
                                 fullBleed = true,
                             ) {}
                         }
-                        items(uiState.results) { result ->
+                        items(
+                            items = uiState.results,
+                            key = { result -> result.location.asStorageString() },
+                            contentType = { "result" },
+                        ) { result ->
                             TeddListItem(
                                 title = result.snippet,
                                 supportingText = buildSearchSupportingText(result),
