@@ -2496,6 +2496,11 @@ internal fun foundationReferenceThreeDCurlMeshExtent(
  * @param graphicsLayer 모든 구간이 공유하는 오프스크린 페이지 텍스처.
  * @param width leaf의 너비, 픽셀 단위.
  * @param height leaf의 높이, 픽셀 단위.
+ * cast shadow는 시트의 선행 엣지 바깥쪽에 깔린다. 앞면은 spine에서 먼 쪽(롤이 있는
+ * `visibleRight`) 바깥, 뒷면은 spine을 넘어간 끝(`visibleLeft`) 바깥이다. 두 면 모두
+ * `visibleRight`를 쓰면 뒷면의 그림자가 spine 쪽 시트 안으로 들어가, 전진에서는 거의 보이지 않고
+ * 후진에서는 미러 때문에 드러난 페이지 위로 옮겨가 방향에 따라 다르게 보인다.
+ *
  * @param mirrorHorizontally 이 노드에서 leaf의 spine이 노드의 오른쪽 edge에 있는지 여부. mesh는
  *   spine을 x = 0에 두고 계산되므로, 참이면 배치가 좌우로 뒤집힌다.
  * @param spanBeyondSpinePx spine(leaf 프레임 x = 0)을 넘어 이 노드 밖까지 mesh가 그려도 되는 거리,
@@ -2516,13 +2521,19 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     if (meshExtent.isEmpty) return
     val visibleLeft = meshExtent.leftPx
     val visibleRight = meshExtent.rightPx
-    val shadowStart = visibleRight
-    val shadowEnd = shadowStart + width * FoundationReferenceThreeDCurlShadowSpread
+    val castsShadowBeyondTip = strips.all { it.isBackFacing }
+    val shadowSpread = width * FoundationReferenceThreeDCurlShadowSpread
+    val shadowStart = if (castsShadowBeyondTip) visibleLeft else visibleRight
+    val shadowEnd = if (castsShadowBeyondTip) {
+        shadowStart - shadowSpread
+    } else {
+        shadowStart + shadowSpread
+    }
     val clipLow = -spanBeyondSpinePx
     val clipHigh = width
     withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
-        val shadowLeft = shadowStart.coerceIn(clipLow, clipHigh)
-        val shadowRight = shadowEnd.coerceIn(clipLow, clipHigh)
+        val shadowLeft = min(shadowStart, shadowEnd).coerceIn(clipLow, clipHigh)
+        val shadowRight = max(shadowStart, shadowEnd).coerceIn(clipLow, clipHigh)
         if (lighting.shadowAlpha > 0f && shadowRight > shadowLeft) {
             drawRect(
                 brush = Brush.horizontalGradient(
