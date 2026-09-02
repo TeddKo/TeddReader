@@ -787,8 +787,14 @@ internal fun foundationReferenceSpreadFacePane(
  * [foundationReferenceDrawLeafBack]의 Standard 경로는 `FoundationReferenceCurlFold.applyTo`가
  * 가로 축에서 무조건 한 번 미러링하며, 이 미러는 상쇄되지 않고 그대로 콘텐츠에 남는다. (3) 3D
  * mesh 경로([foundationReferenceDrawThreeDCurlMesh])는 `mirrorHorizontally`일 때만 딱 한 번
- * 미러링한다. 콘텐츠가 정방향으로 읽히려면 이 출처들의 총 적용 횟수가 짝수여야 하므로, 총 횟수가
- * 홀수가 되는 조합에서만 참을 반환해 호출자가 콘텐츠 쪽에 미러를 한 번 더 넣도록 알린다.
+ * 미러링한다. Standard 경로에서는 콘텐츠가 정방향으로 읽히려면 이 출처들의 총 적용 횟수가 짝수여야
+ * 하므로, 총 횟수가 홀수가 되는 조합에서만 참을 반환한다.
+ *
+ * 3D mesh 경로는 언제나 거짓이다. mesh의 `mirrorHorizontally`는 strip의 destination만 뒤집는 게
+ * 아니라 source 범위까지 같이 뒤집으므로, 그 미러가 곧 "spine에 닿는 쪽 콘텐츠를 고르는" 수단이다.
+ * 뒷면 콘텐츠에 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아가 turn 도중 gutter에
+ * 페이지 여백이 붙고, 창이 자랄 때 콘텐츠가 반대 방향으로 흐른다. 3D turn 도중 leaf가 좌우 반전되어
+ * 보이는 것은 종이 한 장이 실제로 뒤집히는 모습이며 의도된 결과다.
  *
  * @param style 앞면/뒷면을 표준 fold로 그릴지 3D mesh로 그릴지.
  * @param face 렌더링할 면.
@@ -803,8 +809,7 @@ internal fun foundationReferenceSpreadFaceNeedsContentMirror(
 ): Boolean = when (style) {
     FoundationReferenceCurlStyle.Standard ->
         face == FoundationReferenceSpreadFace.Back && pane == FoundationReferenceSpreadPane.Right
-    FoundationReferenceCurlStyle.ThreeDimensional ->
-        pane == FoundationReferenceSpreadPane.Left
+    FoundationReferenceCurlStyle.ThreeDimensional -> false
 }
 
 /**

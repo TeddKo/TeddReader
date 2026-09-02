@@ -726,7 +726,9 @@ class FoundationPagerCurlReferenceImplTest {
      * 코드가 실제로 적용하는 미러 출처 수(Standard Front는 배치·콘텐츠 미러가 상쇄돼 항상 중립,
      * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러가 상쇄되지 않고
      * 남으며, 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
-     * 반환하는지 검증한다.
+     * 반환하는지 검증한다. 3D는 네 조합 모두 거짓이다: mesh의 `mirrorHorizontally`가 strip의
+     * destination과 source를 함께 뒤집어 spine에 닿는 쪽 콘텐츠를 고르는 역할까지 하므로, 콘텐츠에
+     * 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아간다.
      *
      * 이 테스트는 그 계산 규칙을 표로 재진술한 것일 뿐 실제 렌더링을 검증하지는 않는다 — 값은
      * draw-transform 안에 흩어져 있어 눈으로 확인하기 전까지는 맞는지 알기 어려운 미묘한 미러
@@ -746,9 +748,9 @@ class FoundationPagerCurlReferenceImplTest {
         assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, right))
-        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, right))
-        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, left))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, left))
     }
 
     /**
