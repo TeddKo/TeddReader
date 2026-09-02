@@ -15,12 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.darkReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
@@ -53,6 +53,7 @@ fun ReaderChromeSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = style.readerColors()
+    val hairline = teddReaderStroke().hairline
 
     CompositionLocalProvider(LocalContentColor provides colors.controlsContent) {
         Box(
@@ -60,7 +61,7 @@ fun ReaderChromeSurface(
                 .fillMaxWidth()
                 .background(colors.controls)
                 .drawBehind {
-                    val strokeWidth = 1.dp.toPx()
+                    val strokeWidth = hairline.toPx()
                     val y = if (dividerAtTop) {
                         strokeWidth / 2f
                     } else {

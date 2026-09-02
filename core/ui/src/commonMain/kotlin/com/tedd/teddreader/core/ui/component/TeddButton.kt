@@ -20,10 +20,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.teddClickable
 import com.tedd.teddreader.core.ui.extension.teddSelectable
@@ -91,6 +91,7 @@ fun TeddButton(
     val typography = teddReaderTypography()
     val colors = teddReaderColors()
     val shape = teddReaderShapes().medium
+    val strokeWidth = teddReaderStroke().hairline
 
     val backgroundColor: Color
     val contentColor: Color
@@ -131,7 +132,7 @@ fun TeddButton(
         modifier = modifier
             .defaultMinSize(minHeight = spacing.touchTarget)
             .background(color = backgroundColor, shape = shape)
-            .run { if (borderColor != null) border(BorderStroke(1.dp, borderColor), shape) else this }
+            .run { if (borderColor != null) border(BorderStroke(strokeWidth, borderColor), shape) else this }
             .teddClickable(onClick = onClick, shape = shape, enabled = enabled, role = Role.Button)
             .padding(resolvedContentPadding)
             .wrapContentHeight(Alignment.CenterVertically),
@@ -200,6 +201,7 @@ fun TeddChip(
         colors.onSurfaceVariant
     }
     val shape = RoundedCornerShape(percent = 50)
+    val strokeWidth = teddReaderStroke().hairline
 
     if (onClick != null) {
         TeddText(
@@ -207,7 +209,7 @@ fun TeddChip(
             modifier = modifier
                 .minimumInteractiveComponentSize()
                 .background(backgroundColor, shape)
-                .border(BorderStroke(1.dp, colors.outlineVariant), shape)
+                .border(BorderStroke(strokeWidth, colors.outlineVariant), shape)
                 .teddSelectable(
                     selected = selected,
                     onClick = onClick,
@@ -227,7 +229,7 @@ fun TeddChip(
                 .run { if (selected) semantics { this.selected = true } else this }
                 .clip(shape)
                 .background(backgroundColor)
-                .border(BorderStroke(1.dp, colors.outlineVariant), shape)
+                .border(BorderStroke(strokeWidth, colors.outlineVariant), shape)
                 .padding(resolvedContentPadding),
             color = contentColor,
             style = teddReaderTypography().labelLarge,
