@@ -18,6 +18,7 @@ local.properties
 keystore.properties
 signing.properties
 google-services.json
+iosApp/Configuration/Config.xcconfig
 *.p12
 *.pem
 *.mobileprovision

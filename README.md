@@ -74,7 +74,8 @@ xcodebuild -scheme iosApp -destination 'platform=iOS Simulator,name=iPhone 17 Pr
 ```
 
 Google Drive import needs a client ID per platform. The iOS one goes in
-`iosApp/Configuration/Config.xcconfig`.
+`iosApp/Configuration/Config.xcconfig`, which is gitignored — copy
+`iosApp/Configuration/Config.xcconfig.template` to that path and fill in your own values first.
 
 ## Tests
 
