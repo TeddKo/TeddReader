@@ -66,6 +66,15 @@ internal const val DocumentMosaicCoverWidthPx = 120
 /** 폴더 모자이크에 표시하는 작은 표지가 요청하는 디코딩 높이(px). */
 internal const val DocumentMosaicCoverHeightPx = 160
 
+/** [BookCoverFallback]이 그리는 책등 색상 bar의 고정 너비. */
+private val BookCoverFallbackSpineWidth = 14.dp
+
+/** [BookCoverFallback]이 책등 bar 뒤에 그리는 얇은 경계선이 시작 가장자리에서 떨어진 거리. */
+private val BookCoverFallbackEdgeLineOffset = 18.dp
+
+/** [BookCoverFallback]이 그리는 얇은 경계선의 고정 너비. */
+private val BookCoverFallbackEdgeLineWidth = 1.dp
+
 /**
  * 홈 라이브러리 그리드의 단일 문서 타일이다. 표지 그림, 형식 chip, 제목과 메타데이터를 표시하며 카드별
  * 더보기 메뉴와 선택적인 다중 선택 affordance를 제공한다.
@@ -321,15 +330,15 @@ internal fun BookCoverFallback(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
-                .width(14.dp)
+                .width(BookCoverFallbackSpineWidth)
                 .background(spineColor),
         )
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
-                .padding(start = 18.dp)
-                .width(1.dp)
+                .padding(start = BookCoverFallbackEdgeLineOffset)
+                .width(BookCoverFallbackEdgeLineWidth)
                 .background(lineColor),
         )
     }
@@ -390,8 +399,8 @@ private fun DocumentCardPreview() {
     }
 }
 
-/** 선택한 카드를 어둡게 하는 정도다. 선택 상태로 인식할 만큼 어둡고 내용을 볼 수 있을 만큼 밝다. */
 private fun DocumentMetadata.supportsRepositoryCover(): Boolean =
     format == DocumentFormat.PDF || format == DocumentFormat.EPUB || format == DocumentFormat.CBZ
 
+/** 선택한 카드를 어둡게 하는 정도다. 선택 상태로 인식할 만큼 어둡고 내용을 볼 수 있을 만큼 밝다. */
 private const val SelectedCoverDimAlpha = 0.42f
