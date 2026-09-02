@@ -1757,10 +1757,13 @@ private fun Modifier.foundationReferenceDrawCurl(
  * [foundationReferenceDrawThreeDCurlMesh]의 사인 곡선 텍스처 mesh를 통해 leaf를 렌더링하며,
  * 전체 투영을 미러링해 [mirrorHorizontally]를 반영함으로써 뒤로 가는 spread의 왼쪽 경첩 fold가
  * 앞으로 가는 짝과 일치하도록 한다. 이 3D 진행률은 [leafSize] — forward/backward edge
- * animatable이 구동되는 것과 같은 edge 공간 — 를 기준으로 잰다. 정지 단축 판정과 Standard fold
- * 계산은 여전히 노드 자신에게서 도출한 크기([canonicalSize])를 쓴다: [leafSize]와 호스트 노드 폭이
- * 갈리는 비대칭 spread에서 정지 판정 자체를 이 변경으로 흔들지 않기 위해서다 — 그 불일치는 남겨진
- * 별개의 결함이다.
+ * animatable이 구동되는 것과 같은 edge 공간 — 를 기준으로 잰다.
+ *
+ * 두 정지 위치 단축 판정도 [leafSize]로 비교한다. [edge]는 그 공간에서 생성되고 애니메이션되므로,
+ * 호스트 노드에서 도출한 크기([canonicalSize])와 비교하면 두 폭이 갈리는 비대칭 spread에서 정지
+ * 위치에 영원히 도달하지 못해 단축이 걸리지 않는다 — 왼쪽 pane에 leaf를 호스트하는 뒤로 가는 turn이
+ * 정확히 그 경우다. [canonicalSize]는 그릴 사각형을 정하는 값이므로 Standard fold 계산과 crease
+ * clamp에만 남는다.
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
@@ -1782,10 +1785,10 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.left(leafSize)) {
         return@drawWithCache onDrawWithContent { }
     }
-    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
@@ -1887,7 +1890,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
         return@drawWithCache onDrawWithContent { }
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
