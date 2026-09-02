@@ -82,7 +82,7 @@ class DocumentRepositoryBatchCrudTest {
 
         documentIds.forEach { id ->
             val path = coverFilePath(fileSource, id)
-            systemFileSystem().createDirectories(path.parent!!)
+            systemFileSystem().createDirectories(requireNotNull(path.parent))
             systemFileSystem().write(path) { write(byteArrayOf(1, 2, 3)) }
             assertTrue(systemFileSystem().exists(path))
         }
