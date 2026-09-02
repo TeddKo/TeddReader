@@ -577,21 +577,25 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * StPageFlip 기준 진행을 검증한다: 외부 너비는 leaf 하나의 75%까지 커지고, opacity는 Harism의
-     * 내부 그림자 alpha 0.5에서 0까지 선형으로 떨어진다.
+     * StPageFlip 기준 진행을 검증한다: 외부 너비는 leaf 하나의 75%까지 커지고, opacity는 turn
+     * 중간에 Harism의 내부 그림자 alpha 0.5로 최대가 되며 양끝에서 0이 된다 — 다른 page-turn
+     * 그림자와 같은 `sin` 엔벨로프다. 양끝이 0이어야 leaf가 평평한 상태에서 그림자가 남지 않는다.
      */
     @Test
     fun `page flip shadow follows reference width and opacity progression`() {
         val start = foundationPageFlipShadowSpec(0f, FoundationPageFlipLayout.WholePage)
+        val quarter = foundationPageFlipShadowSpec(0.25f, FoundationPageFlipLayout.WholePage)
         val middle = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
         val end = foundationPageFlipShadowSpec(1f, FoundationPageFlipLayout.WholePage)
 
         assertEquals(0f, start.outerWidthFraction, tolerance)
-        assertEquals(0.5f, start.opacity, tolerance)
+        assertEquals(0f, start.opacity, tolerance)
         assertEquals(0.375f, middle.outerWidthFraction, tolerance)
-        assertEquals(0.25f, middle.opacity, tolerance)
+        assertEquals(0.5f, middle.opacity, tolerance)
         assertEquals(0.75f, end.outerWidthFraction, tolerance)
         assertEquals(0f, end.opacity, tolerance)
+        assertTrue(quarter.opacity < middle.opacity)
+        assertTrue(quarter.opacity > start.opacity)
         assertEquals(middle.outerWidthFraction * 0.75f, middle.innerWidthFraction, tolerance)
     }
 
@@ -606,6 +610,47 @@ class FoundationPagerEffectMathTest {
         assertEquals(whole.opacity, spread.opacity, tolerance)
     }
 
+    /**
+     * inner shadow 정지점이 leaf의 자유 edge에서 가장 진하고 안쪽으로 단조롭게 옅어지는지, 그리고
+     * 첫 정지점이 축의 양 끝에 정확히 놓이는지 검증한다.
+     *
+     * 이전 구현은 진한 띠 두 개 사이에 알파 0.05짜리 정지점을 끼워 넣어 밝은 수직 선이 보였고,
+     * 첫 정지점이 `0.05f`여서 자유 edge에 최대 알파 단색 경계가 생겼다. 이 테스트가 그 두 형태를
+     * 모두 금지한다.
+     */
+    @Test
+    fun `page flip inner shadow stops fade monotonically from the free edge`() {
+        val alpha = 0.5f
+        // Color가 알파를 8비트로 양자화하므로(128/255 = 0.50196) 채널 한 단계만큼 허용한다.
+        val alphaTolerance = 1f / 255f
+
+        val start = foundationPageFlipInnerShadowStops(FoundationFluidSide.Start, alpha)
+        assertEquals(0f, start.first().first, tolerance)
+        assertEquals(1f, start.last().first, tolerance)
+        assertEquals(alpha, start.first().second.alpha, alphaTolerance)
+        assertEquals(0f, start.last().second.alpha, alphaTolerance)
+        start.toList().zipWithNext().forEach { (near, far) ->
+            assertTrue(far.first > near.first)
+            assertTrue(far.second.alpha < near.second.alpha)
+        }
+
+        val end = foundationPageFlipInnerShadowStops(FoundationFluidSide.End, alpha)
+        assertEquals(0f, end.first().first, tolerance)
+        assertEquals(1f, end.last().first, tolerance)
+        assertEquals(0f, end.first().second.alpha, alphaTolerance)
+        assertEquals(alpha, end.last().second.alpha, alphaTolerance)
+        end.toList().zipWithNext().forEach { (near, far) ->
+            assertTrue(far.first > near.first)
+            assertTrue(far.second.alpha > near.second.alpha)
+        }
+
+        assertEquals(start.size, end.size)
+        start.toList().zip(end.reversed()).forEach { (s, e) ->
+            assertEquals(s.first, 1f - e.first, tolerance)
+            assertEquals(s.second.alpha, e.second.alpha, alphaTolerance)
+        }
+    }
+
     /** 내부 띠는 clip 밖으로 벗어나지 않고, 잘려진 각 half의 바깥 자유 edge에 닿아야 한다. */
     @Test
     fun `spread page flip inner shadow follows clipped half free edge`() {
@@ -613,6 +658,25 @@ class FoundationPagerEffectMathTest {
         assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Right))
         assertEquals(FoundationFluidSide.Start, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Top))
         assertEquals(FoundationFluidSide.End, foundationPageFlipHalfShadowSide(FoundationPageFlipHalf.Bottom))
+    }
+
+    /**
+     * [foundationPageFlipFoldSide]가 자유 edge의 반대편, 즉 각 half가 실제로 접히는 fold 쪽을
+     * 내는지 검증한다 — inner shadow는 종이가 자기 자신에 가려 가장 어두운 그 쪽에 앉는다.
+     * left half의 fold는 오른쪽(spine), right half의 fold는 왼쪽이다.
+     */
+    @Test
+    fun `page flip fold side is opposite the free edge of each half`() {
+        FoundationPageFlipHalf.entries.forEach { half ->
+            val freeEdge = foundationPageFlipHalfShadowSide(half)
+            val fold = foundationPageFlipFoldSide(freeEdge)
+
+            assertTrue(fold != freeEdge)
+            assertEquals(freeEdge, foundationPageFlipFoldSide(fold))
+        }
+
+        assertEquals(FoundationFluidSide.End, foundationPageFlipFoldSide(FoundationFluidSide.Start))
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipFoldSide(FoundationFluidSide.End))
     }
 
     /**

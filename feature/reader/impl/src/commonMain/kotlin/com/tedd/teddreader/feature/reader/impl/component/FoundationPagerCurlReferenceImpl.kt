@@ -374,15 +374,17 @@ internal fun FoundationPagerCurlReferenceImpl(
                 )
                 else -> null
             }
-            val skipSpreadPage = isSpread &&
-                pageOffset == -1 &&
-                (leafEdge == backwardRestEdge ||
-                    foundationReferenceVisibleCurlEdge(
-                        pageKey,
-                        renderedPageKey,
-                        animatedForwardEdge,
-                        rightEdge,
-                    ) != rightEdge)
+            val skipSpreadPage = foundationReferenceSpreadShouldSkipBackwardSlot(
+                isSpread = isSpread,
+                pageOffset = pageOffset,
+                isBackwardTurnResting = leafEdge == backwardRestEdge,
+                isForwardTurnResting = foundationReferenceVisibleCurlEdge(
+                    pageKey,
+                    renderedPageKey,
+                    animatedForwardEdge,
+                    rightEdge,
+                ) == rightEdge,
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -410,6 +412,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 axis = axis,
                                 style = style,
                                 leafEdge = requireNotNull(leafEdge),
+                                leafSize = leafSize,
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
                                 spreadModifier = spreadModifier,
@@ -421,6 +424,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 axis = axis,
                                 style = style,
                                 leafEdge = leafEdge,
+                                leafSize = leafSize,
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
                                 spreadModifier = spreadModifier,
@@ -461,10 +465,27 @@ internal fun FoundationPagerCurlReferenceImpl(
  * 앞으로 접히는 fold는 다음 페이지를 turn이 끝난 뒤 pager가 배치할 바로 그 위치, 즉 마주보는 면에
  * 내려놓는다.
  *
- * 뒷면은 미리 미러링되어 있다(`scaleX = -1f`), 그래야 fold 자체의 반사가 이를 바르게 읽히도록
- * 만든다; 미리 미러링해 두지 않으면 넘어가는 leaf의 뒷면 텍스트가 거꾸로 읽힌다.
+ * 앞면과 뒷면 모두 leaf의 원래 pane(오른쪽) 노드 하나에만 호스트한다. [Box]는 자식의 드로잉을
+ * 클립하지 않으므로, mesh에 `spanBeyondSpinePx`로 반대쪽 pane 너비와 gutter를 열어 주면 시트가
+ * gutter를 건너 왼쪽 pane까지 하나의 연속된 mesh로 이어진다. 뒷면을 반대쪽 pane 노드에 따로
+ * 호스트하면 두 조각 사이의 gutter가 빈 채로 남아 시트가 끊긴 기준선처럼 보인다.
  *
- * @param style leaf가 표준 페인팅을 쓰는지 3D 조명 프로필을 쓰는지.
+ * 뒷면 콘텐츠는 [foundationReferenceSpreadFaceNeedsContentMirror]가 참을 낼 때 미리 미러링한다
+ * (`scaleX = -1f`) — 뒷면 strip은 목적지가 소스와 반대로 흐르므로 텍스처를 `1 - m`에서 읽어야
+ * verso가 정방향으로 읽힌다.
+ *
+ * @param leftPage 왼쪽 pane에 명시적으로 그려지는 정적 페이지.
+ * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
+ * @param style leaf가 표준 페인팅을 쓸지 3D 조명 프로필을 쓸지 — 뒷면을 어느 pane에 호스트할지도
+ *   이 값이 정한다.
+ * @param leafEdge leaf의 현재 fold edge, canonical 좌표계 기준; null이면 접히지 않는 밑판
+ *   슬롯이라 두 leaf 면 모두 그리지 않는다.
+ * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, leaf-face draw 함수가 3D 진행률을
+ *   재는 edge 공간이다([foundationReferenceLeafSize] 참고).
+ * @param gutter 두 pane 사이의 간격.
+ * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param spreadModifier spread의 row에 적용되는 modifier.
+ * @param paneContent 주어진 modifier로 한 페이지를 pane 안에 렌더링한다.
  */
 @Composable
 private fun FoundationReferenceSpread(
@@ -472,6 +493,7 @@ private fun FoundationReferenceSpread(
     axis: FoundationReferenceCurlAxis,
     style: FoundationReferenceCurlStyle,
     leafEdge: FoundationReferenceCurlEdge?,
+    leafSize: IntSize,
     gutter: Dp,
     leftWeight: Float,
     spreadModifier: Modifier,
@@ -480,11 +502,25 @@ private fun FoundationReferenceSpread(
     val curlGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
+    val backGraphicsLayer = rememberGraphicsLayer().apply {
+        compositingStrategy = CompositingStrategy.Offscreen
+    }
+    val leafHome = FoundationReferenceSpreadPane.Right
+    val backNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
+        style,
+        FoundationReferenceSpreadFace.Back,
+        leafHome,
+    )
+    val spanBeyondSpinePx = with(LocalDensity.current) {
+        leafSize.width * foundationReferenceSpreadOtherPaneRatio(leftWeight) + gutter.toPx()
+    }
     Row(
         modifier = spreadModifier,
         horizontalArrangement = Arrangement.spacedBy(gutter),
     ) {
-        paneContent(leftPage, Modifier.weight(leftWeight).fillMaxHeight())
+        Box(modifier = Modifier.weight(leftWeight).fillMaxHeight()) {
+            paneContent(leftPage, Modifier.fillMaxSize())
+        }
         Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight()) {
             paneContent(
                 leftPage + 1,
@@ -496,6 +532,8 @@ private fun FoundationReferenceSpread(
                             axis = axis,
                             edge = leafEdge,
                             style = style,
+                            leafSize = leafSize,
+                            spanBeyondSpinePx = spanBeyondSpinePx,
                             graphicsLayer = curlGraphicsLayer,
                         )
                     }
@@ -506,8 +544,17 @@ private fun FoundationReferenceSpread(
                     leftPage + 2,
                     Modifier
                         .fillMaxSize()
-                        .foundationReferenceDrawLeafBack(axis, leafEdge, style)
-                        .graphicsLayer { scaleX = -1f },
+                        .foundationReferenceDrawLeafBack(
+                            axis = axis,
+                            edge = leafEdge,
+                            style = style,
+                            leafSize = leafSize,
+                            spanBeyondSpinePx = spanBeyondSpinePx,
+                            graphicsLayer = backGraphicsLayer,
+                        )
+                        .run {
+                            if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
+                        },
                 )
             }
         }
@@ -518,23 +565,30 @@ private fun FoundationReferenceSpread(
  * 뒤로 가는 turn이 현재 leaf를 그것이 덮고 있던 이전 페이지 쪽으로 접어 넘기는 동안의 두 페이지
  * spread.
  *
- * 이 composable이 그리는 두 페이지는 모두 왼쪽 pane에 놓이며, fold가 열리면서 아래에 있는 페이지를
- * 드러내는 데 필요한 순서로 쌓인다: 맨 아래에는 [previousLeftPage]가 평평하게(turn이 드러내고 있는
- * 페이지), 그 위에 leaf의 아직 평평한 부분을 나타내는 [foundationReferenceDrawLeafFront]로 그려진
- * [currentLeftPage], 그리고 그 위에 접혀 열리는 부분을 나타내는 [foundationReferenceDrawLeafBack]으로
- * 그려진 [previousLeftPage] + 1. 이는 [previousLeftPage]에서 시작하는 앞으로 가는 turn이 그리는 것과
- * 같은 leaf를 — [FoundationReferenceSpread] 참고 — 역순으로 재생하면서, 이 애니메이션이 평평한
- * 상태에서 벗어나는 대신 그 상태로 다가가기 때문에 앞면과 뒷면을 맞바꾼 것이다. 두 leaf-face 호출
- * 모두 `mirrorHorizontally = true`를 넘기는데, 이 fold는 앞으로 가는 fold의 오른쪽 가장자리 힌지를
- * 거울에 비춘 모습인 왼쪽 가장자리에서 경첩처럼 움직이기 때문이며, 그래서 같은 앞/뒤 사전 미러링
- * 트릭이 여전히 텍스트를 바르게 읽히도록 만든다. 오른쪽 pane은 여기서는 비워 둔다; pager 자신의
- * offset-0 슬롯이 이를 따로 렌더링한다.
+ * 앞면([currentLeftPage])은 항상 왼쪽 pane에 남아 gutter 쪽으로 접혀 줄어든다. 뒷면
+ * ([previousLeftPage] + 1)이 놓이는 pane은 [style]에 따라 갈린다. Standard curl은 뒷면을 앞면과
+ * 같은 왼쪽 pane 안에, leaf의 아직 평평한 부분을 나타내는 [foundationReferenceDrawLeafFront]로
+ * 그려진 [currentLeftPage] 위에 [foundationReferenceDrawLeafBack]으로 쌓아 그린다 — 이는
+ * [previousLeftPage]에서 시작하는 앞으로 가는 turn이 그리는 것과 같은 leaf를 —
+ * [FoundationReferenceSpread] 참고 — 역순으로 재생하면서, 이 애니메이션이 평평한 상태에서 벗어나는
+ * 대신 그 상태로 다가가기 때문에 앞면과 뒷면을 맞바꾼 것이다. 3D curl도 같은 왼쪽 pane 노드에
+ * 호스트하고 mesh에 `spanBeyondSpinePx`를 열어, 시트가 gutter를 건너 오른쪽 pane까지 하나의
+ * 연속된 mesh로 이어지게 한다.
+ *
+ * 앞면 호출은 `mirrorHorizontally = true`를 넘기는데, 이 fold는 앞으로 가는 fold의 오른쪽 가장자리
+ * 힌지를 거울에 비춘 모습인 왼쪽 가장자리에서 경첩처럼 움직이기 때문이다. Standard 앞면은 배치용
+ * 미러와 콘텐츠 안쪽 미러가 상쇄되어 추가 조치가 필요 없지만, 3D 앞면은 mesh 경로가 딱 한 번만
+ * 미러링해 상쇄되지 않으므로 [foundationReferenceSpreadFaceNeedsContentMirror]가 참을 반환할 때
+ * 콘텐츠에 미러를 한 번 더 넣어 텍스트가 좌우 반전으로 읽히지 않도록 한다.
  *
  * @param previousLeftPage 이 뒤로 가는 turn이 드러내고 있는 페이지.
  * @param currentLeftPage 현재 보이고 있는, leaf가 그로부터 접혀 나가는 중인 페이지.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
- * @param style leaf가 표준 페인팅을 쓰는지 3D 조명 프로필을 쓰는지.
+ * @param style leaf가 표준 페인팅을 쓸지 3D 조명 프로필을 쓸지 — 뒷면을 어느 pane에 호스트할지와
+ *   앞면에 pre-mirror가 필요한지도 이 값이 정한다.
  * @param leafEdge leaf의 현재 fold edge, canonical 좌표계 기준.
+ * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, leaf-face draw 함수가 3D 진행률을
+ *   재는 edge 공간이다([foundationReferenceLeafSize] 참고).
  * @param gutter 두 pane 사이의 간격.
  * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
  * @param spreadModifier row에 적용되는 modifier.
@@ -547,6 +601,7 @@ private fun FoundationReferenceBackwardSpread(
     axis: FoundationReferenceCurlAxis,
     style: FoundationReferenceCurlStyle,
     leafEdge: FoundationReferenceCurlEdge,
+    leafSize: IntSize,
     gutter: Dp,
     leftWeight: Float,
     spreadModifier: Modifier,
@@ -554,6 +609,23 @@ private fun FoundationReferenceBackwardSpread(
 ) {
     val curlGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
+    }
+    val backGraphicsLayer = rememberGraphicsLayer().apply {
+        compositingStrategy = CompositingStrategy.Offscreen
+    }
+    val leafHome = FoundationReferenceSpreadPane.Left
+    val frontNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
+        style,
+        FoundationReferenceSpreadFace.Front,
+        leafHome,
+    )
+    val backNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
+        style,
+        FoundationReferenceSpreadFace.Back,
+        leafHome,
+    )
+    val spanBeyondSpinePx = with(LocalDensity.current) {
+        leafSize.width * foundationReferenceSpreadOtherPaneRatio(1f - leftWeight) + gutter.toPx()
     }
     Row(
         modifier = spreadModifier,
@@ -569,9 +641,14 @@ private fun FoundationReferenceBackwardSpread(
                         axis = axis,
                         edge = leafEdge,
                         style = style,
+                        leafSize = leafSize,
                         mirrorHorizontally = true,
+                        spanBeyondSpinePx = spanBeyondSpinePx,
                         graphicsLayer = curlGraphicsLayer,
-                    ),
+                    )
+                    .run {
+                        if (frontNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
+                    },
             )
             paneContent(
                 previousLeftPage + 1,
@@ -581,8 +658,14 @@ private fun FoundationReferenceBackwardSpread(
                         axis = axis,
                         edge = leafEdge,
                         style = style,
+                        leafSize = leafSize,
                         mirrorHorizontally = true,
-                    ),
+                        spanBeyondSpinePx = spanBeyondSpinePx,
+                        graphicsLayer = backGraphicsLayer,
+                    )
+                    .run {
+                        if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
+                    },
             )
         }
         Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight())
@@ -590,13 +673,114 @@ private fun FoundationReferenceBackwardSpread(
 }
 
 /**
+ * spread의 두 pane이 gutter 양옆에서 각각 차지하는 너비로, [foundationReferenceLeafSize]가 오른쪽
+ * pane 몫을 구하려고 위임하는 산술이다. 3D curl 뒷면을 반대쪽 pane 노드 안에 배치하려면 왼쪽 pane
+ * 몫도 같은 방식으로 필요하므로, 한쪽만 반환하던 계산에서 양쪽을 함께 낼 수 있도록 분리했다.
+ *
+ * @param canonicalWidth 축의 canonical(가로 우선) 방향으로 나타낸 viewport 너비.
+ * @param gutterPx 두 pane 사이 간격, 픽셀 단위.
+ * @param leftWeight 전체 너비 중 왼쪽 pane에 주어지는 비율; 오른쪽이 나머지를 갖기 전에 0..1로
+ *   clamp된다.
+ * @return gutter를 뺀 나머지를 [leftWeight] 비율로 나눈 왼쪽/오른쪽 pane 너비 — 0 또는 음수 분할이
+ *   fold 계산이 뒤집을 수 없는 퇴화된 크기를 만들지 않도록 양쪽 모두 1px로 하한이 걸려 있다.
+ */
+internal fun foundationReferenceSpreadPaneWidth(
+    canonicalWidth: Float,
+    gutterPx: Float,
+    leftWeight: Float,
+): FoundationReferenceSpreadPaneWidths {
+    val pagesWidth = (canonicalWidth - gutterPx).coerceAtLeast(0f)
+    val clampedLeftWeight = leftWeight.coerceIn(0f, 1f)
+    return FoundationReferenceSpreadPaneWidths(
+        leftPx = (pagesWidth * clampedLeftWeight).toInt().coerceAtLeast(1),
+        rightPx = (pagesWidth * (1f - clampedLeftWeight)).toInt().coerceAtLeast(1),
+    )
+}
+
+/**
+ * [foundationReferenceSpreadPaneWidth]가 계산한, gutter 양옆 두 pane의 너비.
+ *
+ * @property leftPx 왼쪽 pane에 배정된 너비, 픽셀 단위.
+ * @property rightPx 오른쪽 pane에 배정된 너비, 픽셀 단위.
+ */
+internal data class FoundationReferenceSpreadPaneWidths(
+    val leftPx: Int,
+    val rightPx: Int,
+)
+
+/**
+ * spread에서 leaf가 원래 속해 있는 pane — fold가 gutter의 어느 쪽에서 경첩처럼 움직이는지를
+ * 가리킨다. 전진 turn은 오른쪽 pane에 있던 leaf가 접혀 나가므로 [Right]이고, 후진 turn은 왼쪽
+ * pane에 있던 leaf가 접혀 나가므로 [Left]다([foundationReferenceCurlGeometryDirection] 참고).
+ */
+internal enum class FoundationReferenceSpreadPane { Left, Right }
+
+/**
+ * leaf의 두 면 중 지금 렌더링하는 쪽 — 지금 보이는 면([Front])인지, turn이 끝났을 때 안착할
+ * 반대쪽 면([Back])인지.
+ */
+internal enum class FoundationReferenceSpreadFace { Front, Back }
+
+/**
+ * leaf가 아닌 반대쪽 pane의 너비를 leaf 너비에 대한 비율로 낸다 — mesh가 spine을 넘어 얼마나 더
+ * 그려야 반대쪽 pane 끝까지 닿는지 계산하는 데 쓴다.
+ *
+ * 두 pane은 gutter를 뺀 너비를 weight로 나눠 가지므로, 반대쪽 pane의 너비는 leaf 너비에
+ * `otherWeight / (1 - otherWeight)`를 곱한 값이다.
+ *
+ * @param otherWeight 반대쪽 pane이 갖는 weight. `readerSpreadLeftWeight`가 이미 0.2..0.8로
+ *   clamp하지만, 1에 붙는 입력이 들어와도 0으로 나누지 않도록 방어한다.
+ * @return leaf 너비에 곱해 반대쪽 pane 너비를 얻는 비율.
+ */
+internal fun foundationReferenceSpreadOtherPaneRatio(otherWeight: Float): Float {
+    val clamped = otherWeight.coerceIn(0f, 0.99f)
+    return clamped / (1f - clamped)
+}
+
+/**
+ * [style]/[face]/[leafHome] 조합에서, leaf 콘텐츠 자체에 가로 미러를 한 번 더 적용해야 텍스트가
+ * 정방향으로 읽히는지 판정한다.
+ *
+ * 콘텐츠에 실제로 적용되는 가로 미러의 출처는 셋이다: (1) [foundationReferenceDrawLeafFront]의
+ * Standard 경로는 배치용 바깥쪽 `withTransform`과 콘텐츠 바로 앞의 안쪽 `withTransform`이 같은
+ * `mirrorHorizontally` 조건으로 짝을 이뤄 항상 상쇄되므로 중립이다. (2)
+ * [foundationReferenceDrawLeafBack]의 Standard 경로는 `FoundationReferenceCurlFold.applyTo`가
+ * 가로 축에서 무조건 한 번 미러링하며, 이 미러는 상쇄되지 않고 그대로 콘텐츠에 남는다. (3) 3D
+ * mesh 경로([foundationReferenceDrawThreeDCurlMesh])는 `mirrorHorizontally`일 때만 딱 한 번
+ * 미러링한다. Standard 경로에서는 콘텐츠가 정방향으로 읽히려면 이 출처들의 총 적용 횟수가 짝수여야
+ * 하므로, 총 횟수가 홀수가 되는 조합에서만 참을 반환한다.
+ *
+ * 3D mesh 경로는 언제나 거짓이다. mesh의 `mirrorHorizontally`는 strip의 destination만 뒤집는 게
+ * 아니라 source 범위까지 같이 뒤집으므로, 그 미러가 곧 "spine에 닿는 쪽 콘텐츠를 고르는" 수단이다.
+ * 뒷면 콘텐츠에 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아가 turn 도중 gutter에
+ * 페이지 여백이 붙고, 창이 자랄 때 콘텐츠가 반대 방향으로 흐른다. 3D turn 도중 leaf가 좌우 반전되어
+ * 보이는 것은 종이 한 장이 실제로 뒤집히는 모습이며 의도된 결과다.
+ *
+ * @param style 앞면/뒷면을 표준 fold로 그릴지 3D mesh로 그릴지.
+ * @param face 렌더링할 면.
+ * @param leafHome 접히는 leaf가 사는 pane. 앞뒷면 모두 이 pane 노드 하나에 호스트되므로 판정 기준은
+ *   렌더링 pane이 아니라 leaf의 home이다.
+ * @return 콘텐츠 쪽에 미러를 한 번 더 적용해야 정방향으로 읽히면 참.
+ */
+internal fun foundationReferenceSpreadFaceNeedsContentMirror(
+    style: FoundationReferenceCurlStyle,
+    face: FoundationReferenceSpreadFace,
+    leafHome: FoundationReferenceSpreadPane,
+): Boolean = when (style) {
+    FoundationReferenceCurlStyle.Standard ->
+        face == FoundationReferenceSpreadFace.Back && leafHome == FoundationReferenceSpreadPane.Left
+    FoundationReferenceCurlStyle.ThreeDimensional ->
+        (face == FoundationReferenceSpreadFace.Back) !=
+            (leafHome == FoundationReferenceSpreadPane.Left)
+}
+
+/**
  * curl 기하 계산이 페이지 한 장으로 취급하는 크기로, viewport가 이미 한 축의 canonical(가로 우선)
  * 방향으로 축소된 것을 전제로 한다.
  *
  * spread 밖에서는 leaf가 pane 전체이므로 [canonicalSize]가 그대로 통과한다. spread 안에서는 왼쪽이
- * 아닌 pane만 실제로 넘어가므로 leaf가 더 좁다: gutter와 왼쪽 pane의 몫([leftWeight])을 뺀 나머지
- * 너비를 가지며, 0 또는 음수 분할이 fold 계산이 뒤집을 수 없는 퇴화된 크기를 만들지 않도록 1px로
- * 하한이 걸려 있다.
+ * 아닌 pane만 실제로 넘어가므로 leaf가 더 좁다: [foundationReferenceSpreadPaneWidth]가 계산하는
+ * 오른쪽 pane 몫을 그대로 쓴다.
  *
  * @param canonicalSize 축의 canonical(가로 우선) 방향으로 나타낸 viewport 크기.
  * @param isSpread pager가 두 pane을 나란히 보여주고 있는지 여부.
@@ -612,9 +796,12 @@ internal fun foundationReferenceLeafSize(
     leftWeight: Float,
 ): IntSize {
     if (!isSpread) return canonicalSize
-    val pagesWidth = (canonicalSize.width - gutterPx).coerceAtLeast(0f)
-    val leafWidth = (pagesWidth * (1f - leftWeight.coerceIn(0f, 1f))).toInt().coerceAtLeast(1)
-    return IntSize(leafWidth, canonicalSize.height)
+    val paneWidths = foundationReferenceSpreadPaneWidth(
+        canonicalWidth = canonicalSize.width.toFloat(),
+        gutterPx = gutterPx,
+        leftWeight = leftWeight,
+    )
+    return IntSize(paneWidths.rightPx, canonicalSize.height)
 }
 
 /**
@@ -1228,6 +1415,28 @@ internal fun foundationReferenceVisibleCurlEdge(
     if (pageKey == renderedPageKey) animatedEdge else restingEdge
 
 /**
+ * -1 오프셋(이전 페이지) pager 슬롯이 자신의 spread 렌더링을 건너뛰어야 하는지 판정한다.
+ *
+ * 후진 turn이 진행되지 않는 동안에는 이 슬롯이 자기 뒷면을 현재 페이지 위에 덮는 것을 막아야
+ * 하고, 전진 turn이 진행되는 동안에는 이 슬롯이 전진 fold를 가리는 것을 막아야 한다. 두 조건 중
+ * 하나라도 해당하면 건너뛴다.
+ *
+ * @param isSpread pager가 두 pane을 나란히 보여주고 있는지 여부; -1 슬롯 스킵은 spread에서만
+ *   의미가 있다.
+ * @param pageOffset 이 슬롯이 현재 페이지로부터 떨어진 오프셋 — -1이 아니면 이 판정은 적용되지
+ *   않는다.
+ * @param isBackwardTurnResting 후진 turn의 leaf edge가 정지 위치에 머물러 있는지 여부.
+ * @param isForwardTurnResting 전진 turn의 leaf edge가 정지 위치(오른쪽)에 머물러 있는지 여부.
+ * @return -1 슬롯이 자신의 spread 렌더링을 건너뛰어야 하면 참.
+ */
+internal fun foundationReferenceSpreadShouldSkipBackwardSlot(
+    isSpread: Boolean,
+    pageOffset: Int,
+    isBackwardTurnResting: Boolean,
+    isForwardTurnResting: Boolean,
+): Boolean = isSpread && pageOffset == -1 && (isBackwardTurnResting || !isForwardTurnResting)
+
+/**
  * 완료되었거나 flung된 드래그가 [direction] 방향으로 충분히 멀리 이동해, 취소된 turn이 아니라
  * 완료된 페이지 turn으로 칠 수 있는지 여부.
  *
@@ -1419,6 +1628,7 @@ private fun Modifier.foundationReferenceDrawCurl(
     ) {
         val progress = foundationReferenceThreeDCurlProgress(edge, canonicalSize.width.toFloat())
         val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            .filter { !it.isBackFacing }
         val meshLighting = foundationReferenceThreeDCurlLightingSpec(progress * PI.toFloat())
         return@drawWithCache onDrawWithContent {
             graphicsLayer.record {
@@ -1517,12 +1727,18 @@ private fun Modifier.foundationReferenceDrawCurl(
  * PlayLikeCurl 스타일 [FoundationReferenceCurlStyle.ThreeDimensional] 롤의 turn 중간에는 대신
  * [foundationReferenceDrawThreeDCurlMesh]의 사인 곡선 텍스처 mesh를 통해 leaf를 렌더링하며,
  * 전체 투영을 미러링해 [mirrorHorizontally]를 반영함으로써 뒤로 가는 spread의 왼쪽 경첩 fold가
- * 앞으로 가는 짝과 일치하도록 한다.
+ * 앞으로 가는 짝과 일치하도록 한다. 이 3D 진행률은 [leafSize] — forward/backward edge
+ * animatable이 구동되는 것과 같은 edge 공간 — 를 기준으로 잰다. 정지 단축 판정과 Standard fold
+ * 계산은 여전히 노드 자신에게서 도출한 크기([canonicalSize])를 쓴다: [leafSize]와 호스트 노드 폭이
+ * 갈리는 비대칭 spread에서 정지 판정 자체를 이 변경으로 흔들지 않기 위해서다 — 그 불일치는 남겨진
+ * 별개의 결함이다.
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
  * @param edge leaf의 현재 fold edge.
  * @param style 표준 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
+ * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, 3D 진행률 계산이 호스트 노드
+ *   크기 대신 이 값을 기준으로 삼는다.
  * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
  * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
  * @return 클립되고 선택적으로 조명이 적용된 앞면을 그리는 modifier.
@@ -1531,7 +1747,9 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
+    leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
+    spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1544,8 +1762,9 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
         axis == FoundationReferenceCurlAxis.Horizontal
     ) {
-        val progress = foundationReferenceThreeDCurlProgress(edge, canonicalSize.width.toFloat())
+        val progress = foundationReferenceThreeDCurlProgress(edge, leafSize.width.toFloat())
         val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            .filter { !it.isBackFacing }
         val meshLighting = foundationReferenceThreeDCurlLightingSpec(progress * PI.toFloat())
         return@drawWithCache onDrawWithContent {
             graphicsLayer.record {
@@ -1558,6 +1777,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
                 width = size.width,
                 height = size.height,
                 mirrorHorizontally = mirrorHorizontally,
+                spanBeyondSpinePx = spanBeyondSpinePx,
             )
         }
     }
@@ -1599,29 +1819,43 @@ private fun Modifier.foundationReferenceDrawLeafFront(
 }
 
 /**
- * 표준 curl의, crease를 기준으로 반사된 접힌 뒷면을 그리며, 종이 조명, 독립적인 뒷면 shade, rim
- * highlight, 각도에 따른 cast shadow를 포함한다.
+ * leaf의 뒷면을 그린다.
  *
- * PlayLikeCurl 스타일 [FoundationReferenceCurlStyle.ThreeDimensional] 롤에는 그릴 접힌 뒷면
- * 텍스처가 없다: 참조 구현은 Left/Center/Right 페이지를 렌더링하고, 그 위에 뒷면을 접어 덮는 대신
- * 넘어가는 leaf의 투영된 mesh([foundationReferenceDrawLeafFront]가 그리는
- * [foundationReferenceDrawThreeDCurlMesh])를 통해 아래에 있는 다음 또는 이전 pager 페이지를
- * 드러낸다. 여기서 뒷면을 그리면 그 mesh를 덮게 되므로, 이 modifier는 3D leaf가 turn 중간일
- * 때는 아무것도 그리지 않는다; 표준 뒷면 경로는 그대로 유지된다.
+ * 표준 [FoundationReferenceCurlStyle.Standard] 경로는 crease를 기준으로 반사된 접힌 뒷면을
+ * 그리며, 종이 조명, 독립적인 뒷면 shade, rim highlight, 각도에 따른 cast shadow를 포함한다.
+ *
+ * PlayLikeCurl 스타일 [FoundationReferenceCurlStyle.ThreeDimensional] 롤은 앞면과 같은
+ * [foundationReferenceDrawThreeDCurlMesh] 사인 곡선 텍스처 mesh로 뒷면을 그리되,
+ * [foundationReferenceThreeDCurlProgress]가 낸 앞면 진행률을
+ * [foundationReferenceSpreadBackFaceProgress]로 보수(`1 - progress`)를 취해 뒤집은 값을 넘긴다 —
+ * 그래야 앞면이 gutter로 접혀 들어가는 동안 뒷면이 gutter에서부터 자라나 반대쪽 pane에 정확히
+ * 안착한다. 호출자([FoundationReferenceSpread]/[FoundationReferenceBackwardSpread])는 이 뒷면을
+ * 앞면과 다른 목적지 pane의 노드에 호스트하므로, mesh의 목적지 `width`/`height`는 그 노드 자신의
+ * `size`를 그대로 쓴다 — [leafSize]는 오직 [foundationReferenceThreeDCurlProgress]가 앞면과 같은
+ * edge 공간에서 진행률을 재는 데만 쓰인다. 보수 진행률의 mesh가 노드 안에서 완전히 클램프되어
+ * 사라지는 구간([foundationReferenceThreeDCurlMeshExtent]가 비어 있다고 판정하는 경우)에는
+ * 오프스크린 텍스처를 기록하지 않고 그대로 반환해, turn 전반부에 불필요한 기록 비용이 들지 않게
+ * 한다.
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
  * @param edge leaf의 현재 fold edge.
- * @param style 표준 페인팅을 유지할지, 또는 3D 롤이라면 mesh 앞면이 아래 페이지를 드러내도록
- *   아무것도 그리지 않을지.
+ * @param style 표준 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
+ * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, 이 뒷면이 호스트되는 노드의 크기와
+ *   다를 수 있는 edge 공간이다 — [foundationReferenceThreeDCurlProgress]는 반드시 이 값을 기준으로
+ *   진행률을 재야, 앞면이 정지해 있을 때 뒷면도 정지 상태(진행률 0)로 일치한다.
  * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
+ * @param graphicsLayer 3D mesh 구간이 재사용하는, 이 뒷면 전용 오프스크린 페이지 텍스처.
  * @return 변환되고 선택적으로 조명이 적용된 뒷면을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawLeafBack(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
+    leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
+    spanBeyondSpinePx: Float = 0f,
+    graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
@@ -1630,7 +1864,27 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
         axis == FoundationReferenceCurlAxis.Horizontal
     ) {
-        return@drawWithCache onDrawWithContent { }
+        val progress = foundationReferenceThreeDCurlProgress(edge, leafSize.width.toFloat())
+        val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            .filter { it.isBackFacing }
+        if (strips.isEmpty()) {
+            return@drawWithCache onDrawWithContent { }
+        }
+        val meshLighting = foundationReferenceThreeDCurlLightingSpec(progress * PI.toFloat())
+        return@drawWithCache onDrawWithContent {
+            graphicsLayer.record {
+                this@onDrawWithContent.drawContent()
+            }
+            foundationReferenceDrawThreeDCurlMesh(
+                strips = strips,
+                lighting = meshLighting,
+                graphicsLayer = graphicsLayer,
+                width = size.width,
+                height = size.height,
+                mirrorHorizontally = mirrorHorizontally,
+                spanBeyondSpinePx = spanBeyondSpinePx,
+            )
+        }
     }
     val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
         ?: return@drawWithCache onDrawWithContent { }
@@ -2061,68 +2315,84 @@ internal fun foundationReferenceThreeDCurlLightingSpec(
  * @property destinationStartFraction [sourceStartFraction]의 원근 투영.
  * @property destinationEndFraction [sourceEndFraction]의 원근 투영으로, 다음 구간의 시작과
  *   공유된다.
- * @property verticalScale 이 구간에서의 원근 스케일로, 이웃한 컬럼이 텍스트를 독립적으로 전단
- *   변형하지 못하도록 페이지 전체에 걸친 하나의 세로 스케일로 유지된다.
- * @property depthFraction 카메라 쪽으로의, 이 구간의 최대 사인파 깊이, leaf-너비 단위.
+ * @property depthFraction 카메라 쪽으로의, 이 구간의 최대 실린더 깊이, leaf-너비 단위.
+ * @property isBackFacing 이 구간의 표면 법선이 카메라에서 돌아섰는지 — 실린더 감김 각도가 `PI / 2`를
+ *   지나면 참이 되며, 이 구간은 앞면이 아니라 뒷면으로 그려야 한다.
  */
 internal data class FoundationReferenceThreeDCurlStripSpec(
     val sourceStartFraction: Float,
     val sourceEndFraction: Float,
     val destinationStartFraction: Float,
     val destinationEndFraction: Float,
-    val verticalScale: Float,
     val depthFraction: Float,
+    val isBackFacing: Boolean,
 )
 
 /**
- * PlayLikeCurl의 원래 25-컬럼 사인 곡선 깊이 공식으로 평평한 leaf를 투영한다.
+ * 반지름 [FoundationReferenceThreeDCurlRadius]의 실린더에 시트를 감아 leaf를 투영한다.
  *
- * 각 소스 경계에서 참조 구현은 먼저 x를 `1 - radius`만큼 압축하고, [FoundationReferenceThreeDCurlMoveStart]까지
- * 가로 이동을 지연시킨 다음, `radius * (sin(PI / wavelength * (source - progress)) + 1.1)`로 z를
- * 끌어올린다. camera-distance 원근 나눗셈이 그 깊이를 최종 x 경계와 스케일로 변환한다. 이는
- * 반원통이 아니라 하나의 순서 있는 전면을 향한 시트다: 넓은 사인파가 페이지를 가로질러 이동하는
- * 동안 모든 활성 구간은 단조성을 유지하며, 이는 참조 구현의 `PageFront.calculateVerticesCoords()`와
- * 일치한다.
+ * 기하는 세 구간이다. spine(source 0)부터 crease까지는 **평면**이고 목적지가 소스와 같다 — 그래서
+ * 페이지의 이 부분은 turn 내내 제자리에 고정된다. crease부터 호 길이 `PI * radius`까지는 실린더에
+ * **감긴 구간**으로, 감김 각도 `theta = (source - crease) / radius`에 대해 목적지는
+ * `crease + radius * sin(theta)`, 깊이는 `radius * (1 - cos(theta))`다. 그 뒤로는 시트가 다시
+ * **평면**이 되어 crease 왼쪽으로 뻗어 나가며, 목적지가 소스가 늘어나는 만큼 줄어든다.
  *
- * 모든 경계는 한 번씩만 계산되어 인접 구간들이 공유한다. 정지 상태에서는 0인 radius가 항등 매핑을
- * 만들어내고; 완료 시점에는 압축, 이동, 원근이 전체 페이지를 viewport 시작점 너머에 놓는다.
+ * 표면 법선은 theta만큼 돌아가므로 `theta < PI / 2`인 구간만 카메라를 향한다 — 그 지점을 넘어선
+ * 구간은 [FoundationReferenceThreeDCurlStripSpec.isBackFacing]으로 표시되어 뒷면으로 그려진다.
+ * 목적지가 소스와 반대로 줄어들기 때문에 뒷면 콘텐츠는 좌우 반전되어 나타나며, 이는 종이 한 장이
+ * 실제로 뒤집히는 모습이다.
+ *
+ * crease는 시트의 끝(tip)이 progress에 대해 `1 - 2 * progress`로 선형 이동하도록 역산한
+ * `1 - progress - PI * radius / 2`다. 그래서 tip은 progress 0.5에서 정확히 spine을 통과하고, turn
+ * 후반부 내내 시트가 반대쪽 pane을 덮으며 넘어간다 — 책장 한 장이 반대쪽 페이지를 덮는 동작이며,
+ * 이 선형성이 없으면 시트가 spine 쪽으로 줄어들다 사라지는 것처럼 보인다. 정지 상태에서는 반지름이
+ * 0이라 crease가 1이 되어 매핑이 항등이고, 완료 시점에는 tip이 `-1`에 놓여 반대쪽 pane을 빈틈없이
+ * 덮는다.
+ *
+ * 반지름은 시작과 끝 [FoundationReferenceThreeDCurlRadiusRampEnd] 구간에서 각각 0으로 수렴한다:
+ * 정지와 완료 양쪽에서 시트가 평평해야 다음 spread로 스냅 없이 이어진다. 반지름이 0으로 가는
+ * 극한은 실린더가 아니라 날카로운 접힘이며(`theta = PI`), 목적지는 `crease - along`이 되어 접힌
+ * 부분이 crease를 기준으로 그대로 반사된다.
+ *
+ * 모든 경계는 한 번씩만 계산되어 인접 구간들이 공유한다.
  *
  * @param progress 평평한 현재 페이지에서의 0부터 viewport를 떠난 뒤의 1까지의 turn 진행률; 이
  *   범위 밖의 값은 clamp된다.
- * @return 비트 단위로 동일한 공유 경계를 가진, 플랫폼 프로필의 순서 있는 구간들.
+ * @return 비트 단위로 동일한 공유 경계를 가진, 플랫폼 프로필의 순서 있는 구간들. 앞면과 뒷면
+ *   구간이 모두 들어 있으므로 호출자는 [FoundationReferenceThreeDCurlStripSpec.isBackFacing]으로
+ *   걸러 쓴다.
  */
 internal fun foundationReferenceThreeDCurlStripSpecs(
     progress: Float,
 ): List<FoundationReferenceThreeDCurlStripSpec> {
     val clamped = progress.coerceIn(0f, 1f)
+    val ramp = FoundationReferenceThreeDCurlRadiusRampEnd
     val radius = FoundationReferenceThreeDCurlRadius *
-        min(1f, clamped / FoundationReferenceThreeDCurlRadiusRampEnd)
-    val move = if (clamped > FoundationReferenceThreeDCurlMoveStart) {
-        clamped - FoundationReferenceThreeDCurlMoveStart
-    } else {
-        0f
-    }
+        min(1f, clamped / ramp) * min(1f, (1f - clamped) / ramp)
     val grid = foundationPagerRenderProfile.threeDCurlGrid
+    val wrapArc = PI.toFloat() * radius
+    val crease = 1f - clamped - wrapArc / 2f
     val boundaries = FloatArray(grid + 1)
     val depths = FloatArray(grid + 1)
-    val scales = FloatArray(grid + 1)
+    val wrapped = BooleanArray(grid + 1)
+    val angles = FloatArray(grid + 1)
     for (index in boundaries.indices) {
         val source = index.toFloat() / grid
-        val depth = if (radius <= FoundationReferenceThreeDCurlFlatEpsilon) {
-            0f
-        } else {
-            radius * (
-                sin(PI.toFloat() / FoundationReferenceThreeDCurlWavelengthRatio *
-                    (source - clamped)) +
-                    FoundationReferenceThreeDCurlDepthOffset
-                )
+        val along = source - crease
+        val theta = when {
+            along <= 0f -> 0f
+            radius <= FoundationReferenceThreeDCurlFlatEpsilon -> PI.toFloat()
+            else -> min(along / radius, PI.toFloat())
         }
-        val projected = source * (1f - radius) - move
-        val scale = FoundationReferenceThreeDCurlCameraDistance /
-            (FoundationReferenceThreeDCurlCameraDistance - depth)
-        boundaries[index] = 0.5f + (projected - 0.5f) * scale
+        val depth = radius * (1f - cos(theta))
+        boundaries[index] = if (along <= 0f) {
+            source
+        } else {
+            crease + radius * sin(theta) - max(0f, along - wrapArc)
+        }
         depths[index] = depth
-        scales[index] = scale
+        wrapped[index] = along > 0f
+        angles[index] = theta
     }
     return List(grid) { index ->
         FoundationReferenceThreeDCurlStripSpec(
@@ -2130,8 +2400,9 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
             sourceEndFraction = (index + 1).toFloat() / grid,
             destinationStartFraction = boundaries[index],
             destinationEndFraction = boundaries[index + 1],
-            verticalScale = max(scales[index], scales[index + 1]),
             depthFraction = max(depths[index], depths[index + 1]),
+            isBackFacing = wrapped[index] && wrapped[index + 1] &&
+                (angles[index] + angles[index + 1]) / 2f > PI.toFloat() / 2f,
         )
     }
 }
@@ -2149,13 +2420,63 @@ internal fun foundationReferenceThreeDCurlStripSpecs(
  *   낳는다.
  * @return [edge]에 대한 0..1 범위의 롤 진행률.
  */
-private fun foundationReferenceThreeDCurlProgress(
+internal fun foundationReferenceThreeDCurlProgress(
     edge: FoundationReferenceCurlEdge,
     width: Float,
 ): Float {
     if (width <= 0f) return 0f
     val crease = (edge.top.x + edge.bottom.x) / 2f
     return (1f - crease / width).coerceIn(0f, 1f)
+}
+
+/**
+ * [strips]가 목적지 노드 안에서 실제로 차지하는 가로 범위로, [foundationReferenceDrawThreeDCurlMesh]가
+ * cast shadow와 front-shade 그라데이션을 어디에 그릴지 정하는 값과 같은 clamp된 픽셀 범위다.
+ *
+ * 값은 clamp하지 않는다: 뒷면을 반대쪽 pane에 놓는 배치는 spine 왼쪽(음수 목적지)을 실제로 보이는
+ * 영역으로 쓰므로, 노드 폭으로 잘라내면 그 영역이 사라진 것으로 오판하게 된다.
+ *
+ * @property leftPx 보이는 mesh의 왼쪽 끝, leaf 프레임 픽셀 값. [strips]가 비어 있으면 의미 없는 0.
+ * @property rightPx 보이는 mesh의 오른쪽 끝, leaf 프레임 픽셀 값. [strips]가 비어 있으면 의미 없는 0.
+ * @property isEmpty 그릴 strip 자체가 없음 — [strips] 리스트가 비어 있을 때만 참이 된다. 앞면은
+ *   turn 완료 직전, 뒷면은 정지 상태에서 각각 자기 쪽 strip이 하나도 없어 참이 된다.
+ */
+internal data class FoundationReferenceThreeDCurlMeshExtent(
+    val leftPx: Float,
+    val rightPx: Float,
+    val isEmpty: Boolean,
+)
+
+/**
+ * [strips]가 목적지 노드 안에서 실제로 차지하는 가로 범위를 계산한다 —
+ * [foundationReferenceDrawThreeDCurlMesh]가 인라인으로 하던 clamp 산술을 그대로 옮긴 것으로, mesh가
+ * 비어 있을 때의 조기 반환 지점을 결과 값의 [FoundationReferenceThreeDCurlMeshExtent.isEmpty]로
+ * 표현한다.
+ *
+ * @param strips [foundationReferenceThreeDCurlStripSpecs]가 만든 순서 있는 목적지 구간들.
+ * @param width mesh를 그리는 목적지 노드의 너비, 픽셀 단위다. [foundationReferenceThreeDCurlProgress]가
+ *   받는 leaf 너비와 반드시 같은 값은 아니다 — 이 너비는 mesh가 실제로 그려지는 사각형이고, progress의
+ *   너비는 fold 진행률을 측정하는 edge 공간이므로, spread에서 두 pane의 폭이 다르면 서로 갈라진다.
+ *   둘을 섞어 넘기면 mesh가 잘못된 지점에서 clamp된다.
+ * @return [strips]가 비어 있으면 [FoundationReferenceThreeDCurlMeshExtent.isEmpty]가 참인 값; 그
+ *   외에는 `[0, width]`로 clamp된 왼쪽/오른쪽 끝을 담은 값.
+ */
+internal fun foundationReferenceThreeDCurlMeshExtent(
+    strips: List<FoundationReferenceThreeDCurlStripSpec>,
+    width: Float,
+): FoundationReferenceThreeDCurlMeshExtent {
+    val meshLeft = strips.minOfOrNull {
+        min(it.destinationStartFraction, it.destinationEndFraction)
+    }?.times(width)
+        ?: return FoundationReferenceThreeDCurlMeshExtent(leftPx = 0f, rightPx = 0f, isEmpty = true)
+    val meshRight = strips.maxOf {
+        max(it.destinationStartFraction, it.destinationEndFraction)
+    } * width
+    return FoundationReferenceThreeDCurlMeshExtent(
+        leftPx = meshLeft,
+        rightPx = meshRight,
+        isEmpty = false,
+    )
 }
 
 /**
@@ -2175,7 +2496,17 @@ private fun foundationReferenceThreeDCurlProgress(
  * @param graphicsLayer 모든 구간이 공유하는 오프스크린 페이지 텍스처.
  * @param width leaf의 너비, 픽셀 단위.
  * @param height leaf의 높이, 픽셀 단위.
- * @param mirrorHorizontally 뒤로 가는 spread를 위해 결과를 미러링할지 여부.
+ * cast shadow는 시트의 선행 엣지 바깥쪽에 깔린다. 앞면은 spine에서 먼 쪽(롤이 있는
+ * `visibleRight`) 바깥, 뒷면은 spine을 넘어간 끝(`visibleLeft`) 바깥이다. 두 면 모두
+ * `visibleRight`를 쓰면 뒷면의 그림자가 spine 쪽 시트 안으로 들어가, 전진에서는 거의 보이지 않고
+ * 후진에서는 미러 때문에 드러난 페이지 위로 옮겨가 방향에 따라 다르게 보인다.
+ *
+ * @param mirrorHorizontally 이 노드에서 leaf의 spine이 노드의 오른쪽 edge에 있는지 여부. mesh는
+ *   spine을 x = 0에 두고 계산되므로, 참이면 배치가 좌우로 뒤집힌다.
+ * @param spanBeyondSpinePx spine(leaf 프레임 x = 0)을 넘어 이 노드 밖까지 mesh가 그려도 되는 거리,
+ *   픽셀 단위. spread에서는 반대쪽 pane 너비에 gutter를 더한 값이다. leaf는 자기 pane 노드 하나에만
+ *   호스트되고 Compose의 Box는 자식 드로잉을 클립하지 않으므로, 이 값만 열어 주면 시트가 gutter를
+ *   건너 반대쪽 pane까지 끊김 없이 이어진다.
  */
 private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     strips: List<FoundationReferenceThreeDCurlStripSpec>,
@@ -2184,55 +2515,56 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     width: Float,
     height: Float,
     mirrorHorizontally: Boolean,
+    spanBeyondSpinePx: Float = 0f,
 ) {
-    val meshLeft = strips.minOfOrNull {
-        min(it.destinationStartFraction, it.destinationEndFraction)
-    }?.times(width) ?: return
-    val meshRight = strips.maxOf {
-        max(it.destinationStartFraction, it.destinationEndFraction)
-    } * width
-    val visibleLeft = meshLeft.coerceIn(0f, width)
-    val visibleRight = meshRight.coerceIn(0f, width)
-    val shadowStart = visibleRight
-    val shadowEnd = (shadowStart + width * FoundationReferenceThreeDCurlShadowSpread)
-        .coerceAtMost(width)
-    val verticalScale = strips.maxOf { it.verticalScale }
+    val meshExtent = foundationReferenceThreeDCurlMeshExtent(strips, width)
+    if (meshExtent.isEmpty) return
+    val visibleLeft = meshExtent.leftPx
+    val visibleRight = meshExtent.rightPx
+    val castsShadowBeyondTip = strips.all { it.isBackFacing }
+    val shadowSpread = width * FoundationReferenceThreeDCurlShadowSpread
+    val shadowStart = if (castsShadowBeyondTip) visibleLeft else visibleRight
+    val shadowEnd = if (castsShadowBeyondTip) {
+        shadowStart - shadowSpread
+    } else {
+        shadowStart + shadowSpread
+    }
+    val clipLow = -spanBeyondSpinePx
+    val clipHigh = width
     withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
-        if (lighting.shadowAlpha > 0f && shadowEnd > shadowStart) {
+        val shadowLeft = min(shadowStart, shadowEnd).coerceIn(clipLow, clipHigh)
+        val shadowRight = max(shadowStart, shadowEnd).coerceIn(clipLow, clipHigh)
+        if (lighting.shadowAlpha > 0f && shadowRight > shadowLeft) {
             drawRect(
                 brush = Brush.horizontalGradient(
                     listOf(Color.Black.copy(alpha = lighting.shadowAlpha), Color.Transparent),
                     startX = shadowStart,
                     endX = shadowEnd,
                 ),
-                topLeft = Offset(shadowStart, 0f),
-                size = Size(shadowEnd - shadowStart, height),
+                topLeft = Offset(shadowLeft, 0f),
+                size = Size(shadowRight - shadowLeft, height),
             )
         }
-        withTransform({
-            scale(1f, verticalScale, pivot = Offset(width / 2f, height / 2f))
-        }) {
-            strips.forEach { strip ->
-                val destStart = strip.destinationStartFraction * width
-                val destEnd = strip.destinationEndFraction * width
-                val left = min(destStart, destEnd).coerceIn(0f, width)
-                val right = max(destStart, destEnd).coerceIn(0f, width)
-                if (right - left < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
-                val sourceStart = strip.sourceStartFraction * width
-                val sourceEnd = strip.sourceEndFraction * width
-                val sourceSpan = sourceEnd - sourceStart
-                if (abs(sourceSpan) < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
-                val scaleX = (destEnd - destStart) / sourceSpan
-                clipRect(
-                    left = (left - FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtLeast(0f),
-                    top = 0f,
-                    right = (right + FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtMost(width),
-                    bottom = height,
-                ) {
-                    withTransform({ translate(destStart - sourceStart, 0f) }) {
-                        withTransform({ scale(scaleX, 1f, pivot = Offset(sourceStart, 0f)) }) {
-                            drawLayer(graphicsLayer)
-                        }
+        strips.forEach { strip ->
+            val destStart = strip.destinationStartFraction * width
+            val destEnd = strip.destinationEndFraction * width
+            val left = min(destStart, destEnd).coerceIn(clipLow, clipHigh)
+            val right = max(destStart, destEnd).coerceIn(clipLow, clipHigh)
+            if (right - left < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
+            val sourceStart = strip.sourceStartFraction * width
+            val sourceEnd = strip.sourceEndFraction * width
+            val sourceSpan = sourceEnd - sourceStart
+            if (abs(sourceSpan) < FoundationReferenceThreeDCurlFlatEpsilon) return@forEach
+            val scaleX = (destEnd - destStart) / sourceSpan
+            clipRect(
+                left = (left - FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtLeast(clipLow),
+                top = 0f,
+                right = (right + FoundationReferenceThreeDCurlSeamOverlapPx).coerceAtMost(clipHigh),
+                bottom = height,
+            ) {
+                withTransform({ translate(destStart - sourceStart, 0f) }) {
+                    withTransform({ scale(scaleX, 1f, pivot = Offset(sourceStart, 0f)) }) {
+                        drawLayer(graphicsLayer)
                     }
                 }
             }
@@ -2479,46 +2811,22 @@ private const val FoundationReferenceThreeDRimWidthPx = 2f
 private const val FoundationReferenceThreeDCurlTiltRatio = 0.18f
 
 /**
- * leaf 너비에 대한 비율로 나타낸 최대 사인파 깊이 진폭으로, PlayLikeCurl의 `RADIUS`에서 그대로
- * 가져왔다. 정규화는 단일 페이지와 spread leaf 전반에 걸쳐 같은 파동 비율을 유지시킨다.
+ * 시트가 감기는 실린더의 반지름으로, leaf 너비에 대한 비율이다. 감김 호 길이 `PI * radius`와 최대
+ * 깊이 `2 * radius`를 함께 결정한다. 비율로 두기 때문에 단일 페이지와 spread leaf에서 curl의
+ * 굵기가 같게 보인다.
  */
 private const val FoundationReferenceThreeDCurlRadius = 0.18f
 
 /**
- * 사인 진폭을 0에서 [FoundationReferenceThreeDCurlRadius]까지 끌어올리는 초기 progress 구간으로,
- * 참조 구현의 처음 1/5 easing과 일치한다.
+ * 실린더 반지름을 0에서 [FoundationReferenceThreeDCurlRadius]까지 끌어올리는 초기 progress 구간.
+ * 0에서 시작하므로 정지 상태의 매핑이 정확히 항등이고, turn이 시작되면서 crease가 날카로운
+ * 접힘에서 굵은 롤로 부드럽게 자란다.
  */
 private const val FoundationReferenceThreeDCurlRadiusRampEnd = 0.20f
 
 /**
- * 전체적으로 압축된 페이지가 viewport 시작점 쪽으로 이동하기 시작하기까지의 progress 지연으로,
- * 참조 구현의 `perc - 0.05` 이동과 일치한다.
- */
-private const val FoundationReferenceThreeDCurlMoveStart = 0.05f
-
-/**
- * 참조 사인 위상 `PI / 0.60 * (source - progress)`의 분모로, 페이지를 가로질러 이동하는 깊이
- * 파동의 너비를 조절한다.
- */
-private const val FoundationReferenceThreeDCurlWavelengthRatio = 0.60f
-
-/**
- * PlayLikeCurl의 사인파를 페이지 평면 위로 `1.1` radius만큼 끌어올리며, 참조 구현의 정점 공식과
- * 일치한다. 추가된 1/10 radius는 사인이 골에 도달한 지점에서도 모든 활성 컬럼이 평평한 페이지
- * 앞에 있도록 유지시켜, 텍스처가 하나의 연속된 전면을 향한 시트로 남게 한다.
- */
-private const val FoundationReferenceThreeDCurlDepthOffset = 1.1f
-
-/**
- * [foundationReferenceThreeDCurlStripSpecs]에서 사인 곡선 mesh를 원근 단축시키는 데 쓰이는,
- * leaf-너비 단위의 원근 카메라와 페이지 평면 사이 거리. 카메라로부터 이만큼 떨어진 들려 올라간
- * 컬럼은 페이지 평면 근처의 컬럼보다 더 넓게 투영되어, 참조 구현의 넓은 가로 파동을 만들어낸다.
- */
-private const val FoundationReferenceThreeDCurlCameraDistance = 2.0f
-
-/**
  * [foundationReferenceThreeDCurlStripSpecs]와 [foundationReferenceDrawThreeDCurlMesh]가 0이
- * 아니라고 취급하는 가장 작은 curl radius, 컬럼 너비, 또는 소스 span으로, 이보다 작으면 사라지는
+ * 아니라고 취급하는 가장 작은 실린더 반지름, 컬럼 너비, 또는 소스 span으로, 이보다 작으면 사라지는
  * span으로 나누는 대신 컬럼을 평평하게 그리거나 건너뛴다.
  */
 private const val FoundationReferenceThreeDCurlFlatEpsilon = 1e-4f
