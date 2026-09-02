@@ -661,6 +661,25 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
+     * [foundationPageFlipFoldSide]가 자유 edge의 반대편, 즉 각 half가 실제로 접히는 fold 쪽을
+     * 내는지 검증한다 — inner shadow는 종이가 자기 자신에 가려 가장 어두운 그 쪽에 앉는다.
+     * left half의 fold는 오른쪽(spine), right half의 fold는 왼쪽이다.
+     */
+    @Test
+    fun `page flip fold side is opposite the free edge of each half`() {
+        FoundationPageFlipHalf.entries.forEach { half ->
+            val freeEdge = foundationPageFlipHalfShadowSide(half)
+            val fold = foundationPageFlipFoldSide(freeEdge)
+
+            assertTrue(fold != freeEdge)
+            assertEquals(freeEdge, foundationPageFlipFoldSide(fold))
+        }
+
+        assertEquals(FoundationFluidSide.End, foundationPageFlipFoldSide(FoundationFluidSide.Start))
+        assertEquals(FoundationFluidSide.Start, foundationPageFlipFoldSide(FoundationFluidSide.End))
+    }
+
+    /**
      * [foundationPageFlipHalfSpec]이 스와이프가 접는 쪽의 half만 회전시키는지 검증한다 — 다음으로
      * 넘기는 스와이프는 left/top half를 회전시키고 right/bottom half는 평평하게 두며, 이전으로
      * 넘기는 스와이프는 그 반대다.
