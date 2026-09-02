@@ -147,6 +147,45 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
+     * [FoundationFluidEdge.reset] 직후에는 모든 점이 이미 정지 상태(`x = 0`, `progress = 0`)이므로,
+     * 그 뒤 [FoundationFluidEdge.tick]을 아무리 반복해도 점이 실제로 움직이지 않고
+     * [FoundationFluidEdge.version]도 오르지 않는지 검증한다 — 유휴 상태에서 [version]이 오르면
+     * 이를 최상위에서 읽는 [FoundationEffectPager] 전체가 매 프레임 재구성된다.
+     */
+    @Test
+    fun `fluid edge version stays put while idle after reset`() {
+        val edge = FoundationFluidEdge(pointCount = 5)
+        edge.reset()
+        val idleVersion = edge.version
+
+        repeat(30) { edge.tick(1f) }
+
+        assertEquals(idleVersion, edge.version)
+    }
+
+    /**
+     * 터치를 놓은 뒤에도 target [progress]를 향한 release 보간이 실제로 점을 움직이는 경우에는
+     * [FoundationFluidEdge.tick]이 여전히 [FoundationFluidEdge.version]을 올리는지 검증한다 — 유휴
+     * 상태에서 [version] 증가를 막은 수정이 release 감쇠 자체를 죽이지 않았다는 회귀 방지다.
+     */
+    @Test
+    fun `fluid edge version advances when release interpolation moves a point`() {
+        val edge = FoundationFluidEdge(pointCount = 5)
+
+        edge.applyTarget(
+            side = FoundationFluidSide.Start,
+            progress = 0.5f,
+            touchCrossAxis = 0.5f,
+            touchActive = false,
+        )
+        val versionBeforeTick = edge.version
+
+        edge.tick(1f)
+
+        assertTrue(edge.version > versionBeforeTick)
+    }
+
+    /**
      * [foundationActivePageTurn]이, 제스처가 활성 상태이지만 방향을 드러낼 만큼 충분히 움직이지 않은
      * 동안에는, 우연히 더 큰 쪽 이웃의 progress로 추측하는 대신 확정된 side 없이 progress 0을 보고하는지
      * 검증한다.

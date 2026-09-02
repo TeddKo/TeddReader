@@ -172,6 +172,10 @@ internal fun FoundationEffectPager(
     } else {
         FoundationPagerAxis.Vertical
     }
+    val readsPagerOffset = pageAnimation == PageAnimation.FLUID_PAGER ||
+        pageAnimation == PageAnimation.CIRCLE_REVEAL ||
+        pageAnimation == PageAnimation.MOVIE_CAROUSEL ||
+        pageAnimation == PageAnimation.PAGE_FLIP
     val fluidEdge = remember { FoundationFluidEdge(FoundationFluidPointCount) }
     val fluidVersion = fluidEdge.version
     var gestureState by remember { mutableStateOf(FoundationPagerGestureState()) }
@@ -484,6 +488,7 @@ internal fun FoundationEffectPager(
 
     /** 가로/세로 pager 분기 양쪽에서 공유되어 두 번 작성되지 않도록 하는, 한 슬롯의 프레임별 트랜지션 modifier를 만든다. */
     fun pageModifier(pagerPage: Int): Modifier {
+        if (!readsPagerOffset) return Modifier.fillMaxSize()
         val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
         return Modifier
             .fillMaxSize()
@@ -512,11 +517,15 @@ internal fun FoundationEffectPager(
             userScrollEnabled = false,
             beyondViewportPageCount = 1,
         ) { pagerPage ->
-            val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
-            val incomingPage = when {
-                pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                pageOffset < 0f -> previousPage
-                else -> null
+            val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
+            val incomingPage = if (pageAnimation != PageAnimation.PAGE_FLIP) {
+                null
+            } else {
+                when {
+                    pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
+                    pageOffset < 0f -> previousPage
+                    else -> null
+                }
             }
             FoundationPageFlipAwareBox(
                 pageAnimation = pageAnimation,
@@ -548,11 +557,15 @@ internal fun FoundationEffectPager(
             userScrollEnabled = false,
             beyondViewportPageCount = 1,
         ) { pagerPage ->
-            val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
-            val incomingPage = when {
-                pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                pageOffset < 0f -> previousPage
-                else -> null
+            val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
+            val incomingPage = if (pageAnimation != PageAnimation.PAGE_FLIP) {
+                null
+            } else {
+                when {
+                    pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
+                    pageOffset < 0f -> previousPage
+                    else -> null
+                }
             }
             FoundationPageFlipAwareBox(
                 pageAnimation = pageAnimation,
@@ -2372,7 +2385,9 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
     /**
      * [tick]이나 [reset]이 [points]를 제자리에서 변경할 때마다 증가하는 변경 카운터로,
      * 이 값을 캡처해 둔 `drawWithCache`/[Shape] 블록이 [points] 리스트 참조 자체는
-     * 결코 바뀌지 않는데도 다시 계산해야 함을 알 수 있게 한다.
+     * 결코 바뀌지 않는데도 다시 계산해야 함을 알 수 있게 한다. [tick]은 점이 실제로
+     * 움직인 경우에만 이 값을 올리므로, edge가 이미 정지한 뒤에는 [tick]을 계속
+     * 호출해도 값이 그대로다.
      */
     var version by mutableStateOf(0)
         private set
@@ -2453,7 +2468,9 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
      *
      * 터치가 활성이 아닌 동안에는, 모든 점이 그저 [progress] 쪽으로 보간될 뿐이다
      * (`point.x += (progress - point.x) * releaseFraction`, 속도는 0으로 초기화된다) —
-     * 그 비율이 무엇을 뜻하는지는 아래 [FoundationFluidReleaseDamping]을 참고한다.
+     * 그 비율이 무엇을 뜻하는지는 아래 [FoundationFluidReleaseDamping]을 참고한다. 점이
+     * 이미 [progress]에 수렴해 이 보간으로도 위치가 바뀌지 않으면 [points]는 실제로
+     * 변경되지 않은 것이므로, 이 분기는 [version]을 올리지 않는다.
      * 터치가 활성인 동안에는, 대신 모든 점이 속도가 감쇠되어 적용되기 전 네 종류의
      * 힘을 받는다: `x = 0` 쪽으로 다시 당기는 edge-tension 항(가중치
      * [FoundationFluidEdgeTension]); [progress]가 [FoundationFluidCompleteThreshold]를
@@ -2521,11 +2538,16 @@ internal class FoundationFluidEdge(pointCount: Int = FoundationFluidPointCount) 
         val t = frameUnits.coerceIn(0.1f, 1.5f)
         if (!touchActive) {
             val releaseFraction = 1f - FoundationFluidReleaseDamping.pow(t)
+            var moved = false
             points.forEach { point ->
                 point.velocityX = 0f
-                point.x += (progress - point.x) * releaseFraction
+                val next = point.x + (progress - point.x) * releaseFraction
+                if (next != point.x) {
+                    point.x = next
+                    moved = true
+                }
             }
-            version++
+            if (moved) version++
             return
         }
 
