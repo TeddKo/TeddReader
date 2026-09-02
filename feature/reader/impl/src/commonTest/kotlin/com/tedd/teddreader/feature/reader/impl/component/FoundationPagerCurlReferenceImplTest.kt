@@ -700,28 +700,38 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * [foundationReferenceSpreadOtherPaneRatio]가 leaf 너비에 곱해 반대쪽 pane 너비를 내는지, 그리고
-     * 그 값이 mesh가 gutter를 건너 반대쪽 pane 끝까지 닿기에 충분한지 검증한다 — leaf를 두 노드로
-     * 쪼개지 않고 한 노드에서 연속으로 그리게 만드는 값이라, 이 값이 작으면 시트가 gutter에서
-     * 끊긴 기준선처럼 보이는 결함으로 되돌아간다.
+     * [foundationReferenceSpreadOtherPaneWidthPx]가 leaf가 사는 pane의 *반대쪽* pane 너비를 내는지,
+     * 그것도 힌지가 spread를 비대칭으로 가르는 폴더블 비율에서까지 그러한지 검증한다 — mesh가
+     * gutter를 건너 반대쪽 pane 끝까지 닿게 하는 값이라, 작으면 시트가 gutter에서 끊긴 기준선처럼
+     * 보이고 크면 반대쪽 pane을 넘어 침범한다.
+     *
+     * 왼쪽에 사는 leaf(뒤로 가는 turn)를 함께 확인하는 것이 이 테스트의 핵심이다. 이 값을 leaf
+     * 너비에 비율을 곱해 역산하던 이전 방식은 leaf 너비가 방향과 무관하게 항상 오른쪽 pane 몫이라
+     * 왼쪽 leaf에 대해 틀린 값을 냈고, `leftWeight`가 0.5인 대칭 spread에서만 우연히 맞아
+     * 폴더블에서만 드러났다.
      */
     @Test
-    fun spreadOtherPaneRatioSpansTheOppositePane() {
+    fun spreadOtherPaneWidthPicksTheOppositePaneAtEveryHingeSplit() {
         val canonicalWidth = SpreadViewportWidth
         val gutterPx = SpreadGutter
 
-        listOf(0.2f, 0.5f, 0.8f).forEach { leftWeight ->
+        listOf(0.2f, 0.35f, 0.5f, 0.65f, 0.8f).forEach { leftWeight ->
             val paneWidths = foundationReferenceSpreadPaneWidth(canonicalWidth, gutterPx, leftWeight)
-            val leafWidth = paneWidths.rightPx.toFloat()
 
-            val span = leafWidth * foundationReferenceSpreadOtherPaneRatio(leftWeight)
+            val forwardSpan = foundationReferenceSpreadOtherPaneWidthPx(
+                paneWidths,
+                FoundationReferenceSpreadPane.Right,
+            )
+            val backwardSpan = foundationReferenceSpreadOtherPaneWidthPx(
+                paneWidths,
+                FoundationReferenceSpreadPane.Left,
+            )
 
-            assertEquals(paneWidths.leftPx.toFloat(), span, 2f)
-            assertTrue(span + gutterPx >= paneWidths.leftPx.toFloat())
+            assertEquals(paneWidths.leftPx.toFloat(), forwardSpan, 0.0001f)
+            assertEquals(paneWidths.rightPx.toFloat(), backwardSpan, 0.0001f)
+            assertTrue(forwardSpan + gutterPx >= paneWidths.leftPx.toFloat())
+            assertTrue(backwardSpan + gutterPx >= paneWidths.rightPx.toFloat())
         }
-
-        assertEquals(0f, foundationReferenceSpreadOtherPaneRatio(0f), 0.0001f)
-        assertTrue(foundationReferenceSpreadOtherPaneRatio(1f).isFinite())
     }
 
     /**
@@ -729,9 +739,9 @@ class FoundationPagerCurlReferenceImplTest {
      * 코드가 실제로 적용하는 미러 출처 수(Standard Front는 배치·콘텐츠 미러가 상쇄돼 항상 중립,
      * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러가 상쇄되지 않고
      * 남으며, 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
-     * 반환하는지 검증한다. 3D는 네 조합 모두 거짓이다: mesh의 `mirrorHorizontally`가 strip의
-     * destination과 source를 함께 뒤집어 spine에 닿는 쪽 콘텐츠를 고르는 역할까지 하므로, 콘텐츠에
-     * 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아간다.
+     * 반환하는지 검증한다. 3D는 mesh의 `mirrorHorizontally` 한 번과 뒷면 strip 자신의 음수
+     * `scaleX` 한 번이 미러 출처이므로, 그 둘의 합이 홀수가 되는 두 조합(Back/Right,
+     * Front/Left)에서만 콘텐츠 미러가 필요하다.
      *
      * 이 테스트는 그 계산 규칙을 표로 재진술한 것일 뿐 실제 렌더링을 검증하지는 않는다 — 값은
      * draw-transform 안에 흩어져 있어 눈으로 확인하기 전까지는 맞는지 알기 어려운 미묘한 미러
