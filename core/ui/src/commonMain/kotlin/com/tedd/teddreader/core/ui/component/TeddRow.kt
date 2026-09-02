@@ -22,9 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.extension.teddClickable
 
@@ -78,6 +78,7 @@ fun TeddListItem(
     val typography = teddReaderTypography()
     val colors = teddReaderColors()
     val dividerColor = colors.outlineVariant
+    val hairline = teddReaderStroke().hairline
     val rowModifier = modifier
         .fillMaxWidth()
         .heightIn(min = spacing.rowHeight)
@@ -99,7 +100,7 @@ fun TeddListItem(
             .run {
                 if (showDivider) {
                     drawBehind {
-                        val strokeWidth = 1.dp.toPx()
+                        val strokeWidth = hairline.toPx()
                         val y = size.height - strokeWidth / 2f
                         drawLine(
                             color = dividerColor,
