@@ -1467,7 +1467,7 @@ private fun TableOfContentsDrawerContent(
                 )
             }
         } else {
-            itemsIndexed(uiState.outlineItems) { index, item ->
+            itemsIndexed(uiState.outlineItems, key = { _, item -> item.location }) { index, item ->
                 NavigationDrawerItem(
                     label = { TeddText(text = item.displayTitle()) },
                     selected = false,
