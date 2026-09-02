@@ -1,5 +1,6 @@
 package com.tedd.teddreader.core.designsystem
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -206,6 +207,13 @@ fun TeddReaderTheme(
         LocalTeddReaderBreakpoints provides DefaultTeddReaderBreakpoints,
         LocalTeddReaderStroke provides DefaultTeddReaderStroke,
         LocalReaderColors provides readerColors,
+        // Material의 LocalContentColor는 기본값이 검정이며, 이를 다시 발행하는 것은 Material 자체의
+        // Surface와 Scaffold뿐이다. 앱은 화면 프레임을 TeddScaffold로 감싸므로 대부분의 라벨은 그것을
+        // 통해 색을 받지만, 그 프레임 밖에 놓인 화면(읽기 화면은 nav entry에 그대로 놓인다)의 라벨은
+        // 테마와 무관하게 검정으로 남아 다크 팔레트에서 배경에 묻혔다. 여기서 앱 자체의 기본 잉크를
+        // 발행해 두면 그 기본값이 우연이 아니라 테마가 되고, 컨테이너들은 여전히 자기 자리에서
+        // 자신의 콘텐츠 색으로 재정의한다.
+        LocalContentColor provides appColors.onBackground,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
