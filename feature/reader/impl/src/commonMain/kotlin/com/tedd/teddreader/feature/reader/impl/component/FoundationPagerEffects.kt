@@ -606,6 +606,7 @@ internal fun FoundationEffectPager(
  * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
  * @param style 기존 curl 렌더러가 표준 모습을 쓸지, 3D Curl 옵션의 더 강한 front/back/rim 조명을
  *   쓸지.
+ * @param paperColor 접힌 부분의 뒷면을 채우는 페이지 색으로, 독자가 고른 리더 팔레트의 종이색이다.
  * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은
  *   동안에도 다음 요청을 계속 전달해야 하는지 여부.
  * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
@@ -634,6 +635,7 @@ internal fun FoundationCurlPager(
     pageStep: Int,
     pageTurnMode: PageTurnMode,
     style: FoundationReferenceCurlStyle,
+    paperColor: Color,
     canRequestNextPage: Boolean,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
@@ -659,6 +661,7 @@ internal fun FoundationCurlPager(
         pageStep = pageStep,
         pageTurnMode = pageTurnMode,
         style = style,
+        paperColor = paperColor,
         canRequestNextPage = canRequestNextPage,
         pageMoveRequest = pageMoveRequest,
         onPageMoveRequestConsumed = onPageMoveRequestConsumed,
