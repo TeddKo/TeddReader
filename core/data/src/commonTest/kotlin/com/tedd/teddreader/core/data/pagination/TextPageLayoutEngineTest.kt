@@ -125,10 +125,14 @@ class TextPageLayoutEngineTest {
             val range = page.textRange ?: return@single false
             imageOffset >= range.start && imageOffset < range.end
         }
-        val imagePageLength = (imagePage.textRange!!.end - imagePage.textRange!!.start).toInt()
+        val imageTextRange = requireNotNull(imagePage.textRange)
+        val imagePageLength = (imageTextRange.end - imageTextRange.start).toInt()
         val textOnlyPageLength = pages
             .filter { it !== imagePage }
-            .maxOf { (it.textRange!!.end - it.textRange!!.start).toInt() }
+            .maxOf { page ->
+                val range = requireNotNull(page.textRange)
+                (range.end - range.start).toInt()
+            }
 
         assertTrue(
             imagePageLength < textOnlyPageLength,
@@ -617,7 +621,7 @@ class TextPageLayoutEngineTest {
             viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
             pageBreaker = breaker,
         )
-        val contentPageStarts = measuredPages.drop(1).map { it.textRange!!.start }.toLongArray()
+        val contentPageStarts = measuredPages.drop(1).map { requireNotNull(it.textRange).start }.toLongArray()
 
         val reconstructedPages = engine.reconstruct(document, contentPageStarts)
 
@@ -834,14 +838,14 @@ class TextPageLayoutEngineTest {
             viewportSize = ViewportSize(widthPx = 100, heightPx = 100),
             pageBreaker = breaker,
         )
-        val contentPageStarts = measuredPages.drop(1).map { it.textRange!!.start }.toLongArray()
+        val contentPageStarts = measuredPages.drop(1).map { requireNotNull(it.textRange).start }.toLongArray()
 
         val windows = engine.reconstruct(document, contentPageStarts)
 
         assertEquals(measuredPages.size, windows.size, "restoring from stored boundaries must not change the page count")
         for (offset in 0L until 18L) {
             val expected = measuredPages.indexOfFirst { page ->
-                val range = page.textRange!!
+                val range = requireNotNull(page.textRange)
                 offset >= range.start && offset < range.end
             }.takeIf { it >= 0 }
             assertEquals(expected, windows.pageOfOffset(offset), "offset $offset landed on a different page after reconstruct")

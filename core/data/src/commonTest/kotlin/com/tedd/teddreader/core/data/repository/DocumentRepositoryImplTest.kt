@@ -216,7 +216,7 @@ class DocumentRepositoryImplTest {
         )
         repository.importDocument(source, importedAtEpochMillis = 1_000)
         repository.upsertDocument(
-            repository.getDocument(DocumentId(source.location.sourceUri))!!.copy(isBookmarked = true),
+            requireNotNull(repository.getDocument(DocumentId(source.location.sourceUri))).copy(isBookmarked = true),
         )
 
         repository.importDocument(source, importedAtEpochMillis = 2_000)
@@ -264,7 +264,7 @@ class DocumentRepositoryImplTest {
         )
 
         repository.upsertDocument(
-            repository.getDocument(DocumentId(location.sourceUri))!!.copy(isBookmarked = true),
+            requireNotNull(repository.getDocument(DocumentId(location.sourceUri))).copy(isBookmarked = true),
         )
 
         assertEquals(1_000L, documentDao.saved?.importCompletedAtEpochMillis)
@@ -741,7 +741,7 @@ class DocumentRepositoryImplTest {
         )
         repository.importDocument(source, importedAtEpochMillis = 1_000)
         repository.upsertDocument(
-            repository.getDocument(DocumentId(source.location.sourceUri))!!.copy(
+            requireNotNull(repository.getDocument(DocumentId(source.location.sourceUri))).copy(
                 folderId = "folder-1",
                 folderName = "Imported",
             ),
@@ -3266,7 +3266,7 @@ class DocumentRepositoryImplTest {
         }
 
         val referenceRepository = newRepository()
-        val document = referenceRepository.getReaderDocument(documentId)!!
+        val document = requireNotNull(referenceRepository.getReaderDocument(documentId))
         referenceRepository.warmSectionBlocks(documentId, (0..chapterCount).toSet())
         val wholeDocumentPages = TextPageLayoutEngine().paginate(
             document = document,
@@ -4190,7 +4190,7 @@ class DocumentRepositoryImplTest {
         check(repository.isPaginationComplete(documentId))
 
         val referenceRepository = newRepository()
-        val referenceDocument = referenceRepository.getReaderDocument(documentId)!!
+        val referenceDocument = requireNotNull(referenceRepository.getReaderDocument(documentId))
         referenceRepository.warmSectionBlocks(documentId, referenceDocument.sections.map { it.index }.toSet())
         val referencePages = TextPageLayoutEngine().paginate(
             document = referenceDocument,
