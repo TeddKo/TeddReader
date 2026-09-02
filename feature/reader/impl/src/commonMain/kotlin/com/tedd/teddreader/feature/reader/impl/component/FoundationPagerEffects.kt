@@ -855,6 +855,11 @@ private fun FoundationWholePageFlipBox(
                 .foundationPageFlipInnerShadow(
                     axis = axis,
                     shadow = shadow,
+                    foldFraction = if (axis == FoundationPagerAxis.Horizontal) {
+                        transform.transformOriginX
+                    } else {
+                        transform.transformOriginY
+                    },
                 ),
         ) {
             content()
@@ -900,19 +905,35 @@ private fun FoundationPageFlipHalfBox(
                 rotationX = spec.rotationX
                 rotationY = spec.rotationY
             }
-            .foundationPageFlipInnerShadow(axis = axis, shadow = innerShadow),
+            .foundationPageFlipInnerShadow(
+                axis = axis,
+                shadow = innerShadow,
+                foldFraction = FoundationPageFlipSpineFraction,
+            ),
     ) {
         content()
     }
 }
 
 /**
- * StPageFlip의 inner shadow를 움직이는 leaf 위에 그린다. 너비는 outer shadow의 75%이며,
- * start/end fold에 대해 5/15/35/100% 정지점이 도는 edge를 기준으로 대칭을 이룬다.
+ * 움직이는 leaf 위에 fold(경첩)에서 자유 edge 쪽으로 옅어지는 shade를 그린다. 너비는 outer
+ * shadow의 75%이고, 정지점은 [foundationPageFlipInnerShadowStops]가 낸다.
+ *
+ * fold 위치는 [foldFraction]으로 받는다. 축의 양 끝(0 또는 1)로는 표현할 수 없기 때문이다:
+ * split-half spread에서 접히는 절반의 fold는 spine, 즉 `0.5`에 있고 자유 edge만 축의 끝에 있다.
+ * 축의 끝을 fold로 삼으면 띠가 그 절반의 clip 밖에 그려져 전부 잘려 사라진다.
+ *
+ * @receiver 이 shade가 덧붙는 modifier 체인.
+ * @param axis shade가 가로축과 세로축 중 어느 쪽을 따라 옅어지는지.
+ * @param shadow 이 프레임의 치수. `side`는 leaf의 자유 edge 쪽으로, 띠가 fold에서 그쪽으로
+ *   뻗는다. null이거나 알파/너비가 0이면 아무것도 그리지 않는다.
+ * @param foldFraction 축을 따라 fold가 놓인 위치, `[0, 1]` 범위.
+ * @return shade를 그리는 modifier.
  */
 private fun Modifier.foundationPageFlipInnerShadow(
     axis: FoundationPagerAxis,
     shadow: FoundationPageFlipShadowSpec?,
+    foldFraction: Float,
 ): Modifier = drawWithCache {
     val side = shadow?.side
     val alpha = shadow?.opacity ?: 0f
@@ -922,46 +943,31 @@ private fun Modifier.foundationPageFlipInnerShadow(
         return@drawWithCache onDrawWithContent { drawContent() }
     }
 
-    val edge = if (side == FoundationFluidSide.Start) 0f else extent
-    val inner = if (side == FoundationFluidSide.Start) band else extent - band
-    val faint = min(alpha, FoundationPageFlipInnerFaintAlpha)
-    val colorStops = if (side == FoundationFluidSide.Start) {
-        arrayOf(
-            0.05f to Color.Black.copy(alpha = alpha),
-            0.15f to Color.Black.copy(alpha = faint),
-            0.35f to Color.Black.copy(alpha = alpha),
-            1f to Color.Transparent,
-        )
-    } else {
-        arrayOf(
-            0f to Color.Transparent,
-            0.65f to Color.Black.copy(alpha = alpha),
-            0.85f to Color.Black.copy(alpha = faint),
-            0.95f to Color.Black.copy(alpha = alpha),
-        )
-    }
+    val fold = (foldFraction * extent).coerceIn(0f, extent)
+    val inner = if (side == FoundationFluidSide.End) fold + band else fold - band
+    val colorStops = foundationPageFlipInnerShadowStops(foundationPageFlipFoldSide(side), alpha)
     val brush = if (axis == FoundationPagerAxis.Horizontal) {
         Brush.horizontalGradient(
             colorStops = colorStops,
-            startX = min(edge, inner),
-            endX = max(edge, inner),
+            startX = min(fold, inner),
+            endX = max(fold, inner),
         )
     } else {
         Brush.verticalGradient(
             colorStops = colorStops,
-            startY = min(edge, inner),
-            endY = max(edge, inner),
+            startY = min(fold, inner),
+            endY = max(fold, inner),
         )
     }
 
     onDrawWithContent {
         drawContent()
         if (axis == FoundationPagerAxis.Horizontal) {
-            val left = min(edge, inner)
-            drawRect(brush = brush, topLeft = Offset(left, 0f), size = Size(abs(edge - inner), size.height))
+            val left = min(fold, inner)
+            drawRect(brush = brush, topLeft = Offset(left, 0f), size = Size(abs(fold - inner), size.height))
         } else {
-            val top = min(edge, inner)
-            drawRect(brush = brush, topLeft = Offset(0f, top), size = Size(size.width, abs(edge - inner)))
+            val top = min(fold, inner)
+            drawRect(brush = brush, topLeft = Offset(0f, top), size = Size(size.width, abs(fold - inner)))
         }
     }
 }
@@ -1796,6 +1802,56 @@ internal fun foundationPageFlipHalfShadowSide(half: FoundationPageFlipHalf): Fou
         -> FoundationFluidSide.End
 }
 
+/**
+ * [Modifier.foundationPageFlipInnerShadow]가 쓰는 그라데이션 정지점으로, [side]에서 가장 진하고
+ * 반대쪽으로 갈수록 단조롭게 옅어진다. 호출자는 [side]에 fold 쪽을 넘긴다.
+ *
+ * 정지점은 반드시 단조여야 한다. 이전 구현은 StPageFlip의 종이 하이라이트를 흉내 내려고 진한 띠
+ * 두 개 사이에 알파 0.05짜리 정지점을 끼워 넣었는데, 2D 띠에서는 하이라이트가 아니라 밝은 수직
+ * 선으로 보였다. 게다가 첫 정지점이 `0.05f`여서 0..5% 구간이 최대 알파 단색으로 클램프돼 자유
+ * edge에 딱딱한 경계가 생겼다 — 지금은 첫 정지점을 `0f`에 둔다.
+ *
+ * @param side shade가 가장 진한 쪽이 이 축의 시작 쪽인지 끝 쪽인지.
+ * @param alpha [side]에서의 최대 shade 알파.
+ * @return [Brush.horizontalGradient]/[Brush.verticalGradient]에 그대로 넘길 정지점으로, 축을 따라
+ *   오프셋이 증가하는 순서다.
+ */
+internal fun foundationPageFlipInnerShadowStops(
+    side: FoundationFluidSide,
+    alpha: Float,
+): Array<Pair<Float, Color>> {
+    val mid = alpha * FoundationPageFlipInnerMidAlphaRatio
+    return if (side == FoundationFluidSide.Start) {
+        arrayOf(
+            0f to Color.Black.copy(alpha = alpha),
+            FoundationPageFlipInnerMidStop to Color.Black.copy(alpha = mid),
+            1f to Color.Transparent,
+        )
+    } else {
+        arrayOf(
+            0f to Color.Transparent,
+            1f - FoundationPageFlipInnerMidStop to Color.Black.copy(alpha = mid),
+            1f to Color.Black.copy(alpha = alpha),
+        )
+    }
+}
+
+/**
+ * leaf가 접히는 fold(경첩) 쪽으로, 자유 edge의 반대편이다.
+ *
+ * 종이가 들리면 fold 근처가 자기 자신에 가려 가장 어둡고 자유 edge로 갈수록 밝아진다. 참조
+ * 구현(StPageFlip)은 inner shadow를 자유 edge에 두지만 실제 종이와는 반대여서, shade의 가장
+ * 진한 쪽을 fold로 옮긴다. [Modifier.foundationPageFlipInnerShadow]는 띠가 fold에서 자유 edge
+ * 쪽으로 뻗으므로, 그 띠 안에서 가장 진한 정지점이 놓일 쪽을 이 함수로 고른다.
+ *
+ * @param freeEdge [foundationPageFlipHalfShadowSide]가 내는 leaf의 자유 edge 쪽.
+ * @return 그 반대편, 즉 fold 쪽.
+ */
+internal fun foundationPageFlipFoldSide(freeEdge: FoundationFluidSide): FoundationFluidSide = when (freeEdge) {
+    FoundationFluidSide.Start -> FoundationFluidSide.End
+    FoundationFluidSide.End -> FoundationFluidSide.Start
+}
+
 /** [PageAnimation.PAGE_FLIP]이 페이지 전체를 한 장의 시트로 접는지, 경첩으로 이어진 두 절반으로 나누는지. */
 internal enum class FoundationPageFlipLayout {
     /** 단일 pane이 자신의 바깥쪽 edge를 축으로 뻣뻣한 한 장의 시트처럼 넘어간다; [FoundationWholePageFlipBox] 참고. */
@@ -1837,9 +1893,14 @@ internal data class FoundationPageFlipShadowSpec(
 )
 
 /**
- * StPageFlip의 `0.75 * leafWidth * progress` outer 너비 공식과 `maxOpacity * (1 - progress)`
- * 페이드 공식을 구현한다. 최대 alpha는 Harism의 page-curl shadow 색상을 따르며, split
- * spread는 leaf 하나가 spread의 절반을 차지하므로 viewport의 절반을 쓴다.
+ * StPageFlip의 `0.75 * leafWidth * progress` outer 너비 공식을 구현한다. 최대 alpha는 Harism의
+ * page-curl shadow 색상을 따르며, split spread는 leaf 하나가 spread의 절반을 차지하므로
+ * viewport의 절반을 쓴다.
+ *
+ * opacity는 `maxAlpha * sin(progress * PI)`로 turn 중간에 최대가 되고 양끝에서 0이 된다 —
+ * [foundationFluidShadow], [Modifier.foundationMovingEdgeShadow], 3D curl의 cast shadow가 쓰는
+ * 것과 같은 엔벨로프다. StPageFlip 원본의 `maxOpacity * (1 - progress)`는 leaf가 아직 들리지도
+ * 않은 turn 시작에서 그림자가 최대였고, 시트가 가장 많이 들려 있는 후반에 오히려 옅어졌다.
  */
 internal fun foundationPageFlipShadowSpec(
     pageOffset: Float,
@@ -1860,7 +1921,7 @@ internal fun foundationPageFlipShadowSpec(
         },
         outerWidthFraction = outerWidth,
         innerWidthFraction = outerWidth * FoundationPageFlipInnerWidthRatio,
-        opacity = FoundationPageFlipMaxShadowAlpha * (1f - progress),
+        opacity = FoundationPageFlipMaxShadowAlpha * sin(progress * PI.toFloat()),
     )
 }
 
@@ -3382,8 +3443,14 @@ private const val FoundationPageFlipInnerWidthRatio = 0.75f
 /** Harism page-curl의 최대 inner shadow alpha. */
 private const val FoundationPageFlipMaxShadowAlpha = 0.5f
 
-/** StPageFlip의 두 어두운 띠 사이에 있는, 옅은 inner-shadow 정지점. */
-private const val FoundationPageFlipInnerFaintAlpha = 0.05f
+/** inner shadow가 자유 edge 알파에서 중간 정지점 알파로 떨어지는 비율. */
+private const val FoundationPageFlipInnerMidAlphaRatio = 0.4f
+
+/** inner shadow의 중간 정지점 위치로, 자유 edge에서 띠 너비에 대한 비율. */
+private const val FoundationPageFlipInnerMidStop = 0.35f
+
+/** split-half spread의 spine 위치로, 접히는 절반의 fold가 여기 있다. */
+private const val FoundationPageFlipSpineFraction = 0.5f
 
 /** 결정론적인 receiver 선택에 쓰이는, 정규화된 spread spine 주변의 수치 허용 오차. */
 private const val FoundationPageFlipSpineEpsilon = 0.0001f

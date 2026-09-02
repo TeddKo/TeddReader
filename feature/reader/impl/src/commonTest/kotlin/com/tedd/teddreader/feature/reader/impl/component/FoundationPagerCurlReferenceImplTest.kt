@@ -4,6 +4,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -478,7 +481,7 @@ class FoundationPagerCurlReferenceImplTest {
      * 페이지가 텍스트를 찢을 수 있는 뒤집힌 strip 없이 시작 edge를 완전히 벗어나 이동하는지 검증한다.
      */
     @Test
-    fun threeDimensionalCurlUsesSinusoidalTextureMesh() {
+    fun threeDimensionalCurlWrapsTheLeafOnACylinderBehindAFlatRegion() {
         val rest = foundationReferenceThreeDCurlStripSpecs(0f)
         val bent = foundationReferenceThreeDCurlStripSpecs(0.5f)
         val complete = foundationReferenceThreeDCurlStripSpecs(1f)
@@ -487,16 +490,38 @@ class FoundationPagerCurlReferenceImplTest {
         rest.forEach { strip ->
             assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
             assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
-            assertEquals(1f, strip.verticalScale, 0.0001f)
+            assertEquals(0f, strip.depthFraction, 0.0001f)
+            assertFalse(strip.isBackFacing)
         }
+
         bent.zipWithNext().forEach { (left, right) ->
             assertEquals(left.destinationEndFraction, right.destinationStartFraction, 0.0001f)
         }
-        assertTrue(bent.all { it.destinationEndFraction > it.destinationStartFraction })
-        assertTrue(bent.all { it.depthFraction > 0f })
-        assertTrue(bent.all { it.verticalScale > 1f })
-        assertTrue(bent.last().destinationEndFraction < 1f)
-        assertTrue(complete.maxOf { it.destinationEndFraction } < 0f)
+
+        val flat = bent.filter { it.depthFraction == 0f }
+        assertTrue(flat.isNotEmpty())
+        assertEquals(0f, flat.first().destinationStartFraction, 0.0001f)
+        flat.forEach { strip ->
+            assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
+            assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
+            assertFalse(strip.isBackFacing)
+        }
+
+        val wrapped = bent.filter { it.depthFraction > 0f }
+        assertTrue(wrapped.isNotEmpty())
+        assertTrue(wrapped.any { it.isBackFacing })
+        assertTrue(
+            wrapped.maxOf { max(it.destinationStartFraction, it.destinationEndFraction) } >
+                flat.maxOf { it.destinationEndFraction },
+        )
+        assertTrue(bent.maxOf { max(it.destinationStartFraction, it.destinationEndFraction) } < 1f)
+
+        assertTrue(complete.all { it.depthFraction < 0.0001f })
+        assertEquals(
+            -1f,
+            complete.minOf { min(it.destinationStartFraction, it.destinationEndFraction) },
+            0.0001f,
+        )
     }
 
     /**
@@ -525,6 +550,267 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
+     * [foundationReferenceSpreadPaneWidth]가 왼쪽/오른쪽 pane 너비를 gutter를 뺀 나머지에서 나누어,
+     * 두 pane과 gutter를 합치면 다시 viewport 전체 너비가 되는지 검증한다 — 힌지가 gutter 위에
+     * 정확히 놓인다는 유일한 산술 불변식이다. [foundationReferenceLeafSize]가 반환하는 오른쪽 pane
+     * 너비가 [foundationReferenceSpreadPaneWidth]의 rightPx와 일치하는지도 함께 확인한다.
+     */
+    @Test
+    fun spreadPaneWidthsFillTheViewportAroundTheGutter() {
+        val canonicalSize = IntSize(SpreadViewportWidth.toInt(), SpreadHeight.toInt())
+
+        listOf(0.5f, 0.2f, 0.8f).forEach { leftWeight ->
+            val paneWidths = foundationReferenceSpreadPaneWidth(
+                canonicalWidth = canonicalSize.width.toFloat(),
+                gutterPx = SpreadGutter,
+                leftWeight = leftWeight,
+            )
+
+            assertEquals(
+                paneWidths.rightPx,
+                foundationReferenceLeafSize(canonicalSize, true, SpreadGutter, leftWeight).width,
+            )
+            assertTrue(
+                abs((paneWidths.leftPx + SpreadGutter + paneWidths.rightPx) - canonicalSize.width) <= 1f,
+            )
+        }
+    }
+
+    /**
+     * [foundationReferenceSpreadPaneWidth]가 gutter가 viewport보다 넓어 나눌 너비가 0으로 바닥을
+     * 찍어도, 두 pane 모두 fold 계산이 뒤집을 수 없는 0px로 붕괴하지 않고 1px 하한을 유지하는지
+     * 검증한다.
+     */
+    @Test
+    fun spreadPaneWidthNeverCollapsesBelowOnePixel() {
+        val canonicalWidth = 100f
+        val oversizedGutterPx = 2000f
+
+        val even = foundationReferenceSpreadPaneWidth(canonicalWidth, oversizedGutterPx, leftWeight = 0.5f)
+        assertTrue(even.leftPx >= 1)
+        assertTrue(even.rightPx >= 1)
+
+        val allLeft = foundationReferenceSpreadPaneWidth(canonicalWidth, oversizedGutterPx, leftWeight = 0f)
+        assertTrue(allLeft.leftPx >= 1)
+
+        val allRight = foundationReferenceSpreadPaneWidth(canonicalWidth, oversizedGutterPx, leftWeight = 1f)
+        assertTrue(allRight.rightPx >= 1)
+    }
+
+    /**
+     * turn이 완료되는 순간(progress = 1) 실린더 반지름이 0으로 수렴해 뒷면이 왜곡 없이 평평하게
+     * 안착하고, 그 목적지가 spine 왼쪽으로 정확히 페이지 한 장(`-1`)까지 뻗는지 검증한다 — 그래야
+     * 반대쪽 pane을 빈틈없이 덮으며 다음 spread로 스냅 없이 이어진다.
+     */
+    @Test
+    fun spreadBackFaceLandsFlatAcrossTheOppositePaneWhenTheTurnCompletes() {
+        val back = foundationReferenceThreeDCurlStripSpecs(1f).filter { it.isBackFacing }
+
+        assertTrue(back.isNotEmpty())
+        back.forEach { strip ->
+            assertEquals(0f, strip.depthFraction, 0.0001f)
+            assertTrue(strip.destinationEndFraction < strip.destinationStartFraction)
+        }
+        assertEquals(
+            -1f,
+            back.minOf { min(it.destinationStartFraction, it.destinationEndFraction) },
+            0.0001f,
+        )
+    }
+
+    /**
+     * [foundationReferenceThreeDCurlMeshExtent]로 뽑아낸 산술이 [foundationReferenceDrawThreeDCurlMesh]가
+     * 인라인으로 하던 계산과 비트 단위로 동일한 결과를 내는지 여러 progress 값에서 검증한다 — 단일
+     * pane 3D curl이 이 리팩터로 회귀하지 않는다는 근거다.
+     */
+    @Test
+    fun singlePaneMeshExtentIsUnchangedByTheExtraction() {
+        val width = SpreadViewportWidth
+
+        listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { progress ->
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            val expectedLeft = strips.minOf {
+                min(it.destinationStartFraction, it.destinationEndFraction)
+            } * width
+            val expectedRight = strips.maxOf {
+                max(it.destinationStartFraction, it.destinationEndFraction)
+            } * width
+
+            val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
+
+            assertFalse(extent.isEmpty)
+            assertEquals(expectedLeft, extent.leftPx, 0.001f)
+            assertEquals(expectedRight, extent.rightPx, 0.001f)
+        }
+    }
+
+    /**
+     * spread 안에서 왼쪽/오른쪽 pane 너비의 합에 gutter를 더하면 viewport 너비를 넘지 않고, 왼쪽
+     * pane 너비가 "viewport - gutter - 오른쪽 pane 너비"와 일치하는지 검증한다 — leaf가 자신이
+     * 속한 pane의 경계를 벗어나 그려지지 않는다는 뜻이다.
+     */
+    @Test
+    fun spreadLeafReachesTheViewportEdgeButNotBeyond() {
+        val canonicalWidth = SpreadViewportWidth
+        val gutterPx = SpreadGutter
+
+        val paneWidths = foundationReferenceSpreadPaneWidth(canonicalWidth, gutterPx, leftWeight = 0.5f)
+
+        assertTrue(paneWidths.leftPx + gutterPx + paneWidths.rightPx <= canonicalWidth + 1f)
+        assertEquals(
+            canonicalWidth - gutterPx - paneWidths.rightPx,
+            paneWidths.leftPx.toFloat(),
+            1f,
+        )
+    }
+
+    /**
+     * [foundationReferenceThreeDCurlProgress]가 spread 전체 너비가 아니라 leaf(자신이 그려지는
+     * 목적지 노드) 너비를 기준으로 롤 진행률을 계산해야 함을 고정한다 — Phase 1에서 고쳐야 할 예측된
+     * 결함으로, 잘못된 너비를 넘기면 정지 상태(오른쪽 edge)에서도 progress가 0이 아니게 나온다.
+     */
+    @Test
+    fun threeDimensionalCurlProgressMustUseTheLeafWidthNotTheSpreadWidth() {
+        val leafSize = IntSize(484, SpreadHeight.toInt())
+
+        assertEquals(
+            0f,
+            foundationReferenceThreeDCurlProgress(
+                FoundationReferenceCurlEdge.right(leafSize),
+                leafSize.width.toFloat(),
+            ),
+            0.0001f,
+        )
+        assertEquals(
+            1f,
+            foundationReferenceThreeDCurlProgress(
+                FoundationReferenceCurlEdge.left(leafSize),
+                leafSize.width.toFloat(),
+            ),
+            0.0001f,
+        )
+        assertTrue(
+            foundationReferenceThreeDCurlProgress(FoundationReferenceCurlEdge.right(leafSize), 1000f) > 0.5f,
+        )
+        assertEquals(
+            0f,
+            foundationReferenceThreeDCurlProgress(FoundationReferenceCurlEdge.right(leafSize), 0f),
+            0.0001f,
+        )
+    }
+
+    /**
+     * [foundationReferenceSpreadOtherPaneRatio]가 leaf 너비에 곱해 반대쪽 pane 너비를 내는지, 그리고
+     * 그 값이 mesh가 gutter를 건너 반대쪽 pane 끝까지 닿기에 충분한지 검증한다 — leaf를 두 노드로
+     * 쪼개지 않고 한 노드에서 연속으로 그리게 만드는 값이라, 이 값이 작으면 시트가 gutter에서
+     * 끊긴 기준선처럼 보이는 결함으로 되돌아간다.
+     */
+    @Test
+    fun spreadOtherPaneRatioSpansTheOppositePane() {
+        val canonicalWidth = SpreadViewportWidth
+        val gutterPx = SpreadGutter
+
+        listOf(0.2f, 0.5f, 0.8f).forEach { leftWeight ->
+            val paneWidths = foundationReferenceSpreadPaneWidth(canonicalWidth, gutterPx, leftWeight)
+            val leafWidth = paneWidths.rightPx.toFloat()
+
+            val span = leafWidth * foundationReferenceSpreadOtherPaneRatio(leftWeight)
+
+            assertEquals(paneWidths.leftPx.toFloat(), span, 2f)
+            assertTrue(span + gutterPx >= paneWidths.leftPx.toFloat())
+        }
+
+        assertEquals(0f, foundationReferenceSpreadOtherPaneRatio(0f), 0.0001f)
+        assertTrue(foundationReferenceSpreadOtherPaneRatio(1f).isFinite())
+    }
+
+    /**
+     * [foundationReferenceSpreadFaceNeedsContentMirror]가 style/face/leafHome의 여덟 조합 각각에서
+     * 코드가 실제로 적용하는 미러 출처 수(Standard Front는 배치·콘텐츠 미러가 상쇄돼 항상 중립,
+     * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러가 상쇄되지 않고
+     * 남으며, 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
+     * 반환하는지 검증한다. 3D는 네 조합 모두 거짓이다: mesh의 `mirrorHorizontally`가 strip의
+     * destination과 source를 함께 뒤집어 spine에 닿는 쪽 콘텐츠를 고르는 역할까지 하므로, 콘텐츠에
+     * 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아간다.
+     *
+     * 이 테스트는 그 계산 규칙을 표로 재진술한 것일 뿐 실제 렌더링을 검증하지는 않는다 — 값은
+     * draw-transform 안에 흩어져 있어 눈으로 확인하기 전까지는 맞는지 알기 어려운 미묘한 미러
+     * 규칙을, 이후 리팩터가 조용히 뒤집지 못하도록 계약으로 고정하는 데 있다.
+     */
+    @Test
+    fun spreadFaceContentMirrorParityMatchesTheDrawPaths() {
+        val standard = FoundationReferenceCurlStyle.Standard
+        val threeD = FoundationReferenceCurlStyle.ThreeDimensional
+        val front = FoundationReferenceSpreadFace.Front
+        val back = FoundationReferenceSpreadFace.Back
+        val left = FoundationReferenceSpreadPane.Left
+        val right = FoundationReferenceSpreadPane.Right
+
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, right))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, left))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, right))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, right))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, left))
+    }
+
+    /**
+     * turn이 완료되면(progress = 1) 앞면 strip이 leaf 자신의 pane `[0, width]` 안에서 차지하는
+     * 시각적 폭이 없어지는지 검증한다 — 시트 전체가 spine을 넘어갔으므로 앞면은 더 보이지 않는다.
+     */
+    @Test
+    fun spreadFrontFaceHasNoVisibleWidthWhenTheTurnCompletes() {
+        val paneWidth = 484f
+        val front = foundationReferenceThreeDCurlStripSpecs(1f).filterNot { it.isBackFacing }
+
+        val visible = front.sumOf { strip ->
+            val left = min(strip.destinationStartFraction, strip.destinationEndFraction) * paneWidth
+            val right = max(strip.destinationStartFraction, strip.destinationEndFraction) * paneWidth
+            (min(right, paneWidth) - max(left, 0f)).coerceAtLeast(0f).toDouble()
+        }
+        assertEquals(0.0, visible, 0.001)
+    }
+
+    /**
+     * 반대쪽 pane에 호스트되는 뒷면 mesh가, turn 후반에 spine에서 그 pane의 바깥쪽 edge까지 단조롭게
+     * 자라나 완료 시점에 pane을 거의 전부 덮는지 검증한다 — 기기 없이 "반대쪽 pane이 함께 반응하고
+     * 정확히 안착한다"를 증명하는 테스트다.
+     *
+     * 반대쪽 pane 배치는 `x' = width + x`이므로(mesh의 `hostsOppositePane` 경로) leaf 프레임에서
+     * 음수인 목적지, 즉 spine을 넘어간 부분만 이 pane에서 보인다. 시트는 절반 이상 넘어간 뒤에야
+     * spine을 넘어서므로 turn 전반부에 보이는 폭이 0인 것이 정상이다.
+     *
+     * 비대칭 pane 폭(leftWeight 0.2의 왼쪽 pane인 193px)으로도 반복해, 뒷면이 leaf 폭이 아니라 실제로
+     * 그려지는 목적지 pane 폭에 안착함을 고정한다.
+     */
+    @Test
+    fun spreadBackFaceGrowsMonotonicallyFromTheSpineToTheOuterEdge() {
+        fun visibleWidth(progress: Float, widthPx: Float): Float {
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress).filter { it.isBackFacing }
+            if (strips.isEmpty()) return 0f
+            val extent = foundationReferenceThreeDCurlMeshExtent(strips, widthPx)
+            val left = max(extent.leftPx, -widthPx)
+            val right = min(extent.rightPx, 0f)
+            return (right - left).coerceAtLeast(0f)
+        }
+
+        val evenPaneWidth = 484f
+        assertEquals(0f, visibleWidth(0f, evenPaneWidth), 0.0001f)
+        assertEquals(0f, visibleWidth(0.5f, evenPaneWidth), 0.0001f)
+        assertTrue(visibleWidth(0.8f, evenPaneWidth) > 0f)
+        assertTrue(visibleWidth(1f, evenPaneWidth) > evenPaneWidth * 0.9f)
+        listOf(0.6f, 0.7f, 0.8f, 0.9f, 1f).zipWithNext().forEach { (a, b) ->
+            assertTrue(visibleWidth(a, evenPaneWidth) <= visibleWidth(b, evenPaneWidth) + 0.001f)
+        }
+
+        val asymmetricPaneWidth = 193f
+        assertEquals(0f, visibleWidth(0f, asymmetricPaneWidth), 0.0001f)
+        assertTrue(visibleWidth(1f, asymmetricPaneWidth) > asymmetricPaneWidth * 0.9f)
+    }
+
+    /**
      * 이 테스트 파일에 고정된 [SpreadViewportWidth]/[SpreadLeafWidth]를 사용해, viewport x좌표 [x]에
      * 있는 포인터가 [direction]에 대해 매핑되는 spread 모드 leaf offset을 만든다 — 위의 spread 스케일링
      * 단언들이 공유하는 준비 과정이다.
@@ -545,11 +831,54 @@ class FoundationPagerCurlReferenceImplTest {
         leafWidth = SpreadLeafWidth,
     )
 
+    /**
+     * turn 정지 상태(progress = 0)에서 뒷면으로 그릴 strip이 하나도 없음을 검증한다 — 시트가
+     * 평평하면 감김 각도가 어디서도 `PI / 2`를 넘지 않으므로 뒷면이 존재하지 않는다.
+     *
+     * [foundationReferenceDrawLeafBack]의 3D 경로는 정확히 이 조건으로 조기 반환해 오프셋스크린
+     * 텍스처 기록을 건너뛴다. 이 테스트가 그 가드가 죽은 코드가 아님을 고정한다.
+     */
+    @Test
+    fun spreadBackFaceHasNoStripsWhileTheTurnRests() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(0f).filter { it.isBackFacing }
+
+        assertTrue(strips.isEmpty())
+        assertTrue(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
+    }
+
+    /**
+     * turn이 진행되면 뒷면 strip이 생기고 그 목적지가 소스와 반대 방향으로 흐르는지 검증한다 —
+     * 감긴 시트의 뒷면이 좌우 반전되어 보이는 근거이며, 가드가 과도하게 잡아 진행 중인 뒷면까지
+     * 지우지 않음을 함께 고정한다.
+     */
+    @Test
+    fun spreadBackFaceStripsAppearReversedOnceTheTurnProgresses() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(0.5f).filter { it.isBackFacing }
+
+        assertTrue(strips.isNotEmpty())
+        assertFalse(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
+        strips.forEach { strip ->
+            assertTrue(strip.destinationEndFraction < strip.destinationStartFraction)
+        }
+    }
+
     private companion object {
         /** 이 클래스의 모든 spread 모드 단언에서 쓰이는, 고정된 전체 viewport 너비. */
         const val SpreadViewportWidth = 1000f
 
         /** 모든 spread 모드 단언에서 쓰이는, 고정된 접히는 leaf 너비(viewport의 절반). */
         const val SpreadLeafWidth = 500f
+
+        /** pane 너비 계산 단언에서 쓰이는, 고정된 gutter 너비. */
+        const val SpreadGutter = 32f
+
+        /** pane 너비 계산 단언에서 쓰이는, 고정된 viewport 높이. */
+        const val SpreadHeight = 600f
+
+        /** 뒷면 mesh 가시성 단언에서 쓰이는, 고정된 균등 pane 너비. */
+        const val BackFacePaneWidth = 484f
+
+        /** 뒷면 mesh 가시성 단언에서 쓰이는, 고정된 비대칭 pane 너비(leftWeight 0.2 기준). */
+        const val BackFaceAsymmetricPaneWidth = 193f
     }
 }
