@@ -143,11 +143,10 @@ fun TeddSection(
         }
 
         Column(
-            modifier = if (fullBleed) {
-                Modifier.fillMaxWidth()
-            } else {
-                Modifier.fillMaxWidth().padding(horizontal = spacing.screenPadding)
-            }.padding(top = if (title != null) spacing.sectionHeaderGap else spacing.none),
+            modifier = Modifier
+                .fillMaxWidth()
+                .run { if (fullBleed) this else padding(horizontal = spacing.screenPadding) }
+                .padding(top = if (title != null) spacing.sectionHeaderGap else spacing.none),
             verticalArrangement = resolvedArrangement,
             content = content,
         )
