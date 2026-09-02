@@ -256,8 +256,11 @@ internal fun libraryFolderRemainingDocumentCount(
  */
 internal fun buildLibraryFolders(documents: List<DocumentMetadata>): List<LibraryFolder> =
     documents
-        .filter { it.folderId != null && it.folderName != null }
-        .groupBy { it.folderId!! }
+        .mapNotNull { document ->
+            val folderId = document.folderId
+            if (folderId == null || document.folderName == null) null else folderId to document
+        }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
         .mapNotNull { (folderId, folderDocuments) ->
             val folderName = folderDocuments.firstOrNull()?.folderName ?: return@mapNotNull null
             LibraryFolder(

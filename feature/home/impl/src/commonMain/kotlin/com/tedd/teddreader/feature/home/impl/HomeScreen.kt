@@ -674,6 +674,12 @@ private fun SelectionTopBar(
  * 열 수가 고정된 그리드이므로 [HomeDocumentCollection]의 pager 기반 선반처럼 화면의 가로 inset을 무시할
  * 이유가 없다.
  *
+ * [homeLibraryGridRows]는 마지막 행이 열 수보다 적은 항목으로 끝나면 남는 자리를 `null`로 채운다.
+ * 이 함수는 그 `null` 자리마다 `weight(1f)`를 준 [Spacer]를 그린다. `Row`의 weight는 실제로 존재하는
+ * 자식에게만 남은 너비를 나누므로, 짧은 마지막 행을 그대로 두면 남은 항목이 위쪽 완전한 행보다 넓게
+ * 늘어나 열 경계가 어긋난다. 이 빈 자리는 실제 콘텐츠로 대체할 수 없는 순수한 레이아웃 자리표시자이므로
+ * weighted [Spacer]가 유일한 방법이다.
+ *
  * @param previewMode 그리드가 현재 모든 문서와 폴더 중 무엇을 표시하는지 나타낸다.
  * @param onPreviewModeChange All/Folders chip 선택이 바뀔 때 호출한다.
  * @param previewDocuments All 모드에 표시할 이미 제한된 문서.
