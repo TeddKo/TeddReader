@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -285,7 +286,9 @@ private inline fun Modifier.teddInteraction(
  * 일치하게 한다.
  * @param elevation 그림자 깊이. 평평한 컨테이너에는 `0.dp`를 전달하며, 이는 아무 작업도 건너뛰지
  * 않으면서 눈에 보이는 그림자를 만들지 않는다.
- * @param borderWidth 테두리 두께. 테두리가 없으려면 `0.dp`를 전달한다.
+ * @param borderWidth 테두리 두께. 기기 픽셀 하나는 간격 스케일의 한 단계가 아니므로
+ * `TeddReaderSpacing`이 아니라 [teddReaderStroke]의 머리카락 굵기 토큰을 기본값으로 사용한다.
+ * 테두리가 없으려면 `0.dp`를 전달한다.
  * @param borderColor 테두리 색상. 기본값은 팔레트의 은은한 컨테이너 윤곽선이다.
  * @param backgroundColor 채우기. 기본값은 팔레트의 서피스다.
  * @return 그림자, 테두리, 배경, 클립이 그 순서로 적용된 리시버.
@@ -294,7 +297,7 @@ private inline fun Modifier.teddInteraction(
 fun Modifier.teddSurface(
     shape: Shape = teddReaderShapes().medium,
     elevation: Dp = 0.dp,
-    borderWidth: Dp = 1.dp,
+    borderWidth: Dp = teddReaderStroke().hairline,
     borderColor: Color? = null,
     backgroundColor: Color? = null,
 ): Modifier {
