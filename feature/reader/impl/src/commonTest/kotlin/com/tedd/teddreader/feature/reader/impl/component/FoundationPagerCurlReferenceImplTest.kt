@@ -825,6 +825,46 @@ class FoundationPagerCurlReferenceImplTest {
         leafWidth = SpreadLeafWidth,
     )
 
+    /**
+     * turn 정지 상태(progress = 0 → backProgress = 1)에서 뒷면 mesh가 실제로 보이지 않음을 검증한다.
+     *
+     * [foundationReferenceThreeDCurlStripSpecs]는 항상 고정 개수의 strip을 반환하므로
+     * [FoundationReferenceThreeDCurlMeshExtent.isEmpty]는 절대 참이 되지 않는다 — 이 단언이 두 개념의
+     * 차이를 계약으로 고정한다. 반면 정지 상태에서 목적지 범위는 전부 음수로 clamp되어 시각적 폭이
+     * 0이 되므로 [FoundationReferenceThreeDCurlMeshExtent.isInvisible]은 참이 된다. 이 테스트가
+     * 이번 수정의 핵심이다 — 가드가 죽은 코드가 아님을 증명한다.
+     *
+     * 비대칭 pane 폭(193px)에서도 동일하게 성립함을 추가로 확인해, 비대칭 spread에서 정지 시
+     * 불필요한 오프스크린 기록이 발생하지 않음을 고정한다.
+     */
+    @Test
+    fun spreadBackFaceMeshIsInvisibleWhileTheTurnRests() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(
+            foundationReferenceSpreadBackFaceProgress(0f),
+        )
+        val extent = foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth)
+
+        assertTrue(extent.isInvisible)
+        assertFalse(extent.isEmpty)
+
+        val extentAsymmetric = foundationReferenceThreeDCurlMeshExtent(strips, BackFaceAsymmetricPaneWidth)
+        assertTrue(extentAsymmetric.isInvisible)
+    }
+
+    /**
+     * turn이 진행 중(progress = 0.5)일 때 뒷면 mesh가 실제로 보임을 검증한다 — 가드가 과도하게
+     * 잡아 진행 중인 뒷면까지 지우지 않음을 고정한다.
+     */
+    @Test
+    fun spreadBackFaceMeshBecomesVisibleOnceTheTurnProgresses() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(
+            foundationReferenceSpreadBackFaceProgress(0.5f),
+        )
+        val extent = foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth)
+
+        assertFalse(extent.isInvisible)
+    }
+
     private companion object {
         /** 이 클래스의 모든 spread 모드 단언에서 쓰이는, 고정된 전체 viewport 너비. */
         const val SpreadViewportWidth = 1000f
@@ -837,5 +877,11 @@ class FoundationPagerCurlReferenceImplTest {
 
         /** pane 너비 계산 단언에서 쓰이는, 고정된 viewport 높이. */
         const val SpreadHeight = 600f
+
+        /** 뒷면 mesh 가시성 단언에서 쓰이는, 고정된 균등 pane 너비. */
+        const val BackFacePaneWidth = 484f
+
+        /** 뒷면 mesh 가시성 단언에서 쓰이는, 고정된 비대칭 pane 너비(leftWeight 0.2 기준). */
+        const val BackFaceAsymmetricPaneWidth = 193f
     }
 }

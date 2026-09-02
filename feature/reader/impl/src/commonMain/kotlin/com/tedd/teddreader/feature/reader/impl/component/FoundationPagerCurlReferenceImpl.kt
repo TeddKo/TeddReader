@@ -1895,7 +1895,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
         val progress = foundationReferenceThreeDCurlProgress(edge, leafSize.width.toFloat())
         val backProgress = foundationReferenceSpreadBackFaceProgress(progress)
         val strips = foundationReferenceThreeDCurlStripSpecs(backProgress)
-        if (foundationReferenceThreeDCurlMeshExtent(strips, size.width).isEmpty) {
+        if (foundationReferenceThreeDCurlMeshExtent(strips, size.width).isInvisible) {
             return@drawWithCache onDrawWithContent { }
         }
         val meshLighting = foundationReferenceThreeDCurlLightingSpec(backProgress * PI.toFloat())
@@ -2458,13 +2458,21 @@ internal fun foundationReferenceSpreadBackFaceProgress(progress: Float): Float =
  *   [strips]가 비어 있으면 의미 없는 0.
  * @property rightPx 보이는 mesh의 오른쪽 끝, 목적지 노드 좌표에서 `[0, width]`로 clamp된 픽셀 값.
  *   [strips]가 비어 있으면 의미 없는 0.
- * @property isEmpty [strips]에 구간이 하나도 없어 그릴 mesh 자체가 없는지 여부.
+ * @property isEmpty 그릴 strip 자체가 없음 — [strips] 리스트가 비어 있을 때만 참이 된다.
+ *   grid 칸 수는 항상 고정 양수이므로 정상 사용 경로에서는 절대 참이 되지 않는다.
+ * @property isInvisible clamp 후 실제로 차지하는 폭이 없어 그려도 보이지 않음 — [isEmpty]이거나
+ *   `rightPx - leftPx`가 [FoundationReferenceThreeDCurlFlatEpsilon]보다 작을 때 참이 된다.
+ *   turn 정지 상태처럼 목적지 범위가 전부 음수로 clamp되는 경우를 포함하며, 조기 반환 판정에
+ *   쓰인다. [isEmpty]는 "리스트가 비어 있음", [isInvisible]은 "눈에 안 보임"을 각각 뜻한다.
  */
 internal data class FoundationReferenceThreeDCurlMeshExtent(
     val leftPx: Float,
     val rightPx: Float,
     val isEmpty: Boolean,
-)
+) {
+    val isInvisible: Boolean
+        get() = isEmpty || (rightPx - leftPx) < FoundationReferenceThreeDCurlFlatEpsilon
+}
 
 /**
  * [strips]가 목적지 노드 안에서 실제로 차지하는 가로 범위를 계산한다 —
