@@ -752,6 +752,59 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
+     * turn이 완료되면(progress = 1) 앞면 mesh가 목적지 pane 안에서 완전히 사라지는지 검증한다.
+     * [foundationReferenceThreeDCurlMeshExtent]의 `isEmpty` 플래그는 strip 리스트 자체가 비어 있을
+     * 때만 참이 되고 grid 칸 수는 절대 0이 되지 않으므로(`singlePaneMeshExtentIsUnchangedByTheExtraction`이
+     * progress 1에서도 `isEmpty`가 거짓임을 이미 고정해 뒀다), 앞면이 실제로 안 보이는지는 그 플래그
+     * 대신 leftPx/rightPx가 모두 0으로 clamp되어 시각적 폭이 없는 범위로 붕괴하는지로 확인한다.
+     */
+    @Test
+    fun spreadFrontFaceIsFullyClampedAwayWhenTheTurnCompletes() {
+        val front = foundationReferenceThreeDCurlStripSpecs(1f)
+        val extent = foundationReferenceThreeDCurlMeshExtent(front, 484f)
+
+        assertTrue(front.maxOf { it.destinationEndFraction } < 0f)
+        assertEquals(0f, extent.leftPx, 0.0001f)
+        assertEquals(0f, extent.rightPx, 0.0001f)
+    }
+
+    /**
+     * [foundationReferenceSpreadBackFaceProgress]로 뒤집은 progress를
+     * [foundationReferenceThreeDCurlStripSpecs]에 통과시켜 얻은 뒷면 mesh가, turn이 진행되는 동안
+     * gutter(폭 0)에서 목적지 pane의 바깥쪽 edge(pane 전체 폭)까지 단조롭게 자라나는지 검증한다 —
+     * 기기 없이 "반대쪽 pane이 함께 반응하고 정확히 안착한다"를 증명하는 유일한 테스트다. 비대칭
+     * pane 폭(leftWeight 0.2의 왼쪽 pane인 193px)으로도 반복해, 뒷면이 leaf 폭이 아니라 실제로
+     * 그려지는 목적지 pane 폭에 안착함을 고정한다.
+     *
+     * 반증: `visibleWidth`에서 [foundationReferenceSpreadBackFaceProgress]로 뒤집지 않고 progress를
+     * 그대로 넘기면 이 테스트가 실제로 실패하는지(방향이 뒤집혀 `visibleWidth(0f)`가 0이 아니라 전체
+     * 폭이 되고 단조 증가 단언이 깨짐)를 커밋 전에 직접 확인했다.
+     */
+    @Test
+    fun spreadBackFaceGrowsMonotonicallyFromTheGutterToTheOuterEdge() {
+        fun visibleWidth(progress: Float, widthPx: Float): Float {
+            val extent = foundationReferenceThreeDCurlMeshExtent(
+                foundationReferenceThreeDCurlStripSpecs(foundationReferenceSpreadBackFaceProgress(progress)),
+                widthPx,
+            )
+            return (extent.rightPx - extent.leftPx).coerceAtLeast(0f)
+        }
+
+        val evenPaneWidth = 484f
+        assertEquals(0f, visibleWidth(0f, evenPaneWidth), 0.0001f)
+        assertTrue(visibleWidth(0.5f, evenPaneWidth) > 0f)
+        assertTrue(visibleWidth(0.5f, evenPaneWidth) < evenPaneWidth)
+        assertEquals(evenPaneWidth, visibleWidth(1f, evenPaneWidth), 1f)
+        listOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1f).zipWithNext().forEach { (a, b) ->
+            assertTrue(visibleWidth(a, evenPaneWidth) <= visibleWidth(b, evenPaneWidth) + 0.001f)
+        }
+
+        val asymmetricPaneWidth = 193f
+        assertEquals(0f, visibleWidth(0f, asymmetricPaneWidth), 0.0001f)
+        assertEquals(asymmetricPaneWidth, visibleWidth(1f, asymmetricPaneWidth), 1f)
+    }
+
+    /**
      * 이 테스트 파일에 고정된 [SpreadViewportWidth]/[SpreadLeafWidth]를 사용해, viewport x좌표 [x]에
      * 있는 포인터가 [direction]에 대해 매핑되는 spread 모드 leaf offset을 만든다 — 위의 spread 스케일링
      * 단언들이 공유하는 준비 과정이다.
