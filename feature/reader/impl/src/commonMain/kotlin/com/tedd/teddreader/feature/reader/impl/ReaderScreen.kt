@@ -729,6 +729,7 @@ private fun ReaderContent(
                         pageStep = paneCount,
                         pageTurnMode = uiState.pageTurnMode,
                         pageAnimation = uiState.pageAnimation,
+                        paperColor = uiState.style.readerColors().background,
                         canRequestNextPage = canRequestNextPage,
                         pageMoveRequest = pageMoveRequest,
                         onPageMoveRequestConsumed = { requestId ->
