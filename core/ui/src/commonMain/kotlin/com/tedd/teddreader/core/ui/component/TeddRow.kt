@@ -95,22 +95,24 @@ fun TeddListItem(
         }
 
     Row(
-        modifier = if (showDivider) {
-            rowModifier
-                .drawBehind {
-                    val strokeWidth = 1.dp.toPx()
-                    val y = size.height - strokeWidth / 2f
-                    drawLine(
-                        color = dividerColor,
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = strokeWidth,
-                    )
+        modifier = rowModifier
+            .run {
+                if (showDivider) {
+                    drawBehind {
+                        val strokeWidth = 1.dp.toPx()
+                        val y = size.height - strokeWidth / 2f
+                        drawLine(
+                            color = dividerColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = strokeWidth,
+                        )
+                    }
+                } else {
+                    this
                 }
-                .padding(resolvedContentPadding)
-        } else {
-            rowModifier.padding(resolvedContentPadding)
-        },
+            }
+            .padding(resolvedContentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing.small),
     ) {
