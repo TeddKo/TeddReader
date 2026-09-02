@@ -94,7 +94,7 @@ internal fun EpubPageSurface(
     val plateBlock = epubFullPagePlate(text = page.text, blocks = page.blocks)
     val readerTextStyle = epubPageTextStyle(page, style)
     val baseTextColor = readerTextStyle.color
-    val publisherColorsEnabled = style.themeMode == ReaderThemeMode.PUBLISHER
+    val publisherColorsEnabled = epubPublisherColorsEnabled(style)
     if (plateBlock != null) {
         EpubImageBox(
             imageBytes = plateBlock.imageHref?.let(page.embeddedImages::get),
@@ -661,6 +661,23 @@ internal fun epubPageBaseTextColor(page: ReaderPageUi, style: ReaderStyle): Read
 /** EPUB body style이되, 지정되지 않은 전경색 대체값은 실제로 칠해질 페이지에 맞춰져 있다. */
 internal fun epubPageTextStyle(page: ReaderPageUi, style: ReaderStyle): TextStyle =
     style.readerTextStyle().copy(color = epubPageBaseTextColor(page, style).toColor())
+
+/**
+ * 책이 명시한 색상을 페이지에 그대로 적용해도 되는지 여부다.
+ *
+ * 퍼블리셔 모드는 시스템 다크 설정을 따라 페이지 색을 뒤집는데
+ * ([resolveSystemTheme][com.tedd.teddreader.core.common.model.resolveSystemTheme] 참고), 책의 CSS 잉크는
+ * 거의 항상 밝은 종이를 가정한 검정이다. 어두운 종이 위에 그 잉크를 그대로 쓰면 배경과 같은 검정이 되어
+ * 본문을 읽을 수 없으므로, 어두운 종이에서는 색상만 리더 자신의 잉크로 떨어뜨린다 — 활자, 굵기, 박스
+ * 장식은 책이 명시한 그대로 유지된다. 밝기 기준은 [epubPageBaseTextColor]가 퍼블리셔 페이지 배경에
+ * 대해 쓰는 것과 같다.
+ *
+ * @param style 이미 시스템 테마까지 해석된 현재 리더 스타일이다.
+ * @return 책의 색상을 적용해야 하면 true, 리더 자신의 잉크로 그려야 하면 false다.
+ */
+internal fun epubPublisherColorsEnabled(style: ReaderStyle): Boolean =
+    style.themeMode == ReaderThemeMode.PUBLISHER &&
+        style.backgroundColor.toColor().luminance() > 0.5f
 
 /**
  * 이 rect를 박스 자체의 padding만큼 넓혀서, 테두리가 텍스트를 가로지르지 않고 텍스트 바깥에 그려지도록 한다.
