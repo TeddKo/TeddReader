@@ -1,4 +1,7 @@
-TEAM_ID=ZVG3M82ZGP
+// 이 파일을 같은 디렉터리에 Config.xcconfig 로 복사한 뒤, 아래 자리표시자를 실제 값으로 채운다.
+// Config.xcconfig 는 개발자마다 값이 다르거나 비공개 성격을 가져 커밋되지 않는다(.gitignore 처리됨).
+
+TEAM_ID=YOUR_APPLE_TEAM_ID
 
 PRODUCT_NAME=TeddReader
 
@@ -12,6 +15,6 @@ INFOPLIST_KEY_CFBundleDisplayName[config=Debug]=TeddReader dev
 CURRENT_PROJECT_VERSION=1
 MARKETING_VERSION=1.0
 
-GOOGLE_DRIVE_IOS_CLIENT_ID=308193602832-rrs7lnn2id6kks11gfcm57m2cglpta15.apps.googleusercontent.com
-GOOGLE_DRIVE_IOS_URL_SCHEME=com.googleusercontent.apps.308193602832-rrs7lnn2id6kks11gfcm57m2cglpta15
+GOOGLE_DRIVE_IOS_CLIENT_ID=YOUR_GOOGLE_DRIVE_IOS_CLIENT_ID.apps.googleusercontent.com
+GOOGLE_DRIVE_IOS_URL_SCHEME=com.googleusercontent.apps.YOUR_GOOGLE_DRIVE_IOS_CLIENT_ID
 GOOGLE_DRIVE_IOS_REDIRECT_URI=$(GOOGLE_DRIVE_IOS_URL_SCHEME):/oauthredirect
