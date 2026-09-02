@@ -84,6 +84,9 @@ import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+/** 태블릿이나 펼친 폴더블에서 적응형 라이브러리 그리드 각 셀이 갖는 최소 너비. */
+private val LibraryAdaptiveGridMinCellWidth = 140.dp
+
 /**
  * [HomeViewModel]을 [LibraryScreen]에 연결하는 진입점이다. reader 기능의 [ReaderRouteScreen]처럼 이
  * composable은 상태와 콜백만 뷰 모델에 전달한다. [HomeUiState]를 수집하고 그리드의 스크롤 상태를
@@ -271,7 +274,7 @@ fun LibraryScreen(
             ) {
                 LazyVerticalGrid(
                     state = gridState,
-                    columns = if (useAdaptiveGrid) GridCells.Adaptive(140.dp) else GridCells.Fixed(2),
+                    columns = if (useAdaptiveGrid) GridCells.Adaptive(LibraryAdaptiveGridMinCellWidth) else GridCells.Fixed(2),
                     modifier = Modifier
                         .widthIn(max = breakpoints.readableMaxWidth)
                         .fillMaxSize()
