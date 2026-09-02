@@ -17,6 +17,7 @@ import com.tedd.teddreader.core.designsystem.TeddReaderTheme
 import com.tedd.teddreader.core.designsystem.readerColors
 import com.tedd.teddreader.core.designsystem.readerTextStyle
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.toColor
 import com.tedd.teddreader.core.ui.component.TeddText
 
 /**
@@ -58,9 +59,14 @@ fun ReaderPageSurface(
         contentPadding = contentPadding,
         modifier = modifier,
     ) {
+        // 색상은 style에 실려 오지만 TeddText 자신의 `color` 파라미터가 기본값이면 주변
+        // LocalContentColor로 덮어써진다 — 읽기 페이지는 어떤 Surface나 Scaffold 안에 있지 않아
+        // 그 local이 Material 기본값인 검정으로 남고, 그래서 다크 종이 위에 검은 글자가 그려졌다.
+        // 페이지 잉크는 앱 크롬이 아니라 독자가 고른 리더 팔레트에서 나오므로 명시적으로 전달한다.
         TeddText(
             text = text,
             style = style.readerTextStyle(),
+            color = style.textColor.toColor(),
         )
     }
 }
