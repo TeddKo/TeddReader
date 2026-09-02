@@ -465,15 +465,14 @@ internal fun FoundationPagerCurlReferenceImpl(
  * 앞으로 접히는 fold는 다음 페이지를 turn이 끝난 뒤 pager가 배치할 바로 그 위치, 즉 마주보는 면에
  * 내려놓는다.
  *
- * 앞면은 항상 leaf의 원래 pane(오른쪽)에 남아 gutter 쪽으로 접혀 줄어든다. 뒷면이 어디에 놓이는지는
- * [style]에 따라 갈린다. Standard curl은 뒷면을 앞면과 같은 오른쪽 pane 안에 그려 넣고 미리
- * 미러링해 둔다(`scaleX = -1f`) — fold 자체의 반사가 이를 바르게 읽히도록 만든다; 미리 미러링해
- * 두지 않으면 넘어가는 leaf의 뒷면 텍스트가 거꾸로 읽힌다. 3D curl은
- * [foundationReferenceSpreadFacePane]이 정하는 반대쪽(왼쪽) pane에 뒷면을 실제로 호스트해, 앞면이
- * gutter로 줄어드는 동안 왼쪽 pane이 gutter에서부터 자라나 정확히 안착하도록 한다 — 두 pane이
- * 함께 반응하지 않으면 gutter 반대편이 turn 내내 반응하지 않는 결함으로 되돌아간다. 왼쪽 pane은
- * 항상 [Box]로 감싸 두 style 사이를 전환해도 컴포지션 구조가 바뀌지 않게 하며, 뒷면 자식만
- * [style]에 따라 조건부로 넣는다.
+ * 앞면과 뒷면 모두 leaf의 원래 pane(오른쪽) 노드 하나에만 호스트한다. [Box]는 자식의 드로잉을
+ * 클립하지 않으므로, mesh에 `spanBeyondSpinePx`로 반대쪽 pane 너비와 gutter를 열어 주면 시트가
+ * gutter를 건너 왼쪽 pane까지 하나의 연속된 mesh로 이어진다. 뒷면을 반대쪽 pane 노드에 따로
+ * 호스트하면 두 조각 사이의 gutter가 빈 채로 남아 시트가 끊긴 기준선처럼 보인다.
+ *
+ * 뒷면 콘텐츠는 [foundationReferenceSpreadFaceNeedsContentMirror]가 참을 낼 때 미리 미러링한다
+ * (`scaleX = -1f`) — 뒷면 strip은 목적지가 소스와 반대로 흐르므로 텍스처를 `1 - m`에서 읽어야
+ * verso가 정방향으로 읽힌다.
  *
  * @param leftPage 왼쪽 pane에 명시적으로 그려지는 정적 페이지.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
@@ -506,42 +505,21 @@ private fun FoundationReferenceSpread(
     val backGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
-    val ownPaneBackGraphicsLayer = rememberGraphicsLayer().apply {
-        compositingStrategy = CompositingStrategy.Offscreen
-    }
     val leafHome = FoundationReferenceSpreadPane.Right
-    val backPane = foundationReferenceSpreadFacePane(leafHome, FoundationReferenceSpreadFace.Back)
-    val hostBackFaceInOppositePane = style == FoundationReferenceCurlStyle.ThreeDimensional
     val backNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
         style,
         FoundationReferenceSpreadFace.Back,
-        backPane,
+        leafHome,
     )
+    val spanBeyondSpinePx = with(LocalDensity.current) {
+        leafSize.width * foundationReferenceSpreadOtherPaneRatio(leftWeight) + gutter.toPx()
+    }
     Row(
         modifier = spreadModifier,
         horizontalArrangement = Arrangement.spacedBy(gutter),
     ) {
         Box(modifier = Modifier.weight(leftWeight).fillMaxHeight()) {
             paneContent(leftPage, Modifier.fillMaxSize())
-            if (leafEdge != null && hostBackFaceInOppositePane) {
-                paneContent(
-                    leftPage + 2,
-                    Modifier
-                        .fillMaxSize()
-                        .foundationReferenceDrawLeafBack(
-                            axis = axis,
-                            edge = leafEdge,
-                            style = style,
-                            leafSize = leafSize,
-                            mirrorHorizontally = backPane == FoundationReferenceSpreadPane.Left,
-                            hostsOppositePane = true,
-                            graphicsLayer = backGraphicsLayer,
-                        )
-                        .run {
-                            if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
-                        },
-                )
-            }
         }
         Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight()) {
             paneContent(
@@ -555,12 +533,13 @@ private fun FoundationReferenceSpread(
                             edge = leafEdge,
                             style = style,
                             leafSize = leafSize,
+                            spanBeyondSpinePx = spanBeyondSpinePx,
                             graphicsLayer = curlGraphicsLayer,
                         )
                     }
                 },
             )
-            if (leafEdge != null && !hostBackFaceInOppositePane) {
+            if (leafEdge != null) {
                 paneContent(
                     leftPage + 2,
                     Modifier
@@ -570,23 +549,12 @@ private fun FoundationReferenceSpread(
                             edge = leafEdge,
                             style = style,
                             leafSize = leafSize,
+                            spanBeyondSpinePx = spanBeyondSpinePx,
                             graphicsLayer = backGraphicsLayer,
                         )
-                        .graphicsLayer { scaleX = -1f },
-                )
-            }
-            if (leafEdge != null && hostBackFaceInOppositePane) {
-                paneContent(
-                    leftPage + 2,
-                    Modifier
-                        .fillMaxSize()
-                        .foundationReferenceDrawLeafBack(
-                            axis = axis,
-                            edge = leafEdge,
-                            style = style,
-                            leafSize = leafSize,
-                            graphicsLayer = ownPaneBackGraphicsLayer,
-                        ),
+                        .run {
+                            if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
+                        },
                 )
             }
         }
@@ -603,11 +571,9 @@ private fun FoundationReferenceSpread(
  * 그려진 [currentLeftPage] 위에 [foundationReferenceDrawLeafBack]으로 쌓아 그린다 — 이는
  * [previousLeftPage]에서 시작하는 앞으로 가는 turn이 그리는 것과 같은 leaf를 —
  * [FoundationReferenceSpread] 참고 — 역순으로 재생하면서, 이 애니메이션이 평평한 상태에서 벗어나는
- * 대신 그 상태로 다가가기 때문에 앞면과 뒷면을 맞바꾼 것이다. 3D curl은
- * [foundationReferenceSpreadFacePane]이 정하는 반대쪽(오른쪽) pane에 뒷면을 실제로 호스트해, 앞면이
- * gutter로 줄어드는 동안 오른쪽 pane이 gutter에서부터 자라나 정확히 안착하도록 한다; 뒷면이 아직
- * 자라지 않은 동안에는 이 pane의 mesh 클램프가 자연히 아무것도 그리지 않으므로, pager 자신의
- * offset-0 슬롯이 그 아래로 비쳐 [previousLeftPage] + 2를 정상 표시한다.
+ * 대신 그 상태로 다가가기 때문에 앞면과 뒷면을 맞바꾼 것이다. 3D curl도 같은 왼쪽 pane 노드에
+ * 호스트하고 mesh에 `spanBeyondSpinePx`를 열어, 시트가 gutter를 건너 오른쪽 pane까지 하나의
+ * 연속된 mesh로 이어지게 한다.
  *
  * 앞면 호출은 `mirrorHorizontally = true`를 넘기는데, 이 fold는 앞으로 가는 fold의 오른쪽 가장자리
  * 힌지를 거울에 비춘 모습인 왼쪽 가장자리에서 경첩처럼 움직이기 때문이다. Standard 앞면은 배치용
@@ -647,12 +613,7 @@ private fun FoundationReferenceBackwardSpread(
     val backGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
-    val ownPaneBackGraphicsLayer = rememberGraphicsLayer().apply {
-        compositingStrategy = CompositingStrategy.Offscreen
-    }
     val leafHome = FoundationReferenceSpreadPane.Left
-    val backPane = foundationReferenceSpreadFacePane(leafHome, FoundationReferenceSpreadFace.Back)
-    val hostBackFaceInOppositePane = style == FoundationReferenceCurlStyle.ThreeDimensional
     val frontNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
         style,
         FoundationReferenceSpreadFace.Front,
@@ -661,8 +622,11 @@ private fun FoundationReferenceBackwardSpread(
     val backNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
         style,
         FoundationReferenceSpreadFace.Back,
-        backPane,
+        leafHome,
     )
+    val spanBeyondSpinePx = with(LocalDensity.current) {
+        leafSize.width * foundationReferenceSpreadOtherPaneRatio(1f - leftWeight) + gutter.toPx()
+    }
     Row(
         modifier = spreadModifier,
         horizontalArrangement = Arrangement.spacedBy(gutter),
@@ -679,6 +643,7 @@ private fun FoundationReferenceBackwardSpread(
                         style = style,
                         leafSize = leafSize,
                         mirrorHorizontally = true,
+                        spanBeyondSpinePx = spanBeyondSpinePx,
                         graphicsLayer = curlGraphicsLayer,
                     )
                     .run {
@@ -695,35 +660,15 @@ private fun FoundationReferenceBackwardSpread(
                         style = style,
                         leafSize = leafSize,
                         mirrorHorizontally = true,
-                        graphicsLayer = if (hostBackFaceInOppositePane) {
-                            ownPaneBackGraphicsLayer
-                        } else {
-                            backGraphicsLayer
-                        },
-                    ),
+                        spanBeyondSpinePx = spanBeyondSpinePx,
+                        graphicsLayer = backGraphicsLayer,
+                    )
+                    .run {
+                        if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
+                    },
             )
         }
-        Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight()) {
-            if (hostBackFaceInOppositePane) {
-                paneContent(
-                    previousLeftPage + 1,
-                    Modifier
-                        .fillMaxSize()
-                        .foundationReferenceDrawLeafBack(
-                            axis = axis,
-                            edge = leafEdge,
-                            style = style,
-                            leafSize = leafSize,
-                            mirrorHorizontally = backPane == FoundationReferenceSpreadPane.Left,
-                            hostsOppositePane = true,
-                            graphicsLayer = backGraphicsLayer,
-                        )
-                        .run {
-                            if (backNeedsContentMirror) graphicsLayer { scaleX = -1f } else this
-                        },
-                )
-            }
-        }
+        Box(modifier = Modifier.weight(1f - leftWeight).fillMaxHeight())
     }
 }
 
@@ -777,32 +722,23 @@ internal enum class FoundationReferenceSpreadPane { Left, Right }
 internal enum class FoundationReferenceSpreadFace { Front, Back }
 
 /**
- * [face]가 [leafHome] 기준으로 실제 렌더링돼야 할 pane을 정한다.
+ * leaf가 아닌 반대쪽 pane의 너비를 leaf 너비에 대한 비율로 낸다 — mesh가 spine을 넘어 얼마나 더
+ * 그려야 반대쪽 pane 끝까지 닿는지 계산하는 데 쓴다.
  *
- * 두 면은 절대 같은 pane에 놓이지 않는다 — gutter를 힌지로 쓰려면 앞면과 뒷면이 gutter 양쪽에
- * 하나씩 있어야 하기 때문이다: 앞면은 leaf가 원래 있던 [leafHome]에 남아 줄어들고, 뒷면은 반대쪽
- * pane에서 자라난다. 이 불변식이 깨져 두 면이 한쪽 pane 안에 함께 놓이면, 반대쪽 pane은 이번
- * 설계가 고치려는 결함처럼 turn 내내 아무 반응도 하지 않게 된다.
+ * 두 pane은 gutter를 뺀 너비를 weight로 나눠 가지므로, 반대쪽 pane의 너비는 leaf 너비에
+ * `otherWeight / (1 - otherWeight)`를 곱한 값이다.
  *
- * @param leafHome 지금 접히고 있는 leaf가 원래 속한 pane — 전진 turn은
- *   [FoundationReferenceSpreadPane.Right], 후진 turn은 [FoundationReferenceSpreadPane.Left].
- * @param face 렌더링할 면.
- * @return [face]가 [FoundationReferenceSpreadFace.Front]면 [leafHome] 그대로, 아니면 그 반대쪽
- *   pane.
+ * @param otherWeight 반대쪽 pane이 갖는 weight. `readerSpreadLeftWeight`가 이미 0.2..0.8로
+ *   clamp하지만, 1에 붙는 입력이 들어와도 0으로 나누지 않도록 방어한다.
+ * @return leaf 너비에 곱해 반대쪽 pane 너비를 얻는 비율.
  */
-internal fun foundationReferenceSpreadFacePane(
-    leafHome: FoundationReferenceSpreadPane,
-    face: FoundationReferenceSpreadFace,
-): FoundationReferenceSpreadPane = when (face) {
-    FoundationReferenceSpreadFace.Front -> leafHome
-    FoundationReferenceSpreadFace.Back -> when (leafHome) {
-        FoundationReferenceSpreadPane.Left -> FoundationReferenceSpreadPane.Right
-        FoundationReferenceSpreadPane.Right -> FoundationReferenceSpreadPane.Left
-    }
+internal fun foundationReferenceSpreadOtherPaneRatio(otherWeight: Float): Float {
+    val clamped = otherWeight.coerceIn(0f, 0.99f)
+    return clamped / (1f - clamped)
 }
 
 /**
- * [style]/[face]/[pane] 조합에서, leaf 콘텐츠 자체에 가로 미러를 한 번 더 적용해야 텍스트가
+ * [style]/[face]/[leafHome] 조합에서, leaf 콘텐츠 자체에 가로 미러를 한 번 더 적용해야 텍스트가
  * 정방향으로 읽히는지 판정한다.
  *
  * 콘텐츠에 실제로 적용되는 가로 미러의 출처는 셋이다: (1) [foundationReferenceDrawLeafFront]의
@@ -822,18 +758,20 @@ internal fun foundationReferenceSpreadFacePane(
  *
  * @param style 앞면/뒷면을 표준 fold로 그릴지 3D mesh로 그릴지.
  * @param face 렌더링할 면.
- * @param pane [face]가 실제로 렌더링되는 pane([foundationReferenceSpreadFacePane] 참고) — 호출자는
- *   이 pane이 [FoundationReferenceSpreadPane.Left]일 때 `mirrorHorizontally`를 참으로 넘긴다.
+ * @param leafHome 접히는 leaf가 사는 pane. 앞뒷면 모두 이 pane 노드 하나에 호스트되므로 판정 기준은
+ *   렌더링 pane이 아니라 leaf의 home이다.
  * @return 콘텐츠 쪽에 미러를 한 번 더 적용해야 정방향으로 읽히면 참.
  */
 internal fun foundationReferenceSpreadFaceNeedsContentMirror(
     style: FoundationReferenceCurlStyle,
     face: FoundationReferenceSpreadFace,
-    pane: FoundationReferenceSpreadPane,
+    leafHome: FoundationReferenceSpreadPane,
 ): Boolean = when (style) {
     FoundationReferenceCurlStyle.Standard ->
-        face == FoundationReferenceSpreadFace.Back && pane == FoundationReferenceSpreadPane.Right
-    FoundationReferenceCurlStyle.ThreeDimensional -> false
+        face == FoundationReferenceSpreadFace.Back && leafHome == FoundationReferenceSpreadPane.Left
+    FoundationReferenceCurlStyle.ThreeDimensional ->
+        (face == FoundationReferenceSpreadFace.Back) !=
+            (leafHome == FoundationReferenceSpreadPane.Left)
 }
 
 /**
@@ -1811,6 +1749,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     style: FoundationReferenceCurlStyle,
     leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
+    spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1838,6 +1777,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
                 width = size.width,
                 height = size.height,
                 mirrorHorizontally = mirrorHorizontally,
+                spanBeyondSpinePx = spanBeyondSpinePx,
             )
         }
     }
@@ -1914,7 +1854,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     style: FoundationReferenceCurlStyle,
     leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
-    hostsOppositePane: Boolean = false,
+    spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1942,7 +1882,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
                 width = size.width,
                 height = size.height,
                 mirrorHorizontally = mirrorHorizontally,
-                hostsOppositePane = hostsOppositePane,
+                spanBeyondSpinePx = spanBeyondSpinePx,
             )
         }
     }
@@ -2558,9 +2498,10 @@ internal fun foundationReferenceThreeDCurlMeshExtent(
  * @param height leaf의 높이, 픽셀 단위.
  * @param mirrorHorizontally 이 노드에서 leaf의 spine이 노드의 오른쪽 edge에 있는지 여부. mesh는
  *   spine을 x = 0에 두고 계산되므로, 참이면 배치가 좌우로 뒤집힌다.
- * @param hostsOppositePane 이 노드가 leaf 자신의 pane이 아니라 spine 반대쪽 pane인지 여부. 참이면
- *   이 노드에서 보이는 leaf 프레임 범위가 `[0, width]`가 아니라 `[-width, 0]`, 즉 spine을 넘어간
- *   음수 목적지 구간이 되며, strip 클립 범위도 그쪽으로 바뀐다.
+ * @param spanBeyondSpinePx spine(leaf 프레임 x = 0)을 넘어 이 노드 밖까지 mesh가 그려도 되는 거리,
+ *   픽셀 단위. spread에서는 반대쪽 pane 너비에 gutter를 더한 값이다. leaf는 자기 pane 노드 하나에만
+ *   호스트되고 Compose의 Box는 자식 드로잉을 클립하지 않으므로, 이 값만 열어 주면 시트가 gutter를
+ *   건너 반대쪽 pane까지 끊김 없이 이어진다.
  */
 private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     strips: List<FoundationReferenceThreeDCurlStripSpec>,
@@ -2569,7 +2510,7 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     width: Float,
     height: Float,
     mirrorHorizontally: Boolean,
-    hostsOppositePane: Boolean = false,
+    spanBeyondSpinePx: Float = 0f,
 ) {
     val meshExtent = foundationReferenceThreeDCurlMeshExtent(strips, width)
     if (meshExtent.isEmpty) return
@@ -2577,25 +2518,20 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     val visibleRight = meshExtent.rightPx
     val shadowStart = visibleRight
     val shadowEnd = shadowStart + width * FoundationReferenceThreeDCurlShadowSpread
-    val clipLow = if (hostsOppositePane) -width else 0f
-    val clipHigh = if (hostsOppositePane) 0f else width
-    withTransform({
-        when {
-            !hostsOppositePane && mirrorHorizontally -> scale(-1f, 1f)
-            hostsOppositePane && mirrorHorizontally -> translate(width, 0f)
-            hostsOppositePane -> scale(-1f, 1f, pivot = Offset.Zero)
-            else -> Unit
-        }
-    }) {
-        if (lighting.shadowAlpha > 0f && shadowEnd > shadowStart) {
+    val clipLow = -spanBeyondSpinePx
+    val clipHigh = width
+    withTransform({ if (mirrorHorizontally) scale(-1f, 1f) }) {
+        val shadowLeft = shadowStart.coerceIn(clipLow, clipHigh)
+        val shadowRight = shadowEnd.coerceIn(clipLow, clipHigh)
+        if (lighting.shadowAlpha > 0f && shadowRight > shadowLeft) {
             drawRect(
                 brush = Brush.horizontalGradient(
                     listOf(Color.Black.copy(alpha = lighting.shadowAlpha), Color.Transparent),
                     startX = shadowStart,
                     endX = shadowEnd,
                 ),
-                topLeft = Offset(shadowStart, 0f),
-                size = Size(shadowEnd - shadowStart, height),
+                topLeft = Offset(shadowLeft, 0f),
+                size = Size(shadowRight - shadowLeft, height),
             )
         }
         strips.forEach { strip ->
