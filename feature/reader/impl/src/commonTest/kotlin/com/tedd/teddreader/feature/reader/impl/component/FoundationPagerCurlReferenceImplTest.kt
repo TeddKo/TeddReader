@@ -481,7 +481,7 @@ class FoundationPagerCurlReferenceImplTest {
      * 페이지가 텍스트를 찢을 수 있는 뒤집힌 strip 없이 시작 edge를 완전히 벗어나 이동하는지 검증한다.
      */
     @Test
-    fun threeDimensionalCurlUsesSinusoidalTextureMesh() {
+    fun threeDimensionalCurlWrapsTheLeafOnACylinderBehindAFlatRegion() {
         val rest = foundationReferenceThreeDCurlStripSpecs(0f)
         val bent = foundationReferenceThreeDCurlStripSpecs(0.5f)
         val complete = foundationReferenceThreeDCurlStripSpecs(1f)
@@ -490,16 +490,38 @@ class FoundationPagerCurlReferenceImplTest {
         rest.forEach { strip ->
             assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
             assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
-            assertEquals(1f, strip.verticalScale, 0.0001f)
+            assertEquals(0f, strip.depthFraction, 0.0001f)
+            assertFalse(strip.isBackFacing)
         }
+
         bent.zipWithNext().forEach { (left, right) ->
             assertEquals(left.destinationEndFraction, right.destinationStartFraction, 0.0001f)
         }
-        assertTrue(bent.all { it.destinationEndFraction > it.destinationStartFraction })
-        assertTrue(bent.all { it.depthFraction > 0f })
-        assertTrue(bent.all { it.verticalScale > 1f })
-        assertTrue(bent.last().destinationEndFraction < 1f)
-        assertTrue(complete.maxOf { it.destinationEndFraction } < 0f)
+
+        val flat = bent.filter { it.depthFraction == 0f }
+        assertTrue(flat.isNotEmpty())
+        assertEquals(0f, flat.first().destinationStartFraction, 0.0001f)
+        flat.forEach { strip ->
+            assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
+            assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
+            assertFalse(strip.isBackFacing)
+        }
+
+        val wrapped = bent.filter { it.depthFraction > 0f }
+        assertTrue(wrapped.isNotEmpty())
+        assertTrue(wrapped.any { it.isBackFacing })
+        assertTrue(
+            wrapped.maxOf { max(it.destinationStartFraction, it.destinationEndFraction) } >
+                flat.maxOf { it.destinationEndFraction },
+        )
+        assertTrue(bent.maxOf { max(it.destinationStartFraction, it.destinationEndFraction) } < 1f)
+
+        assertTrue(complete.all { it.depthFraction < 0.0001f })
+        assertEquals(
+            -1f,
+            complete.minOf { min(it.destinationStartFraction, it.destinationEndFraction) },
+            0.0001f,
+        )
     }
 
     /**
@@ -576,34 +598,24 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * [foundationReferenceSpreadBackFaceProgress]가 앞면 progress의 여집합을 반환하고, 범위 밖
-     * 입력은 반환 전에 0..1로 clamp되는지 검증한다.
+     * turn이 완료되는 순간(progress = 1) 실린더 반지름이 0으로 수렴해 뒷면이 왜곡 없이 평평하게
+     * 안착하고, 그 목적지가 spine 왼쪽으로 정확히 페이지 한 장(`-1`)까지 뻗는지 검증한다 — 그래야
+     * 반대쪽 pane을 빈틈없이 덮으며 다음 spread로 스냅 없이 이어진다.
      */
     @Test
-    fun spreadBackFaceProgressIsTheComplementOfTheFrontFace() {
-        assertEquals(1f, foundationReferenceSpreadBackFaceProgress(0f), 0.0001f)
-        assertEquals(0.75f, foundationReferenceSpreadBackFaceProgress(0.25f), 0.0001f)
-        assertEquals(0.5f, foundationReferenceSpreadBackFaceProgress(0.5f), 0.0001f)
-        assertEquals(0f, foundationReferenceSpreadBackFaceProgress(1f), 0.0001f)
-        assertEquals(1f, foundationReferenceSpreadBackFaceProgress(-0.3f), 0.0001f)
-        assertEquals(0f, foundationReferenceSpreadBackFaceProgress(1.7f), 0.0001f)
-    }
+    fun spreadBackFaceLandsFlatAcrossTheOppositePaneWhenTheTurnCompletes() {
+        val back = foundationReferenceThreeDCurlStripSpecs(1f).filter { it.isBackFacing }
 
-    /**
-     * turn이 완료되는 순간(progress = 1) [foundationReferenceSpreadBackFaceProgress]가 뒷면에
-     * 넘기는 값이 0이 되어, 뒷면 strip이 소스와 목적지가 완전히 같은 왜곡 없는 mesh로 안착하는지
-     * 검증한다 — 그래야 다음 spread로 넘어갈 때 스냅 없이 이어진다.
-     */
-    @Test
-    fun spreadBackFaceIsFlatWhenTheTurnCompletes() {
-        val back = foundationReferenceThreeDCurlStripSpecs(foundationReferenceSpreadBackFaceProgress(1f))
-
-        assertEquals(foundationPagerRenderProfile.threeDCurlGrid, back.size)
+        assertTrue(back.isNotEmpty())
         back.forEach { strip ->
-            assertEquals(strip.sourceStartFraction, strip.destinationStartFraction, 0.0001f)
-            assertEquals(strip.sourceEndFraction, strip.destinationEndFraction, 0.0001f)
-            assertEquals(1f, strip.verticalScale, 0.0001f)
+            assertEquals(0f, strip.depthFraction, 0.0001f)
+            assertTrue(strip.destinationEndFraction < strip.destinationStartFraction)
         }
+        assertEquals(
+            -1f,
+            back.minOf { min(it.destinationStartFraction, it.destinationEndFraction) },
+            0.0001f,
+        )
     }
 
     /**
@@ -627,8 +639,8 @@ class FoundationPagerCurlReferenceImplTest {
             val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
 
             assertFalse(extent.isEmpty)
-            assertEquals(expectedLeft.coerceIn(0f, width), extent.leftPx, 0.001f)
-            assertEquals(expectedRight.coerceIn(0f, width), extent.rightPx, 0.001f)
+            assertEquals(expectedLeft, extent.leftPx, 0.001f)
+            assertEquals(expectedRight, extent.rightPx, 0.001f)
         }
     }
 
@@ -754,56 +766,57 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * turn이 완료되면(progress = 1) 앞면 mesh가 목적지 pane 안에서 완전히 사라지는지 검증한다.
-     * [foundationReferenceThreeDCurlMeshExtent]의 `isEmpty` 플래그는 strip 리스트 자체가 비어 있을
-     * 때만 참이 되고 grid 칸 수는 절대 0이 되지 않으므로(`singlePaneMeshExtentIsUnchangedByTheExtraction`이
-     * progress 1에서도 `isEmpty`가 거짓임을 이미 고정해 뒀다), 앞면이 실제로 안 보이는지는 그 플래그
-     * 대신 leftPx/rightPx가 모두 0으로 clamp되어 시각적 폭이 없는 범위로 붕괴하는지로 확인한다.
+     * turn이 완료되면(progress = 1) 앞면 strip이 leaf 자신의 pane `[0, width]` 안에서 차지하는
+     * 시각적 폭이 없어지는지 검증한다 — 시트 전체가 spine을 넘어갔으므로 앞면은 더 보이지 않는다.
      */
     @Test
-    fun spreadFrontFaceIsFullyClampedAwayWhenTheTurnCompletes() {
-        val front = foundationReferenceThreeDCurlStripSpecs(1f)
-        val extent = foundationReferenceThreeDCurlMeshExtent(front, 484f)
+    fun spreadFrontFaceHasNoVisibleWidthWhenTheTurnCompletes() {
+        val paneWidth = 484f
+        val front = foundationReferenceThreeDCurlStripSpecs(1f).filterNot { it.isBackFacing }
 
-        assertTrue(front.maxOf { it.destinationEndFraction } < 0f)
-        assertEquals(0f, extent.leftPx, 0.0001f)
-        assertEquals(0f, extent.rightPx, 0.0001f)
+        val visible = front.sumOf { strip ->
+            val left = min(strip.destinationStartFraction, strip.destinationEndFraction) * paneWidth
+            val right = max(strip.destinationStartFraction, strip.destinationEndFraction) * paneWidth
+            (min(right, paneWidth) - max(left, 0f)).coerceAtLeast(0f).toDouble()
+        }
+        assertEquals(0.0, visible, 0.001)
     }
 
     /**
-     * [foundationReferenceSpreadBackFaceProgress]로 뒤집은 progress를
-     * [foundationReferenceThreeDCurlStripSpecs]에 통과시켜 얻은 뒷면 mesh가, turn이 진행되는 동안
-     * gutter(폭 0)에서 목적지 pane의 바깥쪽 edge(pane 전체 폭)까지 단조롭게 자라나는지 검증한다 —
-     * 기기 없이 "반대쪽 pane이 함께 반응하고 정확히 안착한다"를 증명하는 유일한 테스트다. 비대칭
-     * pane 폭(leftWeight 0.2의 왼쪽 pane인 193px)으로도 반복해, 뒷면이 leaf 폭이 아니라 실제로
-     * 그려지는 목적지 pane 폭에 안착함을 고정한다.
+     * 반대쪽 pane에 호스트되는 뒷면 mesh가, turn 후반에 spine에서 그 pane의 바깥쪽 edge까지 단조롭게
+     * 자라나 완료 시점에 pane을 거의 전부 덮는지 검증한다 — 기기 없이 "반대쪽 pane이 함께 반응하고
+     * 정확히 안착한다"를 증명하는 테스트다.
      *
-     * 반증: `visibleWidth`에서 [foundationReferenceSpreadBackFaceProgress]로 뒤집지 않고 progress를
-     * 그대로 넘기면 이 테스트가 실제로 실패하는지(방향이 뒤집혀 `visibleWidth(0f)`가 0이 아니라 전체
-     * 폭이 되고 단조 증가 단언이 깨짐)를 커밋 전에 직접 확인했다.
+     * 반대쪽 pane 배치는 `x' = width + x`이므로(mesh의 `hostsOppositePane` 경로) leaf 프레임에서
+     * 음수인 목적지, 즉 spine을 넘어간 부분만 이 pane에서 보인다. 시트는 절반 이상 넘어간 뒤에야
+     * spine을 넘어서므로 turn 전반부에 보이는 폭이 0인 것이 정상이다.
+     *
+     * 비대칭 pane 폭(leftWeight 0.2의 왼쪽 pane인 193px)으로도 반복해, 뒷면이 leaf 폭이 아니라 실제로
+     * 그려지는 목적지 pane 폭에 안착함을 고정한다.
      */
     @Test
-    fun spreadBackFaceGrowsMonotonicallyFromTheGutterToTheOuterEdge() {
+    fun spreadBackFaceGrowsMonotonicallyFromTheSpineToTheOuterEdge() {
         fun visibleWidth(progress: Float, widthPx: Float): Float {
-            val extent = foundationReferenceThreeDCurlMeshExtent(
-                foundationReferenceThreeDCurlStripSpecs(foundationReferenceSpreadBackFaceProgress(progress)),
-                widthPx,
-            )
-            return (extent.rightPx - extent.leftPx).coerceAtLeast(0f)
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress).filter { it.isBackFacing }
+            if (strips.isEmpty()) return 0f
+            val extent = foundationReferenceThreeDCurlMeshExtent(strips, widthPx)
+            val left = max(extent.leftPx, -widthPx)
+            val right = min(extent.rightPx, 0f)
+            return (right - left).coerceAtLeast(0f)
         }
 
         val evenPaneWidth = 484f
         assertEquals(0f, visibleWidth(0f, evenPaneWidth), 0.0001f)
-        assertTrue(visibleWidth(0.5f, evenPaneWidth) > 0f)
-        assertTrue(visibleWidth(0.5f, evenPaneWidth) < evenPaneWidth)
-        assertEquals(evenPaneWidth, visibleWidth(1f, evenPaneWidth), 1f)
-        listOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1f).zipWithNext().forEach { (a, b) ->
+        assertEquals(0f, visibleWidth(0.5f, evenPaneWidth), 0.0001f)
+        assertTrue(visibleWidth(0.8f, evenPaneWidth) > 0f)
+        assertTrue(visibleWidth(1f, evenPaneWidth) > evenPaneWidth * 0.9f)
+        listOf(0.6f, 0.7f, 0.8f, 0.9f, 1f).zipWithNext().forEach { (a, b) ->
             assertTrue(visibleWidth(a, evenPaneWidth) <= visibleWidth(b, evenPaneWidth) + 0.001f)
         }
 
         val asymmetricPaneWidth = 193f
         assertEquals(0f, visibleWidth(0f, asymmetricPaneWidth), 0.0001f)
-        assertEquals(asymmetricPaneWidth, visibleWidth(1f, asymmetricPaneWidth), 1f)
+        assertTrue(visibleWidth(1f, asymmetricPaneWidth) > asymmetricPaneWidth * 0.9f)
     }
 
     /**
@@ -828,43 +841,34 @@ class FoundationPagerCurlReferenceImplTest {
     )
 
     /**
-     * turn 정지 상태(progress = 0 → backProgress = 1)에서 뒷면 mesh가 실제로 보이지 않음을 검증한다.
+     * turn 정지 상태(progress = 0)에서 뒷면으로 그릴 strip이 하나도 없음을 검증한다 — 시트가
+     * 평평하면 감김 각도가 어디서도 `PI / 2`를 넘지 않으므로 뒷면이 존재하지 않는다.
      *
-     * [foundationReferenceThreeDCurlStripSpecs]는 항상 고정 개수의 strip을 반환하므로
-     * [FoundationReferenceThreeDCurlMeshExtent.isEmpty]는 절대 참이 되지 않는다 — 이 단언이 두 개념의
-     * 차이를 계약으로 고정한다. 반면 정지 상태에서 목적지 범위는 전부 음수로 clamp되어 시각적 폭이
-     * 0이 되므로 [FoundationReferenceThreeDCurlMeshExtent.isInvisible]은 참이 된다. 이 테스트가
-     * 이번 수정의 핵심이다 — 가드가 죽은 코드가 아님을 증명한다.
-     *
-     * 비대칭 pane 폭(193px)에서도 동일하게 성립함을 추가로 확인해, 비대칭 spread에서 정지 시
-     * 불필요한 오프스크린 기록이 발생하지 않음을 고정한다.
+     * [foundationReferenceDrawLeafBack]의 3D 경로는 정확히 이 조건으로 조기 반환해 오프셋스크린
+     * 텍스처 기록을 건너뛴다. 이 테스트가 그 가드가 죽은 코드가 아님을 고정한다.
      */
     @Test
-    fun spreadBackFaceMeshIsInvisibleWhileTheTurnRests() {
-        val strips = foundationReferenceThreeDCurlStripSpecs(
-            foundationReferenceSpreadBackFaceProgress(0f),
-        )
-        val extent = foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth)
+    fun spreadBackFaceHasNoStripsWhileTheTurnRests() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(0f).filter { it.isBackFacing }
 
-        assertTrue(extent.isInvisible)
-        assertFalse(extent.isEmpty)
-
-        val extentAsymmetric = foundationReferenceThreeDCurlMeshExtent(strips, BackFaceAsymmetricPaneWidth)
-        assertTrue(extentAsymmetric.isInvisible)
+        assertTrue(strips.isEmpty())
+        assertTrue(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
     }
 
     /**
-     * turn이 진행 중(progress = 0.5)일 때 뒷면 mesh가 실제로 보임을 검증한다 — 가드가 과도하게
-     * 잡아 진행 중인 뒷면까지 지우지 않음을 고정한다.
+     * turn이 진행되면 뒷면 strip이 생기고 그 목적지가 소스와 반대 방향으로 흐르는지 검증한다 —
+     * 감긴 시트의 뒷면이 좌우 반전되어 보이는 근거이며, 가드가 과도하게 잡아 진행 중인 뒷면까지
+     * 지우지 않음을 함께 고정한다.
      */
     @Test
-    fun spreadBackFaceMeshBecomesVisibleOnceTheTurnProgresses() {
-        val strips = foundationReferenceThreeDCurlStripSpecs(
-            foundationReferenceSpreadBackFaceProgress(0.5f),
-        )
-        val extent = foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth)
+    fun spreadBackFaceStripsAppearReversedOnceTheTurnProgresses() {
+        val strips = foundationReferenceThreeDCurlStripSpecs(0.5f).filter { it.isBackFacing }
 
-        assertFalse(extent.isInvisible)
+        assertTrue(strips.isNotEmpty())
+        assertFalse(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
+        strips.forEach { strip ->
+            assertTrue(strip.destinationEndFraction < strip.destinationStartFraction)
+        }
     }
 
     private companion object {
