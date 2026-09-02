@@ -183,10 +183,14 @@ internal fun PdfPlaceholderSurface(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PdfPlaceholderContentSpacing),
         ) {
-            TeddText(text = "PDF", style = typography.headlineMedium)
+            // 읽기 화면은 Surface나 Scaffold 안에 있지 않아 LocalContentColor가 Material 기본값인
+            // 검정으로 남는다 — 이 플레이스홀더의 표면색에 맞는 글자색을 명시해야 다크 테마에서
+            // 검은 글자가 어두운 표면에 묻히지 않는다.
+            TeddText(text = "PDF", style = typography.headlineMedium, color = colors.onSurface)
             TeddText(
                 text = stringResource(Res.string.pdf_page_fraction, pageIndex.current + 1, pageIndex.total),
                 style = typography.bodyMedium,
+                color = colors.onSurface,
             )
             TeddText(
                 text = message,
