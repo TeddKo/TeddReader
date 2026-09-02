@@ -17,6 +17,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
 
+/**
+ * [ReaderSettingsRepository]에 저장된 읽기 환경설정을 [uiState]로 노출하고, 화면에서 들어오는
+ * 각 변경을 [persistSetting]을 통해 저장소에 기록한다. [uiState]는 저장소의 설정 흐름을 그대로
+ * 매핑한 값이므로 실제로 저장에 성공한 값만 표시하며, 아래 update 함수들은 그 결과를 기다리지
+ * 않는 fire-and-forget 호출이다.
+ *
+ * @property readerSettingsRepository 읽기 환경설정이 저장되고 관찰되는 저장소.
+ */
 @KoinViewModel
 class ReaderSettingsViewModel(
     private val readerSettingsRepository: ReaderSettingsRepository,
@@ -62,18 +70,45 @@ class ReaderSettingsViewModel(
         }
     }
 
+    /**
+     * 리더 스타일을 [style]로 저장한다. 쓰기는 [persistSetting]이 보호하므로 실패해도 조용히
+     * 로그만 남고 [uiState]에는 실제로 저장된 값만 계속 반영된다.
+     *
+     * @param style 저장할 새 리더 스타일.
+     */
     fun updateStyle(style: ReaderStyle) {
         persistSetting("reader style") { readerSettingsRepository.updateStyle(style) }
     }
 
+    /**
+     * 페이지 넘김 방식을 [pageTurnMode]로 저장한다. 나머지 쓰기 보호 동작은 [persistSetting]과
+     * 같다.
+     *
+     * @param pageTurnMode 저장할 새 페이지 넘김 방식.
+     */
     fun updatePageTurnMode(pageTurnMode: PageTurnMode) {
         persistSetting("page turn mode") { readerSettingsRepository.updatePageTurnMode(pageTurnMode) }
     }
 
+    /**
+     * 페이지 전환 애니메이션을 [pageAnimation]으로 저장한다. 나머지 쓰기 보호 동작은
+     * [persistSetting]과 같다.
+     *
+     * @param pageAnimation 저장할 새 페이지 전환 애니메이션.
+     */
     fun updatePageAnimation(pageAnimation: PageAnimation) {
         persistSetting("page animation") { readerSettingsRepository.updatePageAnimation(pageAnimation) }
     }
 
+    /**
+     * 자동 스크롤 설정을 [autoScrollConfig]로 저장하되, 속도는 저장 전에
+     * [AutoScrollConfig.clampSpeed]로 유효 범위에 맞춰 보정한다. 호출자가 범위를 벗어난 속도를
+     * 넘기더라도 저장소에는 항상 유효한 값만 기록되도록 하기 위해서이며, 나머지 쓰기 보호 동작은
+     * [persistSetting]과 같다.
+     *
+     * @param autoScrollConfig 저장할 자동 스크롤 설정. [AutoScrollConfig.speed]는 클램프된 뒤
+     * 저장된다.
+     */
     fun updateAutoScrollConfig(autoScrollConfig: AutoScrollConfig) {
         persistSetting("auto-scroll config") {
             readerSettingsRepository.updateAutoScrollConfig(
@@ -82,6 +117,11 @@ class ReaderSettingsViewModel(
         }
     }
 
+    /**
+     * 앱 언어를 [appLanguage]로 저장한다. 나머지 쓰기 보호 동작은 [persistSetting]과 같다.
+     *
+     * @param appLanguage 저장할 새 앱 언어.
+     */
     fun updateAppLanguage(appLanguage: AppLanguage) {
         persistSetting("app language") { readerSettingsRepository.updateAppLanguage(appLanguage) }
     }
