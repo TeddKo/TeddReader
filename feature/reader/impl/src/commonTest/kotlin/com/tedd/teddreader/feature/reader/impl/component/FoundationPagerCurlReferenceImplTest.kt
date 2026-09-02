@@ -700,41 +700,32 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * [foundationReferenceSpreadFacePane]이 전진/후진 turn 모두에서 앞면은 leaf의 원래 pane에
-     * 남기고 뒷면은 반대쪽 pane으로 보내는지, 그리고 — 이 테스트의 핵심 — 같은 [leafHome]에서
-     * 앞면과 뒷면이 절대 같은 pane으로 매핑되지 않는지 검증한다. 마지막 단언은 "두 면이 한쪽
-     * pane에 갇히면 반대쪽 pane이 반응하지 않는다"는 이번 설계가 고치는 결함의 구조적 형태를
-     * 직접 금지한다.
+     * [foundationReferenceSpreadOtherPaneRatio]가 leaf 너비에 곱해 반대쪽 pane 너비를 내는지, 그리고
+     * 그 값이 mesh가 gutter를 건너 반대쪽 pane 끝까지 닿기에 충분한지 검증한다 — leaf를 두 노드로
+     * 쪼개지 않고 한 노드에서 연속으로 그리게 만드는 값이라, 이 값이 작으면 시트가 gutter에서
+     * 끊긴 기준선처럼 보이는 결함으로 되돌아간다.
      */
     @Test
-    fun spreadFacePaneMappingIsSymmetricAcrossTurnDirections() {
-        assertEquals(
-            FoundationReferenceSpreadPane.Right,
-            foundationReferenceSpreadFacePane(FoundationReferenceSpreadPane.Right, FoundationReferenceSpreadFace.Front),
-        )
-        assertEquals(
-            FoundationReferenceSpreadPane.Left,
-            foundationReferenceSpreadFacePane(FoundationReferenceSpreadPane.Right, FoundationReferenceSpreadFace.Back),
-        )
-        assertEquals(
-            FoundationReferenceSpreadPane.Left,
-            foundationReferenceSpreadFacePane(FoundationReferenceSpreadPane.Left, FoundationReferenceSpreadFace.Front),
-        )
-        assertEquals(
-            FoundationReferenceSpreadPane.Right,
-            foundationReferenceSpreadFacePane(FoundationReferenceSpreadPane.Left, FoundationReferenceSpreadFace.Back),
-        )
+    fun spreadOtherPaneRatioSpansTheOppositePane() {
+        val canonicalWidth = SpreadViewportWidth
+        val gutterPx = SpreadGutter
 
-        FoundationReferenceSpreadPane.entries.forEach { leafHome ->
-            assertTrue(
-                foundationReferenceSpreadFacePane(leafHome, FoundationReferenceSpreadFace.Front) !=
-                    foundationReferenceSpreadFacePane(leafHome, FoundationReferenceSpreadFace.Back),
-            )
+        listOf(0.2f, 0.5f, 0.8f).forEach { leftWeight ->
+            val paneWidths = foundationReferenceSpreadPaneWidth(canonicalWidth, gutterPx, leftWeight)
+            val leafWidth = paneWidths.rightPx.toFloat()
+
+            val span = leafWidth * foundationReferenceSpreadOtherPaneRatio(leftWeight)
+
+            assertEquals(paneWidths.leftPx.toFloat(), span, 2f)
+            assertTrue(span + gutterPx >= paneWidths.leftPx.toFloat())
         }
+
+        assertEquals(0f, foundationReferenceSpreadOtherPaneRatio(0f), 0.0001f)
+        assertTrue(foundationReferenceSpreadOtherPaneRatio(1f).isFinite())
     }
 
     /**
-     * [foundationReferenceSpreadFaceNeedsContentMirror]가 style/face/pane의 여덟 조합 각각에서
+     * [foundationReferenceSpreadFaceNeedsContentMirror]가 style/face/leafHome의 여덟 조합 각각에서
      * 코드가 실제로 적용하는 미러 출처 수(Standard Front는 배치·콘텐츠 미러가 상쇄돼 항상 중립,
      * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러가 상쇄되지 않고
      * 남으며, 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
@@ -757,11 +748,11 @@ class FoundationPagerCurlReferenceImplTest {
 
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, right))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, left))
-        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
-        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, right))
-        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
-        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, right))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, right))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, left))
     }
 
