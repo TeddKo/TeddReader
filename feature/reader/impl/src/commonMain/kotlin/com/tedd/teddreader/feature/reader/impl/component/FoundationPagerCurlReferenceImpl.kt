@@ -94,6 +94,7 @@ import kotlin.math.sin
  * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지.
  * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
  * @param style 원래의 포인터 추적 curl을 쓸지, 가로 전용 3D 롤링 프로필을 쓸지.
+ * @param paperColor 접힌 부분의 뒷면을 채우는 페이지 색으로, 독자가 고른 리더 팔레트의 종이색이다.
  * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은 동안에도
  *   다음 요청을 계속 전달해야 하는지 여부.
  * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청, 없으면 null.
@@ -122,6 +123,7 @@ internal fun FoundationPagerCurlReferenceImpl(
     pageStep: Int,
     pageTurnMode: PageTurnMode,
     style: FoundationReferenceCurlStyle,
+    paperColor: Color,
     canRequestNextPage: Boolean,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
@@ -403,6 +405,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 axis = axis,
                                 edge = leafEdge,
                                 style = style,
+                                paperColor = paperColor,
                                 graphicsLayer = curlGraphicsLayer,
                             )
                         }
@@ -1636,6 +1639,7 @@ private fun foundationReferenceThreeDCurlTapSpec(
  * @param edge leaf의 현재 fold edge; `left`/`right`는 두 정지 위치이고, 그 외에는 모두 turn 중간
  *   상태다.
  * @param style 표준 curl 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
+ * @param paperColor 접힌 부분의 뒷면을 채우는 페이지 색으로, 독자가 고른 리더 팔레트의 종이색이다.
  * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
  * @return 선택된 curl 모양을 그리는 modifier.
  */
@@ -1643,6 +1647,7 @@ private fun Modifier.foundationReferenceDrawCurl(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
+    paperColor: Color,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
@@ -1733,7 +1738,13 @@ private fun Modifier.foundationReferenceDrawCurl(
                 alpha = lighting?.shadowAlpha ?: FoundationReferenceShadowAlpha,
             )
             clipPath(fold.polygon.toPath(axis)) {
-                this@onDrawWithContent.drawContent()
+                // 종이의 뒷면은 인쇄면이 아니다. 예전에는 여기서 같은 페이지를 다시 그렸지만
+                // [FoundationReferenceCurlFold.applyTo]가 가로축을 미러링하므로 그 재렌더는 좌우가
+                // 반전된 본문이 되어, 드래그가 진행되는 동안 화면 대부분을 뒤집힌 글자로 덮었다 —
+                // 뒷면 strip을 아예 버려 반전된 콘텐츠를 보여주지 않는 3D 롤과 어긋나는 동작이었다.
+                // 페이지 색으로 채우면 뒤집힌 글자 없이 종이 한 장으로 읽히고, turn 도중 페이지
+                // 콘텐츠를 두 번 그리던 비용도 한 번으로 준다.
+                drawRect(paperColor)
                 if (backShade == null) {
                     drawRect(Color.White.copy(alpha = FoundationReferenceBackOverlayAlpha))
                 } else {
