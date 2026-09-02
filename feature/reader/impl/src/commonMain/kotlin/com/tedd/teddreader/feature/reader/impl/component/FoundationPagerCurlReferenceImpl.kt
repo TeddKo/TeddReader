@@ -160,6 +160,11 @@ internal fun FoundationPagerCurlReferenceImpl(
             paneCount >= 2
         val gutterPx = with(density) { spreadGutter.toPx() }
         val leafSize = foundationReferenceLeafSize(canonicalSize, isSpread, gutterPx, spreadLeftWeight)
+        val paneWidths = foundationReferenceSpreadPaneWidth(
+            canonicalWidth = canonicalSize.width.toFloat(),
+            gutterPx = gutterPx,
+            leftWeight = spreadLeftWeight,
+        )
         val leafScale = if (isSpread) {
             leafSize.width / canonicalSize.width.toFloat().coerceAtLeast(1f)
         } else {
@@ -415,6 +420,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 leafSize = leafSize,
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
+                                paneWidths = paneWidths,
                                 spreadModifier = spreadModifier,
                                 paneContent = requireNotNull(paneContent),
                             )
@@ -427,6 +433,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 leafSize = leafSize,
                                 gutter = spreadGutter,
                                 leftWeight = spreadLeftWeight,
+                                paneWidths = paneWidths,
                                 spreadModifier = spreadModifier,
                                 paneContent = requireNotNull(paneContent),
                             )
@@ -484,6 +491,8 @@ internal fun FoundationPagerCurlReferenceImpl(
  *   재는 edge 공간이다([foundationReferenceLeafSize] 참고).
  * @param gutter 두 pane 사이의 간격.
  * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param paneWidths gutter 양옆 두 pane의 너비로, mesh가 spine을 넘어 반대쪽 pane 끝까지 닿는 범위를
+ *   [foundationReferenceSpreadOtherPaneWidthPx]로 고르는 데 쓴다.
  * @param spreadModifier spread의 row에 적용되는 modifier.
  * @param paneContent 주어진 modifier로 한 페이지를 pane 안에 렌더링한다.
  */
@@ -496,6 +505,7 @@ private fun FoundationReferenceSpread(
     leafSize: IntSize,
     gutter: Dp,
     leftWeight: Float,
+    paneWidths: FoundationReferenceSpreadPaneWidths,
     spreadModifier: Modifier,
     paneContent: @Composable (page: Int, modifier: Modifier) -> Unit,
 ) {
@@ -512,7 +522,7 @@ private fun FoundationReferenceSpread(
         leafHome,
     )
     val spanBeyondSpinePx = with(LocalDensity.current) {
-        leafSize.width * foundationReferenceSpreadOtherPaneRatio(leftWeight) + gutter.toPx()
+        foundationReferenceSpreadOtherPaneWidthPx(paneWidths, leafHome) + gutter.toPx()
     }
     Row(
         modifier = spreadModifier,
@@ -591,6 +601,8 @@ private fun FoundationReferenceSpread(
  *   재는 edge 공간이다([foundationReferenceLeafSize] 참고).
  * @param gutter 두 pane 사이의 간격.
  * @param leftWeight spread의 너비 중 왼쪽 pane에 주어지는 비율.
+ * @param paneWidths gutter 양옆 두 pane의 너비로, mesh가 spine을 넘어 반대쪽 pane 끝까지 닿는 범위를
+ *   [foundationReferenceSpreadOtherPaneWidthPx]로 고르는 데 쓴다.
  * @param spreadModifier row에 적용되는 modifier.
  * @param paneContent 주어진 modifier로 한 페이지를 pane 안에 렌더링한다.
  */
@@ -604,6 +616,7 @@ private fun FoundationReferenceBackwardSpread(
     leafSize: IntSize,
     gutter: Dp,
     leftWeight: Float,
+    paneWidths: FoundationReferenceSpreadPaneWidths,
     spreadModifier: Modifier,
     paneContent: @Composable (page: Int, modifier: Modifier) -> Unit,
 ) {
@@ -625,7 +638,7 @@ private fun FoundationReferenceBackwardSpread(
         leafHome,
     )
     val spanBeyondSpinePx = with(LocalDensity.current) {
-        leafSize.width * foundationReferenceSpreadOtherPaneRatio(1f - leftWeight) + gutter.toPx()
+        foundationReferenceSpreadOtherPaneWidthPx(paneWidths, leafHome) + gutter.toPx()
     }
     Row(
         modifier = spreadModifier,
@@ -722,19 +735,26 @@ internal enum class FoundationReferenceSpreadPane { Left, Right }
 internal enum class FoundationReferenceSpreadFace { Front, Back }
 
 /**
- * leaf가 아닌 반대쪽 pane의 너비를 leaf 너비에 대한 비율로 낸다 — mesh가 spine을 넘어 얼마나 더
- * 그려야 반대쪽 pane 끝까지 닿는지 계산하는 데 쓴다.
+ * leaf가 사는 pane의 반대쪽 pane 너비 — mesh가 spine을 넘어 얼마나 더 그려야 반대쪽 pane 끝까지
+ * 닿는지를 정하는 값이다.
  *
- * 두 pane은 gutter를 뺀 너비를 weight로 나눠 가지므로, 반대쪽 pane의 너비는 leaf 너비에
- * `otherWeight / (1 - otherWeight)`를 곱한 값이다.
+ * 두 pane 너비 중 하나를 고르는 것일 뿐이지만, 이를 leaf 너비에 곱하는 비율로 역산하면 안 된다:
+ * `foundationReferenceLeafSize`가 내는 leaf 너비는 방향과 무관하게 항상 오른쪽 pane 몫이므로,
+ * 왼쪽에 사는 leaf(뒤로 가는 turn)에 대해 그 역산은 힌지가 spread를 비대칭으로 가르는 폴더블에서
+ * 반대쪽 pane 너비가 아닌 값을 낸다 — 시트가 gutter를 건너기 전에 잘리거나 반대쪽 pane을 넘어
+ * 침범했던 원인이다. 두 pane 너비는 이미 [foundationReferenceSpreadPaneWidth]가 함께 내주므로
+ * 필요한 쪽을 그대로 고른다.
  *
- * @param otherWeight 반대쪽 pane이 갖는 weight. `readerSpreadLeftWeight`가 이미 0.2..0.8로
- *   clamp하지만, 1에 붙는 입력이 들어와도 0으로 나누지 않도록 방어한다.
- * @return leaf 너비에 곱해 반대쪽 pane 너비를 얻는 비율.
+ * @param paneWidths gutter 양옆 두 pane의 너비.
+ * @param leafHome 접히는 leaf가 사는 pane.
+ * @return [leafHome]의 반대쪽 pane 너비, 픽셀 단위.
  */
-internal fun foundationReferenceSpreadOtherPaneRatio(otherWeight: Float): Float {
-    val clamped = otherWeight.coerceIn(0f, 0.99f)
-    return clamped / (1f - clamped)
+internal fun foundationReferenceSpreadOtherPaneWidthPx(
+    paneWidths: FoundationReferenceSpreadPaneWidths,
+    leafHome: FoundationReferenceSpreadPane,
+): Float = when (leafHome) {
+    FoundationReferenceSpreadPane.Right -> paneWidths.leftPx.toFloat()
+    FoundationReferenceSpreadPane.Left -> paneWidths.rightPx.toFloat()
 }
 
 /**
@@ -750,11 +770,20 @@ internal fun foundationReferenceSpreadOtherPaneRatio(otherWeight: Float): Float 
  * 미러링한다. Standard 경로에서는 콘텐츠가 정방향으로 읽히려면 이 출처들의 총 적용 횟수가 짝수여야
  * 하므로, 총 횟수가 홀수가 되는 조합에서만 참을 반환한다.
  *
- * 3D mesh 경로는 언제나 거짓이다. mesh의 `mirrorHorizontally`는 strip의 destination만 뒤집는 게
- * 아니라 source 범위까지 같이 뒤집으므로, 그 미러가 곧 "spine에 닿는 쪽 콘텐츠를 고르는" 수단이다.
- * 뒷면 콘텐츠에 미러를 한 번 더 넣으면 source가 페이지 반대쪽 끝으로 돌아가 turn 도중 gutter에
- * 페이지 여백이 붙고, 창이 자랄 때 콘텐츠가 반대 방향으로 흐른다. 3D turn 도중 leaf가 좌우 반전되어
- * 보이는 것은 종이 한 장이 실제로 뒤집히는 모습이며 의도된 결과다.
+ * 3D mesh 경로도 같은 짝수 규칙을 따르지만 미러 출처의 조합이 다르다. mesh는 `mirrorHorizontally`
+ * 일 때 한 번, 뒷면 strip은 목적지가 소스와 반대로 흐르므로 자신의 음수 `scaleX`로 또 한 번
+ * 미러링한다. 네 조합의 합계는 이렇게 갈린다:
+ *
+ * | face / leafHome | mesh 미러 | strip scaleX | 콘텐츠 미러 |
+ * |---|---|---|---|
+ * | Front / Right | 없음 | 양수 | 불필요 |
+ * | Back / Right | 없음 | 음수 | **필요** |
+ * | Front / Left | 있음 | 양수 | **필요** |
+ * | Back / Left | 있음 | 음수 | 불필요 |
+ *
+ * 즉 3D에서는 `face == Back`과 `leafHome == Left`가 서로 다를 때만 콘텐츠 미러가 필요하다. turn
+ * 도중 뒷면 strip이 좌우로 뒤집혀 배치되는 것 자체는 종이 한 장이 실제로 뒤집히는 모습이며 의도된
+ * 결과이고, 콘텐츠 미러는 그 배치 미러를 상쇄해 인쇄된 면이 정방향으로 읽히게 하는 몫이다.
  *
  * @param style 앞면/뒷면을 표준 fold로 그릴지 3D mesh로 그릴지.
  * @param face 렌더링할 면.
@@ -1728,10 +1757,13 @@ private fun Modifier.foundationReferenceDrawCurl(
  * [foundationReferenceDrawThreeDCurlMesh]의 사인 곡선 텍스처 mesh를 통해 leaf를 렌더링하며,
  * 전체 투영을 미러링해 [mirrorHorizontally]를 반영함으로써 뒤로 가는 spread의 왼쪽 경첩 fold가
  * 앞으로 가는 짝과 일치하도록 한다. 이 3D 진행률은 [leafSize] — forward/backward edge
- * animatable이 구동되는 것과 같은 edge 공간 — 를 기준으로 잰다. 정지 단축 판정과 Standard fold
- * 계산은 여전히 노드 자신에게서 도출한 크기([canonicalSize])를 쓴다: [leafSize]와 호스트 노드 폭이
- * 갈리는 비대칭 spread에서 정지 판정 자체를 이 변경으로 흔들지 않기 위해서다 — 그 불일치는 남겨진
- * 별개의 결함이다.
+ * animatable이 구동되는 것과 같은 edge 공간 — 를 기준으로 잰다.
+ *
+ * 두 정지 위치 단축 판정도 [leafSize]로 비교한다. [edge]는 그 공간에서 생성되고 애니메이션되므로,
+ * 호스트 노드에서 도출한 크기([canonicalSize])와 비교하면 두 폭이 갈리는 비대칭 spread에서 정지
+ * 위치에 영원히 도달하지 못해 단축이 걸리지 않는다 — 왼쪽 pane에 leaf를 호스트하는 뒤로 가는 turn이
+ * 정확히 그 경우다. [canonicalSize]는 그릴 사각형을 정하는 값이므로 Standard fold 계산과 crease
+ * clamp에만 남는다.
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
@@ -1753,10 +1785,10 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.left(leafSize)) {
         return@drawWithCache onDrawWithContent { }
     }
-    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
         return@drawWithCache onDrawWithContent { drawContent() }
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
@@ -1858,7 +1890,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    if (edge == FoundationReferenceCurlEdge.right(canonicalSize)) {
+    if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
         return@drawWithCache onDrawWithContent { }
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&
