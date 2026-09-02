@@ -15,6 +15,10 @@ import androidx.room3.Index
  * "명시적 패밀리 없음" 스타일로 측정한 두 행이 충돌하지 않아 동일 레이아웃을 두 번 업서트하면 첫 행을 교체하지
  * 않고 두 번째 행을 삽입하게 됩니다. 빈 문자열은 유효한 글꼴 패밀리 이름이 아니므로 실제 이름과 충돌하지 않습니다.
  *
+ * [pageStartsBlob]이 `ByteArray`이므로 데이터 클래스가 생성하는 `equals`/`hashCode`는 이 프로퍼티에 대해
+ * 내용이 아니라 참조를 비교합니다. 내용 비교가 필요해지면 `contentEquals`/`contentHashCode`를 쓰는
+ * `equals`/`hashCode`를 직접 재정의해야 합니다.
+ *
  * @property documentId 이 페이지 시작점을 측정한 책입니다.
  * @property fontSizeSp 측정할 때 사용한 글자 크기입니다.
  * @property lineHeightMultiplier 측정할 때 사용한 줄 높이입니다.
