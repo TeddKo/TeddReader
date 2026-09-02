@@ -1837,9 +1837,14 @@ internal data class FoundationPageFlipShadowSpec(
 )
 
 /**
- * StPageFlip의 `0.75 * leafWidth * progress` outer 너비 공식과 `maxOpacity * (1 - progress)`
- * 페이드 공식을 구현한다. 최대 alpha는 Harism의 page-curl shadow 색상을 따르며, split
- * spread는 leaf 하나가 spread의 절반을 차지하므로 viewport의 절반을 쓴다.
+ * StPageFlip의 `0.75 * leafWidth * progress` outer 너비 공식을 구현한다. 최대 alpha는 Harism의
+ * page-curl shadow 색상을 따르며, split spread는 leaf 하나가 spread의 절반을 차지하므로
+ * viewport의 절반을 쓴다.
+ *
+ * opacity는 `maxAlpha * sin(progress * PI)`로 turn 중간에 최대가 되고 양끝에서 0이 된다 —
+ * [foundationFluidShadow], [Modifier.foundationMovingEdgeShadow], 3D curl의 cast shadow가 쓰는
+ * 것과 같은 엔벨로프다. StPageFlip 원본의 `maxOpacity * (1 - progress)`는 leaf가 아직 들리지도
+ * 않은 turn 시작에서 그림자가 최대였고, 시트가 가장 많이 들려 있는 후반에 오히려 옅어졌다.
  */
 internal fun foundationPageFlipShadowSpec(
     pageOffset: Float,
@@ -1860,7 +1865,7 @@ internal fun foundationPageFlipShadowSpec(
         },
         outerWidthFraction = outerWidth,
         innerWidthFraction = outerWidth * FoundationPageFlipInnerWidthRatio,
-        opacity = FoundationPageFlipMaxShadowAlpha * (1f - progress),
+        opacity = FoundationPageFlipMaxShadowAlpha * sin(progress * PI.toFloat()),
     )
 }
 

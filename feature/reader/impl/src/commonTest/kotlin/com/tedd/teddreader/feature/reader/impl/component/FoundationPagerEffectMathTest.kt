@@ -577,21 +577,25 @@ class FoundationPagerEffectMathTest {
     }
 
     /**
-     * StPageFlip 기준 진행을 검증한다: 외부 너비는 leaf 하나의 75%까지 커지고, opacity는 Harism의
-     * 내부 그림자 alpha 0.5에서 0까지 선형으로 떨어진다.
+     * StPageFlip 기준 진행을 검증한다: 외부 너비는 leaf 하나의 75%까지 커지고, opacity는 turn
+     * 중간에 Harism의 내부 그림자 alpha 0.5로 최대가 되며 양끝에서 0이 된다 — 다른 page-turn
+     * 그림자와 같은 `sin` 엔벨로프다. 양끝이 0이어야 leaf가 평평한 상태에서 그림자가 남지 않는다.
      */
     @Test
     fun `page flip shadow follows reference width and opacity progression`() {
         val start = foundationPageFlipShadowSpec(0f, FoundationPageFlipLayout.WholePage)
+        val quarter = foundationPageFlipShadowSpec(0.25f, FoundationPageFlipLayout.WholePage)
         val middle = foundationPageFlipShadowSpec(0.5f, FoundationPageFlipLayout.WholePage)
         val end = foundationPageFlipShadowSpec(1f, FoundationPageFlipLayout.WholePage)
 
         assertEquals(0f, start.outerWidthFraction, tolerance)
-        assertEquals(0.5f, start.opacity, tolerance)
+        assertEquals(0f, start.opacity, tolerance)
         assertEquals(0.375f, middle.outerWidthFraction, tolerance)
-        assertEquals(0.25f, middle.opacity, tolerance)
+        assertEquals(0.5f, middle.opacity, tolerance)
         assertEquals(0.75f, end.outerWidthFraction, tolerance)
         assertEquals(0f, end.opacity, tolerance)
+        assertTrue(quarter.opacity < middle.opacity)
+        assertTrue(quarter.opacity > start.opacity)
         assertEquals(middle.outerWidthFraction * 0.75f, middle.innerWidthFraction, tolerance)
     }
 
