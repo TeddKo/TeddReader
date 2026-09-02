@@ -737,8 +737,9 @@ class FoundationPagerCurlReferenceImplTest {
     /**
      * [foundationReferenceSpreadFaceNeedsContentMirror]가 style/face/leafHome의 여덟 조합 각각에서
      * 코드가 실제로 적용하는 미러 출처 수(Standard Front는 배치·콘텐츠 미러가 상쇄돼 항상 중립,
-     * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러가 상쇄되지 않고
-     * 남으며, 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
+     * Standard Back은 `FoundationReferenceCurlFold.applyTo`의 무조건적인 미러와 그것을 감싸는
+     * `mirrorHorizontally` 블록의 미러가 함께 걸려, 오른쪽에 사는 leaf에서만 홀수로 남으며,
+     * 3D mesh는 `mirrorHorizontally`일 때만 한 번 미러링한다)와 정확히 일치하는 값을
      * 반환하는지 검증한다. 3D는 mesh의 `mirrorHorizontally` 한 번과 뒷면 strip 자신의 음수
      * `scaleX` 한 번이 미러 출처이므로, 그 둘의 합이 홀수가 되는 두 조합(Back/Right,
      * Front/Left)에서만 콘텐츠 미러가 필요하다.
@@ -758,8 +759,8 @@ class FoundationPagerCurlReferenceImplTest {
 
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, right))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, front, left))
-        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
-        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
+        assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, right))
+        assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(standard, back, left))
         assertFalse(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, right))
         assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, front, left))
         assertTrue(foundationReferenceSpreadFaceNeedsContentMirror(threeD, back, right))

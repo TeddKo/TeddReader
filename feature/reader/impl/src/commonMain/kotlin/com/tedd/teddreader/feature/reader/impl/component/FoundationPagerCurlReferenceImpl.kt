@@ -768,7 +768,9 @@ internal fun foundationReferenceSpreadOtherPaneWidthPx(
  * Standard 경로는 배치용 바깥쪽 `withTransform`과 콘텐츠 바로 앞의 안쪽 `withTransform`이 같은
  * `mirrorHorizontally` 조건으로 짝을 이뤄 항상 상쇄되므로 중립이다. (2)
  * [foundationReferenceDrawLeafBack]의 Standard 경로는 `FoundationReferenceCurlFold.applyTo`가
- * 가로 축에서 무조건 한 번 미러링하며, 이 미러는 상쇄되지 않고 그대로 콘텐츠에 남는다. (3) 3D
+ * 가로 축에서 무조건 한 번 미러링하고, 그 위를 감싸는 `mirrorHorizontally` 블록이 한 번 더
+ * 미러링한다 — 둘 다 콘텐츠를 감싸므로, leaf가 왼쪽에 살아 두 미러가 모두 걸리는 뒤로 가는 turn은
+ * 짝수로 상쇄되고, 오른쪽에 살아 `applyTo`만 걸리는 앞으로 가는 turn은 홀수로 남는다. (3) 3D
  * mesh 경로([foundationReferenceDrawThreeDCurlMesh])는 `mirrorHorizontally`일 때만 딱 한 번
  * 미러링한다. Standard 경로에서는 콘텐츠가 정방향으로 읽히려면 이 출처들의 총 적용 횟수가 짝수여야
  * 하므로, 총 횟수가 홀수가 되는 조합에서만 참을 반환한다.
@@ -800,7 +802,7 @@ internal fun foundationReferenceSpreadFaceNeedsContentMirror(
     leafHome: FoundationReferenceSpreadPane,
 ): Boolean = when (style) {
     FoundationReferenceCurlStyle.Standard ->
-        face == FoundationReferenceSpreadFace.Back && leafHome == FoundationReferenceSpreadPane.Left
+        face == FoundationReferenceSpreadFace.Back && leafHome == FoundationReferenceSpreadPane.Right
     FoundationReferenceCurlStyle.ThreeDimensional ->
         (face == FoundationReferenceSpreadFace.Back) !=
             (leafHome == FoundationReferenceSpreadPane.Left)
