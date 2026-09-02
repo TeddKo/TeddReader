@@ -10,6 +10,8 @@ import com.tedd.teddreader.core.common.model.ReaderLightTextArgb
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
 import com.tedd.teddreader.core.common.model.TextRange
+import com.tedd.teddreader.core.common.model.resolveSystemTheme
+import com.tedd.teddreader.core.common.model.withThemeMode
 import com.tedd.teddreader.core.designsystem.toColor
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentMap
@@ -204,5 +206,28 @@ class EpubPageSurfaceTest {
     fun imageMemoryCacheKeyRequiresDocumentAndHref() {
         assertEquals(null, epubImageMemoryCacheKey(null, "OPS/images/cover.jpg"))
         assertEquals(null, epubImageMemoryCacheKey("file:///library/book.epub", null))
+    }
+
+    /** 밝은 종이를 따르는 퍼블리셔 페이지는 책이 명시한 색상을 그대로 쓴다. */
+    @Test
+    fun publisherColorsApplyOnLightPublisherPage() {
+        val style = ReaderStyle().withThemeMode(ReaderThemeMode.PUBLISHER).resolveSystemTheme(systemInDarkTheme = false)
+
+        assertTrue(epubPublisherColorsEnabled(style))
+    }
+
+    /** 시스템 다크를 따라 어두워진 퍼블리셔 페이지는 책의 검정 잉크 대신 리더 자신의 잉크로 그린다. */
+    @Test
+    fun publisherColorsDropOnDarkPublisherPage() {
+        val style = ReaderStyle().withThemeMode(ReaderThemeMode.PUBLISHER).resolveSystemTheme(systemInDarkTheme = true)
+
+        assertFalse(epubPublisherColorsEnabled(style))
+    }
+
+    /** 퍼블리셔가 아닌 테마는 밝기와 무관하게 책의 색상을 쓰지 않는다. */
+    @Test
+    fun publisherColorsStayOffOutsidePublisherTheme() {
+        assertFalse(epubPublisherColorsEnabled(ReaderStyle().withThemeMode(ReaderThemeMode.LIGHT)))
+        assertFalse(epubPublisherColorsEnabled(ReaderStyle().withThemeMode(ReaderThemeMode.DARK)))
     }
 }
