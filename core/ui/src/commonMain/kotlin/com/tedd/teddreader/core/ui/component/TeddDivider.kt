@@ -9,8 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderColors
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 
 /**
  * 두 행 또는 두 그룹을 구분하는 머리카락 굵기 선.
@@ -27,14 +27,14 @@ import com.tedd.teddreader.core.designsystem.teddReaderColors
  *
  * @param modifier 구분선에 적용되는 modifier. 구분선은 주어진 너비를 채우므로, 인셋이 있는 선을
  * 원하는 호출자는 패딩 파라미터를 기대하는 대신 여기에 그 인셋을 직접 제공한다.
- * @param thickness 선의 높이. 기기 픽셀 하나는 간격 스케일의 한 단계가 아니므로 간격 토큰이 아닌
- * 원시 머리카락 굵기 값으로 남겨 둔다.
+ * @param thickness 선의 높이. 기기 픽셀 하나는 간격 스케일의 한 단계가 아니므로 `TeddReaderSpacing`이
+ * 아니라 [teddReaderStroke]의 머리카락 굵기 토큰을 기본값으로 사용한다.
  * @param color 선의 색상. 팔레트의 separator 역할을 기본값으로 사용한다.
  */
 @Composable
 fun TeddDivider(
     modifier: Modifier = Modifier,
-    thickness: Dp = 1.dp,
+    thickness: Dp = teddReaderStroke().hairline,
     color: Color = teddReaderColors().outlineVariant,
 ) {
     Spacer(

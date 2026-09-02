@@ -14,10 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
 import com.tedd.teddreader.core.designsystem.teddReaderColors
 import com.tedd.teddreader.core.designsystem.teddReaderShapes
 import com.tedd.teddreader.core.designsystem.teddReaderSpacing
+import com.tedd.teddreader.core.designsystem.teddReaderStroke
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 
 /**
@@ -37,12 +37,13 @@ fun TeddCard(
 ) {
     val shape = teddReaderShapes().medium
     val colors = teddReaderColors()
+    val strokeWidth = teddReaderStroke().hairline
 
     Column(
         modifier = modifier
             .clip(shape)
             .background(colors.surfaceContainerLow)
-            .border(BorderStroke(1.dp, colors.outlineVariant), shape),
+            .border(BorderStroke(strokeWidth, colors.outlineVariant), shape),
     ) {
         CompositionLocalProvider(LocalContentColor provides teddReaderColors().onSurface) {
             content()
@@ -75,6 +76,7 @@ fun TeddErrorBanner(
     val typography = teddReaderTypography()
     val shape = teddReaderShapes().small
     val colors = teddReaderColors()
+    val strokeWidth = teddReaderStroke().hairline
 
     CompositionLocalProvider(LocalContentColor provides teddReaderColors().onErrorContainer) {
         Column(
@@ -82,7 +84,7 @@ fun TeddErrorBanner(
                 .fillMaxWidth()
                 .clip(shape)
                 .background(colors.errorContainer)
-                .border(BorderStroke(1.dp, colors.error.copy(alpha = 0.15f)), shape)
+                .border(BorderStroke(strokeWidth, colors.error.copy(alpha = 0.15f)), shape)
                 .padding(resolvedContentPadding),
             verticalArrangement = Arrangement.spacedBy(spacing.small),
         ) {

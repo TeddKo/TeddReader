@@ -41,6 +41,9 @@ private val LocalTeddReaderIconography = staticCompositionLocalOf { DefaultTeddR
 /** [teddReaderBreakpoints]를 통해 읽는 앱의 적응형 레이아웃 중단점입니다. */
 private val LocalTeddReaderBreakpoints = staticCompositionLocalOf { DefaultTeddReaderBreakpoints }
 
+/** [teddReaderStroke]를 통해 읽는 앱의 선 굵기 척도입니다. */
+private val LocalTeddReaderStroke = staticCompositionLocalOf { DefaultTeddReaderStroke }
+
 /** 앱 크롬 팔레트가 아니라 [readerColors]를 통해 읽는 읽기 페이지용 팔레트입니다. */
 private val LocalReaderColors = staticCompositionLocalOf { LightReaderColors }
 
@@ -83,6 +86,11 @@ fun teddReaderIconography(): TeddReaderIconography = LocalTeddReaderIconography.
 @Composable
 @ReadOnlyComposable
 fun teddReaderBreakpoints(): TeddReaderBreakpoints = LocalTeddReaderBreakpoints.current
+
+/** 트리의 현재 지점에 적용된 앱 선 굵기 척도입니다. */
+@Composable
+@ReadOnlyComposable
+fun teddReaderStroke(): TeddReaderStroke = LocalTeddReaderStroke.current
 
 /** 앱 크롬 팔레트가 아니라 *읽기 페이지*를 그리는 데 사용하는 팔레트입니다. */
 @Composable
@@ -196,6 +204,7 @@ fun TeddReaderTheme(
         LocalTeddReaderMotion provides DefaultTeddReaderMotion,
         LocalTeddReaderIconography provides DefaultTeddReaderIconography,
         LocalTeddReaderBreakpoints provides DefaultTeddReaderBreakpoints,
+        LocalTeddReaderStroke provides DefaultTeddReaderStroke,
         LocalReaderColors provides readerColors,
     ) {
         MaterialTheme(
