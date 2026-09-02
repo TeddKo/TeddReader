@@ -610,6 +610,47 @@ class FoundationPagerEffectMathTest {
         assertEquals(whole.opacity, spread.opacity, tolerance)
     }
 
+    /**
+     * inner shadow 정지점이 leaf의 자유 edge에서 가장 진하고 안쪽으로 단조롭게 옅어지는지, 그리고
+     * 첫 정지점이 축의 양 끝에 정확히 놓이는지 검증한다.
+     *
+     * 이전 구현은 진한 띠 두 개 사이에 알파 0.05짜리 정지점을 끼워 넣어 밝은 수직 선이 보였고,
+     * 첫 정지점이 `0.05f`여서 자유 edge에 최대 알파 단색 경계가 생겼다. 이 테스트가 그 두 형태를
+     * 모두 금지한다.
+     */
+    @Test
+    fun `page flip inner shadow stops fade monotonically from the free edge`() {
+        val alpha = 0.5f
+        // Color가 알파를 8비트로 양자화하므로(128/255 = 0.50196) 채널 한 단계만큼 허용한다.
+        val alphaTolerance = 1f / 255f
+
+        val start = foundationPageFlipInnerShadowStops(FoundationFluidSide.Start, alpha)
+        assertEquals(0f, start.first().first, tolerance)
+        assertEquals(1f, start.last().first, tolerance)
+        assertEquals(alpha, start.first().second.alpha, alphaTolerance)
+        assertEquals(0f, start.last().second.alpha, alphaTolerance)
+        start.toList().zipWithNext().forEach { (near, far) ->
+            assertTrue(far.first > near.first)
+            assertTrue(far.second.alpha < near.second.alpha)
+        }
+
+        val end = foundationPageFlipInnerShadowStops(FoundationFluidSide.End, alpha)
+        assertEquals(0f, end.first().first, tolerance)
+        assertEquals(1f, end.last().first, tolerance)
+        assertEquals(0f, end.first().second.alpha, alphaTolerance)
+        assertEquals(alpha, end.last().second.alpha, alphaTolerance)
+        end.toList().zipWithNext().forEach { (near, far) ->
+            assertTrue(far.first > near.first)
+            assertTrue(far.second.alpha > near.second.alpha)
+        }
+
+        assertEquals(start.size, end.size)
+        start.toList().zip(end.reversed()).forEach { (s, e) ->
+            assertEquals(s.first, 1f - e.first, tolerance)
+            assertEquals(s.second.alpha, e.second.alpha, alphaTolerance)
+        }
+    }
+
     /** 내부 띠는 clip 밖으로 벗어나지 않고, 잘려진 각 half의 바깥 자유 edge에 닿아야 한다. */
     @Test
     fun `spread page flip inner shadow follows clipped half free edge`() {
