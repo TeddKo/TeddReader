@@ -50,7 +50,7 @@ fun PdfPageSurface(
     zoom: Float = 1f,
     rotationDegrees: Float = 0f,
     message: String? = null,
-    contentPadding: PaddingValues = PaddingValues(12.dp),
+    contentPadding: PaddingValues = PaddingValues(PdfPageDefaultContentPadding),
     placeholderContentPadding: PaddingValues? = null,
 ) {
     val spacing = teddReaderSpacing()
@@ -122,6 +122,12 @@ private const val PdfLumaRed = 0.2126f
 private const val PdfLumaGreen = 0.7152f
 private const val PdfLumaBlue = 0.0722f
 
+/** [PdfPageSurface]의 `contentPadding` 기본값으로 쓰이는, 렌더링된 페이지 주변 여백. */
+private val PdfPageDefaultContentPadding = 12.dp
+
+/** [PdfPlaceholderSurface]의 페이지 번호·메시지 사이에 두는 세로 간격. */
+private val PdfPlaceholderContentSpacing = 8.dp
+
 /**
  * 실제로 PDF 페이지를 렌더링하거나, 렌더링할 수 없을 때는 [message]와 함께 [PdfPlaceholderSurface]로
  * 대체되는 플랫폼 훅이다. Android actual은 `android.graphics.pdf.PdfRenderer`를 통해 페이지를 로드하는데,
@@ -175,7 +181,7 @@ internal fun PdfPlaceholderSurface(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(PdfPlaceholderContentSpacing),
         ) {
             TeddText(text = "PDF", style = typography.headlineMedium)
             TeddText(
