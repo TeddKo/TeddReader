@@ -64,16 +64,10 @@ fun TeddOptionGroup(
         top = spacing.small,
         bottom = spacing.medium,
     )
-    val contentModifier = if (isSelectableGroup) {
-        Modifier
-            .fillMaxWidth()
-            .selectableGroup()
-            .padding(resolvedContentPadding)
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .padding(resolvedContentPadding)
-    }
+    val contentModifier = Modifier
+        .fillMaxWidth()
+        .run { if (isSelectableGroup) selectableGroup() else this }
+        .padding(resolvedContentPadding)
     val colors = teddReaderColors()
 
     Column(

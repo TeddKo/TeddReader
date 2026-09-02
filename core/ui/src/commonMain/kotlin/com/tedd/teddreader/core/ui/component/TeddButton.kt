@@ -223,7 +223,8 @@ fun TeddChip(
     } else {
         TeddText(
             text = text,
-            modifier = (if (selected) modifier.semantics { this.selected = true } else modifier)
+            modifier = modifier
+                .run { if (selected) semantics { this.selected = true } else this }
                 .clip(shape)
                 .background(backgroundColor)
                 .border(BorderStroke(1.dp, colors.outlineVariant), shape)
