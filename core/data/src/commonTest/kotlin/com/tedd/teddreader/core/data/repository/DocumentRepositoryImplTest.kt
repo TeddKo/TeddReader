@@ -107,6 +107,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         val document = repository.importDocument(
@@ -133,6 +134,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.importDocument(
@@ -166,6 +168,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         val document = repository.importDocument(
@@ -205,6 +208,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val source = DocumentImportSource(
             location = DocumentLocation(
@@ -261,6 +265,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.upsertDocument(
@@ -287,6 +292,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         val document = repository.importDocument(
@@ -328,6 +334,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         val error = assertFailsWith<IllegalArgumentException> {
@@ -431,6 +438,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.importDocument(
@@ -690,6 +698,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         repository.importDocument(
             source = DocumentImportSource(
@@ -730,6 +739,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val source = DocumentImportSource(
             location = DocumentLocation(
@@ -780,6 +790,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         newRepository().importDocument(
             source = DocumentImportSource(location = location, bytes = "abcdefghij".repeat(20).encodeToByteArray()),
@@ -829,6 +840,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val location = DocumentLocation(
             sourceUri = "file:///changed-key.txt",
@@ -902,6 +914,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val location = DocumentLocation(
             sourceUri = "file:///null-viewport.txt",
@@ -961,6 +974,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val location = DocumentLocation(
             sourceUri = "file:///null-viewport-mismatch.txt",
@@ -1028,6 +1042,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val location = DocumentLocation(
             sourceUri = "file:///fresh-import.txt",
@@ -1070,6 +1085,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val source = DocumentImportSource(
             location = DocumentLocation(
@@ -1130,6 +1146,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val source = DocumentImportSource(
             location = DocumentLocation(
@@ -1191,6 +1208,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val text = "a".repeat(200_001)
         val location = DocumentLocation(
@@ -1272,6 +1290,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -1350,6 +1369,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val text = "0123456789".repeat(20_000)
         newRepository().importDocument(
@@ -1693,6 +1713,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -1758,6 +1779,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -1826,6 +1848,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -1958,6 +1981,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -2020,6 +2044,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -2078,6 +2103,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         newRepository().importDocument(
             source = DocumentImportSource(location = location, bytes = epubBytes),
@@ -2138,6 +2164,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -2191,6 +2218,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -2687,6 +2715,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val documentId = DocumentId(location.sourceUri)
         repository.importDocument(
@@ -2759,6 +2788,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val documentId = DocumentId(location.sourceUri)
 
@@ -3179,6 +3209,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3253,6 +3284,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         newRepository().importDocument(
             source = DocumentImportSource(location = location, bytes = epubBytes),
@@ -3315,6 +3347,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3393,6 +3426,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3470,6 +3504,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3534,6 +3569,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3599,6 +3635,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -3957,6 +3994,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -4005,6 +4043,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -4056,6 +4095,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         documentDao.upsertDocument(
             DocumentEntity(
@@ -4237,6 +4277,7 @@ class DocumentRepositoryImplTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
         val documentId = DocumentId(location.sourceUri)
         val style = ReaderStyle(fontSizeSp = 20f)

@@ -11,6 +11,7 @@ import com.tedd.teddreader.core.common.model.ReaderStyle
 import kotlinx.coroutines.flow.Flow
 import okio.FileSystem
 import okio.Path
+import org.koin.core.annotation.Single
 
 /**
  * 저장된 환경설정에 대한 앱의 읽기 및 쓰기 진입점이며 환경설정마다 호출 하나를 제공한다.
@@ -21,6 +22,7 @@ import okio.Path
  *
  * @property preferences 디스크의 현재 값에서 시작해 저장된 환경설정과 이후 모든 변경을 방출한다.
  */
+@Single
 class ReaderPreferencesDataSource(
     private val dataStore: DataStore<ReaderPreferences>,
 ) {

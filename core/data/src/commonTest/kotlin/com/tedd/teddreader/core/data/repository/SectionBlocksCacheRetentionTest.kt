@@ -103,6 +103,7 @@ class SectionBlocksCacheRetentionTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.getReaderDocument(DocumentId(documentId))
@@ -204,6 +205,7 @@ class SectionBlocksCacheRetentionTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.getReaderDocument(DocumentId(documentId))

@@ -1,7 +1,5 @@
 package com.tedd.teddreader.app.reader.di
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.datastore.core.DataStore
 import com.tedd.teddreader.core.data.storage.DocumentFileSource
 import com.tedd.teddreader.core.data.storage.IosDocumentFileSource
@@ -9,28 +7,42 @@ import com.tedd.teddreader.core.datastore.ReaderPreferences
 import com.tedd.teddreader.core.datastore.createReaderPreferencesDataStore
 import com.tedd.teddreader.core.room.TeddReaderDatabase
 import com.tedd.teddreader.core.room.createTeddReaderDatabaseBuilder
-import org.koin.core.module.Module
-import org.koin.dsl.module
+import org.koin.core.annotation.Module
+import org.koin.core.annotation.Single
 
 /**
- * 컴포지션 루트 Koin 그래프의 iOS 절반이다. Android `actual`과 달리 어떤 바인딩도 `Context`에
- * 대응하는 값을 전달받을 필요가 없다. [IosDocumentFileSource]는 샌드박스에 직접 접근하고,
- * `createTeddReaderDatabaseBuilder`와 `createReaderPreferencesDataStore`는 앱 자체의 컨테이너 경로를
- * 직접 해석하므로 이 모듈은 컴포지션 범위 입력 없이 구성할 수 있다.
+ * 컴포지션 루트 Koin 그래프의 iOS 전용 절반이다. Android `actual`과 달리 어떤 프로바이더도
+ * `Context`에 대응하는 값을 전달받을 필요가 없다. [IosDocumentFileSource]는 샌드박스에 직접
+ * 접근하고, `createTeddReaderDatabaseBuilder`와 `createReaderPreferencesDataStore`는 앱 자체의
+ * 컨테이너 경로를 직접 해석하므로 이 클래스의 프로바이더들은 파라미터 없이 구성할 수 있다.
  *
- * 키 없이 `remember`하므로 이 Composable이 컴포지션에 있는 동안 정확히 한 번만 구성된다. 내부의
- * Room 데이터베이스와 DataStore 인스턴스를 재구성마다 다시 만들지 않고 의도한 프로세스 전역
- * 싱글턴으로 유지한다.
- *
- * @return [com.tedd.teddreader.app.reader.di.readerAppModule]의 저장소가 의존하는 모든 iOS 전용
- *   바인딩을 제공하는 [Module]이다.
+ * 이 클래스가 노출하는 각 `@Single` 정의는 다른 Koin 싱글턴과 마찬가지로 `KoinApplication`
+ * composable의 그래프가 사는 동안 유지되므로, Room 데이터베이스와 DataStore 인스턴스도 컴포지션당
+ * 정확히 한 번만 생성된다.
  */
-@Composable
-internal actual fun rememberPlatformReaderModule(): Module = remember {
-    module {
-        single { IosDocumentFileSource() }
-        single<DocumentFileSource> { get<IosDocumentFileSource>() }
-        single<TeddReaderDatabase> { createTeddReaderDatabaseBuilder().build() }
-        single<DataStore<ReaderPreferences>> { createReaderPreferencesDataStore() }
-    }
+@Module
+actual class PlatformReaderModule {
+    /** @return 샌드박스에 직접 접근하는 [DocumentFileSource] 구현인 [IosDocumentFileSource]다. */
+    @Single
+    fun iosDocumentFileSource(): IosDocumentFileSource = IosDocumentFileSource()
+
+    /**
+     * 공유 인터페이스로 같은 인스턴스를 바인딩한다.
+     *
+     * @param source [iosDocumentFileSource]가 만든 구체 타입 인스턴스다.
+     * @return [source]를 그대로 노출하는 [DocumentFileSource] 참조다.
+     */
+    @Single
+    fun documentFileSource(source: IosDocumentFileSource): DocumentFileSource = source
+
+    /** @return 앱 전체가 공유하는 [TeddReaderDatabase] 인스턴스다. */
+    @Single
+    fun teddReaderDatabase(): TeddReaderDatabase = createTeddReaderDatabaseBuilder().build()
+
+    /**
+     * @return [ReaderSettingsRepositoryImpl][com.tedd.teddreader.core.data.repository.ReaderSettingsRepositoryImpl]이
+     *   읽고 쓰는 [DataStore]다.
+     */
+    @Single
+    fun readerPreferencesDataStore(): DataStore<ReaderPreferences> = createReaderPreferencesDataStore()
 }

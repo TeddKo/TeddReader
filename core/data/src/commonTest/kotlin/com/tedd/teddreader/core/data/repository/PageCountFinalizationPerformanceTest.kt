@@ -67,6 +67,7 @@ class PageCountFinalizationPerformanceTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         val hrefs = repository.getReferencedEmbeddedFontHrefs(DocumentId(documentId))
@@ -201,6 +202,7 @@ class PageCountFinalizationPerformanceTest {
             comicBookDocumentParser = ComicBookDocumentParser(),
             imageDocumentParser = ImageDocumentParser(),
             textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
         )
 
         repository.getReaderDocument(DocumentId(documentId))

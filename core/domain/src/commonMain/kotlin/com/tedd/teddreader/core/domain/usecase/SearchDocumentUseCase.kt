@@ -5,6 +5,7 @@ import com.tedd.teddreader.core.common.model.SearchResult
 import com.tedd.teddreader.core.common.model.isVisualPageFormat
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.SearchRepository
+import org.koin.core.annotation.Single
 
 /** 일반적인 빈 결과 집합과 "지원하지 않음"을 구분해 유지하는 검색 결과다. */
 data class SearchDocumentResult(
@@ -13,6 +14,7 @@ data class SearchDocumentResult(
     val isUnsupported: Boolean,
 )
 
+@Single
 class SearchDocumentUseCase(
     private val documentRepository: DocumentRepository,
     private val searchRepository: SearchRepository,

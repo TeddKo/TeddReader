@@ -7,6 +7,7 @@ import com.tedd.teddreader.core.common.model.ReadingStats
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
+import org.koin.core.annotation.Single
 
 /**
  * 문서 정보 화면이 문서 하나에 관해 표시하는 모든 내용을 하나의 결과로 모은다.
@@ -41,6 +42,7 @@ data class DocumentInfo(
  * @property readerRepository 마지막으로 표시한 페이지의 출처.
  * @property readingStatsRepository 읽기 합계의 출처.
  */
+@Single
 class GetDocumentInfoUseCase(
     private val documentRepository: DocumentRepository,
     private val readerRepository: ReaderRepository,
