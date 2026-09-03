@@ -176,6 +176,9 @@ internal fun FoundationEffectPager(
         pageAnimation == PageAnimation.CIRCLE_REVEAL ||
         pageAnimation == PageAnimation.MOVIE_CAROUSEL ||
         pageAnimation == PageAnimation.PAGE_FLIP
+    val readsGestureState = pageAnimation == PageAnimation.FLUID_PAGER ||
+        pageAnimation == PageAnimation.CIRCLE_REVEAL ||
+        pageAnimation == PageAnimation.MOVIE_CAROUSEL
     val fluidEdge = remember { FoundationFluidEdge(FoundationFluidPointCount) }
     val fluidVersion = fluidEdge.version
     var gestureState by remember { mutableStateOf(FoundationPagerGestureState()) }
@@ -354,7 +357,7 @@ internal fun FoundationEffectPager(
         }
     }
 
-    val gestureModifier = if (isAutoScrollEnabled) {
+    val gestureModifier = if (isAutoScrollEnabled || !readsGestureState) {
         Modifier
     } else {
         Modifier.pointerInput(axis, previousPage != null, canGoForward) {
@@ -518,7 +521,10 @@ internal fun FoundationEffectPager(
             beyondViewportPageCount = 1,
         ) { pagerPage ->
             val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
-            val incomingPage = if (pageAnimation != PageAnimation.PAGE_FLIP) {
+            val incomingPage = if (
+                pageAnimation != PageAnimation.PAGE_FLIP ||
+                pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
+            ) {
                 null
             } else {
                 when {
@@ -558,7 +564,10 @@ internal fun FoundationEffectPager(
             beyondViewportPageCount = 1,
         ) { pagerPage ->
             val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
-            val incomingPage = if (pageAnimation != PageAnimation.PAGE_FLIP) {
+            val incomingPage = if (
+                pageAnimation != PageAnimation.PAGE_FLIP ||
+                pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
+            ) {
                 null
             } else {
                 when {
@@ -718,7 +727,6 @@ private fun FoundationPageFlipAwareBox(
                     axis = axis,
                     pageOffset = pageOffset,
                     modifier = modifier,
-                    incomingContent = incomingContent,
                     content = content,
                 )
             }
@@ -810,12 +818,16 @@ private fun FoundationSpreadPageFlipBox(
  * 단일 pane짜리 whole-page fold: [FoundationSpreadPageFlipBox]처럼 경첩으로 이어진 두 절반으로
  * 나뉘는 대신, 페이지 전체가 뻣뻣한 한 장의 시트처럼 자신의 바깥쪽 edge를 축으로 회전한다.
  *
+ * 회전하는 앞면 아래에 깔리는 다음/이전 페이지는 이 box가 다시 그리지 않는다: 그 페이지는
+ * 이웃 pager 슬롯이 이미 렌더링하고 있고, 그 슬롯은 `cancelTranslation`을 통해 정확히 이 슬롯
+ * 아래에 겹쳐 놓여 있다([foundationPageFlipZIndex] 참고). 여기서 한 번 더 그리면 같은 페이지를
+ * 프레임마다 두 번 구성하게 되고, 드래그가 안착 지점을 가로질러 방향을 바꿀 때마다 그 사본이
+ * 통째로 폐기·재구성되어 turn 도중 눈에 띄는 끊김을 남긴다.
+ *
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
  * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위로,
  *   [foundationWholePageFlipSpec]을 통해 회전과 피벗 모서리를 결정한다.
  * @param modifier box에 적용되는 modifier.
- * @param incomingContent 회전하는 앞면 아래에 깔리는 다음/이전 페이지; 안착해 있거나 이웃이 없으면
- *   null.
  * @param content 회전하는 앞면에 그려지는 outgoing 페이지.
  */
 @Composable
@@ -823,7 +835,6 @@ private fun FoundationWholePageFlipBox(
     axis: FoundationPagerAxis,
     pageOffset: Float,
     modifier: Modifier = Modifier,
-    incomingContent: (@Composable () -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     if (pageOffset == 0f) {
@@ -833,19 +844,15 @@ private fun FoundationWholePageFlipBox(
     val transform = foundationWholePageFlipSpec(axis = axis, pageOffset = pageOffset)
     val shadow = foundationPageFlipShadowSpec(pageOffset, FoundationPageFlipLayout.WholePage)
     Box(modifier = modifier) {
-        if (incomingContent != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .foundationPageFlipProjectedShadow(
-                        axis = axis,
-                        pageOffset = pageOffset,
-                        layout = FoundationPageFlipLayout.WholePage,
-                    ),
-            ) {
-                incomingContent()
-            }
-        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .foundationPageFlipProjectedShadow(
+                    axis = axis,
+                    pageOffset = pageOffset,
+                    layout = FoundationPageFlipLayout.WholePage,
+                ),
+        ) {}
         Box(
             modifier = Modifier
                 .fillMaxSize()
