@@ -51,6 +51,8 @@ import com.tedd.teddreader.core.common.model.PageAnimation
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import com.tedd.teddreader.feature.reader.impl.autoScrollDistancePx
 import com.tedd.teddreader.feature.reader.impl.autoScrollLineDelayMillis
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -65,6 +67,61 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
+
+/**
+ * 이 style이 슬롯별 transform을 구동하기 위해 pager의 실시간 스크롤 오프셋을 읽는지 여부.
+ * 읽지 않는 style은 슬롯이 프레임마다 재구성될 이유가 없으므로, 트랜지션 modifier를 아예
+ * 붙이지 않는다.
+ *
+ * `when`을 `else` 없이 남겨 두어, [PageAnimation]에 항목이 추가되면 여기와
+ * [readsGestureState] 두 곳이 컴파일 에러로 드러나게 한다 — 새 애니메이션이 조용히 잘못된
+ * 기본값을 물려받는 대신 자기 특성을 스스로 밝히도록 강제한다.
+ */
+private val PageAnimation.readsPagerOffset: Boolean
+    get() = when (this) {
+        PageAnimation.FLUID_PAGER,
+        PageAnimation.CIRCLE_REVEAL,
+        PageAnimation.MOVIE_CAROUSEL,
+        PageAnimation.PAGE_FLIP,
+            -> true
+
+        PageAnimation.NONE,
+        PageAnimation.SLIDE,
+        PageAnimation.FADE,
+        PageAnimation.SCROLL,
+        PageAnimation.BOOK_CURL,
+        PageAnimation.SHEET_FLIP,
+        PageAnimation.CURL_PAGER,
+        PageAnimation.THREE_D_CURL,
+            -> false
+    }
+
+/**
+ * 이 style이 원시 포인터 위치([FoundationPagerGestureState])를 읽는지 여부. 읽지 않는
+ * style에서는 제스처 추적용 `pointerInput`을 설치조차 하지 않는데, 그 추적기가 포인터 이벤트마다
+ * snapshot state를 갱신해 세 슬롯 전부를 재구성시키기 때문이다 — 그 상태를 아무도 읽지 않는
+ * style에서는 순수한 낭비다.
+ *
+ * `else`가 없는 이유는 [readsPagerOffset]과 같다.
+ */
+private val PageAnimation.readsGestureState: Boolean
+    get() = when (this) {
+        PageAnimation.FLUID_PAGER,
+        PageAnimation.CIRCLE_REVEAL,
+        PageAnimation.MOVIE_CAROUSEL,
+            -> true
+
+        PageAnimation.NONE,
+        PageAnimation.SLIDE,
+        PageAnimation.FADE,
+        PageAnimation.SCROLL,
+        PageAnimation.BOOK_CURL,
+        PageAnimation.SHEET_FLIP,
+        PageAnimation.CURL_PAGER,
+        PageAnimation.THREE_D_CURL,
+        PageAnimation.PAGE_FLIP,
+            -> false
+    }
 
 /**
  * [PageAnimation.SLIDE]/[PageAnimation.SHEET_FLIP]/[PageAnimation.FLUID_PAGER]/
@@ -172,15 +229,9 @@ internal fun FoundationEffectPager(
     } else {
         FoundationPagerAxis.Vertical
     }
-    val readsPagerOffset = pageAnimation == PageAnimation.FLUID_PAGER ||
-        pageAnimation == PageAnimation.CIRCLE_REVEAL ||
-        pageAnimation == PageAnimation.MOVIE_CAROUSEL ||
-        pageAnimation == PageAnimation.PAGE_FLIP
-    val readsGestureState = pageAnimation == PageAnimation.FLUID_PAGER ||
-        pageAnimation == PageAnimation.CIRCLE_REVEAL ||
-        pageAnimation == PageAnimation.MOVIE_CAROUSEL
+    val readsPagerOffset = pageAnimation.readsPagerOffset
+    val readsGestureState = pageAnimation.readsGestureState
     val fluidEdge = remember { FoundationFluidEdge(FoundationFluidPointCount) }
-    val fluidVersion = fluidEdge.version
     var gestureState by remember { mutableStateOf(FoundationPagerGestureState()) }
     val coroutineScope = rememberCoroutineScope()
     val settleAnimationSpec = remember {
@@ -193,6 +244,19 @@ internal fun FoundationEffectPager(
     val pageFlipLayout = foundationPageFlipLayout(pageStep = pageStep, paneCount = paneCount)
     var isManualDragInProgress by remember { mutableStateOf(false) }
     val manualDragDistancePx = remember { floatArrayOf(0f) }
+
+    /**
+     * 손을 뗀 뒤 pager를 목표 슬롯으로 데려가는 진행 중인 정착 애니메이션과, 그것을 시작시킨
+     * 드래그의 세대 번호. 둘 다 관찰되지 않는 홀더인 이유는 제스처 콜백에서 갱신되기 때문이다 —
+     * snapshot state였다면 포인터를 뗄 때마다 재구성을 일으켰을 것이다.
+     *
+     * 세대 번호는 낡은 정착 애니메이션이 자기 뒷정리로 새 드래그를 망가뜨리는 것을 막는다:
+     * 예전에는 정착이 끝나거나 취소될 때 무조건 `isManualDragInProgress`를 false로 되돌렸는데,
+     * 그 사이에 사용자가 다시 드래그를 시작했다면 그 false가 진행 중인 드래그 위에 덮어써져
+     * 안착 보고 effect가 아직 끝나지도 않은 turn을 페이지 이동으로 보고할 수 있었다.
+     */
+    val settleJob = remember { arrayOfNulls<Job>(1) }
+    val dragGeneration = remember { intArrayOf(0) }
     LaunchedEffect(pageMoveRequest?.id) {
         val request = pageMoveRequest ?: return@LaunchedEffect
         try {
@@ -287,55 +351,12 @@ internal fun FoundationEffectPager(
             return@LaunchedEffect
         }
 
-        when (autoScrollMode) {
-            AutoScrollMode.PIXEL -> {
-                pagerState.scroll {
-                    var lastFrameMillis = 0L
-                    while (isActive) {
-                        val frameMillis = withFrameMillis { it }
-                        if (lastFrameMillis != 0L) {
-                            val elapsedMillis = frameMillis - lastFrameMillis
-                            val distancePx = autoScrollDistancePx(
-                                speed = autoScrollSpeed,
-                                density = autoScrollDensity,
-                                elapsedMillis = elapsedMillis,
-                            )
-                            if (distancePx > 0f) {
-                                val consumed = scrollBy(distancePx)
-                                if (consumed == 0f && !pagerState.canScrollForward) {
-                                    break
-                                }
-                            }
-                        }
-                        lastFrameMillis = frameMillis
-                    }
-                }
-            }
-
-            AutoScrollMode.LINE -> {
-                val lineHeightPx = autoScrollLineHeightPx.coerceAtLeast(1f)
-                val pixelsPerSecond = autoScrollDistancePx(
-                    speed = autoScrollSpeed,
-                    density = autoScrollDensity,
-                    elapsedMillis = 1_000L,
-                ).coerceAtLeast(1f)
-                val delayMillis = autoScrollLineDelayMillis(
-                    lineHeightPx = lineHeightPx,
-                    pixelsPerSecond = pixelsPerSecond,
-                )
-                pagerState.scroll {
-                    while (isActive) {
-                        val consumed = scrollBy(lineHeightPx)
-                        if (consumed == 0f && !pagerState.canScrollForward) {
-                            break
-                        }
-                        delay(delayMillis)
-                    }
-                }
-            }
-
-            AutoScrollMode.PAGE -> Unit
-        }
+        pagerState.foundationAutoScroll(
+            mode = autoScrollMode,
+            speed = autoScrollSpeed,
+            density = autoScrollDensity,
+            lineHeightPx = autoScrollLineHeightPx,
+        )
     }
     LaunchedEffect(pageAnimation, pagerState) {
         if (pageAnimation != PageAnimation.MOVIE_CAROUSEL) {
@@ -422,10 +443,14 @@ internal fun FoundationEffectPager(
                 }
             },
             onDragStarted = {
+                dragGeneration[0]++
+                settleJob[0]?.cancel()
+                settleJob[0] = null
                 isManualDragInProgress = true
                 manualDragDistancePx[0] = 0f
             },
             onDragStopped = { velocity ->
+                val generation = dragGeneration[0]
                 val targetOffset = foundationPagerDragTargetOffset(
                     dragDistancePx = manualDragDistancePx[0],
                     velocityPxPerSecond = velocity,
@@ -436,15 +461,17 @@ internal fun FoundationEffectPager(
                     hasNextPage = canGoForward,
                 )
                 manualDragDistancePx[0] = 0f
-                coroutineScope.launch {
+                settleJob[0] = coroutineScope.launch {
                     try {
                         pagerState.animateScrollToPage(
                             page = (FoundationCenterPage + targetOffset).coerceIn(0, FoundationPagerPageCount - 1),
                             animationSpec = settleAnimationSpec,
                         )
                     } finally {
-                        isManualDragInProgress = false
-                        manualDragDistancePx[0] = 0f
+                        if (dragGeneration[0] == generation) {
+                            isManualDragInProgress = false
+                            manualDragDistancePx[0] = 0f
+                        }
                     }
                 }
             },
@@ -489,29 +516,68 @@ internal fun FoundationEffectPager(
         )
     }
 
-    /** 가로/세로 pager 분기 양쪽에서 공유되어 두 번 작성되지 않도록 하는, 한 슬롯의 프레임별 트랜지션 modifier를 만든다. */
-    fun pageModifier(pagerPage: Int): Modifier {
-        if (!readsPagerOffset) return Modifier.fillMaxSize()
-        val pageOffset = pagerState.foundationOffsetForPage(pagerPage)
-        return Modifier
-            .fillMaxSize()
-            .foundationEffectPageModifier(
-                pagerState = pagerState,
-                pagerPage = pagerPage,
-                axis = axis,
-                pageAnimation = pageAnimation,
-                pageOffset = pageOffset,
-                gestureState = gestureState,
-                fluidEdge = fluidEdge,
-                fluidVersion = fluidVersion,
-            )
-    }
-
     val pagerModifier = modifier
         .fillMaxSize()
         .then(gestureModifier)
         .then(manualDragModifier)
         .then(tapModifier)
+
+    /**
+     * 슬롯 하나의 전체 렌더링으로, 가로/세로 pager 분기가 같은 본문을 두 벌로 들고 있지 않도록
+     * 한 곳에 모아 둔다. 두 벌이던 시절 이 본문은 글자 하나 다르지 않은 40여 줄이었고, 한쪽만
+     * 고치는 실수를 부르는 자리였다.
+     */
+    val pageSlot: @Composable (pagerPage: Int) -> Unit = { pagerPage ->
+        val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
+        val incomingPage = if (
+            pageAnimation != PageAnimation.PAGE_FLIP ||
+            pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
+        ) {
+            null
+        } else {
+            when {
+                pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
+                pageOffset < 0f -> previousPage
+                else -> null
+            }
+        }
+        FoundationPageFlipAwareBox(
+            pageAnimation = pageAnimation,
+            axis = axis,
+            pageOffset = pageOffset,
+            pageFlipLayout = pageFlipLayout,
+            isCurrentPage = pagerPage == FoundationCenterPage,
+            modifier = if (readsPagerOffset) {
+                Modifier
+                    .fillMaxSize()
+                    .foundationEffectPageModifier(
+                        pagerPage = pagerPage,
+                        axis = axis,
+                        pageAnimation = pageAnimation,
+                        pageOffset = pageOffset,
+                        previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage),
+                        nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage),
+                        gestureState = gestureState,
+                        fluidEdge = fluidEdge,
+                    )
+            } else {
+                Modifier.fillMaxSize()
+            },
+            documentPage = readerPagerDisplayedPage(
+                currentPage = renderedPageKey,
+                adjacentPage = readerPagerAdjacentPage(
+                    renderedPageKey,
+                    pageCount,
+                    pageStep,
+                    pagerPage - FoundationCenterPage,
+                ),
+                pageOffset = pagerPage - FoundationCenterPage,
+                canRequestNextPage = canRequestNextPage,
+            ),
+            incomingPage = incomingPage,
+            content = content,
+        )
+    }
 
     if (axis == FoundationPagerAxis.Vertical) {
         VerticalPager(
@@ -519,84 +585,14 @@ internal fun FoundationEffectPager(
             modifier = pagerModifier,
             userScrollEnabled = false,
             beyondViewportPageCount = 1,
-        ) { pagerPage ->
-            val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
-            val incomingPage = if (
-                pageAnimation != PageAnimation.PAGE_FLIP ||
-                pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
-            ) {
-                null
-            } else {
-                when {
-                    pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                    pageOffset < 0f -> previousPage
-                    else -> null
-                }
-            }
-            FoundationPageFlipAwareBox(
-                pageAnimation = pageAnimation,
-                axis = axis,
-                pageOffset = pageOffset,
-                pageFlipLayout = pageFlipLayout,
-                isCurrentPage = pagerPage == FoundationCenterPage,
-                modifier = pageModifier(pagerPage),
-                documentPage = readerPagerDisplayedPage(
-                    currentPage = renderedPageKey,
-                    adjacentPage = readerPagerAdjacentPage(
-                        renderedPageKey,
-                        pageCount,
-                        pageStep,
-                        pagerPage - FoundationCenterPage,
-                    ),
-                    pageOffset = pagerPage - FoundationCenterPage,
-                    canRequestNextPage = canRequestNextPage,
-                ),
-                incomingPage = incomingPage,
-                content = content,
-            )
-        }
+        ) { pagerPage -> pageSlot(pagerPage) }
     } else {
         HorizontalPager(
             state = pagerState,
             modifier = pagerModifier,
             userScrollEnabled = false,
             beyondViewportPageCount = 1,
-        ) { pagerPage ->
-            val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
-            val incomingPage = if (
-                pageAnimation != PageAnimation.PAGE_FLIP ||
-                pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
-            ) {
-                null
-            } else {
-                when {
-                    pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                    pageOffset < 0f -> previousPage
-                    else -> null
-                }
-            }
-            FoundationPageFlipAwareBox(
-                pageAnimation = pageAnimation,
-                axis = axis,
-                pageOffset = pageOffset,
-                pageFlipLayout = pageFlipLayout,
-                isCurrentPage = pagerPage == FoundationCenterPage,
-                modifier = pageModifier(pagerPage),
-                documentPage = readerPagerDisplayedPage(
-                    currentPage = renderedPageKey,
-                    adjacentPage = readerPagerAdjacentPage(
-                        renderedPageKey,
-                        pageCount,
-                        pageStep,
-                        pagerPage - FoundationCenterPage,
-                    ),
-                    pageOffset = pagerPage - FoundationCenterPage,
-                    canRequestNextPage = canRequestNextPage,
-                ),
-                incomingPage = incomingPage,
-                content = content,
-            )
-        }
+        ) { pagerPage -> pageSlot(pagerPage) }
     }
 }
 
@@ -688,6 +684,71 @@ internal fun FoundationCurlPager(
         paneContent = paneContent,
         content = content,
     )
+}
+
+/**
+ * 자동 스크롤을 [mode]에 맞춰 pager의 스크롤로 흘려보낸다. 취소되거나 pager가 더 이상 앞으로
+ * 갈 수 없을 때까지 돌아오지 않는다.
+ *
+ * [FoundationEffectPager]의 `LaunchedEffect` 본문에서 떼어낸 것으로, 그 composable은 이미
+ * pager 동기화·제스처·탭·슬롯 렌더링을 함께 지고 있었다. 여기 있는 것은 그중 자동 스크롤
+ * 하나뿐이며, pager와 속도 설정 말고는 아무것에도 기대지 않는다.
+ *
+ * @receiver 스크롤을 흘려보낼 대상 pager.
+ * @param mode 따를 자동 스크롤 모드; [AutoScrollMode.PAGE]는 여기서 다루지 않는다(페이지 단위
+ *   이동은 turn 요청 경로가 처리한다).
+ * @param speed 설정된 자동 스크롤 속도.
+ * @param density 속도를 픽셀로 환산하는 데 쓰이는 화면 밀도.
+ * @param lineHeightPx line 모드가 한 걸음으로 삼는 현재 style의 픽셀 단위 줄 높이; 최소 1로
+ *   고정된다.
+ */
+private suspend fun PagerState.foundationAutoScroll(
+    mode: AutoScrollMode,
+    speed: Float,
+    density: Float,
+    lineHeightPx: Float,
+) {
+    when (mode) {
+        AutoScrollMode.PIXEL -> scroll {
+            var lastFrameMillis = 0L
+            while (currentCoroutineContext().isActive) {
+                val frameMillis = withFrameMillis { it }
+                if (lastFrameMillis != 0L) {
+                    val distancePx = autoScrollDistancePx(
+                        speed = speed,
+                        density = density,
+                        elapsedMillis = frameMillis - lastFrameMillis,
+                    )
+                    if (distancePx > 0f) {
+                        val consumed = scrollBy(distancePx)
+                        if (consumed == 0f && !canScrollForward) break
+                    }
+                }
+                lastFrameMillis = frameMillis
+            }
+        }
+
+        AutoScrollMode.LINE -> {
+            val stepPx = lineHeightPx.coerceAtLeast(1f)
+            val delayMillis = autoScrollLineDelayMillis(
+                lineHeightPx = stepPx,
+                pixelsPerSecond = autoScrollDistancePx(
+                    speed = speed,
+                    density = density,
+                    elapsedMillis = 1_000L,
+                ).coerceAtLeast(1f),
+            )
+            scroll {
+                while (currentCoroutineContext().isActive) {
+                    val consumed = scrollBy(stepPx)
+                    if (consumed == 0f && !canScrollForward) break
+                    delay(delayMillis)
+                }
+            }
+        }
+
+        AutoScrollMode.PAGE -> Unit
+    }
 }
 
 /**
@@ -804,6 +865,7 @@ private fun FoundationSpreadPageFlipBox(
                     axis = axis,
                     pageOffset = pageOffset,
                     layout = FoundationPageFlipLayout.SplitHalfFold,
+                    shadow = shadow,
                 ),
         ) {}
         if (spec.showOutgoing) {
@@ -866,6 +928,7 @@ private fun FoundationWholePageFlipBox(
                     axis = axis,
                     pageOffset = pageOffset,
                     layout = FoundationPageFlipLayout.WholePage,
+                    shadow = shadow,
                 ),
         ) {}
         Box(
@@ -1005,32 +1068,32 @@ private fun Modifier.foundationPageFlipInnerShadow(
  * 그 외의 애니메이션(다른 곳에서 [AnimatedContent]/일반 Foundation 스와이프가 전부 처리한다)에는
  * 여기서 별도의 modifier를 주지 않는다.
  *
+ * 진행률을 [PagerState]에서 직접 읽는 대신 [previousProgress]/[nextProgress]로 받는 이유는,
+ * 그래야 이 빌더가 Foundation pager 타입에 묶이지 않고 두 숫자만으로 단위 테스트할 수 있기
+ * 때문이다.
+ *
  * @receiver 이 트랜지션이 덧붙는 modifier 체인.
- * @param pagerState 스크롤 진행률이 트랜지션을 구동하는 Foundation pager.
- * @param pagerPage [pagerState] 안에서 이 슬롯의 인덱스(0, 1, 또는 2).
+ * @param pagerPage pager 안에서 이 슬롯의 인덱스(0, 1, 또는 2).
  * @param axis pager가 가로축과 세로축 중 어느 쪽으로 도는지.
  * @param pageAnimation 적용할 트랜지션 style.
  * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋.
+ * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
  * @param gestureState fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
  * @param fluidEdge fluid-reveal style을 위한, 공유되는 spring 애니메이션 edge 모양.
- * @param fluidVersion [fluidEdge]의 변경 카운터로, `drawWithCache` 블록 안에서 읽히기만
- *   하고(직접 쓰이지는 않고) 가변 edge 모양이 바뀔 때마다 그 블록들이 무효화되도록 한다.
  * @return [pageAnimation]에 대해 이 슬롯의 transform, shadow, z-index를 적용하는 modifier.
  */
-@OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.foundationEffectPageModifier(
-    pagerState: PagerState,
     pagerPage: Int,
     axis: FoundationPagerAxis,
     pageAnimation: PageAnimation,
     pageOffset: Float,
+    previousProgress: Float,
+    nextProgress: Float,
     gestureState: FoundationPagerGestureState,
     fluidEdge: FoundationFluidEdge,
-    fluidVersion: Int,
 ): Modifier {
     val page = FoundationPagerPage.fromPagerPage(pagerPage)
-    val previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage)
-    val nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage)
     val activeTurn = foundationActivePageTurn(
         axis = axis,
         gestureState = gestureState,
@@ -1052,30 +1115,24 @@ private fun Modifier.foundationEffectPageModifier(
         PageAnimation.FLUID_PAGER -> cancelTranslation
             .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
             .then(
-                foundationRevealModifier(
-                    page = page,
-                    axis = axis,
-                    activeSide = activeSide,
-                    progress = activeProgress,
-                    gestureState = gestureState,
-                    style = FoundationRevealStyle.Fluid,
-                    fluidEdge = fluidEdge,
-                    fluidVersion = fluidVersion,
-                ),
+                foundationRevealModifier(page, activeSide, activeProgress) {
+                    Modifier.foundationFluidClip(
+                        axis = axis,
+                        side = page.side,
+                        progress = activeProgress,
+                        gestureState = gestureState,
+                        fluidEdge = fluidEdge,
+                    )
+                },
             )
-            .then(foundationFluidShadow(page, axis, activeSide, activeProgress, fluidEdge, fluidVersion))
+            .then(foundationFluidShadow(page, axis, activeSide, activeProgress, fluidEdge))
 
         PageAnimation.CIRCLE_REVEAL -> cancelTranslation
             .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
             .then(
-                foundationRevealModifier(
-                    page = page,
-                    axis = axis,
-                    activeSide = activeSide,
-                    progress = activeProgress,
-                    gestureState = gestureState,
-                    style = FoundationRevealStyle.Circle,
-                ),
+                foundationRevealModifier(page, activeSide, activeProgress) {
+                    Modifier.foundationCircleRevealClip(axis, page.side, activeProgress, gestureState)
+                },
             )
             .then(foundationCircleRevealShadow(page, axis, activeSide, activeProgress, gestureState))
 
@@ -1100,8 +1157,6 @@ private fun Modifier.foundationEffectPageModifier(
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
  * @param fluidEdge shadow가 따라 그리는, 공유되는 spring 애니메이션 edge 모양.
- * @param fluidVersion `drawWithCache` 블록 안에서 읽히는 변경 카운터로, [fluidEdge]의 가변
- *   모양이 바뀔 때마다 무효화되도록 한다.
  * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
  *   [Modifier].
  */
@@ -1111,13 +1166,12 @@ private fun foundationFluidShadow(
     activeSide: FoundationFluidSide,
     progress: Float,
     fluidEdge: FoundationFluidEdge,
-    fluidVersion: Int,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
     if (page.side != activeSide || progress <= 0f) return Modifier
     return Modifier.drawWithCache {
         @Suppress("UNUSED_VARIABLE")
-        val version = fluidVersion
+        val version = fluidEdge.version
         val clampedProgress = progress.coerceIn(0f, 1f)
         val castAlpha = FoundationRevealShadowAlpha * sin(clampedProgress * PI.toFloat())
         val contactAlpha = (castAlpha * 1.25f).coerceAtMost(0.32f)
@@ -1125,21 +1179,20 @@ private fun foundationFluidShadow(
             return@drawWithCache onDrawWithContent { drawContent() }
         }
 
-        val sizeModel = FoundationPagerSize(size.width, size.height)
-        val castPath = buildFoundationFluidShadowPolygon(
-            size = sizeModel,
-            axis = axis,
+        val canonicalSize = axis.toCanonicalSize(FoundationPagerSize(size.width, size.height))
+        val edgePoints = fluidEdge.canonicalEdgePoints(canonicalSize, activeSide)
+        val castPath = foundationFluidShadowBand(
+            edgePoints = edgePoints,
+            canonicalSize = canonicalSize,
             side = activeSide,
-            edge = fluidEdge,
             width = FoundationRevealShadowWidth,
-        ).toPath()
-        val contactPath = buildFoundationFluidShadowPolygon(
-            size = sizeModel,
-            axis = axis,
+        ).fromCanonical(axis).toPath()
+        val contactPath = foundationFluidShadowBand(
+            edgePoints = edgePoints,
+            canonicalSize = canonicalSize,
             side = activeSide,
-            edge = fluidEdge,
             width = FoundationRevealContactShadowWidth,
-        ).toPath()
+        ).fromCanonical(axis).toPath()
 
         onDrawWithContent {
             drawContent()
@@ -1243,43 +1296,29 @@ private fun Modifier.foundationMovieCarouselShadow(
     }
 
     val edgeAlpha = (FoundationMovieEdgeShadowAlpha * sin(progress * PI.toFloat())).coerceAtLeast(0f)
-    val shadowWidth = FoundationMovieShadowWidth
+    val isHorizontal = axis == FoundationPagerAxis.Horizontal
+    val extent = if (isHorizontal) size.width else size.height
+    val bandStart = when (shadowSide) {
+        FoundationFluidSide.Start -> 0f
+        FoundationFluidSide.End -> (extent - FoundationMovieShadowWidth).coerceAtLeast(0f)
+    }
+    val bandEnd = (bandStart + FoundationMovieShadowWidth).coerceAtMost(extent)
+    val colors = when (shadowSide) {
+        FoundationFluidSide.Start -> listOf(Color.Black.copy(alpha = edgeAlpha), Color.Transparent)
+        FoundationFluidSide.End -> listOf(Color.Transparent, Color.Black.copy(alpha = edgeAlpha))
+    }
+    val brush = if (isHorizontal) {
+        Brush.horizontalGradient(colors = colors, startX = bandStart, endX = bandEnd)
+    } else {
+        Brush.verticalGradient(colors = colors, startY = bandStart, endY = bandEnd)
+    }
+    val band = (bandEnd - bandStart).coerceAtLeast(0f)
+    val topLeft = if (isHorizontal) Offset(bandStart, 0f) else Offset(0f, bandStart)
+    val bandSize = if (isHorizontal) Size(band, size.height) else Size(size.width, band)
 
     onDrawWithContent {
         drawContent()
-        if (axis == FoundationPagerAxis.Horizontal) {
-            val left = if (shadowSide == FoundationFluidSide.Start) {
-                0f
-            } else {
-                (size.width - shadowWidth).coerceAtLeast(0f)
-            }
-            val right = (left + shadowWidth).coerceAtMost(size.width)
-            val colors = when (shadowSide) {
-                FoundationFluidSide.Start -> listOf(Color.Black.copy(alpha = edgeAlpha), Color.Transparent)
-                FoundationFluidSide.End -> listOf(Color.Transparent, Color.Black.copy(alpha = edgeAlpha))
-            }
-            drawRect(
-                brush = Brush.horizontalGradient(colors = colors, startX = left, endX = right),
-                topLeft = Offset(left, 0f),
-                size = Size((right - left).coerceAtLeast(0f), size.height),
-            )
-        } else {
-            val top = if (shadowSide == FoundationFluidSide.Start) {
-                0f
-            } else {
-                (size.height - shadowWidth).coerceAtLeast(0f)
-            }
-            val bottom = (top + shadowWidth).coerceAtMost(size.height)
-            val colors = when (shadowSide) {
-                FoundationFluidSide.Start -> listOf(Color.Black.copy(alpha = edgeAlpha), Color.Transparent)
-                FoundationFluidSide.End -> listOf(Color.Transparent, Color.Black.copy(alpha = edgeAlpha))
-            }
-            drawRect(
-                brush = Brush.verticalGradient(colors = colors, startY = top, endY = bottom),
-                topLeft = Offset(0f, top),
-                size = Size(size.width, (bottom - top).coerceAtLeast(0f)),
-            )
-        }
+        drawRect(brush = brush, topLeft = topLeft, size = bandSize)
     }
 }
 
@@ -1313,13 +1352,16 @@ internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
  * StPageFlip의 outer shadow를 드러난 페이지 위에 그린다. 너비는 turn 진행률에 선형으로 비례해
  * 커지고, 불투명도는 선형으로 옅어지며, 띠는 움직이는 leaf의 edge에서 시작해 투명해질 때까지
  * 이어진다. 드러난 쪽(receiver)을 고르는 것은 기존 투영 계산이 그대로 담당한다.
+ *
+ * [shadow]를 여기서 다시 구하지 않고 받는 이유는, 호출하는 fold box들이 움직이는 leaf의 inner
+ * shadow를 위해 이미 같은 인자로 같은 spec을 구해 두었기 때문이다.
  */
 private fun Modifier.foundationPageFlipProjectedShadow(
     axis: FoundationPagerAxis,
     pageOffset: Float,
     layout: FoundationPageFlipLayout,
+    shadow: FoundationPageFlipShadowSpec,
 ): Modifier = drawWithCache {
-    val shadow = foundationPageFlipShadowSpec(pageOffset, layout)
     val projection = foundationPageFlipProjectionSpec(pageOffset, layout)
     val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
     val castWidth = (extent * shadow.outerWidthFraction).coerceAtMost(extent)
@@ -1354,115 +1396,6 @@ private fun Modifier.foundationPageFlipProjectedShadow(
                 brush = Brush.verticalGradient(colors = colors, startY = castStart, endY = castEnd),
                 topLeft = Offset(0f, castStart),
                 size = Size(size.width, (castEnd - castStart).coerceAtLeast(0f)),
-            )
-        }
-    }
-}
-
-/**
- * 범용 cast-plus-contact edge shadow로, 어느 side에 붙는지와 cast/contact 띠가 얼마나 넓고
- * 진한지를 매개변수로 받는다는 점에서 [foundationFluidShadow] 같은 고정-상수 shadow들과 다르다.
- * 이 글을 쓰는 시점 기준으로 이 파일이나 그 테스트 어디에서도 호출되지 않는다 — 저 고정
- * shadow들을 뽑아낸 재사용 가능한 형태로 남겨 두었을 뿐, 현재 어떤 page-turn style에도 연결돼
- * 있지 않다.
- *
- * @receiver 이 shadow가 덧붙는 modifier 체인.
- * @param axis shadow의 edge가 가로축과 세로축 중 어느 쪽을 따라 도는지.
- * @param side [progress]가 커짐에 따라 edge가 어느 side(start/end)에서 전진하는지.
- * @param progress edge가 얼마나 전진했는지, `[0, 1]` 범위.
- * @param maxAlpha 최대 강도(`progress == 1`)에서 cast shadow의 alpha; contact 띠는 이 값에서
- *   파생되되 별도로 상한이 적용된다.
- * @param castWidth cast shadow의 픽셀 단위 너비.
- * @param contactWidth 더 좁고 진한 contact 띠의 픽셀 단위 너비.
- * @return shadow를 그리는 modifier, 또는 [progress]가 0이면 변경되지 않은 receiver.
- */
-private fun Modifier.foundationMovingEdgeShadow(
-    axis: FoundationPagerAxis,
-    side: FoundationFluidSide,
-    progress: Float,
-    maxAlpha: Float,
-    castWidth: Float,
-    contactWidth: Float,
-): Modifier = drawWithCache {
-    val clampedProgress = progress.coerceIn(0f, 1f)
-    val castAlpha = maxAlpha * sin(clampedProgress * PI.toFloat())
-    val contactAlpha = (castAlpha * 1.35f).coerceAtMost(0.42f)
-    if (castAlpha <= 0f) {
-        return@drawWithCache onDrawWithContent { drawContent() }
-    }
-
-    onDrawWithContent {
-        drawContent()
-        if (axis == FoundationPagerAxis.Horizontal) {
-            val edge = when (side) {
-                FoundationFluidSide.Start -> size.width * clampedProgress
-                FoundationFluidSide.End -> size.width * (1f - clampedProgress)
-            }
-            val castLeft = when (side) {
-                FoundationFluidSide.Start -> edge
-                FoundationFluidSide.End -> edge - castWidth
-            }.coerceIn(0f, size.width)
-            val castRight = (castLeft + castWidth).coerceAtMost(size.width)
-            val contactLeft = when (side) {
-                FoundationFluidSide.Start -> edge - contactWidth / 2f
-                FoundationFluidSide.End -> edge - contactWidth / 2f
-            }.coerceIn(0f, size.width)
-            val contactRight = (contactLeft + contactWidth).coerceAtMost(size.width)
-            val castColors = when (side) {
-                FoundationFluidSide.Start -> listOf(
-                    Color.Black.copy(alpha = castAlpha),
-                    Color.Black.copy(alpha = castAlpha * 0.30f),
-                    Color.Transparent,
-                )
-                FoundationFluidSide.End -> listOf(
-                    Color.Transparent,
-                    Color.Black.copy(alpha = castAlpha * 0.30f),
-                    Color.Black.copy(alpha = castAlpha),
-                )
-            }
-            drawRect(
-                brush = Brush.horizontalGradient(colors = castColors, startX = castLeft, endX = castRight),
-                topLeft = Offset(castLeft, 0f),
-                size = Size((castRight - castLeft).coerceAtLeast(0f), size.height),
-            )
-            drawRect(
-                color = Color.Black.copy(alpha = contactAlpha),
-                topLeft = Offset(contactLeft, 0f),
-                size = Size((contactRight - contactLeft).coerceAtLeast(0f), size.height),
-            )
-        } else {
-            val edge = when (side) {
-                FoundationFluidSide.Start -> size.height * clampedProgress
-                FoundationFluidSide.End -> size.height * (1f - clampedProgress)
-            }
-            val castTop = when (side) {
-                FoundationFluidSide.Start -> edge
-                FoundationFluidSide.End -> edge - castWidth
-            }.coerceIn(0f, size.height)
-            val castBottom = (castTop + castWidth).coerceAtMost(size.height)
-            val contactTop = (edge - contactWidth / 2f).coerceIn(0f, size.height)
-            val contactBottom = (contactTop + contactWidth).coerceAtMost(size.height)
-            val castColors = when (side) {
-                FoundationFluidSide.Start -> listOf(
-                    Color.Black.copy(alpha = castAlpha),
-                    Color.Black.copy(alpha = castAlpha * 0.30f),
-                    Color.Transparent,
-                )
-                FoundationFluidSide.End -> listOf(
-                    Color.Transparent,
-                    Color.Black.copy(alpha = castAlpha * 0.30f),
-                    Color.Black.copy(alpha = castAlpha),
-                )
-            }
-            drawRect(
-                brush = Brush.verticalGradient(colors = castColors, startY = castTop, endY = castBottom),
-                topLeft = Offset(0f, castTop),
-                size = Size(size.width, (castBottom - castTop).coerceAtLeast(0f)),
-            )
-            drawRect(
-                color = Color.Black.copy(alpha = contactAlpha),
-                topLeft = Offset(0f, contactTop),
-                size = Size(size.width, (contactBottom - contactTop).coerceAtLeast(0f)),
             )
         }
     }
@@ -1572,44 +1505,29 @@ private fun foundationRevealZIndex(
  * fluid-reveal 또는 circle-reveal 이웃 슬롯의 클리핑 모양: current 페이지는 결코 클리핑되지
  * 않고, 비활성이거나 아직 진행되지 않은 이웃은 활성 turn 아래에 전체 프레임으로 그대로 보이는
  * 대신 [Modifier.foundationHiddenWhenInactive]를 통해 완전히 숨겨지며, 활성 side의 이웃은
- * [style]에 따라 커지는 fluid edge 또는 원에 클리핑된다.
+ * [clip]이 만들어 주는 모양으로 클리핑된다.
+ *
+ * style별 클리핑을 enum과 style 전용 파라미터로 분기하는 대신 [clip]으로 받는 이유는, 그래야
+ * 각 호출자가 자기 style이 실제로 쓰는 것만 넘기기 때문이다 — 예전 형태는 circle 호출자에게도
+ * fluid 전용 파라미터를 노출했고, 그쪽에서 채우지 않은 그 자리가 쓰이지도 않을 edge를 새로
+ * 할당하는 폴백으로 이어졌다. [clip]은 실제로 클리핑이 필요할 때만 호출된다.
  *
  * @param page 이 modifier가 적용될 pager 슬롯.
- * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
- * @param gestureState 클리핑의 터치-고정 기하를 구동하는 수동 드래그/터치 상태.
- * @param style reveal이 fluid edge인지 커지는 원인지.
- * @param fluidEdge [FoundationRevealStyle.Fluid]를 위한, 공유되는 spring 애니메이션 edge
- *   모양; fluid 경로만 이를 읽으므로 null이면 새로 쓰이지 않는 edge를 만든다.
- * @param fluidVersion [fluidEdge]의 변경 카운터로, 클리핑 모양 안에서 읽히기만 하고(직접
- *   쓰이지는 않고) 가변 edge 모양이 바뀔 때마다 무효화되도록 한다.
+ * @param clip 이 슬롯이 실제로 드러나는 중일 때 쓸 style별 클리핑 modifier.
  * @return 이 슬롯을 자신의 reveal 모양으로 클리핑하는 modifier, 이를 숨기는 modifier, 또는
  *   current 페이지면 변경되지 않은 [Modifier].
  */
-private fun foundationRevealModifier(
+private inline fun foundationRevealModifier(
     page: FoundationPagerPage,
-    axis: FoundationPagerAxis,
     activeSide: FoundationFluidSide,
     progress: Float,
-    gestureState: FoundationPagerGestureState,
-    style: FoundationRevealStyle,
-    fluidEdge: FoundationFluidEdge? = null,
-    fluidVersion: Int = 0,
+    clip: () -> Modifier,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
     if (page.side != activeSide || progress <= 0f) return Modifier.foundationHiddenWhenInactive(true)
-    return when (style) {
-        FoundationRevealStyle.Fluid -> Modifier.foundationFluidClip(
-            axis = axis,
-            side = page.side,
-            progress = progress,
-            gestureState = gestureState,
-            fluidEdge = fluidEdge ?: FoundationFluidEdge(FoundationFluidPointCount),
-            fluidVersion = fluidVersion,
-        )
-        FoundationRevealStyle.Circle -> Modifier.foundationCircleRevealClip(axis, page.side, progress, gestureState)
-    }
+    return clip()
 }
 
 /**
@@ -1627,22 +1545,18 @@ private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = i
     this
 }
 
-/** [foundationRevealModifier]가 드러나는 이웃을 어느 모양으로 클리핑하는지. */
-private enum class FoundationRevealStyle {
-    /** [PageAnimation.FLUID_PAGER]를 위해, [FoundationFluidEdge]의 spring 애니메이션 물결 edge로 클리핑된다. */
-    Fluid,
-
-    /** [PageAnimation.CIRCLE_REVEAL]을 위해, 터치 지점에 고정된 채 커지는 원으로 클리핑된다. */
-    Circle,
-}
-
 /**
  * [PageAnimation.FLUID_PAGER]를 위해 콘텐츠를 [FoundationFluidEdge]의 현재 물결 edge 모양으로
- * 클리핑한다. [Shape]는 호출마다 새로 만들어지는 익명 객체이지만, Compose가 outline을 요청할
- * 때마다([Shape.createOutline]) 이 호출의 [side]/[progress]/터치 목표 쪽으로 [fluidEdge]를
- * 구동한다 — `applyTarget`은 목표만 기록할 뿐이고, 그것을 뒤쫓는 물리 시뮬레이션은
- * [FoundationEffectPager] 안의 `LaunchedEffect(pageAnimation)` 루프에서 여전히 프레임마다
- * 한 번씩 실행된다.
+ * 클리핑한다. [foundationCircleRevealClip]과 마찬가지로 [clip]의 [Shape]가 아니라
+ * `drawWithCache`/[clipPath]로 그린다: [Shape] 판은 호출마다 익명 객체를 새로 할당했고, 그
+ * 인스턴스가 매 프레임 바뀌는 탓에 레이어가 프레임마다 무효화됐다. 또한 [FoundationFluidEdge.version]을
+ * 여기 캐시 블록 안에서 읽으므로, edge가 제자리에서 변할 때 재구성 없이 그리기만 다시 돈다 —
+ * 예전에는 이 카운터를 [FoundationEffectPager] 본문에서 읽어 pager 전체가 프레임마다
+ * 재구성됐다.
+ *
+ * [fluidEdge]의 목표를 기록하는 `applyTarget` 호출은 슬롯 크기를 알아야 하므로 여전히 여기
+ * 그리기 경로에 있다. 목표를 뒤쫓는 물리 시뮬레이션 자체는 [FoundationEffectPager] 안의
+ * `LaunchedEffect(pageAnimation)` 루프가 프레임마다 한 번씩 돌린다.
  *
  * @receiver 이 클리핑이 덧붙는 modifier 체인.
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
@@ -1650,8 +1564,6 @@ private enum class FoundationRevealStyle {
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; edge가 쉬어야 할 목표값이다.
  * @param gestureState 터치 지점이 edge의 부풀어 오름을 조종하는, 수동 드래그/터치 상태.
  * @param fluidEdge 이 클리핑이 구동하는 동시에 읽는, 공유되는 spring 애니메이션 edge 모양.
- * @param fluidVersion [fluidEdge]의 변경 카운터로, 오직 가변 edge 모양이 바뀔 때마다
- *   outline이 다시 계산되도록 하기 위해 캡처만 되고(읽히지는 않는다).
  * @return receiver를 fluid edge의 현재 모양으로 클리핑하는 modifier.
  */
 private fun Modifier.foundationFluidClip(
@@ -1660,36 +1572,32 @@ private fun Modifier.foundationFluidClip(
     progress: Float,
     gestureState: FoundationPagerGestureState,
     fluidEdge: FoundationFluidEdge,
-    fluidVersion: Int,
-): Modifier = clip(
-    object : Shape {
-        @Suppress("UNUSED_VARIABLE")
-        private val version = fluidVersion
-
-        override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-            val sizeModel = FoundationPagerSize(size.width, size.height)
-            val touchCrossAxis = foundationTouchCrossAxis(
-                axis = axis,
-                size = sizeModel,
-                touch = gestureState.touchPoint(),
-            )
-            fluidEdge.applyTarget(
-                side = side,
-                progress = progress,
-                touchCrossAxis = touchCrossAxis,
-                touchActive = gestureState.active,
-            )
-            return Outline.Generic(
-                buildFoundationFluidPath(
-                    size = size,
-                    axis = axis,
-                    side = side,
-                    edge = fluidEdge,
-                ),
-            )
+): Modifier = drawWithCache {
+    @Suppress("UNUSED_VARIABLE")
+    val version = fluidEdge.version
+    val sizeModel = FoundationPagerSize(size.width, size.height)
+    fluidEdge.applyTarget(
+        side = side,
+        progress = progress,
+        touchCrossAxis = foundationTouchCrossAxis(
+            axis = axis,
+            size = sizeModel,
+            touch = gestureState.touchPoint(),
+        ),
+        touchActive = gestureState.active,
+    )
+    val path = buildFoundationFluidPolygon(
+        size = sizeModel,
+        axis = axis,
+        side = side,
+        edge = fluidEdge,
+    ).toPath()
+    onDrawWithContent {
+        clipPath(path) {
+            this@onDrawWithContent.drawContent()
         }
-    },
-)
+    }
+}
 
 /**
  * [PageAnimation.CIRCLE_REVEAL]을 위해 콘텐츠를 커지는 원으로 클리핑하며, ([foundationFluidClip]과
@@ -2431,17 +2339,6 @@ private data class FoundationPagerGestureState(
         return FoundationPagerPoint(touch.x, touch.y)
     }
 
-    /**
-     * 이 제스처가 시작된 위치. 현재 이 파일이나 그 테스트 어디에서도 호출되지 않는다 —
-     * [start]는 제스처의 원점이 필요한 유일한 곳([FoundationEffectPager]의 제스처
-     * 추적용 `pointerInput`)에서 직접 읽힌다.
-     *
-     * @return 제스처의 시작 지점, 또는 [touched]가 false면 null.
-     */
-    fun startPoint(): FoundationPagerPoint? {
-        if (!touched) return null
-        return FoundationPagerPoint(start.x, start.y)
-    }
 }
 
 /**
@@ -2780,19 +2677,6 @@ internal enum class FoundationPagerAxis {
     }
 
     /**
-     * [toCanonicalSize]의 Compose [Size]판. 현재 이 파일이나 그 테스트 어디에서도
-     * 호출되지 않는다 — fluid/circle 기하는 시종일관 위의 [FoundationPagerSize] 오버로드를
-     * 쓴다 — 원시 [Size]만 손에 쥔 호출자를 위해 그 옆에 남겨 두었다.
-     *
-     * @param size 이 축의 실제 방향 기준 슬롯의 크기.
-     * @return canonical한 가로-turn 방향 기준의 같은 크기.
-     */
-    fun toCanonicalSize(size: Size): Size = when (this) {
-        Horizontal -> size
-        Vertical -> Size(size.height, size.width)
-    }
-
-    /**
      * Compose [Offset]을 canonical한 가로-turn 공간에서 이 축의 실제 좌표 공간으로 다시
      * 매핑한다 — [fromCanonical]의 [Offset]판으로, 호출자가 [FoundationPagerPoint]가 아니라
      * Compose 자신의 offset 타입으로 이미 작업하고 있을 때 쓰인다.
@@ -2938,38 +2822,6 @@ internal fun foundationTouchCrossAxis(
     }
     if (extent <= 0f) return 0.5f
     return (cross / extent).coerceIn(0f, 1f)
-}
-
-/**
- * [touch]가 turn 축 자체를 따라 어디에 있는지를, 그 크기에 대한 비율로 나타낸다 — 그에
- * 수직인 축이 아니라 페이지가 실제로 넘어가는 축에 대한 [foundationTouchCrossAxis]의
- * 대응물이다. 현재 이 파일이나 그 테스트 어디에서도 호출되지 않는다; 출시된 어떤
- * reveal/shadow style도 터치의 turn 방향을 가로지르는 위치만 필요로 할 뿐, 그 방향을
- * 따른 위치는 필요로 하지 않는다.
- *
- * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지; [touch]의 성분 중 어느
- *   것이 주 성분인지를 결정한다.
- * @param size 원시 터치 좌표를 비율로 정규화하는 데 쓰이는 슬롯의 크기.
- * @param touch 현재 터치 지점, 또는 없으면 null.
- * @return 터치의 주 축 위치, `[0, 1]` 범위, 또는 [touch]가 null이거나 관련 [size] 크기가
- *   0이면 null.
- */
-internal fun foundationTouchPrimaryAxis(
-    axis: FoundationPagerAxis,
-    size: FoundationPagerSize,
-    touch: FoundationPagerPoint?,
-): Float? {
-    if (touch == null) return null
-    val primary = when (axis) {
-        FoundationPagerAxis.Horizontal -> touch.x
-        FoundationPagerAxis.Vertical -> touch.y
-    }
-    val extent = when (axis) {
-        FoundationPagerAxis.Horizontal -> size.width
-        FoundationPagerAxis.Vertical -> size.height
-    }
-    if (extent <= 0f) return null
-    return (primary / extent).coerceIn(0f, 1f)
 }
 
 /**
@@ -3179,14 +3031,7 @@ internal fun buildFoundationFluidPolygon(
     edge: FoundationFluidEdge,
 ): List<FoundationPagerPoint> {
     val canonicalSize = axis.toCanonicalSize(size)
-    val edgePoints = edge.points.map { point ->
-        val x = (canonicalSize.width * point.x).coerceIn(0f, canonicalSize.width)
-        val y = canonicalSize.height * point.y
-        when (side) {
-            FoundationFluidSide.Start -> FoundationPagerPoint(x, y)
-            FoundationFluidSide.End -> FoundationPagerPoint(canonicalSize.width - x, y)
-        }
-    }
+    val edgePoints = edge.canonicalEdgePoints(canonicalSize, side)
     val canonicalPoints = when (side) {
         FoundationFluidSide.Start -> buildList {
             add(FoundationPagerPoint(0f, 0f))
@@ -3199,31 +3044,8 @@ internal fun buildFoundationFluidPolygon(
             add(FoundationPagerPoint(canonicalSize.width, canonicalSize.height))
         }
     }
-    return canonicalPoints.map(axis::fromCanonical)
+    return canonicalPoints.fromCanonical(axis)
 }
-
-/**
- * [edge]의 현재 polygon으로부터 만들어지는, [PageAnimation.FLUID_PAGER]의 클리핑 경로 —
- * [Modifier.foundationFluidClip]의 [Shape]가 [Shape.createOutline]마다 호출하는, [Path]를
- * 만들어 내는 얇은 래퍼로, outline 콜백이 받는 그대로 Compose [Size]를 직접 받는다.
- *
- * @param size [Shape.createOutline] 호출에 주어지는, 슬롯의 크기.
- * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
- * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
- * @param edge 현재 점 위치를 따라 그릴 대상 fluid edge.
- * @return [edge]의 현재 polygon을 따라 그리는, 닫힌 [Path].
- */
-private fun buildFoundationFluidPath(
-    size: Size,
-    axis: FoundationPagerAxis,
-    side: FoundationFluidSide,
-    edge: FoundationFluidEdge,
-): Path = buildFoundationFluidPolygon(
-    size = FoundationPagerSize(size.width, size.height),
-    axis = axis,
-    side = side,
-    edge = edge,
-).toPath()
 
 /**
  * fluid edge의 현재 모양 뒤로 이어지는, 너비 [width] 픽셀짜리 띠로,
@@ -3247,14 +3069,53 @@ internal fun buildFoundationFluidShadowPolygon(
     width: Float,
 ): List<FoundationPagerPoint> {
     val canonicalSize = axis.toCanonicalSize(size)
-    val edgePoints = edge.points.map { point ->
-        val x = (canonicalSize.width * point.x).coerceIn(0f, canonicalSize.width)
-        val y = canonicalSize.height * point.y
-        when (side) {
-            FoundationFluidSide.Start -> FoundationPagerPoint(x, y)
-            FoundationFluidSide.End -> FoundationPagerPoint(canonicalSize.width - x, y)
-        }
+    return foundationFluidShadowBand(
+        edgePoints = edge.canonicalEdgePoints(canonicalSize, side),
+        canonicalSize = canonicalSize,
+        side = side,
+        width = width,
+    ).fromCanonical(axis)
+}
+
+/**
+ * [edge]의 점들을 canonical한 가로-turn 좌표계의 픽셀 위치로 옮긴 것으로, reveal polygon과
+ * shadow 띠가 모두 같은 첫 단계를 밟는다. 두 빌더가 각자 이 변환을 되풀이하면 cast/contact
+ * shadow 한 쌍만으로도 프레임마다 점 변환이 네 번 돌아간다.
+ *
+ * @receiver 현재 점 위치를 읽을 대상 fluid edge.
+ * @param canonicalSize canonical한 가로-turn 방향 기준 슬롯의 크기.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @return canonical 좌표계 기준 edge의 점들.
+ */
+private fun FoundationFluidEdge.canonicalEdgePoints(
+    canonicalSize: FoundationPagerSize,
+    side: FoundationFluidSide,
+): List<FoundationPagerPoint> = points.map { point ->
+    val x = (canonicalSize.width * point.x).coerceIn(0f, canonicalSize.width)
+    val y = canonicalSize.height * point.y
+    when (side) {
+        FoundationFluidSide.Start -> FoundationPagerPoint(x, y)
+        FoundationFluidSide.End -> FoundationPagerPoint(canonicalSize.width - x, y)
     }
+}
+
+/**
+ * [edgePoints]와, 그것을 edge의 원점 쪽으로 [width]만큼 옮긴 사본을 하나의 닫힌 고리로 이어
+ * 붙인 shadow 띠. canonical 좌표계 그대로 반환하므로, 같은 [edgePoints]로 서로 다른 [width]의
+ * 띠를 여러 개 만들 때 점 변환을 한 번만 치른다.
+ *
+ * @param edgePoints canonical 좌표계 기준 edge의 점들.
+ * @param canonicalSize canonical한 가로-turn 방향 기준 슬롯의 크기.
+ * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
+ * @param width shadow 띠의 너비, 픽셀 단위.
+ * @return canonical 좌표계 기준, 띠의 닫힌 polygon 윤곽.
+ */
+private fun foundationFluidShadowBand(
+    edgePoints: List<FoundationPagerPoint>,
+    canonicalSize: FoundationPagerSize,
+    side: FoundationFluidSide,
+    width: Float,
+): List<FoundationPagerPoint> {
     val shadowPoints = edgePoints.map { point ->
         val shadowX = when (side) {
             FoundationFluidSide.Start -> point.x + width
@@ -3262,7 +3123,23 @@ internal fun buildFoundationFluidShadowPolygon(
         }.coerceIn(0f, canonicalSize.width)
         FoundationPagerPoint(shadowX, point.y)
     }
-    return (edgePoints + shadowPoints.asReversed()).map(axis::fromCanonical)
+    return edgePoints + shadowPoints.asReversed()
+}
+
+/**
+ * canonical한 가로-turn 공간의 이 점들을 [axis]의 실제 방향으로 되돌린다. [Horizontal]에서는
+ * 맞바꿈이 항등이므로 리스트와 점을 전부 새로 만드는 대신 receiver를 그대로 돌려준다 — 이
+ * 변환은 fluid 경로에서 프레임마다 점 수십 개 단위로 돌아간다.
+ *
+ * @receiver canonical한 가로-turn 공간 안 polygon의 점들.
+ * @param axis 되돌릴 대상 축.
+ * @return [axis]의 실제 방향 기준 점들.
+ */
+private fun List<FoundationPagerPoint>.fromCanonical(
+    axis: FoundationPagerAxis,
+): List<FoundationPagerPoint> = when (axis) {
+    FoundationPagerAxis.Horizontal -> this
+    FoundationPagerAxis.Vertical -> map(axis::fromCanonical)
 }
 
 
@@ -3285,19 +3162,6 @@ private fun List<FoundationPagerPoint>.toPath(): Path = Path().apply {
     }
     close()
 }
-
-/**
- * 아직 canonical한 가로-turn 공간으로 표현된 polygon을 위한 [toPath]로, 모든 점을 먼저
- * [axis]의 실제 방향으로 다시 매핑한다. 현재 이 파일이나 그 테스트 어디에서도 호출되지
- * 않는다 — 여기 있는 모든 polygon 빌더는 그 매핑을 이 오버로드에 미루는 대신, 인자 없는
- * [toPath]를 직접 호출하기 전에 스스로 점들을 [axis]로 다시 매핑한다.
- *
- * @receiver canonical한 가로-turn 공간 안 polygon의 점들.
- * @param axis 그리기 전에 점들을 다시 매핑할 대상 축.
- * @return [axis]의 실제 방향으로 receiver를 그리는 닫힌 [Path].
- */
-private fun List<FoundationPagerPoint>.toPath(axis: FoundationPagerAxis): Path =
-    map(axis::fromCanonical).toPath()
 
 /**
  * [FoundationPagerPage.Previous] 슬롯의 원시 Foundation pager 인덱스. 이 상수와 다음 세
