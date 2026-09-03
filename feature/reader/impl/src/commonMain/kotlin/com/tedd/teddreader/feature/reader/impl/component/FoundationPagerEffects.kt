@@ -15,6 +15,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -515,7 +516,43 @@ internal fun FoundationEffectPager(
      * 고치는 실수를 부르는 자리였다.
      */
     val pageSlot: @Composable (pagerPage: Int) -> Unit = { pagerPage ->
-        val pageOffset = if (readsPagerOffset) pagerState.foundationOffsetForPage(pagerPage) else 0f
+        // 연속값(오프셋·진행률)은 composition에서 읽지 않는다. 읽는 순간 이 슬롯이 스크롤 프레임마다
+        // 재구성되기 때문이다. 대신 provider로 넘겨 graphicsLayer/drawWithCache 블록 안에서 읽게
+        // 하고, composition은 아래 이산 [FoundationPagerTurnState]만 관찰한다.
+        //
+        // PAGE_FLIP만 예외로 연속 오프셋을 여기서 읽는다: fold 기하가 `0`·부호·`0.5`라는 구조적
+        // 임계값에 매달려 있어 슬롯 트리 자체가 갈린다. 그 양자화는 별도 작업이다.
+        val isPageFlip = pageAnimation == PageAnimation.PAGE_FLIP
+        // PAGE_FLIP 전용. 다른 style에서는 읽히지 않으므로 0f로 남겨 두지만, 이름으로 그 사실을
+        // 드러내 두어 나중에 비-flip 분기가 이 값을 조용히 0으로 읽는 일이 없게 한다.
+        val pageFlipOffset = if (isPageFlip) pagerState.foundationOffsetForPage(pagerPage) else 0f
+        val offsetProvider: () -> Float = { pagerState.foundationOffsetForPage(pagerPage) }
+        val turnState by remember(pagerState, gesture) {
+            derivedStateOf {
+                val phase = gesture.phase
+                val turn = foundationActivePageTurn(
+                    gestureActive = phase.active,
+                    gestureSide = phase.side,
+                    previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage),
+                    nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage),
+                )
+                FoundationPagerTurnState(side = turn.side, isActive = turn.progress > 0f)
+            }
+        }
+        // turnState.side 로 진행률을 골라 오면 안 된다: [foundationActivePageTurn]에는 "드래그는
+        // 활성인데 방향이 아직 확정되지 않았으면 진행률을 0으로 보고한다"는 규칙이 있고, 그 규칙이
+        // 바로 방향이 정해지기 전 한 프레임 동안 반대쪽 이웃이 비치는 것을 막는다. composition에서
+        // 고른 side를 draw 시점에 그대로 쓰면 그 사이 상태가 바뀌었을 때 규칙이 빠진다. 같은 함수를
+        // draw 시점에 다시 돌려 예전 값과 정확히 같게 만든다.
+        val turnProvider: () -> FoundationActivePageTurn = {
+            val phase = gesture.phase
+            foundationActivePageTurn(
+                gestureActive = phase.active,
+                gestureSide = phase.side,
+                previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage),
+                nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage),
+            )
+        }
         val incomingPage = if (
             pageAnimation != PageAnimation.PAGE_FLIP ||
             pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
@@ -523,15 +560,15 @@ internal fun FoundationEffectPager(
             null
         } else {
             when {
-                pageOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                pageOffset < 0f -> previousPage
+                pageFlipOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
+                pageFlipOffset < 0f -> previousPage
                 else -> null
             }
         }
         FoundationPageFlipAwareBox(
             pageAnimation = pageAnimation,
             axis = axis,
-            pageOffset = pageOffset,
+            pageOffset = pageFlipOffset,
             pageFlipLayout = pageFlipLayout,
             isCurrentPage = pagerPage == FoundationCenterPage,
             modifier = if (readsPagerOffset) {
@@ -541,9 +578,9 @@ internal fun FoundationEffectPager(
                         pagerPage = pagerPage,
                         axis = axis,
                         pageAnimation = pageAnimation,
-                        pageOffset = pageOffset,
-                        previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage),
-                        nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage),
+                        offsetProvider = offsetProvider,
+                        turnState = turnState,
+                        turnProvider = turnProvider,
                         gesture = gesture,
                         fluidEdge = fluidEdge,
                     )
@@ -1055,17 +1092,26 @@ private fun Modifier.foundationPageFlipInnerShadow(
  * 그 외의 애니메이션(다른 곳에서 [AnimatedContent]/일반 Foundation 스와이프가 전부 처리한다)에는
  * 여기서 별도의 modifier를 주지 않는다.
  *
- * 진행률을 [PagerState]에서 직접 읽는 대신 [previousProgress]/[nextProgress]로 받는 이유는,
- * 그래야 이 빌더가 Foundation pager 타입에 묶이지 않고 두 숫자만으로 단위 테스트할 수 있기
- * 때문이다.
+ * 연속값은 값이 아니라 provider로 받는다. 값으로 받으면 호출자가 그것을 composition에서 읽어야 하고,
+ * 그러면 스크롤이 진행되는 매 프레임 슬롯이 재구성된다. provider는 그 읽기를 graphicsLayer(placement)와
+ * drawWithCache(draw) 블록 안으로 미루므로, 재구성 없이 레이어와 그리기 캐시만 갱신된다.
+ *
+ * composition이 여전히 알아야 하는 것 — z-index 값, 그리고 이웃을 아예 숨길지 여부 — 은 전부
+ * 이산값이라 [turnState] 하나에 담아 넘긴다.
  *
  * @receiver 이 트랜지션이 덧붙는 modifier 체인.
  * @param pagerPage pager 안에서 이 슬롯의 인덱스(0, 1, 또는 2).
  * @param axis pager가 가로축과 세로축 중 어느 쪽으로 도는지.
  * @param pageAnimation 적용할 트랜지션 style.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋.
- * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
- * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
+ * @param offsetProvider 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋을 돌려준다.
+ *   값이 아니라 provider인 이유는 위 문단과 같다.
+ * @param turnState 어느 이웃 쪽 turn이 활성이고 그것이 진행 중인지 — 이 빌더가 composition 시점에
+ *   실제로 필요로 하는 전부다.
+ * @param turnProvider 그 프레임의 활성 turn(어느 이웃 쪽인지와 진행률)을 돌려준다. 진행률만이 아니라
+ *   side까지 돌려주는 이유는, composition의 gate와 draw의 값이 한 프레임 어긋날 수 있기 때문이다 —
+ *   `PagerState`의 스크롤 위치는 measure 단계에서 갱신되므로 draw는 그 프레임에 이미 새 값을 보지만
+ *   composition은 다음 프레임에야 본다. 그리기 블록이 side를 다시 대조해야, fling 도중 방향이 뒤집힌
+ *   프레임에서 엉뚱한 이웃이 번쩍이지 않는다.
  * @param gesture fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
  * @param fluidEdge fluid-reveal style을 위한, 공유되는 spring 애니메이션 edge 모양.
  * @return [pageAnimation]에 대해 이 슬롯의 transform, shadow, z-index를 적용하는 modifier.
@@ -1074,24 +1120,18 @@ private fun Modifier.foundationEffectPageModifier(
     pagerPage: Int,
     axis: FoundationPagerAxis,
     pageAnimation: PageAnimation,
-    pageOffset: Float,
-    previousProgress: Float,
-    nextProgress: Float,
+    offsetProvider: () -> Float,
+    turnState: FoundationPagerTurnState,
+    turnProvider: () -> FoundationActivePageTurn,
     gesture: FoundationPagerGestureTracker,
     fluidEdge: FoundationFluidEdge,
 ): Modifier {
     val page = FoundationPagerPage.fromPagerPage(pagerPage)
-    val phase = gesture.phase
-    val activeTurn = foundationActivePageTurn(
-        gestureActive = phase.active,
-        gestureSide = phase.side,
-        previousProgress = previousProgress,
-        nextProgress = nextProgress,
-    )
-    val activeSide = activeTurn.side
-    val activeProgress = activeTurn.progress
+    val activeSide = turnState.side
+    val isTurnActive = turnState.isActive
 
     val cancelTranslation = Modifier.graphicsLayer {
+        val pageOffset = offsetProvider()
         if (axis == FoundationPagerAxis.Horizontal) {
             translationX = size.width * pageOffset
         } else {
@@ -1101,40 +1141,55 @@ private fun Modifier.foundationEffectPageModifier(
 
     return when (pageAnimation) {
         PageAnimation.FLUID_PAGER -> cancelTranslation
-            .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
+            .zIndex(foundationRevealZIndex(page, activeSide, isTurnActive))
             .then(
-                foundationRevealModifier(page, activeSide, activeProgress) {
+                foundationRevealModifier(page, activeSide, isTurnActive) {
                     Modifier.foundationFluidClip(
                         axis = axis,
                         side = page.side,
-                        progress = activeProgress,
+                        turnProvider = turnProvider,
                         gesture = gesture,
                         fluidEdge = fluidEdge,
                     )
                 },
             )
-            .then(foundationFluidShadow(page, axis, activeSide, activeProgress, fluidEdge))
+            .then(foundationFluidShadow(page, axis, activeSide, isTurnActive, turnProvider, fluidEdge))
 
         PageAnimation.CIRCLE_REVEAL -> cancelTranslation
-            .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
+            .zIndex(foundationRevealZIndex(page, activeSide, isTurnActive))
             .then(
-                foundationRevealModifier(page, activeSide, activeProgress) {
-                    Modifier.foundationCircleRevealClip(axis, page.side, activeProgress, gesture)
+                foundationRevealModifier(page, activeSide, isTurnActive) {
+                    Modifier.foundationCircleRevealClip(axis, page.side, turnProvider, gesture)
                 },
             )
-            .then(foundationCircleRevealShadow(page, axis, activeSide, activeProgress, gesture))
+            .then(foundationCircleRevealShadow(page, axis, activeSide, isTurnActive, turnProvider, gesture))
 
         PageAnimation.MOVIE_CAROUSEL -> Modifier
-            .zIndex(foundationMovieZIndex(page, activeSide, activeProgress))
-            .foundationMovieCarouselLayer(axis, page, pageOffset)
-            .foundationMovieCarouselShadow(axis, page, pageOffset)
+            .zIndex(foundationMovieZIndex(page, activeSide, isTurnActive))
+            .foundationMovieCarouselLayer(axis, page, offsetProvider)
+            .foundationMovieCarouselShadow(axis, page, offsetProvider)
 
+        // PAGE_FLIP은 아직 슬롯 트리 자체가 연속 오프셋에 갈리므로, 여기서 읽어도 새로 생기는
+        // 재구성이 없다. 구조 임계값이 양자화되면 이 호출도 이산값으로 바뀐다.
         PageAnimation.PAGE_FLIP -> cancelTranslation
-            .zIndex(foundationPageFlipZIndex(page, pageOffset))
+            .zIndex(foundationPageFlipZIndex(page, offsetProvider()))
 
         else -> Modifier
     }
 }
+
+/**
+ * 슬롯별 트랜지션이 composition 시점에 알아야 하는 turn 상태 전부 — 둘 다 이산값이라, 스크롤이
+ * 진행되는 동안에도 임계값을 넘을 때만 바뀐다.
+ *
+ * @property side 활성 turn이 어느 쪽(start/end) 이웃을 드러내고 있는지.
+ * @property isActive 그 turn이 실제로 진행 중인지(진행률이 `0`보다 큰지).
+ */
+@Immutable
+private data class FoundationPagerTurnState(
+    val side: FoundationFluidSide,
+    val isActive: Boolean,
+)
 
 /**
  * fluid-reveal edge를 따라, 지금 드러나고 있는 이웃 쪽으로 그려지는 cast + contact shadow로,
@@ -1143,7 +1198,10 @@ private fun Modifier.foundationEffectPageModifier(
  * @param page 이 shadow가 그려질 pager 슬롯.
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param isTurnActive 그 turn이 실제로 진행 중인지; 아니면 modifier를 아예 붙이지 않는다.
+ * @param turnProvider 그 프레임의 활성 turn을 돌려준다; 그리기 캐시 안에서만 호출된다. side를 여기서
+ *   다시 대조하는 이유는 composition의 gate가 한 프레임 뒤질 수 있기 때문이다 — 그 프레임에
+ *   turn이 다른 이웃으로 넘어갔다면 이 슬롯은 아무것도 그리지 않아야 한다.
  * @param fluidEdge shadow가 따라 그리는, 공유되는 spring 애니메이션 edge 모양.
  * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
  *   [Modifier].
@@ -1152,15 +1210,20 @@ private fun foundationFluidShadow(
     page: FoundationPagerPage,
     axis: FoundationPagerAxis,
     activeSide: FoundationFluidSide,
-    progress: Float,
+    isTurnActive: Boolean,
+    turnProvider: () -> FoundationActivePageTurn,
     fluidEdge: FoundationFluidEdge,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
-    if (page.side != activeSide || progress <= 0f) return Modifier
+    if (page.side != activeSide || !isTurnActive) return Modifier
     return Modifier.drawWithCache {
         @Suppress("UNUSED_VARIABLE")
         val version = fluidEdge.version
-        val clampedProgress = progress.coerceIn(0f, 1f)
+        val turn = turnProvider()
+        if (turn.side != page.side) {
+            return@drawWithCache onDrawWithContent { drawContent() }
+        }
+        val clampedProgress = turn.progress.coerceIn(0f, 1f)
         val castAlpha = FoundationRevealShadowAlpha * sin(clampedProgress * PI.toFloat())
         val contactAlpha = (castAlpha * 1.25f).coerceAtMost(0.32f)
         if (castAlpha <= 0f) {
@@ -1199,7 +1262,10 @@ private fun foundationFluidShadow(
  * @param page 이 shadow가 그려질 pager 슬롯.
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param isTurnActive 그 turn이 실제로 진행 중인지; 아니면 modifier를 아예 붙이지 않는다.
+ * @param turnProvider 그 프레임의 활성 turn을 돌려준다; 그리기 캐시 안에서만 호출된다. side를 여기서
+ *   다시 대조하는 이유는 composition의 gate가 한 프레임 뒤질 수 있기 때문이다 — 그 프레임에
+ *   turn이 다른 이웃으로 넘어갔다면 이 슬롯은 아무것도 그리지 않아야 한다.
  * @param gesture 원의 원점을 터치 지점에 고정하는 수동 드래그/터치 상태.
  * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
  *   [Modifier].
@@ -1208,12 +1274,18 @@ private fun foundationCircleRevealShadow(
     page: FoundationPagerPage,
     axis: FoundationPagerAxis,
     activeSide: FoundationFluidSide,
-    progress: Float,
+    isTurnActive: Boolean,
+    turnProvider: () -> FoundationActivePageTurn,
     gesture: FoundationPagerGestureTracker,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
-    if (page.side != activeSide || progress <= 0f) return Modifier
+    if (page.side != activeSide || !isTurnActive) return Modifier
     return Modifier.drawWithCache {
+        val turn = turnProvider()
+        if (turn.side != page.side) {
+            return@drawWithCache onDrawWithContent { drawContent() }
+        }
+        val progress = turn.progress
         val touchCrossAxis = foundationTouchCrossAxis(
             axis = axis,
             size = FoundationPagerSize(size.width, size.height),
@@ -1262,16 +1334,18 @@ private fun foundationCircleRevealShadow(
  * @receiver 이 shadow가 덧붙는 modifier 체인.
  * @param axis carousel이 가로축과 세로축 중 어느 쪽으로 움직이는지.
  * @param page 이 shadow가 그려질 pager 슬롯.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위;
- *   부호는 이 슬롯이 들어오는 중인지를, 크기는 shadow가 얼마나 옅어졌는지를 결정한다.
+ * @param offsetProvider 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋을 돌려준다,
+ *   `[-1, 1]` 범위; 부호는 이 슬롯이 들어오는 중인지를, 크기는 shadow가 얼마나 옅어졌는지를
+ *   결정한다. 그리기 캐시 안에서만 호출된다.
  * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
  *   receiver.
  */
 private fun Modifier.foundationMovieCarouselShadow(
     axis: FoundationPagerAxis,
     page: FoundationPagerPage,
-    pageOffset: Float,
+    offsetProvider: () -> Float,
 ): Modifier = drawWithCache {
+    val pageOffset = offsetProvider()
     val shadowSide = foundationMovieCarouselShadowSide(page)
     val isIncomingPage = when (page) {
         FoundationPagerPage.Previous -> pageOffset > 0f
@@ -1457,16 +1531,16 @@ internal fun foundationActivePageTurn(
  *
  * @param page 배치할 대상 pager 슬롯.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param isTurnActive 활성 turn이 실제로 진행 중인지; 아니면 이웃은 쌓임 순서에서 맨 뒤로 간다.
  * @return [page]의 z-index.
  */
 private fun foundationRevealZIndex(
     page: FoundationPagerPage,
     activeSide: FoundationFluidSide,
-    progress: Float,
+    isTurnActive: Boolean,
 ): Float = when {
     page == FoundationPagerPage.Current -> 1f
-    progress <= 0f -> 0f
+    !isTurnActive -> 0f
     page.side == activeSide -> 2f
     else -> 0f
 }
@@ -1484,7 +1558,7 @@ private fun foundationRevealZIndex(
  *
  * @param page 이 modifier가 적용될 pager 슬롯.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param isTurnActive 활성 turn이 실제로 진행 중인지; 아니면 이웃은 클리핑 대신 완전히 숨겨진다.
  * @param clip 이 슬롯이 실제로 드러나는 중일 때 쓸 style별 클리핑 modifier.
  * @return 이 슬롯을 자신의 reveal 모양으로 클리핑하는 modifier, 이를 숨기는 modifier, 또는
  *   current 페이지면 변경되지 않은 [Modifier].
@@ -1492,11 +1566,11 @@ private fun foundationRevealZIndex(
 private inline fun foundationRevealModifier(
     page: FoundationPagerPage,
     activeSide: FoundationFluidSide,
-    progress: Float,
+    isTurnActive: Boolean,
     clip: () -> Modifier,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
-    if (page.side != activeSide || progress <= 0f) return Modifier.foundationHiddenWhenInactive(true)
+    if (page.side != activeSide || !isTurnActive) return Modifier.foundationHiddenWhenInactive(true)
     return clip()
 }
 
@@ -1531,7 +1605,9 @@ private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = i
  * @receiver 이 클리핑이 덧붙는 modifier 체인.
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; edge가 쉬어야 할 목표값이다.
+ * @param turnProvider 그 프레임의 활성 turn을 돌려준다; 그리기 캐시 안에서만 호출된다. side를 여기서
+ *   다시 대조하는 이유는 composition의 gate가 한 프레임 뒤질 수 있기 때문이다 — 그 프레임에
+ *   turn이 다른 이웃으로 넘어갔다면 이 슬롯은 아무것도 그리지 않아야 한다.
  * @param gesture 터치 지점이 edge의 부풀어 오름을 조종하는, 수동 드래그/터치 상태.
  * @param fluidEdge 이 클리핑이 구동하는 동시에 읽는, 공유되는 spring 애니메이션 edge 모양.
  * @return receiver를 fluid edge의 현재 모양으로 클리핑하는 modifier.
@@ -1539,16 +1615,20 @@ private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = i
 private fun Modifier.foundationFluidClip(
     axis: FoundationPagerAxis,
     side: FoundationFluidSide,
-    progress: Float,
+    turnProvider: () -> FoundationActivePageTurn,
     gesture: FoundationPagerGestureTracker,
     fluidEdge: FoundationFluidEdge,
 ): Modifier = drawWithCache {
     @Suppress("UNUSED_VARIABLE")
     val version = fluidEdge.version
+    val turn = turnProvider()
+    if (turn.side != side) {
+        return@drawWithCache onDrawWithContent { }
+    }
     val sizeModel = FoundationPagerSize(size.width, size.height)
     fluidEdge.applyTarget(
         side = side,
-        progress = progress,
+        progress = turn.progress,
         touchCrossAxis = foundationTouchCrossAxis(
             axis = axis,
             size = sizeModel,
@@ -1578,16 +1658,23 @@ private fun Modifier.foundationFluidClip(
  * @receiver 이 클리핑이 덧붙는 modifier 체인.
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param side 원의 원점이 어느 side에 놓이는지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; 원의 반지름을 결정한다.
+ * @param turnProvider 그 프레임의 활성 turn을 돌려준다; 그리기 캐시 안에서만 호출된다. side를 여기서
+ *   다시 대조하는 이유는 composition의 gate가 한 프레임 뒤질 수 있기 때문이다 — 그 프레임에
+ *   turn이 다른 이웃으로 넘어갔다면 이 슬롯은 아무것도 그리지 않아야 한다.
  * @param gesture 원의 원점을 고정하는 터치 지점을 가진, 수동 드래그/터치 상태.
  * @return receiver를 원의 현재 모양으로 클리핑하는 modifier.
  */
 private fun Modifier.foundationCircleRevealClip(
     axis: FoundationPagerAxis,
     side: FoundationFluidSide,
-    progress: Float,
+    turnProvider: () -> FoundationActivePageTurn,
     gesture: FoundationPagerGestureTracker,
 ): Modifier = drawWithCache {
+    val turn = turnProvider()
+    if (turn.side != side) {
+        return@drawWithCache onDrawWithContent { }
+    }
+    val progress = turn.progress
     val touchCrossAxis = foundationTouchCrossAxis(
         axis = axis,
         size = FoundationPagerSize(size.width, size.height),
@@ -1620,16 +1707,17 @@ private fun Modifier.foundationCircleRevealClip(
  * @param axis carousel이 가로축과 세로축 중 어느 쪽으로 움직이는지; (현재는 작동하지 않는)
  *   기울임 분기가 어느 이동/회전 쌍을 적용할지를 결정한다.
  * @param page 이 transform이 적용될 pager 슬롯.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @param offsetProvider 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋을 돌려준다,
+ *   `[-1, 1]` 범위; 레이어 블록 안에서만 호출된다.
  * @return carousel의 scale과 alpha를 적용하는 modifier(그리고 [FoundationMovieTranslationRatio]가
  *   언젠가 0이 아니게 되면 이동/기울임도).
  */
 private fun Modifier.foundationMovieCarouselLayer(
     axis: FoundationPagerAxis,
     page: FoundationPagerPage,
-    pageOffset: Float,
+    offsetProvider: () -> Float,
 ): Modifier = graphicsLayer {
-    val spec = foundationMovieCarouselSpec(page, pageOffset)
+    val spec = foundationMovieCarouselSpec(page, offsetProvider())
     scaleX = spec.scale
     scaleY = spec.scale
     alpha = spec.alpha
@@ -1652,16 +1740,16 @@ private fun Modifier.foundationMovieCarouselLayer(
  *
  * @param page 배치할 대상 pager 슬롯.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 오는 중인지.
- * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
+ * @param isTurnActive 활성 turn이 실제로 진행 중인지; 아니면 이웃은 쌓임 순서에서 맨 뒤로 간다.
  * @return [page]의 z-index.
  */
 private fun foundationMovieZIndex(
     page: FoundationPagerPage,
     activeSide: FoundationFluidSide,
-    progress: Float,
+    isTurnActive: Boolean,
 ): Float = when {
-    progress <= 0f && page == FoundationPagerPage.Current -> 2f
-    progress <= 0f -> 0f
+    !isTurnActive && page == FoundationPagerPage.Current -> 2f
+    !isTurnActive -> 0f
     page.side == activeSide -> 3f
     page == FoundationPagerPage.Current -> 2f
     else -> 0f
