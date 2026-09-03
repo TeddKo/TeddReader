@@ -540,9 +540,7 @@ internal fun FoundationEffectPager(
                 pageFlipLayout = pageFlipLayout,
                 isCurrentPage = pagerPage == FoundationCenterPage,
                 modifier = pageModifier(pagerPage),
-                incomingContent = incomingPage?.let { page -> { content(page) } },
-            ) {
-                val documentPage = readerPagerDisplayedPage(
+                documentPage = readerPagerDisplayedPage(
                     currentPage = renderedPageKey,
                     adjacentPage = readerPagerAdjacentPage(
                         renderedPageKey,
@@ -552,9 +550,10 @@ internal fun FoundationEffectPager(
                     ),
                     pageOffset = pagerPage - FoundationCenterPage,
                     canRequestNextPage = canRequestNextPage,
-                )
-                if (documentPage != null) content(documentPage)
-            }
+                ),
+                incomingPage = incomingPage,
+                content = content,
+            )
         }
     } else {
         HorizontalPager(
@@ -583,9 +582,7 @@ internal fun FoundationEffectPager(
                 pageFlipLayout = pageFlipLayout,
                 isCurrentPage = pagerPage == FoundationCenterPage,
                 modifier = pageModifier(pagerPage),
-                incomingContent = incomingPage?.let { page -> { content(page) } },
-            ) {
-                val documentPage = readerPagerDisplayedPage(
+                documentPage = readerPagerDisplayedPage(
                     currentPage = renderedPageKey,
                     adjacentPage = readerPagerAdjacentPage(
                         renderedPageKey,
@@ -595,9 +592,10 @@ internal fun FoundationEffectPager(
                     ),
                     pageOffset = pagerPage - FoundationCenterPage,
                     canRequestNextPage = canRequestNextPage,
-                )
-                if (documentPage != null) content(documentPage)
-            }
+                ),
+                incomingPage = incomingPage,
+                content = content,
+            )
         }
     }
 }
@@ -698,6 +696,12 @@ internal fun FoundationCurlPager(
  * fold되는 이유는 이웃 슬롯들이 바로 그 fold가 아래에서 드러내는 대상이기 때문이다 — 이웃까지
  * fold하면 효과가 두 배가 되어 버린다.
  *
+ * fold의 모든 레이어는 렌더링할 페이지를 `@Composable () -> Unit` 래퍼가 아니라 페이지 인덱스로
+ * 받는다. pager 슬롯은 드래그 프레임마다 재구성되므로, 여기서 래퍼 람다를 만들면 프레임마다
+ * identity가 바뀌어 그 아래 페이지 트리 전체가 skip되지 못하고 다시 구성된다 — split-half fold는
+ * 같은 콘텐츠를 세 레이어에서 부르므로 프레임당 페이지 구성이 세 번 일어난다. 인덱스와 [content]는
+ * 둘 다 안정적이므로 호출 지점이 그대로 skip된다.
+ *
  * @param pageAnimation 현재 적용 중인 page-turn 애니메이션; [PageAnimation.PAGE_FLIP]일 때만
  *   fold를 일으킨다.
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
@@ -705,9 +709,10 @@ internal fun FoundationCurlPager(
  * @param pageFlipLayout fold가 whole-page turn인지 두 pane짜리 split-half fold인지.
  * @param isCurrentPage 이 슬롯이 pager의 current-page 슬롯인지 여부.
  * @param modifier box에 적용되는 modifier.
- * @param incomingContent fold가 진행됨에 따라 드러나는 이웃 페이지의 콘텐츠로,
+ * @param documentPage 이 슬롯 자신이 그리는 페이지 인덱스, 그릴 페이지가 없으면 null.
+ * @param incomingPage fold가 진행됨에 따라 드러나는 이웃 페이지의 인덱스로,
  *   [FoundationPageFlipLayout.SplitHalfFold]에서만 쓰인다; 그런 이웃이 없으면 null.
- * @param content 이 슬롯 자신의 페이지 콘텐츠.
+ * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationPageFlipAwareBox(
@@ -717,8 +722,9 @@ private fun FoundationPageFlipAwareBox(
     pageFlipLayout: FoundationPageFlipLayout,
     isCurrentPage: Boolean,
     modifier: Modifier,
-    incomingContent: (@Composable () -> Unit)?,
-    content: @Composable () -> Unit,
+    documentPage: Int?,
+    incomingPage: Int?,
+    content: @Composable (page: Int) -> Unit,
 ) {
     if (pageAnimation == PageAnimation.PAGE_FLIP && isCurrentPage) {
         when (pageFlipLayout) {
@@ -727,6 +733,7 @@ private fun FoundationPageFlipAwareBox(
                     axis = axis,
                     pageOffset = pageOffset,
                     modifier = modifier,
+                    documentPage = documentPage,
                     content = content,
                 )
             }
@@ -735,14 +742,15 @@ private fun FoundationPageFlipAwareBox(
                     axis = axis,
                     pageOffset = pageOffset,
                     modifier = modifier,
-                    incomingContent = incomingContent,
+                    documentPage = documentPage,
+                    incomingPage = incomingPage,
                     content = content,
                 )
             }
         }
     } else {
         Box(modifier = modifier) {
-            content()
+            if (documentPage != null) content(documentPage)
         }
     }
 }
@@ -762,20 +770,22 @@ private fun FoundationPageFlipAwareBox(
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
  * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
  * @param modifier box에 적용되는 modifier.
- * @param incomingContent fold가 진행됨에 따라 드러나는 이웃 페이지의 콘텐츠; [pageOffset]이
- *   null이거나 0이면 fold 없이 [content]를 그대로 그린다.
- * @param content 현재 페이지의 콘텐츠.
+ * @param documentPage 현재 페이지의 인덱스, 그릴 페이지가 없으면 null.
+ * @param incomingPage fold가 진행됨에 따라 드러나는 이웃 페이지의 인덱스; null이거나
+ *   [pageOffset]이 0이면 fold 없이 [documentPage]를 그대로 그린다.
+ * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationSpreadPageFlipBox(
     axis: FoundationPagerAxis,
     pageOffset: Float,
     modifier: Modifier = Modifier,
-    incomingContent: (@Composable () -> Unit)?,
-    content: @Composable () -> Unit,
+    documentPage: Int?,
+    incomingPage: Int?,
+    content: @Composable (page: Int) -> Unit,
 ) {
-    if (pageOffset == 0f || incomingContent == null) {
-        Box(modifier = modifier) { content() }
+    if (pageOffset == 0f || incomingPage == null) {
+        Box(modifier = modifier) { if (documentPage != null) content(documentPage) }
         return
     }
     val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
@@ -784,6 +794,7 @@ private fun FoundationSpreadPageFlipBox(
         FoundationPageFlipHalfBox(
             half = spec.incomingHalf,
             spec = FoundationPageFlipHalfSpec(0f, 0f),
+            page = documentPage,
             content = content,
         )
         Box(
@@ -800,6 +811,7 @@ private fun FoundationSpreadPageFlipBox(
                 half = spec.outgoingHalf,
                 spec = spec.outgoing,
                 shadow = shadow,
+                page = documentPage,
                 content = content,
             )
         }
@@ -808,7 +820,8 @@ private fun FoundationSpreadPageFlipBox(
                 half = spec.incomingHalf,
                 spec = spec.incoming,
                 shadow = shadow,
-                content = incomingContent,
+                page = incomingPage,
+                content = content,
             )
         }
     }
@@ -828,17 +841,19 @@ private fun FoundationSpreadPageFlipBox(
  * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위로,
  *   [foundationWholePageFlipSpec]을 통해 회전과 피벗 모서리를 결정한다.
  * @param modifier box에 적용되는 modifier.
- * @param content 회전하는 앞면에 그려지는 outgoing 페이지.
+ * @param documentPage 회전하는 앞면에 그려지는 outgoing 페이지의 인덱스, 없으면 null.
+ * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationWholePageFlipBox(
     axis: FoundationPagerAxis,
     pageOffset: Float,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    documentPage: Int?,
+    content: @Composable (page: Int) -> Unit,
 ) {
     if (pageOffset == 0f) {
-        Box(modifier = modifier) { content() }
+        Box(modifier = modifier) { if (documentPage != null) content(documentPage) }
         return
     }
     val transform = foundationWholePageFlipSpec(axis = axis, pageOffset = pageOffset)
@@ -872,7 +887,7 @@ private fun FoundationWholePageFlipBox(
                     },
                 ),
         ) {
-            content()
+            if (documentPage != null) content(documentPage)
         }
     }
 }
@@ -885,7 +900,8 @@ private fun FoundationWholePageFlipBox(
  * @param spec 적용할 회전.
  * @param modifier 이 클리핑된 절반에 추가로 적용되는 레이아웃이나 그리기.
  * @param shadow 이 프레임에 대한 참조 outer/inner 치수로, 고정된 깔개면 null.
- * @param content 이 절반에 앉히는 페이지 콘텐츠.
+ * @param page 이 절반에 앉히는 페이지의 인덱스, 없으면 null.
+ * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationPageFlipHalfBox(
@@ -893,7 +909,8 @@ private fun FoundationPageFlipHalfBox(
     spec: FoundationPageFlipHalfSpec,
     modifier: Modifier = Modifier,
     shadow: FoundationPageFlipShadowSpec? = null,
-    content: @Composable () -> Unit,
+    page: Int?,
+    content: @Composable (page: Int) -> Unit,
 ) {
     val axis = when (half) {
         FoundationPageFlipHalf.Left,
@@ -921,7 +938,7 @@ private fun FoundationPageFlipHalfBox(
                 foldFraction = FoundationPageFlipSpineFraction,
             ),
     ) {
-        content()
+        if (page != null) content(page)
     }
 }
 
