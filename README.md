@@ -57,6 +57,21 @@ so sniffing would misfile them.
 
 ## How a document becomes pages
 
+```mermaid
+flowchart LR
+    file["file on device<br/>or Google Drive"] --> imp["DocumentImporter<br/>copies into app storage"]
+    imp --> det["DocumentFormatDetector<br/>name · MIME · magic bytes"]
+    det --> parse["format parser<br/>TXT · EPUB · PDF · CBZ · images"]
+    parse --> sec["ReaderSection<br/>flat text + ReaderBlock ranges"]
+    sec --> eng["TextPageLayoutEngine<br/>one page never spans two sections"]
+    eng --> mea["ReaderPageMeasureDispatcher<br/>real Compose line boxes"]
+    mea --> pg["pages"]
+    pg --> anc["text anchor<br/>character offset, not a page number"]
+```
+
+Every arrow after the importer is pure Kotlin over a flat string plus ranges, which is why the same
+pipeline runs identically on Android and on the iOS simulator under test.
+
 1. **Import.** `DocumentImporter` copies the file into app storage — SAF and a Drive intent sender
    on Android, `UIDocumentPickerViewController` and the `GoogleDrivePicker.swift` bridge on iOS —
    and `DocumentFileSource` is the only thing that touches the filesystem afterwards.
@@ -77,7 +92,22 @@ so sniffing would misfile them.
 
 ## Page turns
 
-Ten to choose from, all built on one Foundation pager.
+Ten to choose from. `ReaderPager` dispatches on `PageAnimation` to one of four backends; the two
+Foundation pagers share the same three-slot window and the same phase discipline.
+
+```mermaid
+flowchart TD
+    RP["ReaderPager<br/>when (pageAnimation)"]
+    RP -->|SCROLL| SP["ReaderScrollPager<br/>LazyColumn/LazyRow of page anchors<br/>no page boundary at all"]
+    RP -->|"SLIDE · SHEET_FLIP · FLUID_PAGER<br/>CIRCLE_REVEAL · MOVIE_CAROUSEL · PAGE_FLIP"| EP["FoundationEffectPager<br/>3 pinned slots<br/>per-slot transition modifier"]
+    RP -->|"BOOK_CURL · CURL_PAGER · THREE_D_CURL"| CP["FoundationCurlPager<br/>fold geometry<br/>drag/turn state machine"]
+    RP -->|"NONE · FADE"| AC["AnimatedContent"]
+```
+
+Both Foundation pagers keep the pager pinned to its centre slot between turns and cancel its own
+placement so all three slots stack in the same place. That is what lets a fold be drawn in one node
+that crosses the gutter, and what lets a reveal shape clip against the page underneath instead of
+against an empty slot.
 
 | Effect | Driven by |
 | --- | --- |
@@ -129,16 +159,158 @@ in dp; everything downstream is a pure function of width, height and that fold.
 
 ## Architecture
 
-Dependencies point one way only: `app` → `feature` → `core:ui` / `core:designsystem` →
-`core:domain` → `core:common`, with `core:data` bound to `core:domain`'s interfaces and reachable
-only through the DI graph. `core:common` has no platform or framework dependency at all.
+### Module graph
 
-Every feature is split `api` / `impl`, so no feature can reach another feature's internals — `home`,
-`reader`, `search`, `bookmarks`, `document-info` and `settings` all follow that shape. That boundary
-is enforced by the build rather than by review: a feature's build file carries no dependency block
-at all, and the `teddreader.feature.impl` convention plugin wires exactly its own `api`,
-`core:common`, `core:domain`, `core:designsystem` and `core:ui`. Only `app:reader` ever sees
-`core:data`. Koin annotations build the object graph.
+```mermaid
+graph TD
+    subgraph gEntry["entry points"]
+        androidApp[":androidApp"]
+        iosApp["iosApp · Xcode"]
+    end
+
+    appReader[":app:reader"]
+
+    subgraph gFeature["feature — one api/impl pair per screen flow"]
+        fImpl[":feature:*:impl"]
+        fApi[":feature:*:api"]
+    end
+
+    subgraph gCore["core"]
+        ui[":core:ui"]
+        ds[":core:designsystem"]
+        data[":core:data"]
+        domain[":core:domain"]
+        room[":core:room"]
+        datastore[":core:datastore"]
+    end
+
+    common[":core:common"]
+
+    androidApp --> appReader
+    iosApp --> appReader
+
+    appReader --> fImpl
+    appReader --> data
+
+    fImpl --> fApi
+    fImpl --> ui
+    fImpl --> ds
+    fImpl --> domain
+
+    ui --> ds
+    data --> domain
+    data --> room
+    data --> datastore
+    domain --> common
+    fApi --> common
+    ds --> common
+```
+
+Every module in the graph above also depends on `core:common`; only three of those edges are drawn
+so the rest stays readable. (`androidApp` and `baselineprofile` do not — they depend on `app:reader`
+and on test tooling respectively.) `app:reader` additionally sees every `core` and every `feature:api` — see the
+table below for the exact wiring.
+
+Two properties carry the whole design. **No `feature` sees `core:data`** — a screen states what it
+needs as a `core:domain` interface and the graph hands it an implementation. And **`core:common`
+depends on no other module** and on nothing platform- or UI-shaped — only kotlinx serialization,
+datetime, immutable collections, coroutines and a logger — which is why every model, every
+page-boundary rule and every page-turn equation in it can be unit-tested on the JVM and on the iOS
+simulator without a device.
+
+### Layering rules
+
+Each row is what a convention plugin actually wires; a module's own build file is normally one
+`id(...)` line and carries no dependency block at all.
+
+| Module | May depend on (modules) | Wired by |
+| --- | --- | --- |
+| `core:common` | nothing | `teddreader.core.common` |
+| `core:domain` | `core:common` (`api`) | `teddreader.core.domain` |
+| `core:data` | `core:common`, `core:domain` (both `api`), `core:room`, `core:datastore` | `teddreader.core.data` |
+| `core:room`, `core:datastore` | `core:common` | `teddreader.core.room`, `teddreader.core.datastore` |
+| `core:designsystem` | `core:common` | `teddreader.core.designsystem` |
+| `core:ui` | `core:common`, `core:designsystem` | `teddreader.core.ui` |
+| `feature:<name>:api` | `core:common` | `teddreader.feature.api` |
+| `feature:<name>:impl` | its own `api`, `core:common`, `core:domain`, `core:designsystem`, `core:ui` | `teddreader.feature.impl` |
+| `app:reader` | every `core` and every `feature` | `teddreader.app.reader` |
+| `androidApp` | `app:reader` only | `teddreader.android.app` |
+
+`core:data` re-exports `core:common` and `core:domain` as `api` because it *is* their
+implementation; everything else is `implementation`, so a module can never reach a transitive
+dependency it did not name.
+
+### The api/impl split
+
+`home`, `reader`, `search`, `bookmarks`, `document-info` and `settings` all have the same shape. The
+`api` half holds the route type and whatever a caller legitimately needs; the `impl` half holds the
+screens, view models and components. Because `teddreader.feature.impl` wires exactly the five
+dependencies above, **one feature cannot reach another feature's internals** — not by convention but
+because the classpath does not contain them. Adding a cross-feature dependency means editing a
+convention plugin, which is a visible design decision rather than an import.
+
+### Enforced by the build, not by review
+
+| Invariant | How it fails |
+| --- | --- |
+| No feature reaches `core:data` or another feature's `impl` | the class is not on the classpath |
+| `androidx.compose.material3` is imported only where Material is wrapped | `checkMaterial3Imports`, hooked into `check` in every module that applies `teddreader.kmp.compose` |
+| Compose stability does not silently regress | `-Pteddreader.composeReports` emits per-module compiler reports |
+
+The Material 3 gate exists because every Material component the app uses is wrapped so that colour,
+shape, type and ripple come from app tokens rather than Material defaults — a property that only
+holds while no other code can import Material directly. `core:ui` and `core:designsystem` are fully
+allowed, and the reader's table-of-contents drawer is an explicit five-symbol exception because it
+delegates swipe, back handling and focus trapping to the platform and has exactly one call site.
+
+### Dependency injection
+
+Koin, wired by hand rather than by annotation processing. `koin-annotations` and the
+`io.insert-koin.compiler.plugin` compiler plugin are on the classpath, and `core:data` and the
+feature view models do carry `@Single` / `@KoinViewModel` — but the generated modules are never
+added to the graph. `TeddReaderApp` passes exactly two modules: `readerAppModule()` and the
+platform one from `rememberPlatformReaderModule()`. (KSP is used in this repo only by Room.)
+
+So the whole object graph is one readable file, `app/reader/.../di/ReaderAppModule.kt`, written
+leaf-first: DAOs, then the parsers and layout engine that need only a DAO and a platform source,
+then the repository implementations, then the view models. A new dependency is unreachable until a
+line is added there. Repositories are `single`; view models are `viewModelOf`, because a screen's
+state must die with its navigation entry rather than live as a process-wide singleton.
+
+There is no `startKoin()`. `TeddReaderApp` opens a composable-scoped `KoinApplication`, so the
+graph's lifetime is that composable's rather than the process's. Neither module is complete alone —
+the common one binds repositories that depend on the `Context`-backed file source, the Room database
+and the preferences DataStore, and only the platform module can provide those. And because
+`app:reader` is the only module that can see `core:data`, interface-to-implementation wiring happens
+exactly once, in exactly one place.
+
+### Compose phase discipline
+
+The reader animates a full page of text under your finger, so the rule throughout the reader UI is
+that **a value that changes every frame is never read during composition.**
+
+| Kind of value | Where it is read | How |
+| --- | --- | --- |
+| Pager scroll offset, turn progress, fold edges, pinch zoom and pan | layout and draw | passed down as `() -> T` and invoked inside `graphicsLayer { }` or `drawWithCache { }`, whose blocks re-run under their own snapshot observers without recomposing |
+| A side, a direction, a crossed threshold | composition | derived with `derivedStateOf`, so a slot recomposes only when the discrete answer actually flips |
+
+Three consequences worth knowing before editing this code:
+
+- **Call every provider before any early return** inside a `drawWithCache` block. Compose registers
+  only the reads that actually executed, so a provider called after a `return@drawWithCache` drops
+  the subscription and the effect freezes mid-turn.
+- **`Modifier.zIndex` wants a composition-time `Float`**, so stacking order is expressed as discrete
+  ranks — "is this neighbour approaching" — rather than as a continuous function of the offset.
+- **A leaf that is invisible this frame is not placed**, rather than drawn at zero alpha, so it
+  leaves both drawing and hit testing instead of silently swallowing taps meant for the page below.
+
+Manual gesture state is split the same way: the raw pointer coordinates stay snapshot-backed and are
+read from the draw blocks and from the pointer loop but never from composition, while the one thing
+composition observes is a small `(active, side)` phase that is written only when its value actually
+changes. A drag therefore costs
+no recomposition at all between the frame it starts and the frame its direction is decided.
+
+### Platform seams
 
 Shared code lives in `commonMain` and only drops into `androidMain` / `iosMain` where the platform
 genuinely differs:
@@ -155,21 +327,35 @@ genuinely differs:
 
 ## Repository layout
 
-| Path | What lives there |
-| --- | --- |
-| `androidApp/` | Android entry point and manifest |
-| `iosApp/` | Xcode project, SwiftUI entry point, Google Drive picker bridge |
-| `baselineprofile/` | Macrobenchmark that generates the Android baseline profile |
-| `app/reader/` | Application composition: DI graph, navigation host, theme wiring, importers |
-| `core/common/` | Models and pure logic with no platform or framework dependency |
-| `core/domain/` | Repository interfaces and use cases |
-| `core/data/` | Repository implementations, format parsers, pagination engine |
-| `core/room/`, `core/datastore/` | Room database and DataStore preferences |
-| `core/designsystem/` | Theme, colors, typography, spacing, icons |
-| `core/ui/` | Shared composables used by more than one feature |
-| `feature/<name>/api/` | The public surface a feature exposes to others |
-| `feature/<name>/impl/` | Screens, view models and components of that feature |
-| `build-logic/` | Convention plugins; module build files are one `id(...)` line |
+```
+TeddReader
+├── androidApp/                 Android entry point and manifest — depends only on app:reader
+├── iosApp/                     Xcode project, SwiftUI entry point, Google Drive picker bridge
+├── app/
+│   └── reader/                 composition root: Koin graph, navigation host, theme, importers
+├── core/
+│   ├── common/                 models and pure logic — no platform, no framework
+│   ├── domain/                 repository interfaces and use cases
+│   ├── data/                   repository impls, format parsers, pagination engine
+│   ├── room/                   Room database, migrations, DAOs, entities
+│   ├── datastore/              DataStore preferences over Okio
+│   ├── designsystem/           theme, colour, typography, spacing, icons
+│   └── ui/                     composables shared by more than one feature
+├── feature/                    api / impl pair per screen flow
+│   ├── home/                   library: import, sort, filter, folders
+│   ├── reader/                 the reading surface, pagers and page-turn effects
+│   ├── search/                 in-document search
+│   ├── bookmarks/              bookmark list
+│   ├── document-info/          metadata sheet
+│   └── settings/               reader and app preferences
+├── build-logic/                convention plugins (teddreader.*) and the Material 3 gate
+├── baselineprofile/            macrobenchmark that generates the Android baseline profile
+├── compose-stability.conf      types declared stable for the Compose compiler
+└── gradle/libs.versions.toml   the single source of versions and plugin coordinates
+```
+
+`settings.gradle.kts` is the authoritative include list — the tree above is a reading aid, not a
+substitute for it.
 
 ## Tests
 
@@ -180,12 +366,12 @@ parts where a wrong number is invisible until you look at a screen:
 | Module | Cases | What they cover |
 | --- | --- | --- |
 | `core/data` | 316 | format parsers, EPUB CSS and navigation, pagination and section distribution |
-| `feature/reader/impl` | 228 | page-target math, spread geometry, page-turn effect math, view model state |
+| `feature/reader/impl` | 233 | page-target math, spread geometry, page-turn effect math, view model state |
 | `core/common` | 109 | models, block structure, reading position, validation |
 | `core/ui` | 51 | shared reader composable logic |
 | `core/domain` | 24 | use cases against fake repositories |
 | `app/reader`, `feature/home/impl` | 41 | navigation and library list behaviour |
-| others | 27 | datastore, room mappers, design tokens, search, settings, document info |
+| others | 27 | datastore, Room migrations and entities, design tokens, search, settings, document info |
 
 Pagination, page-target math, spread geometry and the page-turn effect math are pure functions on
 purpose, so they can be tested without a device.
@@ -218,7 +404,7 @@ Google Drive import needs a client ID per platform. The iOS one goes in
 | Area | What is used |
 | --- | --- |
 | Language, UI | Kotlin 2.4.0, Compose Multiplatform 1.11.1, Material 3 |
-| Navigation, DI | Navigation 3, Koin 4.2 with annotations (KSP) |
+| Navigation, DI | Navigation 3, Koin 4.2 via the Koin compiler plugin (KSP is used only by Room) |
 | Storage | Room 3 with bundled SQLite, DataStore over Okio |
 | Async, data | kotlinx coroutines, serialization, datetime, immutable collections |
 | Images, logging | Coil 3, Kermit |

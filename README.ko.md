@@ -56,6 +56,21 @@
 
 ## 문서가 페이지가 되기까지
 
+```mermaid
+flowchart LR
+    file["기기 또는<br/>Google Drive 의 파일"] --> imp["DocumentImporter<br/>앱 저장소로 복사"]
+    imp --> det["DocumentFormatDetector<br/>이름 · MIME · 매직 바이트"]
+    det --> parse["형식 파서<br/>TXT · EPUB · PDF · CBZ · 이미지"]
+    parse --> sec["ReaderSection<br/>평평한 텍스트 + ReaderBlock 범위"]
+    sec --> eng["TextPageLayoutEngine<br/>한 페이지는 두 섹션에 걸치지 않는다"]
+    eng --> mea["ReaderPageMeasureDispatcher<br/>실제 Compose 라인 박스"]
+    mea --> pg["페이지"]
+    pg --> anc["텍스트 앵커<br/>페이지 번호가 아니라 문자 오프셋"]
+```
+
+임포터 뒤의 모든 화살표는 평평한 문자열과 범위 위의 순수 Kotlin 입니다. 그래서 같은 파이프라인이
+Android 와 iOS 시뮬레이터에서 테스트 아래 똑같이 돕니다.
+
 1. **가져오기.** `DocumentImporter` 가 파일을 앱 저장소로 복사합니다 — Android 는 SAF 와 Drive
    인텐트 센더, iOS 는 `UIDocumentPickerViewController` 와 `GoogleDrivePicker.swift` 브리지입니다.
    그 이후로 파일 시스템에 손을 대는 것은 `DocumentFileSource` 뿐입니다.
@@ -75,7 +90,21 @@
 
 ## 페이지 넘김
 
-Foundation 페이저 하나 위에 열 가지가 올라가 있습니다.
+열 가지가 있습니다. `ReaderPager` 가 `PageAnimation` 으로 네 갈래 중 하나에 넘기며, 두 Foundation
+페이저는 같은 3슬롯 window 와 같은 단계 규율을 공유합니다.
+
+```mermaid
+flowchart TD
+    RP["ReaderPager<br/>when (pageAnimation)"]
+    RP -->|SCROLL| SP["ReaderScrollPager<br/>페이지 앵커의 LazyColumn/LazyRow<br/>페이지 경계가 아예 없다"]
+    RP -->|"SLIDE · SHEET_FLIP · FLUID_PAGER<br/>CIRCLE_REVEAL · MOVIE_CAROUSEL · PAGE_FLIP"| EP["FoundationEffectPager<br/>고정된 3슬롯<br/>슬롯별 트랜지션 modifier"]
+    RP -->|"BOOK_CURL · CURL_PAGER · THREE_D_CURL"| CP["FoundationCurlPager<br/>fold 기하<br/>드래그·turn 상태 머신"]
+    RP -->|"NONE · FADE"| AC["AnimatedContent"]
+```
+
+두 Foundation 페이저 모두 turn 사이에는 페이저를 가운데 슬롯에 고정해 두고 페이저 자신의 배치를
+상쇄해, 세 슬롯이 같은 자리에 겹치게 합니다. 그래야 fold 를 gutter 를 가로지르는 노드 하나로 그릴 수
+있고, reveal 모양이 빈 슬롯이 아니라 그 아래 페이지에 대고 클리핑됩니다.
 
 | 효과 | 무엇이 구동하나 |
 | --- | --- |
@@ -125,16 +154,153 @@ gutter 가 빈 채로 남아 화면 가운데 이음선처럼 보입니다.
 
 ## 아키텍처
 
-의존은 한 방향으로만 흐릅니다: `app` → `feature` → `core:ui` / `core:designsystem` →
-`core:domain` → `core:common`. `core:data` 는 `core:domain` 의 인터페이스에 묶여 있고 DI 그래프를
-통해서만 닿습니다. `core:common` 은 플랫폼·프레임워크 의존이 아예 없습니다.
+### 모듈 그래프
 
-모든 기능은 `api` / `impl` 로 나뉘어 있어 어떤 기능도 다른 기능의 내부에 닿지 못합니다 — `home`,
-`reader`, `search`, `bookmarks`, `document-info`, `settings` 모두 같은 모양입니다. 이 경계는 리뷰가
-아니라 빌드가 강제합니다: 기능의 빌드 파일에는 의존 블록 자체가 없고, `teddreader.feature.impl`
-컨벤션 플러그인이 자기 `api` 와 `core:common`, `core:domain`, `core:designsystem`, `core:ui` 만
-정확히 연결합니다. `core:data` 를 보는 것은 `app:reader` 뿐입니다. 객체 그래프는 Koin annotations
-가 만듭니다.
+```mermaid
+graph TD
+    subgraph gEntry["진입점"]
+        androidApp[":androidApp"]
+        iosApp["iosApp · Xcode"]
+    end
+
+    appReader[":app:reader"]
+
+    subgraph gFeature["feature — 화면 흐름마다 api/impl 한 쌍"]
+        fImpl[":feature:*:impl"]
+        fApi[":feature:*:api"]
+    end
+
+    subgraph gCore["core"]
+        ui[":core:ui"]
+        ds[":core:designsystem"]
+        data[":core:data"]
+        domain[":core:domain"]
+        room[":core:room"]
+        datastore[":core:datastore"]
+    end
+
+    common[":core:common"]
+
+    androidApp --> appReader
+    iosApp --> appReader
+
+    appReader --> fImpl
+    appReader --> data
+
+    fImpl --> fApi
+    fImpl --> ui
+    fImpl --> ds
+    fImpl --> domain
+
+    ui --> ds
+    data --> domain
+    data --> room
+    data --> datastore
+    domain --> common
+    fApi --> common
+    ds --> common
+```
+
+위 그래프 안의 모든 모듈은 `core:common` 에도 의존합니다. 가독성을 위해 그중 세 개만 그렸습니다.
+(`androidApp` 과 `baselineprofile` 은 아닙니다 — 각각 `app:reader` 와 테스트 도구에만 의존합니다.)
+`app:reader` 는 여기에 더해 모든 `core` 와 모든 `feature:api` 를 봅니다 — 정확한 배선은 아래 표를
+보세요.
+
+이 설계를 지탱하는 성질은 두 가지입니다. **어떤 `feature` 도 `core:data` 를 보지 않습니다** — 화면은
+필요한 것을 `core:domain` 인터페이스로 선언하고, 구현은 그래프가 건네줍니다. 그리고 **`core:common`
+은 다른 모듈에 의존하지 않고**, 플랫폼·UI 성격의 것에도 의존하지 않습니다 — kotlinx 직렬화·datetime·
+불변 컬렉션·코루틴과 로거뿐입니다. 그래서 그 안의 모델, 페이지 경계 규칙, 페이지 넘김 수식이 전부
+기기 없이 JVM 과 iOS 시뮬레이터에서 단위 테스트됩니다.
+
+### 레이어 규칙
+
+각 행은 컨벤션 플러그인이 실제로 연결하는 것입니다. 모듈 자신의 빌드 파일은 보통 `id(...)` 한 줄이고
+의존 블록 자체가 없습니다.
+
+| 모듈 | 의존 가능 대상(모듈) | 연결하는 플러그인 |
+| --- | --- | --- |
+| `core:common` | 없음 | `teddreader.core.common` |
+| `core:domain` | `core:common` (`api`) | `teddreader.core.domain` |
+| `core:data` | `core:common`, `core:domain` (둘 다 `api`), `core:room`, `core:datastore` | `teddreader.core.data` |
+| `core:room`, `core:datastore` | `core:common` | `teddreader.core.room`, `teddreader.core.datastore` |
+| `core:designsystem` | `core:common` | `teddreader.core.designsystem` |
+| `core:ui` | `core:common`, `core:designsystem` | `teddreader.core.ui` |
+| `feature:<name>:api` | `core:common` | `teddreader.feature.api` |
+| `feature:<name>:impl` | 자기 `api`, `core:common`, `core:domain`, `core:designsystem`, `core:ui` | `teddreader.feature.impl` |
+| `app:reader` | 모든 `core` 와 모든 `feature` | `teddreader.app.reader` |
+| `androidApp` | `app:reader` 만 | `teddreader.android.app` |
+
+`core:data` 는 `core:common` 과 `core:domain` 을 `api` 로 다시 내보냅니다 — 그 둘의 *구현*이기
+때문입니다. 나머지는 모두 `implementation` 이라, 어떤 모듈도 이름 대지 않은 전이 의존에 닿을 수
+없습니다.
+
+### api / impl 분리
+
+`home`, `reader`, `search`, `bookmarks`, `document-info`, `settings` 가 모두 같은 모양입니다. `api`
+쪽은 라우트 타입과 호출자가 정당하게 필요로 하는 것만, `impl` 쪽은 화면·뷰모델·컴포넌트를 담습니다.
+`teddreader.feature.impl` 이 위 다섯 개만 정확히 연결하므로 **한 기능은 다른 기능의 내부에 닿을 수
+없습니다** — 관례가 아니라 클래스패스에 없기 때문입니다. 기능 간 의존을 추가하려면 컨벤션 플러그인을
+고쳐야 하고, 그건 import 가 아니라 눈에 보이는 설계 결정이 됩니다.
+
+### 리뷰가 아니라 빌드가 강제하는 것
+
+| 불변식 | 깨질 때 |
+| --- | --- |
+| 어떤 기능도 `core:data` 나 다른 기능의 `impl` 에 닿지 않는다 | 클래스가 클래스패스에 없다 |
+| `androidx.compose.material3` 는 Material 을 감싸는 모듈에서만 import 된다 | `teddreader.kmp.compose` 를 적용한 모든 모듈에서 `check` 에 연결된 `checkMaterial3Imports` 실패 |
+| Compose 안정성이 조용히 퇴행하지 않는다 | `-Pteddreader.composeReports` 로 모듈별 컴파일러 리포트 생성 |
+
+Material 3 게이트가 있는 이유: 앱이 쓰는 모든 Material 컴포넌트를 감싸서 색·모양·서체·ripple 이
+Material 기본값이 아니라 앱 토큰에서 오게 하는데, 이 속성은 다른 코드가 Material 을 직접 import
+할 수 없을 때만 유지됩니다. `core:ui` 와 `core:designsystem` 은 전면 허용이고, 리더의 목차 drawer
+는 심볼 5개짜리 명시적 예외입니다 — swipe·back·focus trap 을 플랫폼에 위임하고 사용처가 하나뿐이라
+wrapper 로 얻을 게 없습니다.
+
+### 의존성 주입
+
+Koin 을 쓰지만 어노테이션 처리가 아니라 손으로 배선합니다. `koin-annotations` 와
+`io.insert-koin.compiler.plugin` 컴파일러 플러그인이 클래스패스에 있고 `core:data` 와 기능
+뷰모델에는 `@Single` / `@KoinViewModel` 이 붙어 있지만, 생성된 모듈은 그래프에 추가되지 않습니다.
+`TeddReaderApp` 이 넘기는 모듈은 정확히 둘 — `readerAppModule()` 과 `rememberPlatformReaderModule()`
+의 플랫폼 모듈입니다. (이 레포에서 KSP 를 쓰는 것은 Room 뿐입니다.)
+
+그래서 객체 그래프 전체가 읽을 수 있는 한 파일, `app/reader/.../di/ReaderAppModule.kt` 에 리프부터
+적혀 있습니다: DAO, 그다음 DAO 와 플랫폼 소스만 필요한 파서·레이아웃 엔진, 그 위의 저장소 구현,
+마지막으로 뷰모델. 새 의존성은 거기에 한 줄을 추가하기 전까지 닿을 수 없습니다. 저장소는 `single`,
+뷰모델은 `viewModelOf` 입니다 — 화면의 상태는 프로세스 전역 싱글턴으로 살아남는 대신 자기 내비게이션
+항목과 함께 죽어야 하기 때문입니다.
+
+`startKoin()` 은 없습니다. `TeddReaderApp` 이 컴포저블 스코프 `KoinApplication` 을 열어, 그래프의
+수명이 프로세스가 아니라 그 컴포저블의 수명에 묶입니다. 두 모듈 중 어느 쪽도 단독으로는 완전하지
+않습니다 — 공통 모듈이 바인딩하는 저장소들이 `Context` 기반 파일 소스와 Room 데이터베이스, 환경설정
+DataStore 에 의존하고, 그것을 제공할 수 있는 것은 플랫폼 모듈뿐입니다. 그리고 `core:data` 를 볼 수
+있는 모듈이 `app:reader` 하나뿐이라, 인터페이스와 구현의 연결은 정확히 한 번, 한 곳에서 일어납니다.
+
+### Compose 단계 규율
+
+리더는 손가락 아래에서 텍스트 한 페이지를 통째로 애니메이션합니다. 그래서 리더 UI 전체에 걸친 규칙은
+**프레임마다 바뀌는 값은 composition 에서 읽지 않는다** 입니다.
+
+| 값의 종류 | 읽는 단계 | 방법 |
+| --- | --- | --- |
+| pager 스크롤 오프셋, turn 진행률, 접힌 edge, 핀치 확대·이동 | layout·draw | `() -> T` 로 넘겨 `graphicsLayer { }` 나 `drawWithCache { }` 안에서 호출. 두 블록은 자기 snapshot 관찰자와 함께 돌기 때문에 재구성 없이 다시 실행된다 |
+| side, 방향, 임계값 통과 여부 | composition | `derivedStateOf` 로 파생 — 이산 답이 실제로 뒤집힐 때만 슬롯이 재구성된다 |
+
+이 코드를 고치기 전에 알아야 할 세 가지:
+
+- **`drawWithCache` 블록에서는 모든 provider 를 어떤 early return 보다 먼저 호출**해야 합니다.
+  Compose 는 실제로 실행된 read 만 등록하므로, `return@drawWithCache` 뒤에 호출된 provider 는
+  구독을 잃고 효과가 turn 중간에 멈춥니다.
+- **`Modifier.zIndex` 는 composition 시점 `Float` 을 요구**하므로, 쌓임 순서는 오프셋의 연속 함수가
+  아니라 "이 이웃이 다가오는 중인가" 같은 이산 등급으로 표현합니다.
+- **그 프레임에 안 보이는 leaf 는 alpha 0 으로 그리는 대신 배치하지 않습니다.** 그래야 그리기와
+  히트 테스트에서 함께 빠지고, 아래 페이지로 갈 탭을 조용히 삼키지 않습니다.
+
+수동 제스처 상태도 같은 방식으로 갈립니다. 원시 포인터 좌표는 snapshot 으로 두되 그리기 블록과 포인터
+루프에서만 읽고 composition 에서는 결코 읽지 않으며, composition 이 관찰하는 것은 값이 실제로 달라질
+때만 기록되는 작은 `(active, side)` phase 하나뿐입니다. 그래서 드래그가 시작된 프레임부터 방향이 확정되는 프레임까지 재구성 비용이 0 입니다.
+
+### 플랫폼 경계
 
 공유 코드는 `commonMain` 에 있고, 플랫폼이 실제로 다른 지점에서만 `androidMain` / `iosMain` 으로
 내려갑니다.
@@ -151,21 +317,35 @@ gutter 가 빈 채로 남아 화면 가운데 이음선처럼 보입니다.
 
 ## 저장소 구조
 
-| 경로 | 담긴 것 |
-| --- | --- |
-| `androidApp/` | Android 진입점과 매니페스트 |
-| `iosApp/` | Xcode 프로젝트, SwiftUI 진입점, Google Drive 피커 브리지 |
-| `baselineprofile/` | Android 베이스라인 프로파일을 생성하는 매크로벤치마크 |
-| `app/reader/` | 앱 조립: DI 그래프, 내비게이션 호스트, 테마 배선, 임포터 |
-| `core/common/` | 플랫폼·프레임워크 의존이 없는 모델과 순수 로직 |
-| `core/domain/` | 저장소 인터페이스와 유스케이스 |
-| `core/data/` | 저장소 구현, 형식 파서, 페이지네이션 엔진 |
-| `core/room/`, `core/datastore/` | Room 데이터베이스와 DataStore 환경설정 |
-| `core/designsystem/` | 테마, 색, 타이포그래피, 간격, 아이콘 |
-| `core/ui/` | 두 개 이상의 기능이 함께 쓰는 컴포저블 |
-| `feature/<name>/api/` | 그 기능이 바깥에 드러내는 공개 표면 |
-| `feature/<name>/impl/` | 그 기능의 화면, 뷰모델, 컴포넌트 |
-| `build-logic/` | 컨벤션 플러그인. 모듈 빌드 파일은 `id(...)` 한 줄 |
+```
+TeddReader
+├── androidApp/                 Android 진입점과 매니페스트 — app:reader 에만 의존
+├── iosApp/                     Xcode 프로젝트, SwiftUI 진입점, Google Drive 피커 브리지
+├── app/
+│   └── reader/                 앱 조립: Koin 그래프, 내비게이션 호스트, 테마, 임포터
+├── core/
+│   ├── common/                 모델과 순수 로직 — 플랫폼·프레임워크 의존 없음
+│   ├── domain/                 저장소 인터페이스와 유스케이스
+│   ├── data/                   저장소 구현, 형식 파서, 페이지네이션 엔진
+│   ├── room/                   Room 데이터베이스, 마이그레이션, DAO, 엔티티
+│   ├── datastore/              Okio 위의 DataStore 환경설정
+│   ├── designsystem/           테마, 색, 타이포그래피, 간격, 아이콘
+│   └── ui/                     두 개 이상의 기능이 함께 쓰는 컴포저블
+├── feature/                    화면 흐름마다 api / impl 한 쌍
+│   ├── home/                   서재: 가져오기, 정렬, 필터, 폴더
+│   ├── reader/                 읽기 화면, pager, 페이지 넘김 효과
+│   ├── search/                 문서 내 검색
+│   ├── bookmarks/              북마크 목록
+│   ├── document-info/          메타데이터 시트
+│   └── settings/               리더·앱 환경설정
+├── build-logic/                컨벤션 플러그인(teddreader.*)과 Material 3 게이트
+├── baselineprofile/            Android 베이스라인 프로파일을 만드는 매크로벤치마크
+├── compose-stability.conf      Compose 컴파일러에 안정 타입으로 선언하는 목록
+└── gradle/libs.versions.toml   버전과 플러그인 좌표의 단일 출처
+```
+
+include 목록의 정본은 `settings.gradle.kts` 입니다 — 위 트리는 읽기 보조일 뿐 그것을 대체하지
+않습니다.
 
 ## 테스트
 
@@ -176,12 +356,12 @@ Android 전용 부분은 `androidHostTest` 에 있습니다. 테스트 케이스
 | 모듈 | 케이스 | 무엇을 덮나 |
 | --- | --- | --- |
 | `core/data` | 316 | 형식 파서, EPUB CSS·내비게이션, 페이지네이션과 섹션 분배 |
-| `feature/reader/impl` | 228 | 페이지 목표 계산, 펼침 기하, 페이지 넘김 효과 계산, 뷰모델 상태 |
+| `feature/reader/impl` | 233 | 페이지 목표 계산, 펼침 기하, 페이지 넘김 효과 계산, 뷰모델 상태 |
 | `core/common` | 109 | 모델, 블록 구조, 읽던 위치, 검증 |
 | `core/ui` | 51 | 여러 기능이 함께 쓰는 리더 컴포저블 로직 |
 | `core/domain` | 24 | fake 저장소를 상대로 한 유스케이스 |
 | `app/reader`, `feature/home/impl` | 41 | 내비게이션과 서재 목록 동작 |
-| 그 외 | 27 | datastore, room 매퍼, 디자인 토큰, 검색, 설정, 문서 정보 |
+| 그 외 | 27 | datastore, Room 마이그레이션·엔티티, 디자인 토큰, 검색, 설정, 문서 정보 |
 
 페이지네이션·페이지 목표 계산·펼침 기하·페이지 넘김 효과 계산은 의도적으로 전부 순수 함수로 두어
 기기 없이도 테스트할 수 있게 했습니다.
@@ -214,7 +394,7 @@ Google Drive 가져오기는 플랫폼마다 클라이언트 ID 가 필요합니
 | 영역 | 쓰는 것 |
 | --- | --- |
 | 언어, UI | Kotlin 2.4.0, Compose Multiplatform 1.11.1, Material 3 |
-| 내비게이션, DI | Navigation 3, Koin 4.2 및 annotations(KSP) |
+| 내비게이션, DI | Navigation 3, Koin 4.2 (Koin 컴파일러 플러그인. KSP 는 Room 만 사용) |
 | 저장 | Room 3 및 번들 SQLite, Okio 기반 DataStore |
 | 비동기, 데이터 | kotlinx coroutines, serialization, datetime, immutable collections |
 | 이미지, 로깅 | Coil 3, Kermit |
