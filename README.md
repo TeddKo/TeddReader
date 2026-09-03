@@ -265,24 +265,38 @@ delegates swipe, back handling and focus trapping to the platform and has exactl
 
 ### Dependency injection
 
-Koin, wired by hand rather than by annotation processing. `koin-annotations` and the
-`io.insert-koin.compiler.plugin` compiler plugin are on the classpath, and `core:data` and the
-feature view models do carry `@Single` / `@KoinViewModel` — but the generated modules are never
-added to the graph. `TeddReaderApp` passes exactly two modules: `readerAppModule()` and the
-platform one from `rememberPlatformReaderModule()`. (KSP is used in this repo only by Room.)
+Koin, assembled by `koin-annotations` and the `io.insert-koin.compiler.plugin` compiler plugin —
+not by KSP, which this repo uses only for Room. `teddreader.koin` puts the plugin and
+`koin-annotations` on every module that owns definitions, so a definition sits next to the code it
+constructs: `core:data`'s repository implementations, parsers and layout engine carry `@Single`, the
+six feature view models carry `@KoinViewModel`, and each layer or feature owns one `@Module` naming
+its own package as the `@ComponentScan` boundary.
 
-So the whole object graph is one readable file, `app/reader/.../di/ReaderAppModule.kt`, written
-leaf-first: DAOs, then the parsers and layout engine that need only a DAO and a platform source,
-then the repository implementations, then the view models. A new dependency is unreachable until a
-line is added there. Repositories are `single`; view models are `viewModelOf`, because a screen's
-state must die with its navigation entry rather than live as a process-wide singleton.
+`ReaderAppModule` in `app:reader` is the single entry point, and it is nothing but an
+`@Module(includes = [...])` list: `DataModule`, `DomainModule`, `DataStoreModule`, `RoomModule`,
+`PlatformReaderModule`, and one `*FeatureModule` per screen flow. `RoomModule` is the one that does
+not scan — it takes the injected `TeddReaderDatabase` and exposes its six DAOs as `@Single`
+providers, because a DAO is pulled off a database rather than constructed.
+
+The module set is fixed statically, as `koinConfiguration { module<ReaderAppModule>() }`, and that
+is the point: a graph assembled from a module list built at runtime turns the compiler plugin's
+whole-graph verification off (`KOIN-W003`), while one named type keeps every binding checked at
+compile time.
+
+`PlatformReaderModule` is an `@Module expect class` with an `actual` per target, holding what
+`commonMain` cannot build: the platform `DocumentFileSource`, the Room database, and the reader
+preferences DataStore. Android's half needs a `Context`, which is obtainable only from composition
+and therefore cannot be a constructor parameter of an annotated provider, so
+`ProvidePlatformKoinInput()` runs before `KoinApplication` and writes it into a holder; the Android
+`actual`'s `applicationContext()` provider reads it back, and throws if the graph is ever resolved
+without going through `TeddReaderApp`.
 
 There is no `startKoin()`. `TeddReaderApp` opens a composable-scoped `KoinApplication`, so the
-graph's lifetime is that composable's rather than the process's. Neither module is complete alone —
-the common one binds repositories that depend on the `Context`-backed file source, the Room database
-and the preferences DataStore, and only the platform module can provide those. And because
-`app:reader` is the only module that can see `core:data`, interface-to-implementation wiring happens
-exactly once, in exactly one place.
+graph's lifetime is that composable's rather than the process's, and every `@Single` — including
+the database and the DataStore — is created exactly once per composition. View models are
+`@KoinViewModel` rather than singletons, because a screen's state must die with its navigation entry
+instead of living process-wide. And because `app:reader` is the only module that can see
+`core:data`, interface-to-implementation wiring is reachable from exactly one place.
 
 ### Compose phase discipline
 

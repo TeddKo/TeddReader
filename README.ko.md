@@ -258,23 +258,37 @@ wrapper 로 얻을 게 없습니다.
 
 ### 의존성 주입
 
-Koin 을 쓰지만 어노테이션 처리가 아니라 손으로 배선합니다. `koin-annotations` 와
-`io.insert-koin.compiler.plugin` 컴파일러 플러그인이 클래스패스에 있고 `core:data` 와 기능
-뷰모델에는 `@Single` / `@KoinViewModel` 이 붙어 있지만, 생성된 모듈은 그래프에 추가되지 않습니다.
-`TeddReaderApp` 이 넘기는 모듈은 정확히 둘 — `readerAppModule()` 과 `rememberPlatformReaderModule()`
-의 플랫폼 모듈입니다. (이 레포에서 KSP 를 쓰는 것은 Room 뿐입니다.)
+Koin 을 쓰고, 배선은 `koin-annotations` 와 `io.insert-koin.compiler.plugin` 컴파일러 플러그인이
+합니다 — KSP 가 아닙니다. 이 레포에서 KSP 를 쓰는 것은 Room 뿐입니다. `teddreader.koin` 이 정의를
+소유하는 모든 모듈에 플러그인과 `koin-annotations` 를 얹기 때문에, 정의는 그것이 만드는 코드 바로
+옆에 있습니다: `core:data` 의 저장소 구현·파서·레이아웃 엔진에는 `@Single`, 여섯 기능의 뷰모델에는
+`@KoinViewModel` 이 붙고, 각 레이어와 기능은 자기 패키지를 `@ComponentScan` 경계로 지정하는
+`@Module` 하나를 가집니다.
 
-그래서 객체 그래프 전체가 읽을 수 있는 한 파일, `app/reader/.../di/ReaderAppModule.kt` 에 리프부터
-적혀 있습니다: DAO, 그다음 DAO 와 플랫폼 소스만 필요한 파서·레이아웃 엔진, 그 위의 저장소 구현,
-마지막으로 뷰모델. 새 의존성은 거기에 한 줄을 추가하기 전까지 닿을 수 없습니다. 저장소는 `single`,
-뷰모델은 `viewModelOf` 입니다 — 화면의 상태는 프로세스 전역 싱글턴으로 살아남는 대신 자기 내비게이션
-항목과 함께 죽어야 하기 때문입니다.
+진입점은 `app:reader` 의 `ReaderAppModule` 하나이고, 그 내용은 `@Module(includes = [...])` 목록이
+전부입니다: `DataModule`, `DomainModule`, `DataStoreModule`, `RoomModule`, `PlatformReaderModule`,
+그리고 화면 흐름당 하나씩인 `*FeatureModule`. 스캔하지 않는 것은 `RoomModule` 하나뿐입니다 —
+주입받은 `TeddReaderDatabase` 에서 DAO 여섯 개를 꺼내 `@Single` 프로바이더로 노출합니다. DAO 는
+생성하는 것이 아니라 데이터베이스에서 꺼내는 것이기 때문입니다.
+
+모듈 집합은 `koinConfiguration { module<ReaderAppModule>() }` 로 정적으로 고정되어 있고, 그게
+핵심입니다: 런타임에 만든 모듈 목록으로 그래프를 조립하면 컴파일러 플러그인의 전체 그래프 검증이
+꺼지지만(`KOIN-W003`), 타입 하나로 고정하면 앱의 모든 바인딩이 컴파일 타임에 검증됩니다.
+
+`PlatformReaderModule` 은 타깃별 `actual` 을 가지는 `@Module expect class` 로, `commonMain` 이
+만들 수 없는 것들 — 플랫폼 `DocumentFileSource`, Room 데이터베이스, 리더 환경설정 DataStore — 을
+담습니다. Android 쪽 절반은 `Context` 가 필요하고, 그것은 컴포지션에서만 얻을 수 있어 어노테이션
+프로바이더의 생성자 파라미터가 될 수 없습니다. 그래서 `ProvidePlatformKoinInput()` 이
+`KoinApplication` 보다 먼저 실행되어 플랫폼별 홀더에 값을 채우고, Android `actual` 의
+`applicationContext()` 프로바이더가 그 홀더를 읽습니다. `TeddReaderApp` 을 거치지 않고 그래프를
+resolve 하면 예외를 던집니다.
 
 `startKoin()` 은 없습니다. `TeddReaderApp` 이 컴포저블 스코프 `KoinApplication` 을 열어, 그래프의
-수명이 프로세스가 아니라 그 컴포저블의 수명에 묶입니다. 두 모듈 중 어느 쪽도 단독으로는 완전하지
-않습니다 — 공통 모듈이 바인딩하는 저장소들이 `Context` 기반 파일 소스와 Room 데이터베이스, 환경설정
-DataStore 에 의존하고, 그것을 제공할 수 있는 것은 플랫폼 모듈뿐입니다. 그리고 `core:data` 를 볼 수
-있는 모듈이 `app:reader` 하나뿐이라, 인터페이스와 구현의 연결은 정확히 한 번, 한 곳에서 일어납니다.
+수명이 프로세스가 아니라 그 컴포저블의 수명에 묶이고, 데이터베이스와 DataStore 를 포함한 모든
+`@Single` 이 컴포지션당 정확히 한 번만 생성됩니다. 뷰모델은 싱글턴이 아니라 `@KoinViewModel`
+입니다 — 화면의 상태는 프로세스 전역으로 살아남는 대신 자기 내비게이션 항목과 함께 죽어야 하기
+때문입니다. 그리고 `core:data` 를 볼 수 있는 모듈이 `app:reader` 하나뿐이라, 인터페이스와 구현의
+연결은 정확히 한 곳에서만 닿습니다.
 
 ### Compose 단계 규율
 
