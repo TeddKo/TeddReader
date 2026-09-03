@@ -30,6 +30,14 @@ import org.koin.core.annotation.Module
  * `applicationContext` `@Single` 프로바이더가 그 홀더를 읽어 그래프에 들여온다. 이 진입점이
  * 로드하는 모듈 집합은 이 클래스 하나로 정적으로 고정되어 컴파일러 플러그인이 전체 그래프를
  * 컴파일 타임에 검증한다.
+ *
+ * 컴포지션 루트만 로드하는 진입점이라 `internal` 이 자연스러워 보이지만 공개 가시성이어야 한다.
+ * 컴파일러 플러그인이 이 클래스마다 `public fun ReaderAppModule.module(): Module` 확장을
+ * 생성하는데, Kotlin/Native 의 Objective-C 내보내기는 확장 함수 *자신의* 가시성만 보고 내보낼
+ * 대상을 고르고 리시버 클래스의 가시성은 확인하지 않는다. 그래서 리시버가 `internal` 이면
+ * 내보내기 대상이 된 공개 확장이 내보내지 않는 클래스를 참조하게 되어 iOS 프레임워크 링크가
+ * `AssertionError: Shouldn't be exposed: deserialized class ReaderAppModule` 로 실패한다. 이
+ * 프로젝트의 다른 `@Module` 선언이 모두 공개인 것도 같은 이유다.
  */
 @Module(
     includes = [
@@ -46,4 +54,4 @@ import org.koin.core.annotation.Module
         DocumentInfoFeatureModule::class,
     ],
 )
-internal class ReaderAppModule
+class ReaderAppModule
