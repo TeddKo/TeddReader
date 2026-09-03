@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -520,13 +521,18 @@ internal fun FoundationEffectPager(
         // 재구성되기 때문이다. 대신 provider로 넘겨 graphicsLayer/drawWithCache 블록 안에서 읽게
         // 하고, composition은 아래 이산 [FoundationPagerTurnState]만 관찰한다.
         //
-        // PAGE_FLIP만 예외로 연속 오프셋을 여기서 읽는다: fold 기하가 `0`·부호·`0.5`라는 구조적
-        // 임계값에 매달려 있어 슬롯 트리 자체가 갈린다. 그 양자화는 별도 작업이다.
+        // PAGE_FLIP의 fold 기하는 슬롯 트리 자체를 가르는 구조적 임계값 — `0`, 부호, `0.5` — 에
+        // 매달려 있다. 그 임계값들만 이산 [FoundationPageFlipPhase]로 뽑아 composition이 관찰하게
+        // 하고, 회전·그림자 같은 연속값은 다른 style과 마찬가지로 provider로 넘긴다. 이제 flip 슬롯도
+        // 임계값을 넘을 때만 재구성된다.
         val isPageFlip = pageAnimation == PageAnimation.PAGE_FLIP
-        // PAGE_FLIP 전용. 다른 style에서는 읽히지 않으므로 0f로 남겨 두지만, 이름으로 그 사실을
-        // 드러내 두어 나중에 비-flip 분기가 이 값을 조용히 0으로 읽는 일이 없게 한다.
-        val pageFlipOffset = if (isPageFlip) pagerState.foundationOffsetForPage(pagerPage) else 0f
         val offsetProvider: () -> Float = { pagerState.foundationOffsetForPage(pagerPage) }
+        val flipPhaseState by remember(pagerState, pagerPage) {
+            derivedStateOf { foundationPageFlipPhase(pagerState.foundationOffsetForPage(pagerPage)) }
+        }
+        // PAGE_FLIP이 아닐 때는 위 파생 상태를 아예 읽지 않는다 — 읽으면 그 style들이 필요도 없는
+        // 임계값 변화에 재구성된다.
+        val flipPhase = if (isPageFlip) flipPhaseState else FoundationPageFlipPhase.Resting
         val turnState by remember(pagerState, gesture) {
             derivedStateOf {
                 val phase = gesture.phase
@@ -554,21 +560,21 @@ internal fun FoundationEffectPager(
             )
         }
         val incomingPage = if (
-            pageAnimation != PageAnimation.PAGE_FLIP ||
-            pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold
+            !isPageFlip ||
+            pageFlipLayout != FoundationPageFlipLayout.SplitHalfFold ||
+            flipPhase.isResting
         ) {
             null
+        } else if (flipPhase.isForward) {
+            readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
         } else {
-            when {
-                pageFlipOffset > 0f -> readerPagerDisplayedPage(renderedPageKey, nextPage, 1, canRequestNextPage)
-                pageFlipOffset < 0f -> previousPage
-                else -> null
-            }
+            previousPage
         }
         FoundationPageFlipAwareBox(
             pageAnimation = pageAnimation,
             axis = axis,
-            pageOffset = pageFlipOffset,
+            flipPhase = flipPhase,
+            offsetProvider = offsetProvider,
             pageFlipLayout = pageFlipLayout,
             isCurrentPage = pagerPage == FoundationCenterPage,
             modifier = if (readsPagerOffset) {
@@ -581,6 +587,7 @@ internal fun FoundationEffectPager(
                         offsetProvider = offsetProvider,
                         turnState = turnState,
                         turnProvider = turnProvider,
+                        flipPhase = flipPhase,
                         gesture = gesture,
                         fluidEdge = fluidEdge,
                     )
@@ -790,7 +797,9 @@ private suspend fun PagerState.foundationAutoScroll(
  * @param pageAnimation 현재 적용 중인 page-turn 애니메이션; [PageAnimation.PAGE_FLIP]일 때만
  *   fold를 일으킨다.
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @param flipPhase fold의 구조를 가르는 이산 임계값들.
+ * @param offsetProvider 이 슬롯의 부호 있는 오프셋을 돌려준다; 회전과 그림자가 layer/draw 블록
+ *   안에서 호출한다.
  * @param pageFlipLayout fold가 whole-page turn인지 두 pane짜리 split-half fold인지.
  * @param isCurrentPage 이 슬롯이 pager의 current-page 슬롯인지 여부.
  * @param modifier box에 적용되는 modifier.
@@ -803,7 +812,8 @@ private suspend fun PagerState.foundationAutoScroll(
 private fun FoundationPageFlipAwareBox(
     pageAnimation: PageAnimation,
     axis: FoundationPagerAxis,
-    pageOffset: Float,
+    flipPhase: FoundationPageFlipPhase,
+    offsetProvider: () -> Float,
     pageFlipLayout: FoundationPageFlipLayout,
     isCurrentPage: Boolean,
     modifier: Modifier,
@@ -816,7 +826,8 @@ private fun FoundationPageFlipAwareBox(
             FoundationPageFlipLayout.WholePage -> {
                 FoundationWholePageFlipBox(
                     axis = axis,
-                    pageOffset = pageOffset,
+                    flipPhase = flipPhase,
+                    offsetProvider = offsetProvider,
                     modifier = modifier,
                     documentPage = documentPage,
                     content = content,
@@ -825,7 +836,8 @@ private fun FoundationPageFlipAwareBox(
             FoundationPageFlipLayout.SplitHalfFold -> {
                 FoundationSpreadPageFlipBox(
                     axis = axis,
-                    pageOffset = pageOffset,
+                    flipPhase = flipPhase,
+                    offsetProvider = offsetProvider,
                     modifier = modifier,
                     documentPage = documentPage,
                     incomingPage = incomingPage,
@@ -853,32 +865,56 @@ private fun FoundationPageFlipAwareBox(
  * 실제 책이 그 자리에서 보여주는 모습이기 때문이다.
  *
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위.
+ * @param flipPhase 어느 절반이 나가고 들어오는지, 그리고 각각이 지금 그려지는지를 가르는 이산
+ *   임계값들.
+ * @param offsetProvider 부호 있는 오프셋을 돌려준다; 절반들의 회전과 그림자가 layer/draw 블록
+ *   안에서 이 값으로 계산된다.
  * @param modifier box에 적용되는 modifier.
  * @param documentPage 현재 페이지의 인덱스, 그릴 페이지가 없으면 null.
- * @param incomingPage fold가 진행됨에 따라 드러나는 이웃 페이지의 인덱스; null이거나
- *   [pageOffset]이 0이면 fold 없이 [documentPage]를 그대로 그린다.
+ * @param incomingPage fold가 진행됨에 따라 드러나는 이웃 페이지의 인덱스; null이거나 fold가
+ *   안착해 있으면 fold 없이 [documentPage]를 그대로 그린다.
  * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationSpreadPageFlipBox(
     axis: FoundationPagerAxis,
-    pageOffset: Float,
+    flipPhase: FoundationPageFlipPhase,
+    offsetProvider: () -> Float,
     modifier: Modifier = Modifier,
     documentPage: Int?,
     incomingPage: Int?,
     content: @Composable (page: Int) -> Unit,
 ) {
-    if (pageOffset == 0f || incomingPage == null) {
+    if (flipPhase.isResting || incomingPage == null) {
         Box(modifier = modifier) { if (documentPage != null) content(documentPage) }
         return
     }
-    val spec = foundationSpreadPageFlipSpec(axis, pageOffset)
-    val shadow = foundationPageFlipShadowSpec(pageOffset, FoundationPageFlipLayout.SplitHalfFold)
+    // 세 조각(깔개, 나가는 leaf, 들어오는 leaf)을 항상 구성하고, **어느 절반인지·보이는지·회전**을
+    // 전부 그리기 시점 오프셋 하나에서 뽑는다.
+    //
+    // 진행률로 갈라 조건부로 구성하던 예전 방식은 두 가지를 망가뜨렸다. (1) `0.5` 임계값이
+    // composition 조건이 되어 turn마다 슬롯이 그 지점에서 재구성됐다. (2) 더 나쁜 쪽 — 판정은
+    // composition, 회전은 그리기 시점 오프셋에서 나오는데 `PagerState`의 스크롤 위치는 measure
+    // 단계에서 갱신되므로 둘이 한 프레임 어긋난다. `incomingOffset`은 진행률에 역방향 단조라, turn이
+    // 끝나며 pager가 가운데로 스냅하는 프레임에는 composition이 아직 "들어오는 절반을 그려라"라고
+    // 말하는 동안 그리기 오프셋은 이미 `0`이어서 회전이 180°로 튀었다.
+    //
+    // 절반 배정까지 provider로 미루는 이유도 같다. composition이 부호로 절반을 고정해 두면, 드래그가
+    // 안착점을 가로질러 방향을 뒤집는 프레임에 그리기 시점 절반과 어긋나 양쪽 leaf가 함께 사라지고 한
+    // 절반이 빈 채로 남는다. 이제 절반도 같은 오프셋에서 나오므로 그런 상태가 존재하지 않는다.
+    //
+    // 세 조각을 늘 구성하는 비용은 낮다 — 페이지 호출 지점은 skippable이고 인덱스도 그대로다. 다만
+    // 안 보이는 leaf는 배치되지 않으므로(아래 [FoundationPageFlipHalfBox] 참고) 그리기와 히트
+    // 테스트에서 모두 빠진다.
+    val shadowProvider = {
+        foundationPageFlipShadowSpec(offsetProvider(), FoundationPageFlipLayout.SplitHalfFold)
+    }
+    fun spec() = foundationSpreadPageFlipSpec(axis, offsetProvider())
     Box(modifier = modifier) {
         FoundationPageFlipHalfBox(
-            half = spec.incomingHalf,
-            spec = FoundationPageFlipHalfSpec(0f, 0f),
+            axis = axis,
+            halfProvider = { spec().incomingHalf },
+            rotationProvider = { FoundationPageFlipHalfSpec(0f, 0f) },
             page = documentPage,
             content = content,
         )
@@ -887,29 +923,26 @@ private fun FoundationSpreadPageFlipBox(
                 .fillMaxSize()
                 .foundationPageFlipProjectedShadow(
                     axis = axis,
-                    pageOffset = pageOffset,
+                    offsetProvider = offsetProvider,
                     layout = FoundationPageFlipLayout.SplitHalfFold,
-                    shadow = shadow,
                 ),
         ) {}
-        if (spec.showOutgoing) {
-            FoundationPageFlipHalfBox(
-                half = spec.outgoingHalf,
-                spec = spec.outgoing,
-                shadow = shadow,
-                page = documentPage,
-                content = content,
-            )
-        }
-        if (spec.showIncoming) {
-            FoundationPageFlipHalfBox(
-                half = spec.incomingHalf,
-                spec = spec.incoming,
-                shadow = shadow,
-                page = incomingPage,
-                content = content,
-            )
-        }
+        FoundationPageFlipHalfBox(
+            axis = axis,
+            halfProvider = { spec().outgoingHalf },
+            rotationProvider = { spec().let { if (it.showOutgoing) it.outgoing else null } },
+            shadowProvider = shadowProvider,
+            page = documentPage,
+            content = content,
+        )
+        FoundationPageFlipHalfBox(
+            axis = axis,
+            halfProvider = { spec().incomingHalf },
+            rotationProvider = { spec().let { if (it.showIncoming) it.incoming else null } },
+            shadowProvider = shadowProvider,
+            page = incomingPage,
+            content = content,
+        )
     }
 }
 
@@ -924,8 +957,9 @@ private fun FoundationSpreadPageFlipBox(
  * 통째로 폐기·재구성되어 turn 도중 눈에 띄는 끊김을 남긴다.
  *
  * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
- * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋, `[-1, 1]` 범위로,
- *   [foundationWholePageFlipSpec]을 통해 회전과 피벗 모서리를 결정한다.
+ * @param flipPhase 이 fold가 아직 안착해 있는지를 가르는 이산 임계값.
+ * @param offsetProvider 부호 있는 오프셋을 돌려준다; [foundationWholePageFlipSpec]과
+ *   [foundationPageFlipShadowSpec]이 layer/draw 블록 안에서 이 값으로 회전·피벗·그림자를 구한다.
  * @param modifier box에 적용되는 modifier.
  * @param documentPage 회전하는 앞면에 그려지는 outgoing 페이지의 인덱스, 없으면 null.
  * @param content 주어진 인덱스의 페이지를 렌더링한다.
@@ -933,32 +967,31 @@ private fun FoundationSpreadPageFlipBox(
 @Composable
 private fun FoundationWholePageFlipBox(
     axis: FoundationPagerAxis,
-    pageOffset: Float,
+    flipPhase: FoundationPageFlipPhase,
+    offsetProvider: () -> Float,
     modifier: Modifier = Modifier,
     documentPage: Int?,
     content: @Composable (page: Int) -> Unit,
 ) {
-    if (pageOffset == 0f) {
+    if (flipPhase.isResting) {
         Box(modifier = modifier) { if (documentPage != null) content(documentPage) }
         return
     }
-    val transform = foundationWholePageFlipSpec(axis = axis, pageOffset = pageOffset)
-    val shadow = foundationPageFlipShadowSpec(pageOffset, FoundationPageFlipLayout.WholePage)
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .foundationPageFlipProjectedShadow(
                     axis = axis,
-                    pageOffset = pageOffset,
+                    offsetProvider = offsetProvider,
                     layout = FoundationPageFlipLayout.WholePage,
-                    shadow = shadow,
                 ),
         ) {}
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
+                    val transform = foundationWholePageFlipSpec(axis, offsetProvider())
                     cameraDistance = FoundationCameraDistance
                     transformOrigin = TransformOrigin(transform.transformOriginX, transform.transformOriginY)
                     rotationX = transform.rotationX
@@ -966,11 +999,16 @@ private fun FoundationWholePageFlipBox(
                 }
                 .foundationPageFlipInnerShadow(
                     axis = axis,
-                    shadow = shadow,
-                    foldFraction = if (axis == FoundationPagerAxis.Horizontal) {
-                        transform.transformOriginX
-                    } else {
-                        transform.transformOriginY
+                    shadowProvider = {
+                        foundationPageFlipShadowSpec(offsetProvider(), FoundationPageFlipLayout.WholePage)
+                    },
+                    foldFractionProvider = {
+                        val transform = foundationWholePageFlipSpec(axis, offsetProvider())
+                        if (axis == FoundationPagerAxis.Horizontal) {
+                            transform.transformOriginX
+                        } else {
+                            transform.transformOriginY
+                        }
                     },
                 ),
         ) {
@@ -981,48 +1019,57 @@ private fun FoundationWholePageFlipBox(
 
 /**
  * split-half fold가 사용하는, 페이지의 4분의 1 또는 절반 크기 깔개 하나. 움직이는 leaf는 참조
- * 구현의 클리핑된 inner shadow를 받으며, 평평하게 고정된 깔개는 [shadow]를 전달받지 않는다.
+ * 구현의 클리핑된 inner shadow를 받으며, 평평하게 고정된 깔개는 [shadowProvider]가 null을 낸다.
  *
- * @param half 이 box가 페이지의 어느 사분면/절반을 앉히는지.
- * @param spec 적용할 회전.
+ * @param axis 이 절반이 놓인 pager의 축 — inner shade가 어느 방향으로 옅어지는지를 정한다.
+ * @param halfProvider 이 프레임에 이 box가 앉힐 사분면/절반을 돌려준다; 클리핑 모양과 inner shade의
+ *   side가 여기서 나온다. 값이 아니라 provider인 이유는 [FoundationSpreadPageFlipBox]의 주석 참고.
+ * @param rotationProvider 적용할 회전을 돌려준다. `null`은 이 절반이 이 프레임에 보이지 않아야 함을
+ *   뜻하며, 그 경우 배치되지 않는다 — 그리기와 히트 테스트에서 함께 빠지므로, 안 보이는 절반이 그
+ *   아래 콘텐츠의 포인터 입력을 가로채지 않는다. alpha만 0으로 두면 히트 테스트에는 그대로 남는다.
  * @param modifier 이 클리핑된 절반에 추가로 적용되는 레이아웃이나 그리기.
- * @param shadow 이 프레임에 대한 참조 outer/inner 치수로, 고정된 깔개면 null.
+ * @param shadowProvider 이 프레임에 대한 참조 outer/inner 치수를 돌려준다; 고정된 깔개는 기본값인
+ *   null 반환 provider를 쓴다.
  * @param page 이 절반에 앉히는 페이지의 인덱스, 없으면 null.
  * @param content 주어진 인덱스의 페이지를 렌더링한다.
  */
 @Composable
 private fun FoundationPageFlipHalfBox(
-    half: FoundationPageFlipHalf,
-    spec: FoundationPageFlipHalfSpec,
+    axis: FoundationPagerAxis,
+    halfProvider: () -> FoundationPageFlipHalf,
+    rotationProvider: () -> FoundationPageFlipHalfSpec?,
     modifier: Modifier = Modifier,
-    shadow: FoundationPageFlipShadowSpec? = null,
+    shadowProvider: () -> FoundationPageFlipShadowSpec? = { null },
     page: Int?,
     content: @Composable (page: Int) -> Unit,
 ) {
-    val axis = when (half) {
-        FoundationPageFlipHalf.Left,
-        FoundationPageFlipHalf.Right,
-            -> FoundationPagerAxis.Horizontal
-        FoundationPageFlipHalf.Top,
-        FoundationPageFlipHalf.Bottom,
-            -> FoundationPagerAxis.Vertical
-    }
-    val innerShadow = shadow?.copy(side = foundationPageFlipHalfShadowSide(half))
     Box(
         modifier = modifier
             .fillMaxSize()
+            // 가시성을 배치 단계에서 판정한다: 배치하지 않으면 그리기와 히트 테스트에서 모두 빠지고,
+            // 그러면서도 노드는 구성된 채로 남아 재구성이 다시 늘지 않는다. 이 블록은 레이아웃
+            // snapshot 관찰자 안에서 돌기 때문에 오프셋이 바뀌면 재구성 없이 다시 실행된다.
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    if (rotationProvider() != null) placeable.place(0, 0)
+                }
+            }
             .graphicsLayer {
-                shape = foundationPageFlipShape(half)
+                val spec = rotationProvider()
+                shape = foundationPageFlipShape(halfProvider())
                 clip = true
                 cameraDistance = FoundationCameraDistance
                 transformOrigin = TransformOrigin(0.5f, 0.5f)
-                rotationX = spec.rotationX
-                rotationY = spec.rotationY
+                rotationX = spec?.rotationX ?: 0f
+                rotationY = spec?.rotationY ?: 0f
             }
             .foundationPageFlipInnerShadow(
                 axis = axis,
-                shadow = innerShadow,
-                foldFraction = FoundationPageFlipSpineFraction,
+                shadowProvider = {
+                    shadowProvider()?.copy(side = foundationPageFlipHalfShadowSide(halfProvider()))
+                },
+                foldFractionProvider = { FoundationPageFlipSpineFraction },
             ),
     ) {
         if (page != null) content(page)
@@ -1033,22 +1080,28 @@ private fun FoundationPageFlipHalfBox(
  * 움직이는 leaf 위에 fold(경첩)에서 자유 edge 쪽으로 옅어지는 shade를 그린다. 너비는 outer
  * shadow의 75%이고, 정지점은 [foundationPageFlipInnerShadowStops]가 낸다.
  *
- * fold 위치는 [foldFraction]으로 받는다. 축의 양 끝(0 또는 1)로는 표현할 수 없기 때문이다:
+ * fold 위치는 [foldFractionProvider]로 받는다. 축의 양 끝(0 또는 1)로는 표현할 수 없기 때문이다:
  * split-half spread에서 접히는 절반의 fold는 spine, 즉 `0.5`에 있고 자유 edge만 축의 끝에 있다.
  * 축의 끝을 fold로 삼으면 띠가 그 절반의 clip 밖에 그려져 전부 잘려 사라진다.
  *
  * @receiver 이 shade가 덧붙는 modifier 체인.
  * @param axis shade가 가로축과 세로축 중 어느 쪽을 따라 옅어지는지.
- * @param shadow 이 프레임의 치수. `side`는 leaf의 자유 edge 쪽으로, 띠가 fold에서 그쪽으로
- *   뻗는다. null이거나 알파/너비가 0이면 아무것도 그리지 않는다.
- * @param foldFraction 축을 따라 fold가 놓인 위치, `[0, 1]` 범위.
+ * @param shadowProvider 이 프레임의 치수를 돌려준다. `side`는 leaf의 자유 edge 쪽으로, 띠가
+ *   fold에서 그쪽으로 뻗는다. null이거나 알파/너비가 0이면 아무것도 그리지 않는다. 그리기 캐시
+ *   안에서만 호출된다.
+ * @param foldFractionProvider 축을 따라 fold가 놓인 위치를 돌려준다, `[0, 1]` 범위.
  * @return shade를 그리는 modifier.
  */
 private fun Modifier.foundationPageFlipInnerShadow(
     axis: FoundationPagerAxis,
-    shadow: FoundationPageFlipShadowSpec?,
-    foldFraction: Float,
+    shadowProvider: () -> FoundationPageFlipShadowSpec?,
+    foldFractionProvider: () -> Float,
 ): Modifier = drawWithCache {
+    // 두 provider는 어떤 early return보다도 먼저 호출해야 한다: `observeReads`는 실제로 실행된
+    // read만 등록하므로, 아래 분기 밑으로 내려가면 그림자가 사라진 프레임에서 구독이 끊겨 이후
+    // 갱신을 놓친다.
+    val shadow = shadowProvider()
+    val foldFraction = foldFractionProvider()
     val side = shadow?.side
     val alpha = shadow?.opacity ?: 0f
     val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
@@ -1112,6 +1165,9 @@ private fun Modifier.foundationPageFlipInnerShadow(
  *   `PagerState`의 스크롤 위치는 measure 단계에서 갱신되므로 draw는 그 프레임에 이미 새 값을 보지만
  *   composition은 다음 프레임에야 본다. 그리기 블록이 side를 다시 대조해야, fling 도중 방향이 뒤집힌
  *   프레임에서 엉뚱한 이웃이 번쩍이지 않는다.
+ * @param flipPhase PAGE_FLIP의 쌓임 순서를 가르는 이산 상태. z-index는 [Modifier.zIndex]가
+ *   composition 시점 값을 요구하므로 provider로 미룰 수 없고, 이산값으로 받아야 프레임마다
+ *   재구성되지 않는다.
  * @param gesture fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
  * @param fluidEdge fluid-reveal style을 위한, 공유되는 spring 애니메이션 edge 모양.
  * @return [pageAnimation]에 대해 이 슬롯의 transform, shadow, z-index를 적용하는 modifier.
@@ -1123,6 +1179,7 @@ private fun Modifier.foundationEffectPageModifier(
     offsetProvider: () -> Float,
     turnState: FoundationPagerTurnState,
     turnProvider: () -> FoundationActivePageTurn,
+    flipPhase: FoundationPageFlipPhase,
     gesture: FoundationPagerGestureTracker,
     fluidEdge: FoundationFluidEdge,
 ): Modifier {
@@ -1169,10 +1226,8 @@ private fun Modifier.foundationEffectPageModifier(
             .foundationMovieCarouselLayer(axis, page, offsetProvider)
             .foundationMovieCarouselShadow(axis, page, offsetProvider)
 
-        // PAGE_FLIP은 아직 슬롯 트리 자체가 연속 오프셋에 갈리므로, 여기서 읽어도 새로 생기는
-        // 재구성이 없다. 구조 임계값이 양자화되면 이 호출도 이산값으로 바뀐다.
         PageAnimation.PAGE_FLIP -> cancelTranslation
-            .zIndex(foundationPageFlipZIndex(page, offsetProvider()))
+            .zIndex(foundationPageFlipZIndex(page, flipPhase.isApproaching))
 
         else -> Modifier
     }
@@ -1190,6 +1245,87 @@ private data class FoundationPagerTurnState(
     val side: FoundationFluidSide,
     val isActive: Boolean,
 )
+
+/**
+ * PAGE_FLIP의 fold가 composition 시점에 필요로 하는 구조적 임계값들 — 전부 이산값이라, 스크롤이
+ * 진행되는 동안에도 임계값을 넘을 때만 바뀐다. 회전·피벗·그림자 같은 연속값은 여기 없다; 그것들은
+ * offset provider를 통해 layer/draw 블록 안에서 계산된다.
+ *
+ * @property isResting fold가 아직 시작되지 않았는지(오프셋이 정확히 `0`). 참이면 슬롯은 fold 없이
+ *   페이지를 그대로 그린다.
+ * @property isForward turn이 다음 페이지 방향인지. 어느 이웃 페이지를 incoming으로 구성할지를
+ *   결정한다 — 그건 페이지 인덱스 선택이라 composition에 남을 수밖에 없다. 절반 배정과 피벗은 이
+ *   값이 아니라 그리기 시점 오프셋에서 나온다([FoundationSpreadPageFlipBox] 참고).
+ * @property isApproaching 이 슬롯이 화면으로 다가오는 중인지(크기가 `1`보다 작은지). 쌓임 순서에서
+ *   멀어지는 이웃보다 위로 올라갈지를 가른다.
+ */
+@Immutable
+internal data class FoundationPageFlipPhase(
+    val isResting: Boolean,
+    val isForward: Boolean,
+    val isApproaching: Boolean,
+) {
+    companion object {
+        /**
+         * 손대지 않은 fold. PAGE_FLIP이 아닌 style에 넘기는 값이기도 하다.
+         *
+         * [foundationPageFlipPhase]로 정의해 오프셋 `0`이 내는 값과 어긋날 수 없게 한다.
+         */
+        val Resting = foundationPageFlipPhase(0f)
+    }
+}
+
+/**
+ * 부호 있는 슬롯 오프셋에서 fold의 구조적 임계값들을 뽑아낸다.
+ *
+ * 진행률의 `0.5` 임계값은 여기 없다 — 어느 절반을 그릴지는 그리기 시점 오프셋에서 정해진다. 그 판단을
+ * composition으로 끌어올리면 판정과 회전이 서로 다른 프레임의 값에서 나와, turn이 끝나는 프레임에
+ * 들어오는 절반이 180° 뒤집힌 채 한 번 그려질 수 있다.
+ *
+ * @param pageOffset 이 슬롯이 자기 안착 위치로부터 갖는 부호 있는 오프셋, 페이지 단위.
+ * @return 이 오프셋에서 fold가 갖는 구조.
+ */
+internal fun foundationPageFlipPhase(pageOffset: Float): FoundationPageFlipPhase =
+    FoundationPageFlipPhase(
+        isResting = pageOffset == 0f,
+        isForward = pageOffset >= 0f,
+        isApproaching = abs(pageOffset) < 1f,
+    )
+
+/**
+ * split-half fold에서 current 페이지의 leaf가 접혀 나가는 절반.
+ *
+ * [foundationSpreadPageFlipSpec]과 [FoundationSpreadPageFlipBox]가 같은 규칙을 각자 인코딩하지
+ * 않도록 떼어냈다: 전자는 연속 오프셋에서, 후자는 이산 [FoundationPageFlipPhase]에서 같은 답을
+ * 얻어야 한다.
+ *
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param isNext turn이 다음 페이지 방향인지.
+ * @return leaf가 들려 나가는 절반.
+ */
+internal fun foundationSpreadPageFlipOutgoingHalf(
+    axis: FoundationPagerAxis,
+    isNext: Boolean,
+): FoundationPageFlipHalf = when (axis) {
+    FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Right else FoundationPageFlipHalf.Left
+    FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Bottom else FoundationPageFlipHalf.Top
+}
+
+/**
+ * split-half fold에서 incoming 이웃이 내려앉는 절반 — [foundationSpreadPageFlipOutgoingHalf]의
+ * 반대편이다.
+ *
+ * @param axis fold가 가로축과 세로축 중 어느 쪽으로 도는지.
+ * @param isNext turn이 다음 페이지 방향인지.
+ * @return leaf가 접혀 들어가는 절반.
+ */
+internal fun foundationSpreadPageFlipIncomingHalf(
+    axis: FoundationPagerAxis,
+    isNext: Boolean,
+): FoundationPageFlipHalf = when (axis) {
+    FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Left else FoundationPageFlipHalf.Right
+    FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Top else FoundationPageFlipHalf.Bottom
+}
 
 /**
  * fluid-reveal edge를 따라, 지금 드러나고 있는 이웃 쪽으로 그려지는 cast + contact shadow로,
@@ -1415,15 +1551,18 @@ internal fun foundationMovieCarouselDimAlpha(progress: Float): Float =
  * 커지고, 불투명도는 선형으로 옅어지며, 띠는 움직이는 leaf의 edge에서 시작해 투명해질 때까지
  * 이어진다. 드러난 쪽(receiver)을 고르는 것은 기존 투영 계산이 그대로 담당한다.
  *
- * [shadow]를 여기서 다시 구하지 않고 받는 이유는, 호출하는 fold box들이 움직이는 leaf의 inner
- * shadow를 위해 이미 같은 인자로 같은 spec을 구해 두었기 때문이다.
+ * 오프셋을 값이 아니라 [offsetProvider]로 받아 두 spec을 그리기 캐시 안에서 구한다: 그래야
+ * 호출하는 fold box가 연속 오프셋을 composition에서 읽지 않아도 되고, 그만큼 슬롯이 프레임마다
+ * 재구성되지 않는다.
  */
 private fun Modifier.foundationPageFlipProjectedShadow(
     axis: FoundationPagerAxis,
-    pageOffset: Float,
+    offsetProvider: () -> Float,
     layout: FoundationPageFlipLayout,
-    shadow: FoundationPageFlipShadowSpec,
 ): Modifier = drawWithCache {
+    // [foundationPageFlipInnerShadow]와 같은 이유로 어떤 early return보다 먼저 읽는다.
+    val pageOffset = offsetProvider()
+    val shadow = foundationPageFlipShadowSpec(pageOffset, layout)
     val projection = foundationPageFlipProjectionSpec(pageOffset, layout)
     val extent = if (axis == FoundationPagerAxis.Horizontal) size.width else size.height
     val castWidth = (extent * shadow.outerWidthFraction).coerceAtMost(extent)
@@ -1767,20 +1906,23 @@ private fun foundationMovieZIndex(
  * [Modifier.zIndex]는 composition 시점 값을 요구하므로 세 슬롯이 프레임마다 재구성됐다 — 정작
  * 순서를 가르는 것은 "다가오는 이웃인가" 하나뿐이다.
  *
- * 판별식이 [pageOffset]의 부호가 아니라 크기인 이유: [PagerState.foundationOffsetForPage]는 각
+ * 판별 기준이 오프셋의 부호가 아니라 크기인 이유: [PagerState.foundationOffsetForPage]는 각
  * 슬롯이 *자기* 인덱스로부터 얼마나 떨어졌는지를 재므로, previous 슬롯의 오프셋은 늘 양수 쪽,
  * next 슬롯은 늘 음수 쪽이다. 부호는 슬롯마다 고정된 상수라 아무것도 가르지 못하고, 두 이웃에 같은
  * 값을 주어 위 문단의 bleed-through를 그대로 되살린다. 실제로 움직이는 것은 크기이며, 다가오는
  * 이웃만이 `1`보다 작아진다.
  *
  * @param page 세 페이지 중 어느 것을 배치하는 중인지.
- * @param pageOffset [page] 슬롯이 자기 안착 위치로부터 얼마나 이동했는지, 페이지 단위.
+ * @param isApproaching [page] 슬롯이 화면으로 다가오는 중인지
+ *   ([FoundationPageFlipPhase.isApproaching]).
  * @return z-index: current 페이지는 항상 맨 위에, 다가오는 이웃이 멀어지는 이웃 위에.
  */
-internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Float): Float = when (page) {
+internal fun foundationPageFlipZIndex(
+    page: FoundationPagerPage,
+    isApproaching: Boolean,
+): Float = when (page) {
     FoundationPagerPage.Current -> 3f
-    FoundationPagerPage.Previous, FoundationPagerPage.Next ->
-        if (abs(pageOffset) < 1f) 2f else 1f
+    FoundationPagerPage.Previous, FoundationPagerPage.Next -> if (isApproaching) 2f else 1f
 }
 
 /**
@@ -2165,14 +2307,8 @@ internal fun foundationSpreadPageFlipSpec(
     val offset = pageOffset.coerceIn(-1f, 1f)
     val progress = abs(offset)
     val isNext = offset >= 0f
-    val outgoingHalf = when (axis) {
-        FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Right else FoundationPageFlipHalf.Left
-        FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Bottom else FoundationPageFlipHalf.Top
-    }
-    val incomingHalf = when (axis) {
-        FoundationPagerAxis.Horizontal -> if (isNext) FoundationPageFlipHalf.Left else FoundationPageFlipHalf.Right
-        FoundationPagerAxis.Vertical -> if (isNext) FoundationPageFlipHalf.Top else FoundationPageFlipHalf.Bottom
-    }
+    val outgoingHalf = foundationSpreadPageFlipOutgoingHalf(axis, isNext)
+    val incomingHalf = foundationSpreadPageFlipIncomingHalf(axis, isNext)
     val incomingOffset = if (isNext) -(1f - progress) else 1f - progress
     return FoundationSpreadPageFlipSpec(
         outgoingHalf = outgoingHalf,
