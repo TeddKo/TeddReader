@@ -6,11 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.tedd.teddreader.app.reader.di.readerAppModule
-import com.tedd.teddreader.app.reader.di.rememberPlatformReaderModule
+import com.tedd.teddreader.app.reader.di.ProvidePlatformKoinInput
+import com.tedd.teddreader.app.reader.di.ReaderAppModule
 import com.tedd.teddreader.app.reader.importer.ExternalDocumentImportRequest
 import com.tedd.teddreader.app.reader.importer.GoogleDrivePickerBridge
 import com.tedd.teddreader.app.reader.importer.rememberDocumentImporter
@@ -27,15 +26,19 @@ import com.tedd.teddreader.core.ui.system.SystemBarsThemeEffect
 import org.koin.compose.KoinApplication
 import org.koin.compose.koinInject
 import org.koin.dsl.koinConfiguration
+import org.koin.plugin.module.dsl.module
 
 /**
  * TeddReader의 컴포지션 루트로, `androidApp`의 `MainActivity`와 iOS의 `MainViewController`가
  * 전체 앱을 구성하기 위해 호출하는 단일 Composable이다. 프로세스 전역 `startKoin()` 대신
- * [com.tedd.teddreader.app.reader.di.readerAppModule]과 `rememberPlatformReaderModule`의 플랫폼
- * 모듈을 결합한 이 Composable 전용 [org.koin.compose.KoinApplication]을 시작하므로 DI 그래프의
- * 수명이 전체 프로세스가 아니라 이 Composable 자체의 수명에 묶인다. 저장된 [ReaderSettings]를
- * 읽어 다크/라이트 모드와 현지화를 결정하고, 해석된 [DocumentImporter]와 대기 중인 외부 가져오기
- * 요청을 이후의 내비게이션과 화면 콘텐츠를 소유하는 [ReaderNavHost]로 전달한다.
+ * [ReaderAppModule]이 스캔·편입한 모든 어노테이션 정의로만 구성된 이 Composable 전용
+ * [org.koin.compose.KoinApplication]을 시작하므로 DI 그래프의 수명이 전체 프로세스가 아니라 이
+ * Composable 자체의 수명에 묶인다. Android `Context`처럼 컴포지션에서만 얻을 수 있는 플랫폼 입력은
+ * `KoinApplication`보다 먼저 호출하는 [ProvidePlatformKoinInput]이 플랫폼별 홀더에 채워 넣으며, 모듈
+ * 집합 자체는 [ReaderAppModule] 하나로 정적으로 고정되어 컴파일러 플러그인이 전체 그래프를 컴파일
+ * 타임에 검증한다. 저장된 [ReaderSettings]를 읽어 다크/라이트 모드와 현지화를 결정하고, 해석된
+ * [DocumentImporter]와 대기 중인 외부 가져오기 요청을 이후의 내비게이션과 화면 콘텐츠를 소유하는
+ * [ReaderNavHost]로 전달한다.
  *
  * @param initialExternalImportRequest 시작 시 한 번 처리할 문서 가져오기 요청으로, 일반적으로 OS가
  *   수신 인텐트나 공유 대상으로 앱에 전달한 파일이다. 가져와 열도록 [ReaderNavHost]에 그대로
@@ -58,11 +61,10 @@ fun TeddReaderApp(
     modifier: Modifier = Modifier,
     darkTheme: Boolean = isSystemInDarkTheme(),
 ) {
-    val appModule = remember { readerAppModule() }
-    val platformModule = rememberPlatformReaderModule()
+    ProvidePlatformKoinInput()
 
     KoinApplication(
-        configuration = koinConfiguration { modules(appModule, platformModule) },
+        configuration = koinConfiguration { module<ReaderAppModule>() },
     ) {
         val documentImporter = rememberDocumentImporter(googleDrivePickerBridge = googleDrivePickerBridge)
         val readerSettingsRepository = koinInject<ReaderSettingsRepository>()

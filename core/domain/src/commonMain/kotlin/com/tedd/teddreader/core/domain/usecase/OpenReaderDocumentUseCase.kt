@@ -20,6 +20,7 @@ import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import org.koin.core.annotation.Single
 
 /** 리더가 처음 열릴 때 게시하는 데 필요한 모든 값으로, domain/common 타입만 사용한다. */
 data class OpenReaderDocument(
@@ -42,6 +43,7 @@ data class OpenReaderDocument(
     val isVisualMode: Boolean get() = documentFormat.isVisualPageFormat()
 }
 
+@Single
 class OpenReaderDocumentUseCase(
     private val documentRepository: DocumentRepository,
     private val readerRepository: ReaderRepository,

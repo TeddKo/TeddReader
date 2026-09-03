@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 
 plugins {
     id("teddreader.kmp.compose")
+    id("teddreader.koin")
 }
 
 val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
@@ -43,8 +44,6 @@ kotlin {
             implementation(libs.findLibrary("jetbrains-navigation3-ui").get())
             implementation(libs.findLibrary("androidx-datastore-core").get())
             implementation(libs.findLibrary("androidx-room3-runtime").get())
-            implementation(libs.findLibrary("koin-core").get())
-            implementation(libs.findLibrary("koin-core-viewmodel").get())
             implementation(libs.findLibrary("koin-compose").get())
             implementation(libs.findLibrary("koin-compose-viewmodel").get())
         }

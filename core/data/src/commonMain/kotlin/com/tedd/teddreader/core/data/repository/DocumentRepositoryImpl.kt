@@ -105,9 +105,9 @@ import org.koin.core.annotation.Single
  * @property textPageLayoutEngine 섹션들을 [PageWindow]로 레이아웃하고, 저장된 레이아웃을 재측정
  *   없이 다시 윈도우로 재구성한다.
  * @property documentFileSource [DocumentMetadata.location]에 대한 원본 파일 바이트를 읽거나
- *   복사한다. 파일 접근이 없는 컨텍스트(일부 테스트)에서는 null이며, 이를 필요로 하는 모든 경로는
- *   null일 때 예외를 던지는 대신 빈 결과를 반환하는 쪽으로 완화되어 있다. 단, 점진적 EPUB
- *   임포트는 예외로 이 값을 반드시 필요로 한다.
+ *   복사한다. 플랫폼이 파일 접근을 전혀 제공하지 않으면(일부 테스트 포함) null이며, 이를 필요로
+ *   하는 모든 경로는 null일 때 예외를 던지는 대신 빈 결과를 반환하는 쪽으로 완화되어 있다. 단,
+ *   점진적 EPUB 임포트는 예외로 이 값을 반드시 필요로 한다.
  */
 @Single([DocumentRepository::class])
 class DocumentRepositoryImpl(
@@ -121,7 +121,7 @@ class DocumentRepositoryImpl(
     private val comicBookDocumentParser: ComicBookDocumentParser,
     private val imageDocumentParser: ImageDocumentParser,
     private val textPageLayoutEngine: TextPageLayoutEngine,
-    private val documentFileSource: DocumentFileSource? = null,
+    private val documentFileSource: DocumentFileSource?,
 ) : DocumentRepository {
     /** 텍스트 컬럼으로 저장되는 블록 목록과 내비게이션을 인코딩/디코딩할 때 사용하는 JSON 코덱. */
     private val json = Json
