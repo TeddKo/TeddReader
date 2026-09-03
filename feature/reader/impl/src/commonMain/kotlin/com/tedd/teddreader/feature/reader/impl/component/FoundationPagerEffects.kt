@@ -15,6 +15,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
@@ -97,10 +99,10 @@ private val PageAnimation.readsPagerOffset: Boolean
     }
 
 /**
- * 이 style이 원시 포인터 위치([FoundationPagerGestureState])를 읽는지 여부. 읽지 않는
- * style에서는 제스처 추적용 `pointerInput`을 설치조차 하지 않는데, 그 추적기가 포인터 이벤트마다
- * snapshot state를 갱신해 세 슬롯 전부를 재구성시키기 때문이다 — 그 상태를 아무도 읽지 않는
- * style에서는 순수한 낭비다.
+ * 이 style이 원시 포인터 위치([FoundationPagerGestureTracker])를 읽는지 여부. 읽지 않는
+ * style에서는 제스처 추적용 `pointerInput`을 설치조차 하지 않는다 — 추적기는 이제 포인터 이벤트마다
+ * 재구성을 일으키지는 않지만, 여전히 이벤트마다 snapshot을 갱신해 그것을 읽는 그리기 캐시를
+ * 무효화하므로, 아무도 읽지 않는 style에서는 순수한 낭비다.
  *
  * `else`가 없는 이유는 [readsPagerOffset]과 같다.
  */
@@ -232,7 +234,7 @@ internal fun FoundationEffectPager(
     val readsPagerOffset = pageAnimation.readsPagerOffset
     val readsGestureState = pageAnimation.readsGestureState
     val fluidEdge = remember { FoundationFluidEdge(FoundationFluidPointCount) }
-    var gestureState by remember { mutableStateOf(FoundationPagerGestureState()) }
+    val gesture = remember { FoundationPagerGestureTracker() }
     val coroutineScope = rememberCoroutineScope()
     val settleAnimationSpec = remember {
         tween<Float>(FoundationPagerSettleMillis, easing = FastOutSlowInEasing)
@@ -284,7 +286,7 @@ internal fun FoundationEffectPager(
     }
     LaunchedEffect(isAutoScrollEnabled) {
         if (isAutoScrollEnabled) {
-            gestureState = FoundationPagerGestureState()
+            gesture.reset()
             fluidEdge.reset()
         }
     }
@@ -382,43 +384,28 @@ internal fun FoundationEffectPager(
         Modifier
     } else {
         Modifier.pointerInput(axis, previousPage != null, canGoForward) {
-            var localGesture = FoundationPagerGestureState()
             awaitPointerEventScope {
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     val pressedChange = event.changes.firstOrNull { it.pressed }
-                    if (pressedChange != null) {
-                        val position = pressedChange.position
-                        val primaryDelta = if (axis == FoundationPagerAxis.Horizontal) {
-                            position.x - localGesture.start.x
-                        } else {
-                            position.y - localGesture.start.y
-                        }
-                        val blockDrag = localGesture.active && foundationPagerShouldBlockDrag(
-                            primaryDelta = primaryDelta,
-                            hasPreviousPage = previousPage != null,
-                            hasNextPage = canGoForward,
-                        )
-                        if (blockDrag) {
-                            event.changes.forEach { it.consume() }
-                        }
-                        localGesture = if (localGesture.active) {
-                            val current = if (blockDrag) localGesture.start else position
-                            localGesture.copy(current = current, last = current)
-                        } else {
+                    when {
+                        pressedChange == null -> gesture.release()
+                        !gesture.pressed -> {
                             fluidEdge.reset()
-                            FoundationPagerGestureState(
-                                start = position,
-                                current = position,
-                                last = position,
-                                active = true,
-                                touched = true,
-                            )
+                            gesture.press(pressedChange.position)
                         }
-                        gestureState = localGesture
-                    } else if (localGesture.active) {
-                        localGesture = localGesture.copy(active = false)
-                        gestureState = localGesture
+                        else -> {
+                            val position = pressedChange.position
+                            val blockDrag = foundationPagerShouldBlockDrag(
+                                primaryDelta = axis.primary(position) - axis.primary(gesture.start),
+                                hasPreviousPage = previousPage != null,
+                                hasNextPage = canGoForward,
+                            )
+                            if (blockDrag) {
+                                event.changes.forEach { it.consume() }
+                            }
+                            gesture.move(if (blockDrag) gesture.start else position, axis)
+                        }
                     }
                 }
             }
@@ -557,7 +544,7 @@ internal fun FoundationEffectPager(
                         pageOffset = pageOffset,
                         previousProgress = pagerState.foundationAdjacentProgress(FoundationPreviousPage),
                         nextProgress = pagerState.foundationAdjacentProgress(FoundationNextPage),
-                        gestureState = gestureState,
+                        gesture = gesture,
                         fluidEdge = fluidEdge,
                     )
             } else {
@@ -1079,7 +1066,7 @@ private fun Modifier.foundationPageFlipInnerShadow(
  * @param pageOffset 이 슬롯이 pager의 안착 위치로부터 갖는 부호 있는 오프셋.
  * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
  * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
- * @param gestureState fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
+ * @param gesture fluid-reveal과 circle-reveal 기하를 구동하는 수동 드래그/터치 상태.
  * @param fluidEdge fluid-reveal style을 위한, 공유되는 spring 애니메이션 edge 모양.
  * @return [pageAnimation]에 대해 이 슬롯의 transform, shadow, z-index를 적용하는 modifier.
  */
@@ -1090,13 +1077,14 @@ private fun Modifier.foundationEffectPageModifier(
     pageOffset: Float,
     previousProgress: Float,
     nextProgress: Float,
-    gestureState: FoundationPagerGestureState,
+    gesture: FoundationPagerGestureTracker,
     fluidEdge: FoundationFluidEdge,
 ): Modifier {
     val page = FoundationPagerPage.fromPagerPage(pagerPage)
+    val phase = gesture.phase
     val activeTurn = foundationActivePageTurn(
-        axis = axis,
-        gestureState = gestureState,
+        gestureActive = phase.active,
+        gestureSide = phase.side,
         previousProgress = previousProgress,
         nextProgress = nextProgress,
     )
@@ -1120,7 +1108,7 @@ private fun Modifier.foundationEffectPageModifier(
                         axis = axis,
                         side = page.side,
                         progress = activeProgress,
-                        gestureState = gestureState,
+                        gesture = gesture,
                         fluidEdge = fluidEdge,
                     )
                 },
@@ -1131,10 +1119,10 @@ private fun Modifier.foundationEffectPageModifier(
             .zIndex(foundationRevealZIndex(page, activeSide, activeProgress))
             .then(
                 foundationRevealModifier(page, activeSide, activeProgress) {
-                    Modifier.foundationCircleRevealClip(axis, page.side, activeProgress, gestureState)
+                    Modifier.foundationCircleRevealClip(axis, page.side, activeProgress, gesture)
                 },
             )
-            .then(foundationCircleRevealShadow(page, axis, activeSide, activeProgress, gestureState))
+            .then(foundationCircleRevealShadow(page, axis, activeSide, activeProgress, gesture))
 
         PageAnimation.MOVIE_CAROUSEL -> Modifier
             .zIndex(foundationMovieZIndex(page, activeSide, activeProgress))
@@ -1212,7 +1200,7 @@ private fun foundationFluidShadow(
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위.
- * @param gestureState 원의 원점을 터치 지점에 고정하는 수동 드래그/터치 상태.
+ * @param gesture 원의 원점을 터치 지점에 고정하는 수동 드래그/터치 상태.
  * @return shadow를 그리는 modifier, 또는 이 슬롯에 보여줄 shadow가 없으면 변경되지 않은
  *   [Modifier].
  */
@@ -1221,7 +1209,7 @@ private fun foundationCircleRevealShadow(
     axis: FoundationPagerAxis,
     activeSide: FoundationFluidSide,
     progress: Float,
-    gestureState: FoundationPagerGestureState,
+    gesture: FoundationPagerGestureTracker,
 ): Modifier {
     if (page == FoundationPagerPage.Current) return Modifier
     if (page.side != activeSide || progress <= 0f) return Modifier
@@ -1229,7 +1217,7 @@ private fun foundationCircleRevealShadow(
         val touchCrossAxis = foundationTouchCrossAxis(
             axis = axis,
             size = FoundationPagerSize(size.width, size.height),
-            touch = gestureState.touchPoint(),
+            touch = gesture.touchPoint(),
         )
         val spec = foundationCircleRevealShadowSpec(
             size = FoundationPagerSize(size.width, size.height),
@@ -1406,46 +1394,24 @@ private fun Modifier.foundationPageFlipProjectedShadow(
  * turn 축을 따라 방향을 확정할 만큼 충분히 움직이지 않았으면 null이다.
  *
  * @param axis 드래그를 가로축과 세로축 중 어느 쪽으로 읽는지.
- * @param gestureState 현재의 수동 드래그/터치 상태.
+ * @param start 제스처가 시작된 위치.
+ * @param current 제스처의 현재 위치.
  * @return 드래그가 향하는 side, 또는 아직 확정된 방향이 없으면 null.
  */
 private fun foundationGestureSide(
     axis: FoundationPagerAxis,
-    gestureState: FoundationPagerGestureState,
+    start: Offset,
+    current: Offset,
 ): FoundationFluidSide? {
-    if (!gestureState.active) return null
-    val delta = axis.primary(gestureState.current) - axis.primary(gestureState.start)
+    val delta = axis.primary(current) - axis.primary(start)
     if (abs(delta) < FoundationGestureDirectionThresholdPx) return null
     return if (delta < 0f) FoundationFluidSide.End else FoundationFluidSide.Start
 }
 
 /**
- * 활성 turn의 대상이 어느 이웃이고 얼마나 진행됐는지를, [foundationGestureSide]를 통해
- * [gestureState]에서 제스처 side를 직접 읽어 알아낸다. 아래의 순수하고 유닛 테스트 가능한
- * 오버로드를 감싸는 얇은 Compose 쪽 래퍼로, `drawWithCache` 블록 안 호출 지점마다 드래그 방향
- * 조회가 중복되지 않도록 따로 떼어 두었다.
- *
- * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
- * @param gestureState 현재의 수동 드래그/터치 상태.
- * @param previousProgress previous-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
- * @param nextProgress next-page turn이 얼마나 안착했는지, `[0, 1]` 범위.
- * @return 현재 활성 상태인 turn의 side와 progress.
- */
-private fun foundationActivePageTurn(
-    axis: FoundationPagerAxis,
-    gestureState: FoundationPagerGestureState,
-    previousProgress: Float,
-    nextProgress: Float,
-): FoundationActivePageTurn = foundationActivePageTurn(
-    gestureActive = gestureState.active,
-    gestureSide = foundationGestureSide(axis, gestureState),
-    previousProgress = previousProgress,
-    nextProgress = nextProgress,
-)
-
-/**
- * [foundationActivePageTurn]의 Compose 쪽 오버로드 뒤에 있는 순수한 판단 로직으로, 실제
- * 제스처/pager 없이도 유닛 테스트할 수 있도록 따로 떼어냈다: 드래그가 활성 상태이지만 아직
+ * 활성 turn의 대상이 어느 이웃이고 얼마나 진행됐는지를 판단한다. 제스처 상태 전체가 아니라
+ * [FoundationPagerGestureTracker.phase]가 이미 뽑아 둔 두 값만 받으므로, 실제 제스처/pager 없이도
+ * 유닛 테스트할 수 있다: 드래그가 활성 상태이지만 아직
  * side를 확정하지 못한 동안에는, 어느 이웃의 pager progress가 우연히 더 높은지를 가져다 쓰는
  * 대신 보고하는 turn의 progress를 0으로 둔다 — 그렇지 않으면 한 방향으로 움직이기 시작한
  * 드래그가 방향이 확정되기 전 한 프레임 동안 다른 쪽 이웃의 shadow/reveal을 잠깐 비출 수 있다.
@@ -1482,8 +1448,12 @@ internal fun foundationActivePageTurn(
 
 /**
  * fluid-reveal과 circle-reveal style의 쌓임 순서: current 페이지는 안착한 이웃 위에 놓이지만,
- * 지금 드러나고 있는 이웃은 reveal이 진행됨에 따라 current 페이지 위로 올라와서, 커지는
- * fold/원이 그 아래 페이지에 잘리는 대신 그 위로 들려 올라오는 것처럼 보이게 한다.
+ * 지금 드러나고 있는 이웃은 current 페이지 위로 올라와서, 커지는 fold/원이 그 아래 페이지에 잘리는
+ * 대신 그 위로 들려 올라오는 것처럼 보이게 한다.
+ *
+ * 값은 순서만 가르는 이산값이다. 예전에는 활성 이웃이 `2f + progress`를 받아 프레임마다 값이
+ * 달라졌고, [Modifier.zIndex]는 composition 시점 값을 요구하므로 그 슬롯이 프레임마다 재구성됐다 —
+ * `2f`와 `3f` 사이에 놓일 슬롯이 없으니 그 소수부는 어떤 순서도 바꾸지 못했다.
  *
  * @param page 배치할 대상 pager 슬롯.
  * @param activeSide 활성 turn이 어느 쪽(start/end)에서 드러나고 있는지.
@@ -1497,7 +1467,7 @@ private fun foundationRevealZIndex(
 ): Float = when {
     page == FoundationPagerPage.Current -> 1f
     progress <= 0f -> 0f
-    page.side == activeSide -> 2f + progress
+    page.side == activeSide -> 2f
     else -> 0f
 }
 
@@ -1562,7 +1532,7 @@ private fun Modifier.foundationHiddenWhenInactive(hidden: Boolean): Modifier = i
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param side fluid edge가 어느 side(start/end)에서 전진하는지.
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; edge가 쉬어야 할 목표값이다.
- * @param gestureState 터치 지점이 edge의 부풀어 오름을 조종하는, 수동 드래그/터치 상태.
+ * @param gesture 터치 지점이 edge의 부풀어 오름을 조종하는, 수동 드래그/터치 상태.
  * @param fluidEdge 이 클리핑이 구동하는 동시에 읽는, 공유되는 spring 애니메이션 edge 모양.
  * @return receiver를 fluid edge의 현재 모양으로 클리핑하는 modifier.
  */
@@ -1570,7 +1540,7 @@ private fun Modifier.foundationFluidClip(
     axis: FoundationPagerAxis,
     side: FoundationFluidSide,
     progress: Float,
-    gestureState: FoundationPagerGestureState,
+    gesture: FoundationPagerGestureTracker,
     fluidEdge: FoundationFluidEdge,
 ): Modifier = drawWithCache {
     @Suppress("UNUSED_VARIABLE")
@@ -1582,9 +1552,9 @@ private fun Modifier.foundationFluidClip(
         touchCrossAxis = foundationTouchCrossAxis(
             axis = axis,
             size = sizeModel,
-            touch = gestureState.touchPoint(),
+            touch = gesture.touchPoint(),
         ),
-        touchActive = gestureState.active,
+        touchActive = gesture.pressed,
     )
     val path = buildFoundationFluidPolygon(
         size = sizeModel,
@@ -1609,19 +1579,19 @@ private fun Modifier.foundationFluidClip(
  * @param axis turn이 가로축과 세로축 중 어느 쪽으로 진행되는지.
  * @param side 원의 원점이 어느 side에 놓이는지.
  * @param progress 활성 turn이 얼마나 진행됐는지, `[0, 1]` 범위; 원의 반지름을 결정한다.
- * @param gestureState 원의 원점을 고정하는 터치 지점을 가진, 수동 드래그/터치 상태.
+ * @param gesture 원의 원점을 고정하는 터치 지점을 가진, 수동 드래그/터치 상태.
  * @return receiver를 원의 현재 모양으로 클리핑하는 modifier.
  */
 private fun Modifier.foundationCircleRevealClip(
     axis: FoundationPagerAxis,
     side: FoundationFluidSide,
     progress: Float,
-    gestureState: FoundationPagerGestureState,
+    gesture: FoundationPagerGestureTracker,
 ): Modifier = drawWithCache {
     val touchCrossAxis = foundationTouchCrossAxis(
         axis = axis,
         size = FoundationPagerSize(size.width, size.height),
-        touch = gestureState.touchPoint(),
+        touch = gesture.touchPoint(),
     )
     val path = buildFoundationCircleRevealPath(
         size = FoundationPagerSize(size.width, size.height),
@@ -1703,16 +1673,26 @@ private fun foundationMovieZIndex(
  * 아무것도 이동하지 않으므로 세 페이지 모두 같은 자리에 놓이고, 오직 이 순서만이 그들을
  * 구분한다. 두 이웃에 같은 인덱스를 주면 composition 순서가 승패를 갈랐고, 그 결과 먼 쪽
  * 이웃이 이겨서 — 뒤로 turn할 때 접히는 페이지가 투명하게 남기는 절반 너머로 *다음* 페이지가
- * 비쳐 보였다. 각 이웃이 화면에 보이는 페이지에 얼마나 가까운지로 순위를 매기는 것이 이를
- * 고친다.
+ * 비쳐 보였다. 지금 다가오고 있는 이웃을 위로 올리는 것이 이를 고친다.
+ *
+ * 이웃의 값은 이산값이다. 예전에는 `2f - abs(pageOffset)`이라 프레임마다 달라졌고,
+ * [Modifier.zIndex]는 composition 시점 값을 요구하므로 세 슬롯이 프레임마다 재구성됐다 — 정작
+ * 순서를 가르는 것은 "다가오는 이웃인가" 하나뿐이다.
+ *
+ * 판별식이 [pageOffset]의 부호가 아니라 크기인 이유: [PagerState.foundationOffsetForPage]는 각
+ * 슬롯이 *자기* 인덱스로부터 얼마나 떨어졌는지를 재므로, previous 슬롯의 오프셋은 늘 양수 쪽,
+ * next 슬롯은 늘 음수 쪽이다. 부호는 슬롯마다 고정된 상수라 아무것도 가르지 못하고, 두 이웃에 같은
+ * 값을 주어 위 문단의 bleed-through를 그대로 되살린다. 실제로 움직이는 것은 크기이며, 다가오는
+ * 이웃만이 `1`보다 작아진다.
  *
  * @param page 세 페이지 중 어느 것을 배치하는 중인지.
- * @param pageOffset pager가 [page]로부터 얼마나 이동했는지, 페이지 단위.
- * @return z-index: current 페이지는 항상 맨 위에, 이웃은 화면에 가까워질수록 위로 올라온다.
+ * @param pageOffset [page] 슬롯이 자기 안착 위치로부터 얼마나 이동했는지, 페이지 단위.
+ * @return z-index: current 페이지는 항상 맨 위에, 다가오는 이웃이 멀어지는 이웃 위에.
  */
 internal fun foundationPageFlipZIndex(page: FoundationPagerPage, pageOffset: Float): Float = when (page) {
     FoundationPagerPage.Current -> 3f
-    FoundationPagerPage.Previous, FoundationPagerPage.Next -> 2f - abs(pageOffset).coerceIn(0f, 1f)
+    FoundationPagerPage.Previous, FoundationPagerPage.Next ->
+        if (abs(pageOffset) < 1f) 2f else 1f
 }
 
 /**
@@ -2239,7 +2219,7 @@ internal fun foundationPagerDragTargetOffset(
 
 /**
  * [primaryDelta] 방향으로 움직이는 수동 드래그를 pager에 넘기는 대신 소비하여 막아야
- * 하는지 — [FoundationPagerGestureState]에 값을 대는 제스처 추적용 `pointerInput`과 실제
+ * 하는지 — [FoundationPagerGestureTracker]에 값을 대는 제스처 추적용 `pointerInput`과 실제
  * `draggable` modifier 양쪽에서 쓰여서, 넘어갈 곳이 없는 책의 시작이나 끝 쪽으로의
  * 드래그가 pager를 첫/마지막 슬롯 너머로 끌고 갈 수 없게 한다.
  *
@@ -2305,41 +2285,134 @@ private const val FoundationManualFlingVelocityThresholdPxPerSecond = 1000f
 private const val FoundationManualDragDistanceThresholdRatio = 0.25f
 
 /**
- * fluid-edge, circle-reveal, 드래그 차단 로직이 터치가 어디에 있고 아직 눌려 있는지
- * 알기 위해 읽는 수동 제스처 상태. Foundation 자신의 pager 제스처 처리와 별도로 추적하는
- * 이유는, 그 effect들이 pager의 안착된 스크롤 오프셋만이 아니라 원시 포인터 위치(터치에
- * 고정된 부풀어 오름/원의 원점을 위해)를 필요로 하기 때문이다.
+ * fluid-edge와 circle-reveal 기하가 읽는 수동 제스처 상태로, **갱신 빈도에 따라 두 층으로 나뉜다.**
  *
- * @property start 현재 제스처가 시작된 위치, 로컬 좌표계 기준.
- * @property current [active]가 true인 동안의 제스처 실시간 위치.
- * @property last 제스처의 마지막으로 알려진 위치로, [active]가 false가 된 뒤에도 유지되어
- *   놓인 터치도 [touchPoint]를 통해 보고할 지점을 여전히 가지게 한다.
- * @property active 포인터가 현재 눌려 있는지 여부.
- * @property touched 이 상태가 마지막으로 재설정된 뒤 어떤 제스처든 발생한 적이 있는지
- *   여부; "한 번도 터치되지 않음"과 "터치되었다가 놓임"을 구분해서, [touchPoint]/
- *   [startPoint]가 전자에 대해서만 null을 보고할 수 있게 한다.
+ * 예전에는 위치와 활성 여부를 통째로 담은 하나의 `data class`를 snapshot state에 담아 포인터
+ * 이벤트마다 새로 써 넣었다. 그 상태는 composition에서 읽히므로, 손가락이 움직이는 내내 — 프레임이
+ * 아니라 *포인터 샘플* 빈도로, 고주사율 디지타이저에서는 프레임보다 잦게 — 세 슬롯 전부가
+ * 재구성됐다. 정작 composition이 실제로 필요로 하는 값은 "지금 드래그 중인가"와 "어느 쪽으로
+ * 향하는가" 둘뿐이고, 그 둘은 드래그가 시작되거나 끝나거나 방향 임계값을 넘을 때만 바뀐다.
+ *
+ * 그래서 터치 좌표는 snapshot state로 두되 **오직 `drawWithCache` build block 안에서만** 읽고,
+ * composition이 읽는 것은 [phase] 하나뿐이며 그 값도 실제로 달라질 때만 쓴다. 어느 composition도
+ * 좌표를 읽지 않으므로 포인터 이벤트는 재구성을 일으키지 않고, 그 블록들은
+ * `CacheDrawModifierNode`의 관찰자를 통해 그리기 캐시만 다시 만든다.
+ *
+ * 좌표를 아예 snapshot에서 빼지 않은 이유가 있다: reveal 기하가 고정하는 것은 turn 축이 아니라
+ * **cross axis** 위치([foundationTouchCrossAxis])다. 손가락이 turn 축과 수직으로만 움직이면 pager의
+ * 오프셋은 한 비트도 변하지 않고, 문서 끝에서 [foundationPagerShouldBlockDrag]가 드래그를 막는
+ * 동안에도 마찬가지다 — 그 상황에서 좌표가 관찰되지 않으면 reveal이 손가락을 따라가지 못하고 그
+ * 자리에 얼어붙는다.
  */
-private data class FoundationPagerGestureState(
-    val start: Offset = Offset.Zero,
-    val current: Offset = Offset.Zero,
-    val last: Offset = Offset.Zero,
-    val active: Boolean = false,
-    val touched: Boolean = false,
-) {
+@Stable
+private class FoundationPagerGestureTracker {
     /**
-     * fluid/circle reveal 기하가 고정해야 할 지점: 터치가 눌려 있는 동안은 실시간 위치를,
-     * 놓인 뒤에는 마지막으로 알려진 위치를 가리켜서, reveal이 원점으로 되돌아가는 대신
-     * 손가락이 있던 곳을 계속 따라가게 한다.
+     * 현재 제스처가 시작된 위치. 포인터 루프의 드래그 차단 판정이 델타를 재는 기준이라 밖에서도 읽는다.
+     * [press]와 [reset]에서만 바뀌므로 snapshot으로 두어도 프레임 비용이 없고, 그래야 이 클래스의
+     * `@Stable` 계약 — 모든 public 프로퍼티 변경이 snapshot으로 통지된다 — 이 실제로 성립한다.
+     */
+    var start: Offset by mutableStateOf(Offset.Zero)
+        private set
+
+    /**
+     * 가장 최근에 알려진 터치 위치. 손을 뗀 뒤에도 유지되어, 놓인 터치도 [touchPoint]를 통해 계속
+     * 보고할 지점을 갖는다 — reveal이 원점으로 되돌아가는 대신 손가락이 있던 곳에 머문다.
+     */
+    private var touch: Offset by mutableStateOf(Offset.Zero)
+
+    /** 마지막 [reset] 이후 어떤 제스처든 있었는지; "한 번도 터치되지 않음"과 "터치되었다가 놓임"을 가른다. */
+    private var touched: Boolean by mutableStateOf(false)
+
+    /** 포인터가 지금 눌려 있는지 여부. fluid edge가 spring 시뮬레이션과 release 보간을 가르는 데 읽는다. */
+    var pressed: Boolean by mutableStateOf(false)
+        private set
+
+    /**
+     * composition이 읽는 유일한 값: 이 제스처가 활성인지와 어느 side로 향하는지. 값이 실제로 달라질
+     * 때만 쓰이므로, 포인터 이벤트 자체는 재구성을 일으키지 않는다.
+     */
+    var phase: FoundationPagerGesturePhase by mutableStateOf(FoundationPagerGesturePhase())
+        private set
+
+    /** 새 제스처의 시작을 [position]에 기록한다. */
+    fun press(position: Offset) {
+        start = position
+        touch = position
+        touched = true
+        pressed = true
+        updatePhase(FoundationPagerGesturePhase(active = true, side = null))
+    }
+
+    /**
+     * 진행 중인 제스처를 [position]으로 옮기고, [axis]를 따라 방향이 확정됐는지 다시 판정한다.
      *
-     * @return 현재 또는 마지막 터치 지점, 또는 [touched]가 false면 null.
+     * @param position 새 포인터 위치; 드래그가 차단된 프레임에서는 호출자가 [start]를 그대로 넘겨
+     *   위치를 고정한다.
+     * @param axis 방향을 어느 축으로 읽는지.
+     */
+    fun move(position: Offset, axis: FoundationPagerAxis) {
+        touch = position
+        updatePhase(
+            FoundationPagerGesturePhase(
+                active = true,
+                side = foundationGestureSide(axis, start, position),
+            ),
+        )
+    }
+
+    /**
+     * 포인터가 떨어졌음을 기록한다. [touch]는 [touchPoint]가 계속 보고할 수 있도록 유지되지만,
+     * [phase]는 side까지 함께 지워진다.
+     *
+     * side를 남기면 안 되는 이유: [foundationActivePageTurn]은 `gestureSide ?: progressSide`로
+     * 폴백하므로, 손을 뗀 뒤에도 남은 side가 pager의 실제 진행 방향을 계속 덮어쓴다. 뒤로 드래그했다
+     * 놓은 다음 하단 바의 "다음 페이지" 버튼으로 turn하면 — 그 터치는 이 pointerInput 밖이라 [press]가
+     * 불리지 않는다 — 활성 side가 여전히 start로 읽혀, 정작 드러나야 할 next 슬롯이
+     * [foundationHiddenWhenInactive]로 완전히 숨겨진 채 turn이 진행된다. 예전 구현에서 side를 내주던
+     * [foundationGestureSide] 호출부가 `!active`면 무조건 null을 반환했던 것과 같은 상태로 되돌린다.
+     */
+    fun release() {
+        if (!pressed) return
+        pressed = false
+        updatePhase(FoundationPagerGesturePhase())
+    }
+
+    /** 모든 것을 손대지 않은 상태로 되돌린다 — 자동 스크롤이 제스처 구동 효과를 인계받을 때 쓰인다. */
+    fun reset() {
+        start = Offset.Zero
+        touch = Offset.Zero
+        touched = false
+        pressed = false
+        updatePhase(FoundationPagerGesturePhase())
+    }
+
+    /**
+     * fluid/circle reveal 기하가 고정해야 할 지점.
+     *
+     * @return 현재 또는 마지막 터치 지점, 또는 아직 한 번도 터치되지 않았으면 null.
      */
     fun touchPoint(): FoundationPagerPoint? {
         if (!touched) return null
-        val touch = if (active) current else last
         return FoundationPagerPoint(touch.x, touch.y)
     }
 
+    /** [next]가 지금 값과 다를 때만 [phase]에 쓴다 — 이 가드가 포인터 이벤트를 재구성에서 떼어낸다. */
+    private fun updatePhase(next: FoundationPagerGesturePhase) {
+        if (phase != next) phase = next
+    }
 }
+
+/**
+ * [FoundationPagerGestureTracker]에서 composition이 실제로 읽는 저빈도 부분.
+ *
+ * @property active 수동 드래그가 현재 진행 중인지 여부.
+ * @property side 드래그가 확정한 방향, 또는 아직 방향 임계값을 넘지 않았거나 드래그가 없으면 null.
+ */
+@Immutable
+private data class FoundationPagerGesturePhase(
+    val active: Boolean = false,
+    val side: FoundationFluidSide? = null,
+)
 
 /**
  * [PageAnimation.FLUID_PAGER]가 쓰는, 물결치는 천 같은 edge를 모델링하는 1차원

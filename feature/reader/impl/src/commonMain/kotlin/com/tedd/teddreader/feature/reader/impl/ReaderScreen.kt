@@ -655,16 +655,20 @@ private fun ReaderContent(
             val paneCount = readerPaneCount(maxWidth.value, maxHeight.value, displayFold)
             val spreadLeftWeight = readerSpreadLeftWeight(maxWidth.value, displayFold)
             val spreadGutter = readerSpreadGutterDp(displayFold, ReaderPaneGutterDp).dp
-            val pdfTransform = ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan)
+            // pdfZoom/pdfPan 은 핀치·이동 제스처가 포인터 프레임마다 갱신한다. 여기서 값을 꺼내
+            // composition 단계에서 읽으면 이 BoxWithConstraints 본문 전체 — pager 래퍼, 컨트롤
+            // AnimatedVisibility, 하단 바 배선 — 가 제스처 내내 프레임마다 재구성된다. 읽기는 아래
+            // graphicsLayer 블록 안에 둔다: 그 블록은 placement 단계에서 자기 snapshot 관찰자와 함께
+            // 다시 실행되므로, 재구성 없이 레이어만 갱신된다.
             val contentTransformModifier = Modifier
                 .fillMaxSize()
                 .clipToBounds()
                 .graphicsLayer {
                     if (uiState.isVisualMode) {
-                        scaleX = pdfTransform.zoom
-                        scaleY = pdfTransform.zoom
-                        translationX = pdfTransform.pan.x
-                        translationY = pdfTransform.pan.y
+                        scaleX = pdfZoom
+                        scaleY = pdfZoom
+                        translationX = pdfPan.x
+                        translationY = pdfPan.y
                     } else {
                         scaleX = textGestureScale
                         scaleY = textGestureScale
@@ -743,7 +747,7 @@ private fun ReaderContent(
                             { position ->
                                 if (uiState.autoScrollConfig.enabled) onAutoScrollEnabledChange(false)
                                 val next = readerDoubleTapVisualTransform(
-                                    current = pdfTransform,
+                                    current = ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan),
                                     tapPosition = position,
                                     viewportSize = viewportSize,
                                 )
@@ -783,7 +787,7 @@ private fun ReaderContent(
                                 viewportSize = viewportSize,
                                 isVisualMode = uiState.isVisualMode,
                                 textStartFontSizeSp = textCommittedFontSize,
-                                pdfTransform = pdfTransform,
+                                pdfTransform = { ReaderPdfTransform(zoom = pdfZoom, pan = pdfPan) },
                                 isAutoScrollEnabled = uiState.autoScrollConfig.enabled,
                                 onAutoScrollEnabledChange = onAutoScrollEnabledChange,
                                 onGestureActiveChange = { isTransformGestureActive = it },

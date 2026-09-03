@@ -215,8 +215,11 @@ internal fun readerDoubleTapVisualTransform(
  *   조절하려면 false.
  * @param textStartFontSizeSp 텍스트 핀치 제스처가 시작될 때 적용 중인 활자 크기(sp) — 기준이 되는 값에서
  *   [readerPinchFontSize]가 배율을 적용한다.
- * @param pdfTransform visual 페이지의 현재 확대/이동 상태로, 각 제스처가 시작될 때 읽혀 핀치나 이동
- *   증분이 그 위에 적용되는 기준이 된다.
+ * @param pdfTransform visual 페이지의 현재 확대/이동 상태를 돌려주는 provider로, 각 제스처가 시작될 때
+ *   호출되어 핀치나 이동 증분이 그 위에 적용되는 기준이 된다. 값이 아니라 provider인 이유: 이 상태는
+ *   제스처가 진행되는 매 포인터 프레임마다 갱신되므로, 값으로 받으면 호출자가 그것을 composition에서
+ *   읽어야 하고 그러면 리더 화면 전체가 프레임마다 재구성된다. 여기서는 제스처 코루틴 안에서만 읽히므로
+ *   composition은 이 상태를 관찰할 필요가 없다.
  * @param isAutoScrollEnabled 자동 스크롤이 현재 켜져 있는지 여부. 핀치가 시작되는 순간에 확인되어, 실제로
  *   꺼야 할 때만([onAutoScrollEnabledChange]) 꺼진다.
  * @param onAutoScrollEnabledChange 자동 스크롤을 끈다; [isAutoScrollEnabled]가 true인 상태에서 두 손가락
@@ -237,7 +240,7 @@ internal fun Modifier.readerPinchZoomGesture(
     viewportSize: IntSize,
     isVisualMode: Boolean,
     textStartFontSizeSp: Int,
-    pdfTransform: ReaderPdfTransform,
+    pdfTransform: () -> ReaderPdfTransform,
     isAutoScrollEnabled: Boolean,
     onAutoScrollEnabledChange: (Boolean) -> Unit,
     onGestureActiveChange: (Boolean) -> Unit,
@@ -265,7 +268,7 @@ internal fun Modifier.readerPinchZoomGesture(
             var gestureActive = false
             var pinchStarted = false
             var textGestureScale = 1f
-            var pdfGestureTransform = latestPdfTransform
+            var pdfGestureTransform = latestPdfTransform()
             val textFontSizeAtGestureStart = latestTextStartFontSizeSp
 
             fun startGesture() {
@@ -292,7 +295,7 @@ internal fun Modifier.readerPinchZoomGesture(
                     }
                 }
 
-                if (!gestureOwned && latestIsVisualMode && latestPdfTransform.zoom > 1f && pressedCount == 1 && panChange != Offset.Zero) {
+                if (!gestureOwned && latestIsVisualMode && latestPdfTransform().zoom > 1f && pressedCount == 1 && panChange != Offset.Zero) {
                     gestureOwned = true
                     startGesture()
                 }
