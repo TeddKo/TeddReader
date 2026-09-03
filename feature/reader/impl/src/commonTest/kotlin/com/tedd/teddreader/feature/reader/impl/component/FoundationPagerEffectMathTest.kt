@@ -561,18 +561,36 @@ class FoundationPagerEffectMathTest {
      */
     @Test
     fun `single pane page flip keeps current sheet above neighbors for whole drag`() {
-        assertEquals(3f, foundationPageFlipZIndex(FoundationPagerPage.Current, 0f))
-        assertTrue(
-            foundationPageFlipZIndex(FoundationPagerPage.Previous, 0.6f) >
-                foundationPageFlipZIndex(FoundationPagerPage.Next, -1.4f),
+        // 오프셋 대신 [FoundationPageFlipPhase.isApproaching]으로 판정한다. 주석의 오프셋은 그
+        // 불리언이 어떤 드래그 지점에서 나오는지를 가리킨다.
+        assertEquals(
+            3f,
+            foundationPageFlipZIndex(FoundationPagerPage.Current, isApproaching = true),
         )
-        assertTrue(
-            foundationPageFlipZIndex(FoundationPagerPage.Next, -0.6f) >
-                foundationPageFlipZIndex(FoundationPagerPage.Previous, 1.4f),
+        assertEquals(
+            3f,
+            foundationPageFlipZIndex(FoundationPagerPage.Current, isApproaching = false),
         )
+        // 뒤로 넘기는 중: previous 슬롯 오프셋 0.6(다가옴), next 슬롯 오프셋 -1.4(멀어짐).
         assertTrue(
-            foundationPageFlipZIndex(FoundationPagerPage.Next, -0.6f) <
-                foundationPageFlipZIndex(FoundationPagerPage.Current, 0f),
+            foundationPageFlipZIndex(FoundationPagerPage.Previous, isApproaching = true) >
+                foundationPageFlipZIndex(FoundationPagerPage.Next, isApproaching = false),
+        )
+        // 앞으로 넘기는 중: 같은 방식으로 뒤집힌다.
+        assertTrue(
+            foundationPageFlipZIndex(FoundationPagerPage.Next, isApproaching = true) >
+                foundationPageFlipZIndex(FoundationPagerPage.Previous, isApproaching = false),
+        )
+        // 어느 방향에서도 이웃은 current 페이지 순위에 도달하지 못한다.
+        assertTrue(
+            foundationPageFlipZIndex(FoundationPagerPage.Next, isApproaching = true) <
+                foundationPageFlipZIndex(FoundationPagerPage.Current, isApproaching = true),
+        )
+        // 두 이웃이 모두 크기 1(안착)이면 동점이다 — 그 지점의 current 페이지는 fold 없이
+        // 불투명하게 그려지므로 bleed-through가 생기지 않는다.
+        assertEquals(
+            foundationPageFlipZIndex(FoundationPagerPage.Previous, isApproaching = false),
+            foundationPageFlipZIndex(FoundationPagerPage.Next, isApproaching = false),
         )
     }
 
@@ -790,6 +808,61 @@ class FoundationPagerEffectMathTest {
         assertEquals(0f, verticalPrevious.rotationY, tolerance)
         assertEquals(0.5f, verticalPrevious.transformOriginX, tolerance)
         assertEquals(1f, verticalPrevious.transformOriginY, tolerance)
+    }
+
+    /**
+     * [foundationPageFlipPhase]가 구조적 임계값만 담고 진행률에 매달린 판정은 담지 않는다: 정확히
+     * `0`에서만 안착, 부호가 방향, 크기 `1`이 다가옴/멀어짐을 가른다. `0.5` 임계값은 여기 없어야
+     * 한다 — 어느 절반을 그릴지는 그리기 시점 오프셋에서 정해진다.
+     */
+    @Test
+    fun pageFlipPhaseSplitsAtStructuralThresholds() {
+        val resting = foundationPageFlipPhase(0f)
+        assertTrue(resting.isResting)
+        assertTrue(resting.isForward)
+        assertTrue(resting.isApproaching)
+
+        assertFalse(foundationPageFlipPhase(0.01f).isResting)
+        assertTrue(foundationPageFlipPhase(0.01f).isForward)
+        assertFalse(foundationPageFlipPhase(-0.01f).isForward)
+        // -0.0f 는 `== 0f`이자 `>= 0f`라 안착으로 읽힌다 — 구 코드의 `>0 / <0 / else` 분기와 같다.
+        assertTrue(foundationPageFlipPhase(-0.0f).isResting)
+
+        assertTrue(foundationPageFlipPhase(0.99f).isApproaching)
+        assertFalse(foundationPageFlipPhase(1f).isApproaching)
+        assertFalse(foundationPageFlipPhase(1.4f).isApproaching)
+        assertTrue(foundationPageFlipPhase(-0.99f).isApproaching)
+        assertFalse(foundationPageFlipPhase(-1.4f).isApproaching)
+    }
+
+    /**
+     * 이산 [foundationPageFlipPhase]에서 고른 절반이, 연속 오프셋을 받는
+     * [foundationSpreadPageFlipSpec]이 고르는 절반과 항상 일치한다 — 후자는 내부에서 오프셋을
+     * `[-1, 1]`로 고정하지만 전자는 고정하지 않으므로, 크기 `1`을 넘는 값과 정확히 `0`에서도 갈리지
+     * 않는지 두 축 모두 확인한다.
+     */
+    @Test
+    fun pageFlipPhaseHalvesMatchSpreadSpec() {
+        val offsets = listOf(
+            -1.5f, -1.2f, -1f, -0.75f, -0.5f, -0.25f, -0.01f,
+            0f, 0.01f, 0.25f, 0.5f, 0.75f, 1f, 1.2f, 1.5f,
+        )
+        for (axis in FoundationPagerAxis.entries) {
+            for (offset in offsets) {
+                val isForward = foundationPageFlipPhase(offset).isForward
+                val spec = foundationSpreadPageFlipSpec(axis, offset)
+                assertEquals(
+                    spec.outgoingHalf,
+                    foundationSpreadPageFlipOutgoingHalf(axis, isForward),
+                    "outgoingHalf at $axis $offset",
+                )
+                assertEquals(
+                    spec.incomingHalf,
+                    foundationSpreadPageFlipIncomingHalf(axis, isForward),
+                    "incomingHalf at $axis $offset",
+                )
+            }
+        }
     }
 
     /**
