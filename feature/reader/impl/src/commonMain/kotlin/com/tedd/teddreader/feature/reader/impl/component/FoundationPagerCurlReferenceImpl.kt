@@ -358,37 +358,58 @@ internal fun FoundationPagerCurlReferenceImpl(
                 pageOffset = pageOffset,
                 canRequestNextPage = canRequestNextPage,
             )
-            val animatedBackwardEdge = activeDrag
+            // 이 세 값 — activeDrag, backwardEdge.value, forwardEdge.value — 는 각각 포인터
+            // 이벤트마다, 그리고 turn 애니메이션 프레임마다 바뀌는 snapshot state다. 예전에는
+            // 여기 composition 본문에서 읽었기 때문에, 드래그나 tap-turn 애니메이션이 도는 내내
+            // 이 슬롯이 프레임마다 재구성됐고 그때마다 아래 콘텐츠 선택 분기까지 다시 돌았다.
+            // 실제로 이 값이 필요한 곳은 fold를 그리는 drawWithCache 블록 하나뿐이므로, 읽기를
+            // 그 안으로 미룬다.
+            fun animatedBackwardEdge(): FoundationReferenceCurlEdge = activeDrag
                 ?.takeIf { it.direction == FoundationReferenceCurlDirection.Backward }
                 ?.edge
                 ?: backwardEdge.value
-            val animatedForwardEdge = activeDrag
+
+            fun animatedForwardEdge(): FoundationReferenceCurlEdge = activeDrag
                 ?.takeIf { it.direction == FoundationReferenceCurlDirection.Forward }
                 ?.edge
                 ?: forwardEdge.value
-            val leafEdge = when (pageOffset) {
+
+            // 여기서 non-null을 돌려주는 오프셋 집합은 아래 `hasLeaf`와 반드시 일치해야 한다.
+            fun leafEdgeOrNull(): FoundationReferenceCurlEdge? = when (pageOffset) {
                 -1 -> foundationReferenceVisibleCurlEdge(
                     pageKey,
                     renderedPageKey,
-                    animatedBackwardEdge,
+                    animatedBackwardEdge(),
                     backwardRestEdge,
                 )
                 0 -> foundationReferenceVisibleCurlEdge(
                     pageKey,
                     renderedPageKey,
-                    animatedForwardEdge,
+                    animatedForwardEdge(),
                     rightEdge,
                 )
                 else -> null
             }
-            val skipSpreadPage = foundationReferenceSpreadShouldSkipBackwardSlot(
-                isSpread = isSpread,
+
+            // 이 슬롯이 접히는 leaf를 갖는지는 슬롯 인덱스만으로 정해진다 — 애니메이션 값과 무관하므로
+            // 프레임마다 다시 판단할 것이 없다. [leafEdgeOrNull]이 non-null을 돌려주는 오프셋 집합과
+            // 반드시 같아야 한다: 한쪽만 바뀌면 아래 requireNotNull이 composition이 아니라 draw
+            // 패스에서 터져 원인 추적이 어려워진다.
+            val hasLeaf = pageOffset == -1 || pageOffset == 0
+
+            // spread는 leaf edge를 구조적으로 쓴다(어느 절반을 그릴지, 뒤로 가는 슬롯을 건너뛸지).
+            // 그 경로는 지금도 composition에서 값을 읽어야 하므로 그대로 두고, 단일 pane 경로만
+            // 지연시킨다. 예전에는 이 계산이 isSpread와 무관하게 항상 실행돼, spread가 아닐 때도
+            // 애니메이션 값을 composition에서 읽게 만들었다.
+            val leafEdge = if (isSpread) leafEdgeOrNull() else null
+            val skipSpreadPage = isSpread && foundationReferenceSpreadShouldSkipBackwardSlot(
+                isSpread = true,
                 pageOffset = pageOffset,
                 isBackwardTurnResting = leafEdge == backwardRestEdge,
                 isForwardTurnResting = foundationReferenceVisibleCurlEdge(
                     pageKey,
                     renderedPageKey,
-                    animatedForwardEdge,
+                    animatedForwardEdge(),
                     rightEdge,
                 ) == rightEdge,
             )
@@ -398,12 +419,12 @@ internal fun FoundationPagerCurlReferenceImpl(
                     .foundationCancelPagerPlacement(axis, pageOffset)
                     .zIndex(foundationReferenceCurlZIndex(pageOffset))
                     .run {
-                        if (isSpread || leafEdge == null) {
+                        if (isSpread || !hasLeaf) {
                             this
                         } else {
                             foundationReferenceDrawCurl(
                                 axis = axis,
-                                edge = leafEdge,
+                                edgeProvider = { requireNotNull(leafEdgeOrNull()) },
                                 style = style,
                                 paperColor = paperColor,
                                 graphicsLayer = curlGraphicsLayer,
@@ -1638,8 +1659,11 @@ private fun foundationReferenceThreeDCurlTapSpec(
  *
  * @receiver 페이지 composable 자신의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
- * @param edge leaf의 현재 fold edge; `left`/`right`는 두 정지 위치이고, 그 외에는 모두 turn 중간
- *   상태다.
+ * @param edgeProvider 이 프레임에 그릴 접힌 edge를 돌려준다. 값이 아니라 provider인 이유는,
+ *   그래야 호출자가 애니메이션 중인 edge를 composition에서 읽지 않아도 되고 그만큼 슬롯이
+ *   프레임마다 재구성되지 않기 때문이다. 그리기 캐시 안에서, **아래 어떤 early return보다도 먼저**
+ *   호출해야 한다: `observeReads`는 실제로 실행된 read만 등록하므로, 이 호출이 정지 edge 분기
+ *   아래로 내려가면 그 프레임에 구독이 끊겨 curl이 그 자리에서 멈춘다.
  * @param style 표준 curl 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
  * @param paperColor 접힌 부분의 뒷면을 채우는 페이지 색으로, 독자가 고른 리더 팔레트의 종이색이다.
  * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
@@ -1647,11 +1671,15 @@ private fun foundationReferenceThreeDCurlTapSpec(
  */
 private fun Modifier.foundationReferenceDrawCurl(
     axis: FoundationReferenceCurlAxis,
-    edge: FoundationReferenceCurlEdge,
+    edgeProvider: () -> FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
     paperColor: Color,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
+    // 여기서 읽는다: 이 블록은 자기 snapshot 관찰자와 함께 돌기 때문에, 접힌 edge가 프레임마다
+    // 움직여도 재구성 없이 그리기 캐시만 다시 만들어진다. 아래 early return들보다 반드시 위여야
+    // 한다 — 이유는 [edgeProvider] 문서 참고.
+    val edge = edgeProvider()
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.left(canonicalSize)) {
         return@drawWithCache onDrawWithContent { }
