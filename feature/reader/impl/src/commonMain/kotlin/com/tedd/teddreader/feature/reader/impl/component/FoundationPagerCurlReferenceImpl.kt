@@ -564,7 +564,7 @@ private fun FoundationReferenceSpread(
                     } else {
                         foundationReferenceDrawLeafFront(
                             axis = axis,
-                            edge = leafEdge,
+                            edgeProvider = { leafEdge },
                             style = style,
                             leafSize = leafSize,
                             spanBeyondSpinePx = spanBeyondSpinePx,
@@ -580,7 +580,7 @@ private fun FoundationReferenceSpread(
                         .fillMaxSize()
                         .foundationReferenceDrawLeafBack(
                             axis = axis,
-                            edge = leafEdge,
+                            edgeProvider = { leafEdge },
                             style = style,
                             leafSize = leafSize,
                             spanBeyondSpinePx = spanBeyondSpinePx,
@@ -676,7 +676,7 @@ private fun FoundationReferenceBackwardSpread(
                     .fillMaxSize()
                     .foundationReferenceDrawLeafFront(
                         axis = axis,
-                        edge = leafEdge,
+                        edgeProvider = { leafEdge },
                         style = style,
                         leafSize = leafSize,
                         mirrorHorizontally = true,
@@ -693,7 +693,7 @@ private fun FoundationReferenceBackwardSpread(
                     .fillMaxSize()
                     .foundationReferenceDrawLeafBack(
                         axis = axis,
-                        edge = leafEdge,
+                        edgeProvider = { leafEdge },
                         style = style,
                         leafSize = leafSize,
                         mirrorHorizontally = true,
@@ -1808,7 +1808,11 @@ private fun Modifier.foundationReferenceDrawCurl(
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
- * @param edge leaf의 현재 fold edge.
+ * @param edgeProvider 이 프레임에 그릴 접힌 edge를 돌려준다. 값이 아니라 provider인 이유는,
+ *   그래야 호출자가 애니메이션 중인 edge를 composition에서 읽지 않아도 되고 그만큼 슬롯이
+ *   프레임마다 재구성되지 않기 때문이다. 그리기 캐시 안에서, **아래 어떤 early return보다도 먼저**
+ *   호출해야 한다: `observeReads`는 실제로 실행된 read만 등록하므로, 이 호출이 정지 edge 분기
+ *   아래로 내려가면 그 프레임에 구독이 끊겨 curl이 그 자리에서 멈춘다.
  * @param style 표준 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
  * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, 3D 진행률 계산이 호스트 노드
  *   크기 대신 이 값을 기준으로 삼는다.
@@ -1818,13 +1822,17 @@ private fun Modifier.foundationReferenceDrawCurl(
  */
 private fun Modifier.foundationReferenceDrawLeafFront(
     axis: FoundationReferenceCurlAxis,
-    edge: FoundationReferenceCurlEdge,
+    edgeProvider: () -> FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
     leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
     spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
+    // 여기서 읽는다: 이 블록은 자기 snapshot 관찰자와 함께 돌기 때문에, 접힌 edge가 프레임마다
+    // 움직여도 재구성 없이 그리기 캐시만 다시 만들어진다. 아래 early return들보다 반드시 위여야
+    // 한다 — 이유는 [edgeProvider] 문서 참고.
+    val edge = edgeProvider()
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.left(leafSize)) {
         return@drawWithCache onDrawWithContent { }
@@ -1912,7 +1920,11 @@ private fun Modifier.foundationReferenceDrawLeafFront(
  *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
- * @param edge leaf의 현재 fold edge.
+ * @param edgeProvider 이 프레임에 그릴 접힌 edge를 돌려준다. 값이 아니라 provider인 이유는,
+ *   그래야 호출자가 애니메이션 중인 edge를 composition에서 읽지 않아도 되고 그만큼 슬롯이
+ *   프레임마다 재구성되지 않기 때문이다. 그리기 캐시 안에서, **아래 어떤 early return보다도 먼저**
+ *   호출해야 한다: `observeReads`는 실제로 실행된 read만 등록하므로, 이 호출이 정지 edge 분기
+ *   아래로 내려가면 그 프레임에 구독이 끊겨 curl이 그 자리에서 멈춘다.
  * @param style 표준 페인팅을 유지할지 3D 사인 곡선 텍스처 mesh를 렌더링할지.
  * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기로, 이 뒷면이 호스트되는 노드의 크기와
  *   다를 수 있는 edge 공간이다 — [foundationReferenceThreeDCurlProgress]는 반드시 이 값을 기준으로
@@ -1923,13 +1935,17 @@ private fun Modifier.foundationReferenceDrawLeafFront(
  */
 private fun Modifier.foundationReferenceDrawLeafBack(
     axis: FoundationReferenceCurlAxis,
-    edge: FoundationReferenceCurlEdge,
+    edgeProvider: () -> FoundationReferenceCurlEdge,
     style: FoundationReferenceCurlStyle,
     leafSize: IntSize,
     mirrorHorizontally: Boolean = false,
     spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
 ): Modifier = drawWithCache {
+    // 여기서 읽는다: 이 블록은 자기 snapshot 관찰자와 함께 돌기 때문에, 접힌 edge가 프레임마다
+    // 움직여도 재구성 없이 그리기 캐시만 다시 만들어진다. 아래 early return들보다 반드시 위여야
+    // 한다 — 이유는 [edgeProvider] 문서 참고.
+    val edge = edgeProvider()
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
         return@drawWithCache onDrawWithContent { }
