@@ -733,7 +733,6 @@ private fun ReaderContent(
                         pageStep = paneCount,
                         pageTurnMode = uiState.pageTurnMode,
                         pageAnimation = uiState.pageAnimation,
-                        paperColor = uiState.style.readerColors().background,
                         canRequestNextPage = canRequestNextPage,
                         pageMoveRequest = pageMoveRequest,
                         onPageMoveRequestConsumed = { requestId ->
@@ -812,6 +811,7 @@ private fun ReaderContent(
                                 embeddedFontFamiliesByHref = sharedEmbeddedFontFamilies,
                                 embeddedFontResolutionComplete = embeddedFontResolutionComplete,
                                 failedResolvedFontHrefs = failedResolvedFontHrefs,
+                                reportViewportSize = page == uiState.pageIndex.current,
                                 windowInsets = systemBarsInsets.only(WindowInsetsSides.Top),
                                 modifier = contentTransformModifier,
                             )

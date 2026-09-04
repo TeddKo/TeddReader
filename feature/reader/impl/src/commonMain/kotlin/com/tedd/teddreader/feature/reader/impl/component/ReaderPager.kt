@@ -24,7 +24,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,7 +60,6 @@ import kotlin.math.min
  * @param pageStep 한 번의 turn이 몇 페이지를 진행시키는지 — 단일 pane이면 1, 두 페이지 spread면 2.
  * @param pageTurnMode 페이지가 가로축과 세로축 중 어느 쪽으로 넘어가는지.
  * @param pageAnimation 렌더링할 turn 애니메이션으로, 이것이 위임 구현을 고른다.
- * @param paperColor 접힌 부분의 뒷면을 채우는 페이지 색으로, 독자가 고른 리더 팔레트의 종이색이다.
  * @param canRequestNextPage 알려진 끝에 있는 텍스트 문서가 페이지 나누기가 아직 끝나지 않은 동안에도
  *   view model에 다음 요청을 계속 전달해야 하는지 여부.
  * @param pageMoveRequest 대기 중인 프로그래밍적 페이지 이동 요청(하단 바의 이전/다음 버튼에서 옴), 없으면
@@ -102,7 +100,6 @@ internal fun ReaderPager(
     pageStep: Int = 1,
     pageTurnMode: PageTurnMode,
     pageAnimation: PageAnimation,
-    paperColor: Color,
     canRequestNextPage: Boolean,
     pageMoveRequest: ReaderPageMoveRequest?,
     onPageMoveRequestConsumed: (Int) -> Unit,
@@ -199,7 +196,6 @@ internal fun ReaderPager(
                 } else {
                     FoundationReferenceCurlStyle.Standard
                 },
-                paperColor = paperColor,
                 canRequestNextPage = canRequestNextPage,
                 pageMoveRequest = pageMoveRequest,
                 onPageMoveRequestConsumed = onPageMoveRequestConsumed,
