@@ -1,6 +1,8 @@
 package com.tedd.teddreader.feature.reader.impl.component
 
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ScaleFactor
 import androidx.compose.ui.unit.IntSize
 import com.tedd.teddreader.core.common.model.PageTurnMode
 import kotlin.math.PI
@@ -10,7 +12,9 @@ import kotlin.math.min
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -916,6 +920,161 @@ class FoundationPagerCurlReferenceImplTest {
                 spanBeyondSpinePx = 0f,
             ),
         )
+    }
+
+    /**
+     * [foundationReferenceSinglePaneBackPage]가 슬롯 -1에서는 항상 현재 페이지를, 슬롯 0에서는
+     * +1 슬롯이 표시하는 것과 정확히 같은 페이지를 내는지 검증한다 — 그래야 플랩과 넘긴 뒤 드러나는
+     * 페이지가 항상 일치한다. 문서 끝에서는 다음 요청 가능 여부에 따라 현재 페이지 또는 null로
+     * 갈린다.
+     */
+    @Test
+    fun singlePaneBackFaceIsThePageTheTurnReveals() {
+        val pageCount = 10
+        val pageStep = 1
+
+        assertEquals(
+            5,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 5,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = -1,
+                canRequestNextPage = true,
+            ),
+        )
+        assertEquals(
+            6,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 5,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+
+        assertEquals(
+            1,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 0,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+        assertEquals(
+            4,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 3,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+        assertEquals(
+            9,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 8,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+        assertEquals(
+            4,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = 2,
+                pageCount = pageCount,
+                pageStep = 2,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+
+        assertEquals(
+            pageCount - 1,
+            foundationReferenceSinglePaneBackPage(
+                pageKey = pageCount - 1,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = true,
+            ),
+        )
+        assertNull(
+            foundationReferenceSinglePaneBackPage(
+                pageKey = pageCount - 1,
+                pageCount = pageCount,
+                pageStep = pageStep,
+                pageOffset = 0,
+                canRequestNextPage = false,
+            ),
+        )
+    }
+
+    /**
+     * 3D curl 뒷면이 감김 앞 사분면([depthFraction] > 0인 앞면 strip)을 가릴 만큼 겹치는지 검증한다 —
+     * 바깥으로 마는 시트의 뒷면이 항상 카메라에 더 가깝다는 불변식을 strip 목적지 좌표만으로 고정한다.
+     *
+     * progress 0.25에서는 뒷면과 감김 앞면이 목적지 정점만 공유할 뿐 폭으로 포함되지는 않으므로, 단순
+     * 포함 대신 정점 공유(최대 목적지 차이가 grid 한 칸 이내)와 겹침 폭이 양수임을 요구한다. progress
+     * 0.5에서는 뒷면의 최소 목적지가 평평한 앞면 영역([depthFraction] == 0)까지 접혀 들어가는데, 이는
+     * 안쪽으로 마는 롤에서는 성립할 수 없는 성질이다 — 그런 롤에서는 뒷면이 앞면 뒤로 완전히 숨어 같은
+     * 목적지 x를 공유할 수 없기 때문이다.
+     */
+    @Test
+    fun threeDimensionalCurlBackFaceCoversTheRisingFrontQuarter() {
+        fun maxDest(strips: List<FoundationReferenceThreeDCurlStripSpec>) =
+            strips.maxOf { max(it.destinationStartFraction, it.destinationEndFraction) }
+        fun minDest(strips: List<FoundationReferenceThreeDCurlStripSpec>) =
+            strips.minOf { min(it.destinationStartFraction, it.destinationEndFraction) }
+
+        val grid = foundationPagerRenderProfile.threeDCurlGrid
+
+        listOf(0.25f, 0.35f, 0.5f).forEach { progress ->
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            val back = strips.filter { it.isBackFacing }
+            val frontWrapped = strips.filter { !it.isBackFacing && it.depthFraction > 0f }
+            val flat = strips.filter { it.depthFraction == 0f }
+
+            assertTrue(frontWrapped.isNotEmpty(), "p=$progress: frontWrapped가 비어 있으면 뒷면 strip 겹침 조건을 검증할 수 없다")
+            assertTrue(flat.isNotEmpty(), "p=$progress: flat strip이 비어 있으면 정지 경계 조건을 검증할 수 없다")
+            assertTrue(back.isNotEmpty(), "p=$progress: 뒷면 strip이 하나도 없다")
+            assertTrue(maxDest(back) >= maxDest(frontWrapped) - 1f / grid, "p=$progress: 뒷면 strip이 앞면 감김 구간과 겹쳐야 한다")
+            assertTrue(minDest(back) < maxDest(frontWrapped), "p=$progress: 뒷면 최소 목적지가 감김 앞면 최대 목적지보다 작아야 한다")
+
+            if (progress == 0.5f) {
+                assertTrue(minDest(back) <= flat.maxOf { it.destinationEndFraction } + 1f / grid, "p=$progress: 뒷면이 평평한 앞면 영역까지 접혀 들어가야 한다")
+            }
+        }
+    }
+
+    /**
+     * [foundationReferenceFaceContentMirrorScale]이 [FoundationReferenceCurlFold.applyTo]와 짝을
+     * 이루는 축을 뒤집는지 검증한다: `applyTo`가 Horizontal에서는 X를, Vertical에서는 Y를 미러링하므로,
+     * 그 미러를 상쇄해야 할 콘텐츠 쪽 스케일도 같은 축을 따라야 한다.
+     *
+     * 또한 [Modifier.foundationReferenceFaceContentMirror]가 [needed] = false일 때 receiver를 그대로
+     * 반환하고, true일 때는 별도의 modifier를 반환하는지 검증한다.
+     */
+    @Test
+    fun backFaceContentMirrorFollowsTheFoldAxis() {
+        assertEquals(
+            ScaleFactor(-1f, 1f),
+            foundationReferenceFaceContentMirrorScale(FoundationReferenceCurlAxis.Horizontal),
+        )
+        assertEquals(
+            ScaleFactor(1f, -1f),
+            foundationReferenceFaceContentMirrorScale(FoundationReferenceCurlAxis.Vertical),
+        )
+
+        assertSame(Modifier, Modifier.foundationReferenceFaceContentMirror(needed = false, axis = FoundationReferenceCurlAxis.Horizontal))
+        assertSame(Modifier, Modifier.foundationReferenceFaceContentMirror(needed = false, axis = FoundationReferenceCurlAxis.Vertical))
+        assertNotSame(Modifier, Modifier.foundationReferenceFaceContentMirror(needed = true, axis = FoundationReferenceCurlAxis.Horizontal))
     }
 
     private companion object {
