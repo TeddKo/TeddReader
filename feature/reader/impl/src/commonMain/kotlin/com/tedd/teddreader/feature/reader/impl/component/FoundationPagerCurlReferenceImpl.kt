@@ -830,6 +830,25 @@ internal fun foundationReferenceSpreadFaceNeedsContentMirror(
 }
 
 /**
+ * 이 뒷면이 지금 그려도 화면에 아무것도 남기지 못하는, 완전히 넘어간 정지 상태인지 판정한다.
+ *
+ * 뒷면은 `FoundationReferenceCurlFold.applyTo`의 미러 때문에 leaf 프레임 `[-width, 0]`에 놓인다.
+ * spread는 그 자리가 반대쪽 pane이라 정확히 그곳을 덮어야 하지만, 반대쪽 pane이 없는 단일 pane에서는
+ * 화면 밖이다. 그때도 fold를 풀면 드롭 섀도만 페이지 안쪽으로 번져 정지 상태의 왼쪽 가장자리에
+ * 상시 어두운 띠를 남기고, 3D는 보이지 않을 mesh를 위해 오프스크린 텍스처를 매 프레임 기록한다.
+ *
+ * @param edge leaf의 현재 fold edge.
+ * @param leafSize curl 기하가 페이지 한 장으로 취급하는 크기.
+ * @param spanBeyondSpinePx spine 너머로 그려도 되는 거리; 0 이하이면 반대쪽 pane이 없다는 뜻이다.
+ * @return 이 프레임에 뒷면을 그리지 말아야 하면 참.
+ */
+internal fun foundationReferenceLeafBackRestsOffscreen(
+    edge: FoundationReferenceCurlEdge,
+    leafSize: IntSize,
+    spanBeyondSpinePx: Float,
+): Boolean = spanBeyondSpinePx <= 0f && edge == FoundationReferenceCurlEdge.left(leafSize)
+
+/**
  * curl 기하 계산이 페이지 한 장으로 취급하는 크기로, viewport가 이미 한 축의 canonical(가로 우선)
  * 방향으로 축소된 것을 전제로 한다.
  *
@@ -1918,6 +1937,12 @@ private fun Modifier.foundationReferenceDrawLeafFront(
  * 오프스크린 텍스처를 기록하지 않고 그대로 반환해, turn 전반부에 불필요한 기록 비용이 들지 않게
  * 한다.
  *
+ * `right` 조기 반환 바로 다음에는 [foundationReferenceLeafBackRestsOffscreen] 가드가 있다: 반대쪽
+ * pane 없이 단일 pane 슬롯이 정지한 `left` edge에서는 fold를 풀어도 화면에 아무것도 남지 않는데도
+ * 드롭 섀도만 페이지 안쪽으로 번져 정지 상태의 왼쪽 가장자리에 상시 어두운 띠를 남기므로, 이 가드가
+ * 두 스타일 모두를 그 이전에 걸러낸다. spread는 같은 `left` edge라도 [spanBeyondSpinePx]가 양수라
+ * 이 가드에 걸리지 않아, 완료된 turn의 verso가 반대쪽 pane에 계속 안착한다.
+ *
  * @receiver 페이지 composable의 modifier 체인.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지.
  * @param edgeProvider 이 프레임에 그릴 접힌 edge를 돌려준다. 값이 아니라 provider인 이유는,
@@ -1930,6 +1955,8 @@ private fun Modifier.foundationReferenceDrawLeafFront(
  *   다를 수 있는 edge 공간이다 — [foundationReferenceThreeDCurlProgress]는 반드시 이 값을 기준으로
  *   진행률을 재야, 앞면이 정지해 있을 때 뒷면도 정지 상태(진행률 0)로 일치한다.
  * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
+ * @param spanBeyondSpinePx spine 너머로 그려도 되는 거리; 0 이하이면 반대쪽 pane이 없어
+ *   [foundationReferenceLeafBackRestsOffscreen] 가드가 왼쪽 정지 edge를 걸러낼 수 있다는 뜻이다.
  * @param graphicsLayer 3D mesh 구간이 재사용하는, 이 뒷면 전용 오프스크린 페이지 텍스처.
  * @return 변환되고 선택적으로 조명이 적용된 뒷면을 그리는 modifier.
  */
@@ -1948,6 +1975,9 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     val edge = edgeProvider()
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
     if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
+        return@drawWithCache onDrawWithContent { }
+    }
+    if (foundationReferenceLeafBackRestsOffscreen(edge, leafSize, spanBeyondSpinePx)) {
         return@drawWithCache onDrawWithContent { }
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional &&

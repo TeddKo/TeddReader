@@ -873,6 +873,51 @@ class FoundationPagerCurlReferenceImplTest {
         }
     }
 
+    /**
+     * [foundationReferenceLeafBackRestsOffscreen]이 "반대쪽 pane이 없는 단일 pane에서 뒷면이
+     * 왼쪽 정지 edge에 있다"는 경우에만 참을 내는지 검증한다: (a) 반대쪽 pane이 없고(span 0)
+     * edge가 `left`면 화면에 아무것도 남기지 않으므로 참. (b) 같은 `left` edge라도 spread처럼
+     * 반대쪽 pane이 있으면(span > 0) 그 자리가 완료된 turn의 verso가 안착할 자리이므로 거짓 —
+     * 이 판정이 spread 완료 프레임을 죽이면 안 된다. (c) `right` 정지 edge와 (d) 감기는 중인
+     * mid-turn edge는 반대쪽 pane 유무와 무관하게 화면에 그릴 것이 있으므로 항상 거짓.
+     */
+    @Test
+    fun backFaceRestsOffscreenOnlyWithoutAnOppositePane() {
+        val leafSize = IntSize(400, 600)
+
+        assertTrue(
+            foundationReferenceLeafBackRestsOffscreen(
+                edge = FoundationReferenceCurlEdge.left(leafSize),
+                leafSize = leafSize,
+                spanBeyondSpinePx = 0f,
+            ),
+        )
+        assertFalse(
+            foundationReferenceLeafBackRestsOffscreen(
+                edge = FoundationReferenceCurlEdge.left(leafSize),
+                leafSize = leafSize,
+                spanBeyondSpinePx = 200f,
+            ),
+        )
+        assertFalse(
+            foundationReferenceLeafBackRestsOffscreen(
+                edge = FoundationReferenceCurlEdge.right(leafSize),
+                leafSize = leafSize,
+                spanBeyondSpinePx = 0f,
+            ),
+        )
+        assertFalse(
+            foundationReferenceLeafBackRestsOffscreen(
+                edge = foundationReferenceThreeDCurlEdge(
+                    leafSize,
+                    Offset(leafSize.width / 2f, leafSize.height / 2f),
+                ),
+                leafSize = leafSize,
+                spanBeyondSpinePx = 0f,
+            ),
+        )
+    }
+
     private companion object {
         /** 이 클래스의 모든 spread 모드 단언에서 쓰이는, 고정된 전체 viewport 너비. */
         const val SpreadViewportWidth = 1000f
