@@ -1,7 +1,14 @@
 package com.tedd.teddreader.feature.reader.impl.component
 
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.calculateTargetValue
+import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ScaleFactor
 import androidx.compose.ui.unit.IntSize
 import com.tedd.teddreader.core.common.model.PageTurnMode
@@ -367,24 +374,305 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * Play Books 스타일 3D curl은 항상 horizontal axis로 귀결되고, standard curl은 리더에 설정된
-     * vertical 방향을 계속 따르는지 검증한다.
+     * [foundationReferenceCurlAxis]가 style과 무관하게 오직 [PageTurnMode]만 따르는지 검증한다 —
+     * 3D curl도 이제 세로 turn에서는 [FoundationReferenceCurlAxis.Vertical]로 넘어간다.
      */
     @Test
-    fun threeDimensionalCurlAlwaysUsesHorizontalSwipeAxis() {
-        assertEquals(
-            FoundationReferenceCurlAxis.Horizontal,
-            foundationReferenceCurlAxis(
-                pageTurnMode = PageTurnMode.VERTICAL,
-                style = FoundationReferenceCurlStyle.ThreeDimensional,
-            ),
-        )
+    fun verticalThreeDCurlFollowsThePageTurnMode() {
         assertEquals(
             FoundationReferenceCurlAxis.Vertical,
-            foundationReferenceCurlAxis(
-                pageTurnMode = PageTurnMode.VERTICAL,
-                style = FoundationReferenceCurlStyle.Standard,
+            foundationReferenceCurlAxis(pageTurnMode = PageTurnMode.VERTICAL),
+        )
+        assertEquals(
+            FoundationReferenceCurlAxis.Horizontal,
+            foundationReferenceCurlAxis(pageTurnMode = PageTurnMode.HORIZONTAL),
+        )
+    }
+
+    /**
+     * [foundationReferenceCurlSweepExtent]가 [foundationReferenceCurlDragSucceeds]의
+     * `requiredDistance`와 물리적으로 같은 식을 낸다는 것을 검증한다: Horizontal에서는 너비 그대로,
+     * Vertical에서는 두 치수 중 더 짧은 쪽. 그리고 이 값의 정확히 20%가 완료 임계값의 경계임을,
+     * 그 값에서는 성공하고 1px만 모자라면 실패함으로써 함께 고정한다.
+     */
+    @Test
+    fun curlSweepExtentMatchesTheDragThresholdBasis() {
+        assertEquals(
+            100f,
+            foundationReferenceCurlSweepExtent(IntSize(100, 200), FoundationReferenceCurlAxis.Horizontal),
+        )
+        assertEquals(
+            100f,
+            foundationReferenceCurlSweepExtent(IntSize(200, 100), FoundationReferenceCurlAxis.Vertical),
+        )
+
+        val size = IntSize(100, 200)
+        val axis = FoundationReferenceCurlAxis.Horizontal
+        val sweepExtent = foundationReferenceCurlSweepExtent(size, axis)
+        val threshold = sweepExtent * 0.2f
+        val start = Offset(sweepExtent, 0f)
+
+        assertTrue(
+            foundationReferenceCurlDragSucceeds(
+                direction = FoundationReferenceCurlDirection.Forward,
+                start = start,
+                end = Offset(sweepExtent - threshold, 0f),
+                size = size,
+                axis = axis,
             ),
+        )
+        assertFalse(
+            foundationReferenceCurlDragSucceeds(
+                direction = FoundationReferenceCurlDirection.Forward,
+                start = start,
+                end = Offset(sweepExtent - threshold + 1f, 0f),
+                size = size,
+                axis = axis,
+            ),
+        )
+    }
+
+    /**
+     * 같은 픽셀 이동량에 대해, 가로 canonical 크기(`1080x2340`)와 세로 canonical 크기(`2340x1080`)의
+     * [foundationReferenceThreeDCurlDragEdge] + [foundationReferenceThreeDCurlProgress] 결과가
+     * 일치하는지 검증한다 — [foundationReferenceThreeDCurlDragEdge]의 게인이
+     * [foundationReferenceCurlSweepExtent] 대비 너비 비율을 정확히 상쇄해, 세로 turn이 가로 turn과
+     * 같은 손가락 이동당 진행률을 갖게 만든다는 근거다.
+     */
+    @Test
+    fun verticalThreeDCurlMatchesHorizontalProgressPerPixel() {
+        val horizontalSize = IntSize(1080, 2340)
+        val verticalSize = IntSize(2340, 1080)
+        val horizontalSweep = foundationReferenceCurlSweepExtent(horizontalSize, FoundationReferenceCurlAxis.Horizontal)
+        val verticalSweep = foundationReferenceCurlSweepExtent(verticalSize, FoundationReferenceCurlAxis.Vertical)
+
+        listOf(100f, 216f, 540f, 900f).forEach { travel ->
+            val horizontalEdge = foundationReferenceThreeDCurlDragEdge(
+                size = horizontalSize,
+                start = Offset(horizontalSize.width.toFloat(), 0f),
+                current = Offset(horizontalSize.width.toFloat() - travel, 0f),
+                direction = FoundationReferenceCurlDirection.Forward,
+                sweepExtent = horizontalSweep,
+            )
+            val verticalEdge = foundationReferenceThreeDCurlDragEdge(
+                size = verticalSize,
+                start = Offset(verticalSize.width.toFloat(), 0f),
+                current = Offset(verticalSize.width.toFloat() - travel, 0f),
+                direction = FoundationReferenceCurlDirection.Forward,
+                sweepExtent = verticalSweep,
+            )
+
+            val horizontalProgress = foundationReferenceThreeDCurlProgress(horizontalEdge, horizontalSize.width.toFloat())
+            val verticalProgress = foundationReferenceThreeDCurlProgress(verticalEdge, verticalSize.width.toFloat())
+
+            assertEquals(horizontalProgress, verticalProgress, 1e-3f)
+        }
+    }
+
+    /**
+     * 가로/세로 3D curl 모두 [foundationReferenceCurlSweepExtent]의 20%를 이동하면
+     * [foundationReferenceCurlDragSucceeds]가 완료로 치고, 그 지점의 [foundationReferenceThreeDCurlProgress]가
+     * 양축 모두 정확히 0.20 근방임을 검증한다 — 드래그 커밋과 3D crease 진행률이 같은 기준을 공유한다는
+     * 근거다.
+     */
+    @Test
+    fun verticalThreeDCurlCommitsAtTheSameProgressAsHorizontal() {
+        listOf(
+            IntSize(1080, 2340) to FoundationReferenceCurlAxis.Horizontal,
+            IntSize(2340, 1080) to FoundationReferenceCurlAxis.Vertical,
+        ).forEach { (size, axis) ->
+            val sweepExtent = foundationReferenceCurlSweepExtent(size, axis)
+            val threshold = sweepExtent * 0.2f
+            val start = Offset(size.width.toFloat(), 0f)
+            val succeedsEnd = Offset(size.width.toFloat() - threshold, 0f)
+            val failsEnd = Offset(size.width.toFloat() - threshold + 1f, 0f)
+
+            assertTrue(
+                foundationReferenceCurlDragSucceeds(
+                    FoundationReferenceCurlDirection.Forward,
+                    start,
+                    succeedsEnd,
+                    size,
+                    axis,
+                ),
+            )
+            assertFalse(
+                foundationReferenceCurlDragSucceeds(
+                    FoundationReferenceCurlDirection.Forward,
+                    start,
+                    failsEnd,
+                    size,
+                    axis,
+                ),
+            )
+
+            val edge = foundationReferenceThreeDCurlDragEdge(
+                size = size,
+                start = start,
+                current = succeedsEnd,
+                direction = FoundationReferenceCurlDirection.Forward,
+                sweepExtent = sweepExtent,
+            )
+            val progress = foundationReferenceThreeDCurlProgress(edge, size.width.toFloat())
+
+            assertEquals(0.2f, progress, 0.01f)
+        }
+    }
+
+    /**
+     * [foundationReferenceThreeDCurlMeshRect]가 turn 축을 사각형의 긴 방향에 놓는지 검증한다:
+     * Horizontal에서는 along 범위가 x, across가 세로 폭이고, Vertical에서는 x/y가 맞바뀐다.
+     */
+    @Test
+    fun meshRectPlacesTheSweepOnTheTurnAxis() {
+        assertEquals(
+            Rect(10f, 0f, 40f, 200f),
+            foundationReferenceThreeDCurlMeshRect(FoundationReferenceCurlAxis.Horizontal, 10f, 40f, 200f),
+        )
+        assertEquals(
+            Rect(0f, 10f, 200f, 40f),
+            foundationReferenceThreeDCurlMeshRect(FoundationReferenceCurlAxis.Vertical, 10f, 40f, 200f),
+        )
+    }
+
+    /**
+     * [foundationReferenceThreeDCurlAlongScale]이 turn 축 성분만 스케일하고 직교 축 성분은 항상
+     * 1로 유지하는지 검증한다.
+     */
+    @Test
+    fun meshAlongScaleScalesOnlyTheTurnAxis() {
+        assertEquals(
+            ScaleFactor(2f, 1f),
+            foundationReferenceThreeDCurlAlongScale(FoundationReferenceCurlAxis.Horizontal, 2f),
+        )
+        assertEquals(
+            ScaleFactor(1f, 2f),
+            foundationReferenceThreeDCurlAlongScale(FoundationReferenceCurlAxis.Vertical, 2f),
+        )
+    }
+
+    /**
+     * [foundationReferenceCurlFlingEnd]가 실제로 `decay`를 적용해 손을 뗀 위치를 투영하는지, 그리고
+     * 투영된 위치를 `[0, canonicalSize]` 범위로 clamp하는지 검증한다. 실제 앱 경로가 쓰는
+     * `splineBasedDecay`는 안드로이드 플랫폼의 `ViewConfiguration`에 의존해 JVM 단위 테스트 환경에서
+     * 목이 되어 있지 않으므로, 플랫폼 의존이 없는 [exponentialDecay]로 같은 투영 계약을 검증한다.
+     *
+     * (a) clamp 박스 안에 머무는 작은 속도에서는, 클램프가 결과에 개입하지 않으므로
+     * `decay.calculateTargetValue`를 직접 호출한 값과 성분별로 정확히 일치해야 한다 — 이 함수가
+     * decay 계산 자체를 건너뛰고 다른 값(가령 `canonicalEnd` 그대로)을 돌려주는 회귀를 잡는다.
+     * (b) 두 성분 모두 clamp 범위를 크게 넘기는 속도에서는, 결과가 `canonicalSize` 기준 상한
+     * `(width - 1, height - 1)`에 고정되어야 한다 — 상한 clamp가 실제로 두 성분 모두에 걸리는지
+     * 확인한다.
+     */
+    @Test
+    fun curlFlingProjectsAlongTheTurnAxis() {
+        val end = Offset(500f, 300f)
+        val size = IntSize(1000, 600)
+        val decay = exponentialDecay<Offset>()
+
+        val smallVelocity = Offset(20f, -15f)
+        val expected = decay.calculateTargetValue(Offset.VectorConverter, end, smallVelocity)
+        val unclamped = foundationReferenceCurlFlingEnd(
+            releaseVelocity = smallVelocity,
+            canonicalEnd = end,
+            canonicalSize = size,
+            decay = decay,
+        )
+        assertEquals(expected.x, unclamped.x, 0.0001f)
+        assertEquals(expected.y, unclamped.y, 0.0001f)
+
+        val clamped = foundationReferenceCurlFlingEnd(
+            releaseVelocity = Offset(9999f, 9999f),
+            canonicalEnd = end,
+            canonicalSize = size,
+            decay = decay,
+        )
+        assertEquals(Offset(999f, 599f), clamped)
+    }
+
+    /**
+     * 세로 turn에서 fling 완료 판정이 호출부가 이미 canonical 좌표로 넘긴 속도에서만 성립하고, 호출부가
+     * `[FoundationReferenceCurlAxis.toCanonical]`로 축 변환을 한 번 더 건 속도에서는 성립하지 않음을
+     * 고정한다 — [foundationReferenceCurlFlingEnd]는 축 변환을 하지 않으므로, 손을 뗄 때 이미
+     * canonical인 속도를 다시 변환해 넘기면 turn 축(canonical x) 성분이 직교 축(canonical y)으로
+     * 옮겨가 fling이 커밋 임계값에 도달하지 못한다. 이 테스트가 잠그는 것은
+     * `foundationReferenceCurlFlingEnd` 가 스스로 축 변환을 하지 않는다는 계약뿐이다.
+     * `detectFoundationReferenceCurlGestures` 의 `onDragEnd` 호출부 자체는 pointer-input 하네스 없이
+     * 단위 테스트로 잠글 수 없어, 구현 쪽 KDoc 이 이를 호출자 의무로 서술한다.
+     */
+    @Test
+    fun verticalFlingCommitsOnlyWhenTheVelocityIsAlreadyCanonical() {
+        val axis = FoundationReferenceCurlAxis.Vertical
+        val size = IntSize(2340, 1080)
+        val start = Offset(2340f, 0f)
+        val end = Offset(2339f, 0f)
+        val decay = exponentialDecay<Offset>()
+        val releaseVelocity = Offset(-8000f, 0f)
+
+        assertTrue(
+            foundationReferenceCurlDragSucceeds(
+                FoundationReferenceCurlDirection.Forward,
+                start,
+                foundationReferenceCurlFlingEnd(releaseVelocity, end, size, decay),
+                size,
+                axis,
+            ),
+        )
+        assertFalse(
+            foundationReferenceCurlDragSucceeds(
+                FoundationReferenceCurlDirection.Forward,
+                start,
+                foundationReferenceCurlFlingEnd(axis.toCanonical(releaseVelocity), end, size, decay),
+                size,
+                axis,
+            ),
+        )
+    }
+
+    /**
+     * [foundationReferenceThreeDCurlMeshRect]가 Horizontal에 대해 내는 사각형의 `topLeft`/`size`가,
+     * 리팩터 이전 `drawRect` 호출이 직접 받던 `Offset(left, 0f)`/`Size(right - left, across)`와
+     * 정확히 같은지 검증한다 — mesh 헬퍼를 축-매개변수화해도 Horizontal 경로의 실제 그리기 좌표는
+     * 이전과 동일해야 한다는 근거다.
+     */
+    @Test
+    fun horizontalThreeDCurlIsUnchanged() {
+        val width = SpreadViewportWidth
+        val across = SpreadHeight
+
+        listOf(0.5f, 1f).forEach { progress ->
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
+
+            val rect = foundationReferenceThreeDCurlMeshRect(
+                FoundationReferenceCurlAxis.Horizontal,
+                extent.alongStartPx,
+                extent.alongEndPx,
+                across,
+            )
+            assertEquals(Offset(extent.alongStartPx, 0f), rect.topLeft)
+            assertEquals(Size(extent.alongEndPx - extent.alongStartPx, across), rect.size)
+        }
+    }
+
+    /**
+     * [foundationReferenceCurlAlongGradient]가 각 축에 대해 [Brush.horizontalGradient]/
+     * [Brush.verticalGradient]에 `alongStart`/`alongEnd`를 그대로 위임하는지 검증한다. 이 함수는
+     * mesh의 shadow/frontShade 그라데이션과 Standard fold의 frontShade/backShade 그라데이션까지
+     * 네 호출부를 named argument에서 positional argument로 접었으므로, `alongStart`/`alongEnd`가
+     * 조용히 뒤바뀌어도 타입 검사로는 잡히지 않는다 — [Brush]의 구조적 `equals`로 그 스왑을 고정한다.
+     */
+    @Test
+    fun curlAlongGradientDelegatesToTheAxisGradient() {
+        val colors = listOf(Color.Transparent, Color.Black)
+
+        assertEquals(
+            Brush.horizontalGradient(colors, startX = 10f, endX = 40f),
+            foundationReferenceCurlAlongGradient(FoundationReferenceCurlAxis.Horizontal, colors, 10f, 40f),
+        )
+        assertEquals(
+            Brush.verticalGradient(colors, startY = 10f, endY = 40f),
+            foundationReferenceCurlAlongGradient(FoundationReferenceCurlAxis.Vertical, colors, 10f, 40f),
         )
     }
 
@@ -404,8 +692,8 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * 3D curl이 horizontal 방향이 우세한 움직임만 받아들이고 forward/backward를 X 방향에서 고정하여,
-     * 대체로 vertical한 drag는 페이지 넘김을 시작할 수 없음을 검증한다.
+     * 3D curl이 turn 축(canonical x) 우세 움직임만 받아들이고 forward/backward를 turn 축 방향에서
+     * 고정하여, 직교 축(canonical y) 이동이 우세한 drag는 페이지 넘김을 시작할 수 없음을 검증한다.
      */
     @Test
     fun threeDimensionalCurlRejectsVerticalDominantDrag() {
@@ -438,7 +726,7 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * 3D curl이 말리는 crease를 오직 X만으로 도출하는지 검증한다: 포인터 Y를 바꿔도 edge는 그대로이며,
+     * 3D curl이 말리는 crease를 오직 canonical x만으로 도출하는지 검증한다: 포인터 canonical y를 바꿔도 edge는 그대로이며,
      * 내부 crease는 퇴화하지 않고, 양 끝점은 renderer의 조기 반환이 쓰는 기존의 평평한 정지 edge와
      * 정확히 일치한다.
      */
@@ -456,7 +744,7 @@ class FoundationPagerCurlReferenceImplTest {
 
     /**
      * 받아들여진 3D drag가 손가락이 어디를 터치했든 상관없이 해당 방향의 평평한 정지 edge에서 시작하는지
-     * 검증한다: 작은 오른쪽 방향의 backward drag는 포인터의 절대 X 위치로 건너뛰는 대신 그 작은 변위만을
+     * 검증한다: 작은 오른쪽 방향의 backward drag는 포인터의 절대 canonical x 위치로 건너뛰는 대신 그 작은 변위만을
      * 드러내며, forward도 같은 규칙을 그대로 따른다.
      */
     @Test
@@ -467,12 +755,14 @@ class FoundationPagerCurlReferenceImplTest {
             start = Offset(70f, 20f),
             current = Offset(72f, 180f),
             direction = FoundationReferenceCurlDirection.Backward,
+            sweepExtent = size.width.toFloat(),
         )
         val forward = foundationReferenceThreeDCurlDragEdge(
             size = size,
             start = Offset(70f, 20f),
             current = Offset(68f, 180f),
             direction = FoundationReferenceCurlDirection.Forward,
+            sweepExtent = size.width.toFloat(),
         )
 
         assertEquals(2f, (backward.top.x + backward.bottom.x) / 2f, 0.0001f)
@@ -643,8 +933,8 @@ class FoundationPagerCurlReferenceImplTest {
             val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
 
             assertFalse(extent.isEmpty)
-            assertEquals(expectedLeft, extent.leftPx, 0.001f)
-            assertEquals(expectedRight, extent.rightPx, 0.001f)
+            assertEquals(expectedLeft, extent.alongStartPx, 0.001f)
+            assertEquals(expectedRight, extent.alongEndPx, 0.001f)
         }
     }
 
@@ -806,8 +1096,8 @@ class FoundationPagerCurlReferenceImplTest {
             val strips = foundationReferenceThreeDCurlStripSpecs(progress).filter { it.isBackFacing }
             if (strips.isEmpty()) return 0f
             val extent = foundationReferenceThreeDCurlMeshExtent(strips, widthPx)
-            val left = max(extent.leftPx, -widthPx)
-            val right = min(extent.rightPx, 0f)
+            val left = max(extent.alongStartPx, -widthPx)
+            val right = min(extent.alongEndPx, 0f)
             return (right - left).coerceAtLeast(0f)
         }
 
