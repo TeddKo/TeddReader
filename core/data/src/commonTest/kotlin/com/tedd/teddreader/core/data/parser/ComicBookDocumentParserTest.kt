@@ -2,8 +2,11 @@ package com.tedd.teddreader.core.data.parser
 
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
+import kotlinx.coroutines.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 /**
  * 실제 ZIP 아카이브를 전혀 열지 않고 CBZ의 페이지 목록이 어떻게 만들어지는지를 고정한다: 메타데이터와
@@ -51,5 +54,27 @@ class ComicBookDocumentParserTest {
         assertEquals(DocumentFormat.CBZ, document.format)
         assertEquals(12, document.pageCount)
         assertEquals(emptyList(), document.sections)
+    }
+
+    /** ZIP I/O 실패는 해당 페이지를 읽을 수 없는 결과인 null로 축소된다. */
+    @Test
+    fun expectedComicIoFailureReturnsNull() {
+        assertNull(comicIoResultOrNull<Unit> { throw okio.IOException("broken entry") })
+    }
+
+    /** 메모리 고갈은 손상된 ZIP 항목처럼 숨기지 않고 호출자까지 전파된다. */
+    @Test
+    fun comicOutOfMemoryErrorIsRethrown() {
+        assertFailsWith<OutOfMemoryError> {
+            comicIoResultOrNull<Unit> { throw OutOfMemoryError("exhausted") }
+        }
+    }
+
+    /** 코루틴 취소는 ZIP I/O 실패로 오인하지 않고 호출자까지 전파된다. */
+    @Test
+    fun comicCancellationIsRethrown() {
+        assertFailsWith<CancellationException> {
+            comicIoResultOrNull<Unit> { throw CancellationException("cancelled") }
+        }
     }
 }

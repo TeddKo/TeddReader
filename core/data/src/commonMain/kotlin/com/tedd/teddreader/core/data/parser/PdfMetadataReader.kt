@@ -18,7 +18,9 @@ import com.tedd.teddreader.core.common.model.DocumentLocation
  * 호출자는 [DocumentLocation.sourceUri]가 읽을 수 있는 로컬 파일(iOS의 샌드박스 복사본, 또는
  * 구체화 이후 Android의 `file://` URI)을 가리킨다는 것을 알고 있을 때 `bytes = null`을 전달할 수
  * 있다. [bytes]가 null인데 위치에 도달할 수 없는 것으로 판명되면, 구현체는 예외를 던지는 대신
- * 안전한 기본값([pageCount]는 1, [coverImageBytes]는 null)을 반환한다.
+ * 안전한 기본값([pageCount]는 1, [coverImageBytes]는 null)을 반환한다. 손상되었거나 열 수 없는 PDF와
+ * 예상되는 I/O 실패는 이렇게 기본값으로 축소되지만, 메모리 고갈([OutOfMemoryError])과 코루틴
+ * 취소([kotlin.coroutines.cancellation.CancellationException])는 삼키지 않고 호출자에게 전파한다.
  */
 fun interface PdfMetadataReader {
     /**
@@ -30,9 +32,11 @@ fun interface PdfMetadataReader {
      * @param location 문서의 위치. [DocumentLocation.sourceUri]가 PDF를 해석하는 1차 소스이다.
      * @param bytes [location]을 직접 열 수 없을 때의 폴백으로 쓰이는 문서의 원본 바이트, 또는
      *   호출자가 [location]이 접근 가능한 로컬 파일임을 보장할 때는 `null`.
-     * @return 페이지 수. 구현체는 절대 예외를 던지지 않으며 1 미만을 반환하지 않는다; PDF의 실제
-     *   구조를 읽는 데 실패하면 `1`로 폴백한다 — 이 리더가 이미 받아들인 문서는 보여줄 페이지가
+     * @return 페이지 수. 1 미만을 반환하지 않는다; PDF의 실제 구조를 읽는 데 예상 가능한 이유로
+     *   실패하면 `1`로 폴백한다 — 이 리더가 이미 받아들인 문서는 보여줄 페이지가
      *   최소 하나는 있어야 하기 때문이다.
+     * @throws OutOfMemoryError 문서를 읽는 중 메모리가 고갈될 때.
+     * @throws kotlin.coroutines.cancellation.CancellationException 호출 코루틴이 취소되었을 때.
      */
     fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int
 
@@ -48,6 +52,8 @@ fun interface PdfMetadataReader {
      * @return 작은 표시 영역에 맞게 축소된 썸네일의 PNG 인코딩 바이트, 또는 문서에 렌더링할
      *   페이지가 없거나 렌더링이 실패하면 `null`. 기본 구현은 `null`이며, 이는 [pageCount]만
      *   필요로 하는 향후의 이 인터페이스 호출자를 위한 것이다.
+     * @throws OutOfMemoryError 렌더링 중 메모리가 고갈될 때.
+     * @throws kotlin.coroutines.cancellation.CancellationException 호출 코루틴이 취소되었을 때.
      */
     fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? = null
 }

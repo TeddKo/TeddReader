@@ -6,9 +6,9 @@ import com.tedd.teddreader.core.common.model.ReaderDocument
 import kotlin.random.Random
 import okio.Buffer
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
-import okio.buffer
 import okio.openZip
 import org.koin.core.annotation.Single
 
@@ -31,7 +31,7 @@ open class ComicBookDocumentParser {
      * @return [DocumentFormat.CBZ]의 [ReaderDocument]. 섹션은 없으며 페이지 수는
      *   [sortedComicPageNames]가 페이지로 인식하는 항목 수와 같다.
      * @throws IllegalArgumentException 아카이브에 [sortedComicPageNames]가 페이지로 인식하는 항목이
-     *   하나도 없을 때 — 비어 있거나 만화가 아닌 ZIP은 이 리더가 보여줄 것이 없다.
+     *   하나도 없거나, 엔트리 수·경로 길이·페이지 수 상한을 넘을 때.
      */
     fun parse(
         id: DocumentId,
@@ -52,7 +52,7 @@ open class ComicBookDocumentParser {
      * @return [DocumentFormat.CBZ]의 [ReaderDocument]. 섹션은 없으며 페이지 수는
      *   [sortedComicPageNames]가 페이지로 인식하는 항목 수와 같다.
      * @throws IllegalArgumentException 아카이브에 [sortedComicPageNames]가 페이지로 인식하는 항목이
-     *   하나도 없을 때.
+     *   하나도 없거나, 엔트리 수·경로 길이·페이지 수 상한을 넘을 때.
      */
     fun parse(
         id: DocumentId,
@@ -80,6 +80,7 @@ open class ComicBookDocumentParser {
      * [coverImageBytes]를 참고.
      *
      * @param path CBZ 파일의 위치.
+     * @return 첫 페이지의 바이트, 또는 페이지가 없거나 예상 I/O 실패·크기 상한 위반이면 null.
      */
     fun coverImageBytes(path: Path): ByteArray? =
         pageImageBytes(path, setOf(0))[0]
@@ -94,6 +95,8 @@ open class ComicBookDocumentParser {
      *   인덱스만 포함한다 — 마지막 페이지를 넘어선 인덱스나, 손상되었거나 지나치게 크거나
      *   ([MaxComicPageBytes] 참고) 그 밖의 이유로 읽을 수 없는 페이지 항목은 전체 호출을 실패시키는
      *   대신 그냥 결과에서 빠진다.
+     * @throws IllegalArgumentException [pageIndexes]가 [MaxComicPageRequestCount]개를 넘거나 아카이브가
+     *   엔트리 수·경로 길이·페이지 수 상한을 넘을 때.
      */
     fun pageImageBytes(
         bytes: ByteArray,
@@ -112,6 +115,9 @@ open class ComicBookDocumentParser {
      * @param path CBZ 파일의 위치.
      * @param pageIndexes 읽을, 0부터 시작하는 페이지 번호들; 빈 집합이면 아카이브를 열지 않고 바로
      *   반환한다.
+     * @return 실제로 존재하고 읽을 수 있었던 인덱스와 이미지 바이트의 맵.
+     * @throws IllegalArgumentException [pageIndexes]가 [MaxComicPageRequestCount]개를 넘거나 아카이브가
+     *   엔트리 수·경로 길이·페이지 수 상한을 넘을 때.
      */
     fun pageImageBytes(
         path: Path,
@@ -157,16 +163,8 @@ open class ComicBookDocumentParser {
         val fileSystem = systemFileSystem()
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
             "tedd-reader-comic-${Random.nextLong().toString(16)}.cbz"
-        val sink = fileSystem.sink(path).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
-        }
-        return try {
+        return withTemporaryComicFile(fileSystem, path, bytes) {
             block(openArchive(path))
-        } finally {
-            fileSystem.delete(path)
         }
     }
 
@@ -208,14 +206,20 @@ internal class ComicArchive(
      *   인덱스만 포함한다 — 마지막 페이지를 넘어선 인덱스나, 손상되었거나 지나치게 크거나
      *   ([MaxComicPageBytes] 참고) 그 밖의 이유로 읽을 수 없는 페이지 항목은 전체 호출을 실패시키는
      *   대신 그냥 결과에서 빠진다.
+     * @throws IllegalArgumentException [pageIndexes]가 [MaxComicPageRequestCount]개를 넘을 때.
      */
     fun pageImageBytes(pageIndexes: Set<Int>): Map<Int, ByteArray> {
         if (pageIndexes.isEmpty()) return emptyMap()
-        return pageIndexes.sorted().mapNotNull { pageIndex ->
-            pagePaths.getOrNull(pageIndex)
-                ?.let { pagePath -> fileSystem.readComicPageOrNull(pagePath) }
-                ?.let { pageBytes -> pageIndex to pageBytes }
-        }.toMap()
+        require(pageIndexes.size <= MaxComicPageRequestCount) {
+            "Comic page request exceeds $MaxComicPageRequestCount indexes."
+        }
+        val pages = mutableMapOf<Int, ByteArray>()
+        for (pageIndex in pageIndexes.sorted()) {
+            val pagePath = pagePaths.getOrNull(pageIndex) ?: continue
+            val pageBytes = fileSystem.readComicPageOrNull(pagePath) ?: continue
+            pages[pageIndex] = pageBytes
+        }
+        return pages
     }
 
     /**
@@ -276,12 +280,36 @@ internal fun sortedComicPageNames(names: List<String>): List<String> = names
     .toList()
 
 /**
- * [zip] 안에서 [isComicPageName]이 받아들이는 모든 항목을 그 [Path]로 해석하고,
- * [sortedComicPageNames]로 읽기 순서에 맞게 정렬한 것.
+ * [zip] 안에서 [isComicPageName]이 받아들이는 항목을 읽기 순서로 정렬한다. 탐색 중 엔트리 수,
+ * 경로 길이, 이미지 페이지 수를 제한해 악성 ZIP이 무제한 메타데이터를 만들지 못하게 한다.
+ *
+ * @param zip 탐색할 열린 ZIP 파일 시스템.
+ * @return 상한 안에서 발견한 페이지 항목 경로의 읽기 순서 목록.
+ * @throws IllegalArgumentException 엔트리 수·경로 길이·페이지 수 상한을 넘을 때.
  */
 private fun comicPagePaths(zip: FileSystem): List<Path> {
-    val pathsByName = zip.listRecursively("/".toPath())
-        .associateBy { path -> path.toString().removePrefix("/") }
+    val pathsByName = mutableMapOf<String, Path>()
+    var entryCount = 0
+    var pageCount = 0
+    zip.listRecursively("/".toPath()).forEach { path ->
+        val name = path.toString().removePrefix("/")
+        if (!isComicMetadataName(name) && zip.metadataOrNull(path)?.isDirectory != true) {
+            entryCount += 1
+            require(entryCount <= MaxComicArchiveEntries) {
+                "CBZ contains more than $MaxComicArchiveEntries entries."
+            }
+        }
+        require(name.length <= MaxComicEntryPathLength) {
+            "CBZ entry path exceeds $MaxComicEntryPathLength characters."
+        }
+        if (isComicPageName(name)) {
+            pageCount += 1
+            require(pageCount <= MaxComicPages) {
+                "CBZ contains more than $MaxComicPages image pages."
+            }
+        }
+        pathsByName[name] = path
+    }
     return sortedComicPageNames(pathsByName.keys.toList()).mapNotNull(pathsByName::get)
 }
 
@@ -292,12 +320,24 @@ private fun comicPagePaths(zip: FileSystem): List<Path> {
  * 포크 파일.
  *
  * @param name [sortedComicPageNames]가 이미 슬래시로 정규화한 원시 항목 이름.
+ * @return 지원 이미지 확장자이며 플랫폼 메타데이터 항목이 아니면 true.
  */
-private fun isComicPageName(name: String): Boolean {
+private fun isComicPageName(name: String): Boolean =
+    !isComicMetadataName(name) &&
+        name.lowercase().substringAfterLast('.', missingDelimiterValue = "") in ComicPageExtensions
+
+/**
+ * [name]이 Mac에서 만든 ZIP이 덧붙이는 비-페이지 메타데이터 항목인지 여부: `__MACOSX/` 폴더 아래의
+ * 항목이거나 이름이 `._`로 시작하는 AppleDouble 리소스 포크 파일. [comicPagePaths]는 이런 항목을
+ * 엔트리 수 상한에 셈하지 않아, 메타데이터가 많은 정상 옴니버스가 상한 때문에 거부되지 않게 한다.
+ *
+ * @param name 슬래시로 정규화한 원시 항목 이름.
+ * @return 플랫폼 메타데이터 항목이면 true.
+ */
+private fun isComicMetadataName(name: String): Boolean {
     val normalized = name.lowercase()
-    val fileName = normalized.substringAfterLast('/')
-    if (normalized.startsWith("__macosx/") || "/__macosx/" in normalized || fileName.startsWith("._")) return false
-    return normalized.substringAfterLast('.', missingDelimiterValue = "") in ComicPageExtensions
+    return normalized.startsWith("__macosx/") || "/__macosx/" in normalized ||
+        normalized.substringAfterLast('/').startsWith("._")
 }
 
 /**
@@ -305,6 +345,7 @@ private fun isComicPageName(name: String): Boolean {
  * 무시하고 항상 맨 앞에 두는 그 이름.
  *
  * @param name 원시 항목 이름.
+ * @return 확장자를 제외한 파일명이 대소문자와 무관하게 `cover`이면 true.
  */
 private fun isCoverPageName(name: String): Boolean =
     name.substringAfterLast('/').substringBeforeLast('.').equals("cover", ignoreCase = true)
@@ -364,35 +405,82 @@ private fun String.indexAfterRun(start: Int, predicate: (Char) -> Boolean): Int 
 }
 
 /**
+ * [bytes]를 [path]에 기록하고 [block]이 끝날 때까지 파일을 유지한 뒤 항상 삭제한다. 쓰기 자체가
+ * 실패해도 삭제가 실행되므로 부분 파일이 임시 디렉터리에 남지 않는다.
+ *
+ * @param fileSystem 임시 파일을 만들고 삭제할 파일 시스템.
+ * @param path 이번 호출만 소유하는 임시 파일 경로.
+ * @param bytes 파일에 기록할 CBZ 원본 바이트.
+ * @param block 기록된 [path]를 사용하는 작업.
+ * @return [block]의 결과.
+ * @throws IOException 임시 파일 기록이 실패할 때. 삭제 실패는 원래 예외를 가리지 않도록 삼킨다.
+ */
+internal fun <T> withTemporaryComicFile(
+    fileSystem: FileSystem,
+    path: Path,
+    bytes: ByteArray,
+    block: (Path) -> T,
+): T = try {
+    fileSystem.write(path) { write(bytes) }
+    block(path)
+} finally {
+    try {
+        fileSystem.delete(path, mustExist = false)
+    } catch (_: IOException) {
+    }
+}
+
+/**
  * 페이지 항목 하나의 전체 바이트를 읽되, 손상되었거나 예상외로 거대한 단일 항목이 페이지 이미지가
  * 필요로 해야 할 메모리를 초과하지 않도록 [MaxComicPageBytes]로 상한을 둔다.
  *
  * @receiver 읽어올 아카이브.
  * @param path [comicPagePaths]가 해석한 페이지의 항목 경로.
- * @return 페이지의 바이트, 또는 항목을 열 수 없었거나, 읽는 중 예외가 발생했거나, 크기가
- *   [MaxComicPageBytes]를 초과했다면 null.
+ * @return 페이지의 바이트, 또는 항목을 열거나 읽는 I/O가 실패했거나 크기가 [MaxComicPageBytes]를
+ *   초과하면 null.
  */
-private fun FileSystem.readComicPageOrNull(path: Path): ByteArray? {
-    val source = runCatching { source(path).buffer() }.getOrNull() ?: return null
-    return try {
+private fun FileSystem.readComicPageOrNull(path: Path): ByteArray? = comicIoResultOrNull {
+    val maxBytes = MaxComicPageBytes
+    read(path) {
         val buffer = Buffer()
         var totalBytes = 0L
         while (true) {
-            val read = source.read(buffer, 8_192)
+            val read = read(buffer, minOf(8_192L, maxBytes - totalBytes + 1L))
             if (read == -1L) break
             totalBytes += read
-            if (totalBytes > MaxComicPageBytes) return null
+            if (totalBytes > maxBytes) return@read null
         }
         buffer.readByteArray()
-    } catch (_: Throwable) {
-        null
-    } finally {
-        source.close()
     }
+}
+
+/**
+ * CBZ 항목 접근의 예상 [IOException]만 읽을 수 없는 페이지로 바꾸고 치명 오류는 호출자에게 보낸다.
+ *
+ * @param block ZIP 항목을 열거나 읽는 작업.
+ * @return 작업 결과, 또는 I/O 실패이면 null.
+ * @throws OutOfMemoryError 작업 중 메모리가 고갈될 때.
+ */
+internal inline fun <T> comicIoResultOrNull(block: () -> T): T? = try {
+    block()
+} catch (_: IOException) {
+    null
 }
 
 /** [isComicPageName]이 페이지 이미지로 받아들이는 파일 확장자들. */
 private val ComicPageExtensions = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
+
+/** 하나의 CBZ에서 탐색하는 엔트리 수의 상한. 디렉터리와 Mac 메타데이터 항목은 세지 않는다. */
+internal const val MaxComicArchiveEntries = 10_000
+
+/** 하나의 ZIP 엔트리 경로가 차지할 수 있는 문자 수의 상한. */
+internal const val MaxComicEntryPathLength = 1_024
+
+/** 하나의 CBZ가 독자에게 제공할 수 있는 이미지 페이지 수의 상한. */
+internal const val MaxComicPages = 5_000
+
+/** 한 번의 페이지 배치 요청이 지정할 수 있는 서로 다른 인덱스 수의 상한. */
+internal const val MaxComicPageRequestCount = 64
 
 /** [readComicPageOrNull]이 강제하는, 페이지 하나의 디코딩된 크기 상한. */
 private const val MaxComicPageBytes = 16L * 1024 * 1024
