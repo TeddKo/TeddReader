@@ -2,6 +2,7 @@ package buildlogic
 
 import com.android.build.api.dsl.ApplicationExtension
 import java.util.Properties
+import org.gradle.api.GradleException
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -47,8 +48,10 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
      *
      * **서명.** 서명 자료는 의도적으로 버전 관리에서 제외한다. `.signing/`과
      * `keystore.properties`는 모두 gitignore 대상이며, 어느 기기에서나 동일하게 읽도록 저장소 루트에서
-     * 경로를 해석한다. 이 파일들이 없는 checkout은 제공되지 않은 파일 때문에 실패하는 대신 서명되지
-     * 않은 release 빌드를 생성한다.
+     * 경로를 해석한다. 이 파일들이 없는 checkout은 로컬 검증용 unsigned release APK를 생성할 수 있지만,
+     * 배포 산출물인 bundle은 업로드 가능한 서명이 없으므로 `bundleRelease`에서 명시적으로 실패한다. 단,
+     * Android Studio의 Generate Signed Bundle이나 CI가 `android.injected.signing.store.file`
+     * Gradle 속성으로 서명을 주입하는 경우에는 이 차단을 등록하지 않고 주입된 서명을 받아들인다.
      *
      * **Build type.** debug 빌드는 `.dev` application-ID suffix와 "TeddReader dev" label을 사용하여
      * 같은 기기에 release 빌드와 나란히 설치된다. 이 분리가 없으면 debug와 release를 비교 측정할 때
@@ -60,6 +63,10 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
      * 최적화하고 가지치기하여 이 cold-start 비용을 제거한다.
      */
     private fun Project.configureAndroid() {
+        val signing = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { file ->
+            Properties().apply { file.inputStream().use(::load) }
+        }
+
         extensions.configure<ApplicationExtension> {
             namespace = "com.tedd.teddreader"
             compileSdk = findVersion("android-compileSdk").toInt()
@@ -68,8 +75,8 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
                 applicationId = "com.tedd.teddreader"
                 minSdk = findVersion("android-minSdk").toInt()
                 targetSdk = findVersion("android-targetSdk").toInt()
-                versionCode = 1
-                versionName = "1.0"
+                versionCode = findVersion("app-versionCode").toInt()
+                versionName = findVersion("app-versionName")
             }
 
             packaging {
@@ -78,9 +85,6 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
                 }
             }
 
-            val signing = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { file ->
-                Properties().apply { file.inputStream().use(::load) }
-            }
             if (signing != null) {
                 signingConfigs.create("release") {
                     storeFile = rootProject.file(signing.getProperty("storeFile"))
@@ -111,6 +115,19 @@ class TeddAndroidAppConventionPlugin : Plugin<Project> {
             compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_11
                 targetCompatibility = JavaVersion.VERSION_11
+            }
+        }
+
+        val injectedSigning = providers.gradleProperty("android.injected.signing.store.file").isPresent
+        if (signing == null && !injectedSigning) {
+            val bundleReleasePath = "$path:bundleRelease"
+            gradle.taskGraph.addTaskExecutionGraphListener { taskGraph ->
+                if (taskGraph.hasTask(bundleReleasePath)) {
+                    throw GradleException(
+                        "bundleRelease에는 release 서명이 필요합니다. " +
+                            "저장소 루트의 keystore.properties를 설정하세요.",
+                    )
+                }
             }
         }
     }
