@@ -3,6 +3,8 @@ package com.tedd.teddreader.core.data.repository
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
+import com.tedd.teddreader.core.common.model.ReaderStyle
+import com.tedd.teddreader.core.common.model.ViewportSize
 import com.tedd.teddreader.core.data.pagination.TextPageLayoutEngine
 import com.tedd.teddreader.core.data.parser.ComicBookDocumentParser
 import com.tedd.teddreader.core.data.parser.DocumentFormatDetector
@@ -39,6 +41,7 @@ import okio.FileSystem
 import okio.Path
 import okio.buffer
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -58,6 +61,80 @@ import kotlin.test.assertTrue
  * 실행 중인 동안 완료돼 버리기 때문이다.
  */
 class EpubScratchLifetimeTest {
+    /**
+     * 현재 EPUB 스크래치 복사 중 다른 문서 삭제가 전역 무효화 세대를 바꾸면, 복사 결과는 설치되지
+     * 않는다. 이 Invalidated 상태를 OPF 부재로 합쳐 현재 EPUB을 완료 처리해서는 안 된다.
+     */
+    @Test
+    fun invalidatedScratchCopyDoesNotCompleteCurrentImport() = runTest {
+        val copyStarted = CountDownLatch(1)
+        val proceedWithCopy = CountDownLatch(1)
+        val copiedPath = AtomicReference<Path?>(null)
+        val location = DocumentLocation(
+            sourceUri = "file:///invalidated-current.epub",
+            displayName = "invalidated-current.epub",
+            mimeType = "application/epub+zip",
+        )
+        val otherLocation = DocumentLocation(
+            sourceUri = "file:///unrelated.epub",
+            displayName = "unrelated.epub",
+            mimeType = "application/epub+zip",
+        )
+        val dao = MutableDocumentDao(
+            DocumentEntity(
+                id = location.sourceUri,
+                name = location.displayName,
+                sourceUri = location.sourceUri,
+                format = DocumentFormat.EPUB.name,
+                mimeType = location.mimeType,
+                addedAtEpochMillis = 1_000,
+                characterCount = 0,
+                wordCount = 0,
+                embeddedFontHrefsJson = "[]",
+            ),
+            DocumentEntity(
+                id = otherLocation.sourceUri,
+                name = otherLocation.displayName,
+                sourceUri = otherLocation.sourceUri,
+                format = DocumentFormat.EPUB.name,
+                mimeType = otherLocation.mimeType,
+                addedAtEpochMillis = 1_000,
+            ),
+        )
+        val repository = buildRepository(
+            documentDao = dao,
+            fileSource = CopyGatedFileSource(
+                location = location,
+                bytes = minimalEpubBytes(),
+                copyStarted = copyStarted,
+                proceedWithCopy = proceedWithCopy,
+                copiedPath = copiedPath,
+            ),
+            epubDocumentParser = EpubDocumentParser(),
+        )
+        val importing = async(Dispatchers.Default) {
+            repository.importNextSections(
+                documentId = DocumentId(location.sourceUri),
+                count = 1,
+                style = ReaderStyle(),
+                viewportSize = ViewportSize(widthPx = 320, heightPx = 560),
+                pageBreaker = null,
+            )
+        }
+
+        try {
+            assertTrue(copyStarted.await(5, TimeUnit.SECONDS))
+            repository.deleteDocument(DocumentId(otherLocation.sourceUri))
+            proceedWithCopy.countDown()
+
+            val progress = importing.await()
+
+            assertFalse(progress.isComplete)
+            assertEquals(null, dao.getDocument(location.sourceUri)?.importCompletedAtEpochMillis)
+        } finally {
+            proceedWithCopy.countDown()
+        }
+    }
 
     /**
      * `getEmbeddedImages`가 스크래치 파일에서 추출하는 동안 `deleteDocument`가 그 파일을 삭제할 수 없음을
@@ -246,6 +323,53 @@ class EpubScratchLifetimeTest {
             proceedWithCopy.countDown()
         }
     }
+
+    /**
+     * 손상된 스크래치 사본은 폐기되어 다음 호출에서 원본으로부터 다시 복사되어야 하고, 새 사본으로도
+     * 열리지 않으면 임포트를 마무리해야 한다. 그렇지 않으면 호출자의 대기 없는 루프가 미완료 응답을
+     * 영구히 받으며 무한히 돈다.
+     */
+    @Test
+    fun unreadableScratchCopyIsRecopiedOnceThenImportFinishes() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///corrupt-scratch.epub",
+            displayName = "corrupt-scratch.epub",
+            mimeType = "application/epub+zip",
+        )
+        val dao = MutableDocumentDao(
+            DocumentEntity(
+                id = location.sourceUri,
+                name = location.displayName,
+                sourceUri = location.sourceUri,
+                format = DocumentFormat.EPUB.name,
+                mimeType = location.mimeType,
+                sizeBytes = 0L,
+                addedAtEpochMillis = 1_000,
+            ),
+        )
+        val fileSource = InMemoryFileSource(location, "not a zip archive".encodeToByteArray())
+        val repository = buildRepository(
+            documentDao = dao,
+            fileSource = fileSource,
+            epubDocumentParser = EpubDocumentParser(),
+        )
+        val documentId = DocumentId(location.sourceUri)
+
+        var calls = 0
+        do {
+            val progress = repository.importNextSections(
+                documentId = documentId,
+                count = 1,
+                style = ReaderStyle(),
+                viewportSize = ViewportSize(widthPx = 320, heightPx = 560),
+                pageBreaker = null,
+            )
+            calls += 1
+        } while (!progress.isComplete && calls < 5)
+
+        assertEquals(2, calls)
+        assertTrue(fileSource.copyCount >= 2, "the corrupt scratch copy must be re-copied from the original")
+    }
 }
 
 /**
@@ -379,8 +503,39 @@ private class MutableDocumentDao(
         Unit
     }
 
-    override suspend fun updateCountsAndFontIndex(documentId: String, characterCount: Long, wordCount: Long, embeddedFontHrefsJson: String?) = Unit
-    override suspend fun updateCountsAndMarkComplete(documentId: String, characterCount: Long, wordCount: Long, importCompletedAtEpochMillis: Long) = Unit
+    /** 미완료 누산값 갱신을 메모리 행에 반영한다. */
+    override suspend fun updateCountsAndFontIndex(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        embeddedFontHrefsJson: String?,
+    ) = lock.withLock {
+        val index = documents.indexOfFirst { it.id == documentId }
+        if (index >= 0) {
+            documents[index] = documents[index].copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                embeddedFontHrefsJson = embeddedFontHrefsJson,
+            )
+        }
+    }
+
+    /** 잘못된 완료 처리도 테스트가 관찰할 수 있도록 완료 스탬프를 메모리 행에 반영한다. */
+    override suspend fun updateCountsAndMarkComplete(
+        documentId: String,
+        characterCount: Long,
+        wordCount: Long,
+        importCompletedAtEpochMillis: Long,
+    ) = lock.withLock {
+        val index = documents.indexOfFirst { it.id == documentId }
+        if (index >= 0) {
+            documents[index] = documents[index].copy(
+                characterCount = characterCount,
+                wordCount = wordCount,
+                importCompletedAtEpochMillis = importCompletedAtEpochMillis,
+            )
+        }
+    }
     override suspend fun updateEmbeddedFontHrefsJson(documentId: String, embeddedFontHrefsJson: String) = Unit
 }
 
@@ -403,8 +558,13 @@ private class InMemoryFileSource(
         return bytes
     }
 
+    /** [copyTo]가 호출된 횟수로, 실패한 스크래치 사본이 원본에서 다시 복사됐는지 단언하는 데 쓰인다. */
+    var copyCount = 0
+        private set
+
     override suspend fun copyTo(location: DocumentLocation, destination: Path) {
         check(this.location == location)
+        copyCount += 1
         FileSystem.SYSTEM.sink(destination).buffer().use { sink -> sink.write(bytes) }
     }
 

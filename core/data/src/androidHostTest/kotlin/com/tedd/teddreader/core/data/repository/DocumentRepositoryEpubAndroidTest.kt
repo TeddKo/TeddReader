@@ -237,6 +237,69 @@ class DocumentRepositoryEpubAndroidTest {
         assertTrue(searchIndexDao.entries.all { it.blocksJson != "[]" })
     }
 
+    /** 여러 정상 크기 폰트의 합이 128 MiB를 넘으면 남은 엔트리를 추출하지 않아야 한다. */
+    @Test
+    fun getEmbeddedFontFilesLimitsCumulativeBytesPerDocument() = runTest {
+        val epubBytes = sampleEpubBytesWithFonts(fontCount = 3, fontSizeBytes = 50 * 1024 * 1024)
+        val location = DocumentLocation(
+            sourceUri = "file:///large-fonts.epub",
+            displayName = "large-fonts.epub",
+            mimeType = "application/epub+zip",
+        )
+        val repository = repository(
+            documentDao = AndroidFakeDocumentDao(
+                DocumentEntity(
+                    id = location.sourceUri,
+                    name = location.displayName,
+                    sourceUri = location.sourceUri,
+                    format = DocumentFormat.EPUB.name,
+                    mimeType = location.mimeType,
+                    sizeBytes = 0L,
+                    addedAtEpochMillis = 1_000,
+                ),
+            ),
+            searchIndexDao = AndroidFakeSearchIndexDao(),
+            fileSource = AndroidFakeDocumentFileSource(location, epubBytes),
+        )
+        val requested = (1..3).mapTo(linkedSetOf()) { index -> "OEBPS/fonts/Font-$index.otf" }
+
+        val extracted = repository.getEmbeddedFontFiles(DocumentId(location.sourceUri), requested)
+
+        assertEquals(2, extracted.size)
+    }
+
+    /** 악성 EPUB이 작은 폰트 엔트리를 무제한 추출해 임시 저장소를 채우지 못하도록 32개에서 제한한다. */
+    @Test
+    fun getEmbeddedFontFilesLimitsFilesPerDocument() = runTest {
+        val epubBytes = sampleEpubBytesWithFonts(fontCount = 40)
+        val location = DocumentLocation(
+            sourceUri = "file:///many-fonts.epub",
+            displayName = "many-fonts.epub",
+            mimeType = "application/epub+zip",
+        )
+        val repository = repository(
+            documentDao = AndroidFakeDocumentDao(
+                DocumentEntity(
+                    id = location.sourceUri,
+                    name = location.displayName,
+                    sourceUri = location.sourceUri,
+                    format = DocumentFormat.EPUB.name,
+                    mimeType = location.mimeType,
+                    sizeBytes = 0L,
+                    addedAtEpochMillis = 1_000,
+                ),
+            ),
+            searchIndexDao = AndroidFakeSearchIndexDao(),
+            fileSource = AndroidFakeDocumentFileSource(location, epubBytes),
+        )
+        val requested = (1..40).mapTo(linkedSetOf()) { index -> "OEBPS/fonts/Font-$index.otf" }
+
+        val extracted = repository.getEmbeddedFontFiles(DocumentId(location.sourceUri), requested)
+
+        assertEquals(32, extracted.size)
+        assertTrue(extracted.values.all { path -> FileSystem.SYSTEM.exists(path.toPath()) })
+    }
+
     @Test
     fun getEmbeddedFontFilesExtractsOnlyRequestedFontsAndReusesTheirTempPaths() = runTest {
         val epubBytes = sampleEpubBytesWithFonts()
@@ -418,7 +481,14 @@ private fun sampleEpubBytes(): ByteArray {
     return output.toByteArray()
 }
 
-private fun sampleEpubBytesWithFonts(): ByteArray {
+/**
+ * 폰트 추출 테스트가 요청할 수 있는 작은 OTF 엔트리들을 가진 최소 EPUB을 만든다.
+ *
+ * @param fontCount 기록할 폰트 엔트리 수. 1이면 기존 재사용 테스트용 `Body.otf`를 만든다.
+ * @param fontSizeBytes 다수 폰트 엔트리 각각에 기록할 바이트 수.
+ * @return 메모리에서 인코딩한 EPUB 바이트.
+ */
+private fun sampleEpubBytesWithFonts(fontCount: Int = 1, fontSizeBytes: Int = 1): ByteArray {
     val output = ByteArrayOutputStream()
     ZipOutputStream(output).use { zip ->
         zip.putNextEntry(ZipEntry("META-INF/container.xml"))
@@ -454,9 +524,17 @@ private fun sampleEpubBytesWithFonts(): ByteArray {
         zip.putNextEntry(ZipEntry("OEBPS/chapter-1.xhtml"))
         zip.write("<html><body><p>Body</p></body></html>".encodeToByteArray())
         zip.closeEntry()
-        zip.putNextEntry(ZipEntry("OEBPS/fonts/Body.otf"))
-        zip.write(byteArrayOf(9, 8, 7, 6))
-        zip.closeEntry()
+        if (fontCount == 1) {
+            zip.putNextEntry(ZipEntry("OEBPS/fonts/Body.otf"))
+            zip.write(byteArrayOf(9, 8, 7, 6))
+            zip.closeEntry()
+        } else {
+            for (index in 1..fontCount) {
+                zip.putNextEntry(ZipEntry("OEBPS/fonts/Font-$index.otf"))
+                zip.write(ByteArray(fontSizeBytes) { index.toByte() })
+                zip.closeEntry()
+            }
+        }
     }
     return output.toByteArray()
 }

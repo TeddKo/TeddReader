@@ -113,10 +113,9 @@ class AndroidDocumentFileSource(
      * 위해서만 먼저 [ByteArray]로 읽는다면 이유 없이 문서 전체를 메모리에 두 번 들고 있는 셈이
      * 된다.
      *
-     * 이 문서에 이미 사본이 있다면 다시 쓰지 않고 재사용한다: 다른 앱이 같은 책을 두 번째로
-     * 넘겨줄 때 전에는 새 이름으로 전체를 다시 썼고([materializedDocumentFileName] 참고), 그
-     * 결과 이 앱도 그것을 다시 임포트하게 됐다. 대상 파일이 이미 어떤 내용이든 가진 채 존재하는지
-     * 확인함으로써 첫 번째 전달 시 쓰인 파일을 찾아내고, 복사와 재임포트를 둘 다 건너뛴다.
+     * 이 문서에 이미 사본이 있다면 다시 쓰지 않고 재사용한다. 새 사본은 같은 디렉터리의 임시
+     * 파일에 끝까지 복사한 뒤 원자 이동으로 설치한다. 복사가 실패하면 임시 파일을 제거하므로
+     * 다음 호출이 일부만 기록된 파일을 완성본으로 재사용하지 않는다.
      *
      * @param location 원본 소스를 가리키는 문서의 현재 위치.
      * @return 구체화된 `file://` Uri를 가리키도록 갱신된 [location]. `sizeBytes`는 디스크상의
@@ -124,7 +123,11 @@ class AndroidDocumentFileSource(
      */
     suspend fun materializeFromSource(location: DocumentLocation): DocumentLocation {
         val file = documentFile(location)
-        if (!file.exists() || file.length() == 0L) copyTo(location, file.toOkioPath())
+        if (!file.exists() || file.length() == 0L) {
+            atomicCopyTo(FileSystem.SYSTEM, file.toOkioPath()) { partial ->
+                copyTo(location, partial)
+            }
+        }
         return location.copy(
             sourceUri = Uri.fromFile(file).toString(),
             sizeBytes = file.length(),

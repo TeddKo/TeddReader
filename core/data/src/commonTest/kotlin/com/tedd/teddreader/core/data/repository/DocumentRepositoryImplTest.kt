@@ -52,6 +52,7 @@ import kotlinx.serialization.json.Json
 import okio.FileSystem
 import okio.Path
 import okio.buffer
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -87,6 +88,205 @@ import kotlin.test.fail
  * 버그인지 적혀 있다.
  */
 class DocumentRepositoryImplTest {
+    /** 진단 로그용 문서 키는 source URI의 절대 경로나 파일 제목을 복원할 수 없게 해시여야 한다. */
+    @Test
+    fun documentLogKeyDoesNotExposeSourceUriOrTitle() {
+        val key = documentLogKey(DocumentId("file:///Users/reader/Private Title.epub"))
+
+        assertEquals(12, key.length)
+        assertTrue(key.all { it in '0'..'9' || it in 'a'..'f' })
+        assertFalse(key.contains("reader", ignoreCase = true))
+        assertFalse(key.contains("title", ignoreCase = true))
+    }
+
+    /**
+     * 임포트의 동기 파싱과 영속화는 호출자의 UI 디스패처를 점유하지 않도록
+     * [Dispatchers.Default] 경계 안에서 실행되어야 한다.
+     */
+    @Test
+    fun importDocumentRunsOnDefaultDispatcher() = runTest {
+        val documentDao = FakeDocumentDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = null,
+        )
+
+        repository.importDocument(
+            source = DocumentImportSource(
+                location = DocumentLocation(
+                    sourceUri = "file:///dispatcher.txt",
+                    displayName = "dispatcher.txt",
+                    mimeType = "text/plain",
+                ),
+                bytes = "dispatcher boundary".encodeToByteArray(),
+            ),
+            importedAtEpochMillis = 1_000,
+        )
+
+        assertEquals(Dispatchers.Default, documentDao.lastUpsertDispatcher)
+    }
+
+    /**
+     * EPUB 스크래치 복사가 일부 바이트를 쓴 뒤 실패해도 그 임시 파일은 남지 않아야 한다.
+     * 다음 호출이 손상된 사본을 완성본으로 오인하지 않게 하는 수명 계약이다.
+     */
+    @Test
+    fun failedEpubScratchCopyDeletesItsPartialFile() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///partial-copy.epub",
+            displayName = "partial-copy.epub",
+            mimeType = "application/epub+zip",
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val documentDao = FakeDocumentDao().apply {
+            upsertDocument(
+                DocumentEntity(
+                    id = location.sourceUri,
+                    name = location.displayName,
+                    sourceUri = location.sourceUri,
+                    format = DocumentFormat.EPUB.name,
+                    mimeType = location.mimeType,
+                    addedAtEpochMillis = 1_000,
+                ),
+            )
+        }
+        val fileSource = PartialFailingDocumentFileSource(location)
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = fileSource,
+        )
+
+        assertFailsWith<IllegalStateException> {
+            repository.getEmbeddedImages(documentId, setOf("OEBPS/image.png"))
+        }
+
+        val copiedPath = requireNotNull(fileSource.copiedPath)
+        assertFalse(FileSystem.SYSTEM.exists(copiedPath))
+    }
+
+    /**
+     * 스크래치 파일을 ZIP으로 열지 못한 것은 OPF가 없는 유효 EPUB이 아니다. 재시도 가능한
+     * I/O 실패를 완료로 기록하면 남은 섹션이 영구히 유실되므로 미완료 상태를 유지해야 한다.
+     */
+    @Test
+    fun scratchIoFailureDoesNotCompleteProgressiveImport() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///broken-scratch.epub",
+            displayName = "broken-scratch.epub",
+            mimeType = "application/epub+zip",
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val documentDao = FakeDocumentDao().apply {
+            upsertDocument(
+                DocumentEntity(
+                    id = location.sourceUri,
+                    name = location.displayName,
+                    sourceUri = location.sourceUri,
+                    format = DocumentFormat.EPUB.name,
+                    mimeType = location.mimeType,
+                    addedAtEpochMillis = 1_000,
+                    characterCount = 0,
+                    wordCount = 0,
+                    embeddedFontHrefsJson = "[]",
+                ),
+            )
+        }
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = FakeDocumentSearchIndexDao(),
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = FakeDocumentFileSource(location, "not a zip".encodeToByteArray()),
+        )
+
+        val progress = repository.importNextSections(
+            documentId = documentId,
+            count = 1,
+            style = ReaderStyle(),
+            viewportSize = ViewportSize(widthPx = 320, heightPx = 560),
+            pageBreaker = null,
+        )
+
+        assertFalse(progress.isComplete)
+        assertFalse(repository.isImportComplete(documentId))
+    }
+
+    /**
+     * 같은 EPUB에 대한 두 이어받기 호출은 동일한 마지막 섹션을 함께 읽고 같은 인덱스를
+     * 중복 커밋하지 않도록 read-parse-commit 전체를 문서 단위로 직렬화해야 한다.
+     */
+    @Test
+    fun concurrentImportNextSectionsCommitsEachSectionOnce() = runTest {
+        val location = DocumentLocation(
+            sourceUri = "file:///concurrent-import.epub",
+            displayName = "concurrent-import.epub",
+            mimeType = "application/epub+zip",
+        )
+        val documentId = DocumentId(location.sourceUri)
+        val documentDao = FakeDocumentDao()
+        val searchIndexDao = FakeDocumentSearchIndexDao()
+        val repository = DocumentRepositoryImpl(
+            documentDao = documentDao,
+            searchIndexDao = searchIndexDao,
+            pageLayoutDao = FakePageLayoutDao(),
+            formatDetector = DocumentFormatDetector(),
+            txtDocumentParser = TxtDocumentParser(),
+            epubDocumentParser = EpubDocumentParser(),
+            pdfDocumentParser = PdfDocumentParser(),
+            comicBookDocumentParser = ComicBookDocumentParser(),
+            imageDocumentParser = ImageDocumentParser(),
+            textPageLayoutEngine = TextPageLayoutEngine(),
+            documentFileSource = FakeDocumentFileSource(location, sampleMultiChapterEpubBytesWithCover(chapterCount = 30)),
+        )
+        repository.importDocument(DocumentImportSource(location, bytes = null), importedAtEpochMillis = 1_000)
+        val gate = CompletableDeferred<Unit>()
+        val reached = CompletableDeferred<Unit>()
+        searchIndexDao.getLastSectionGate = gate
+        searchIndexDao.getLastSectionReached = reached
+
+        coroutineScope {
+            val first = launch {
+                repository.importNextSections(documentId, 1, ReaderStyle(), ViewportSize(320, 560), null)
+            }
+            reached.await()
+            val second = launch {
+                repository.importNextSections(documentId, 1, ReaderStyle(), ViewportSize(320, 560), null)
+            }
+            repeat(10) { yield() }
+            gate.complete(Unit)
+            joinAll(first, second)
+        }
+
+        val sectionIndexes = searchIndexDao.entries
+            .filter { it.documentId == documentId.value }
+            .map { it.sectionIndex }
+        assertEquals(sectionIndexes.distinct(), sectionIndexes)
+    }
+
     /** 단일 시각 페이지 임포트(이미지)는 정확히 한 페이지로 인식되고 페이지가 나뉘어야 한다. */
     @Test
     fun importsImageAsSingleVisualPage() = runTest {
@@ -4329,6 +4529,39 @@ class DocumentRepositoryImplTest {
 }
 
 /**
+ * 목적지에 일부 바이트를 남긴 뒤 복사 실패를 발생시켜 스크래치 정리 경로를 검증한다.
+ *
+ * @property expectedLocation 이 소스가 허용하는 문서 위치.
+ */
+private class PartialFailingDocumentFileSource(
+    private val expectedLocation: DocumentLocation,
+) : DocumentFileSource {
+    /** 마지막 [copyTo]가 일부 바이트를 기록한 목적지. */
+    var copiedPath: Path? = null
+
+    /** 이 테스트 더블은 전체 읽기 경로를 지원하지 않는다. */
+    override suspend fun readBytes(location: DocumentLocation): ByteArray = error("readBytes is not supported")
+
+    /**
+     * 목적지에 일부 바이트를 기록한 뒤 실패하여 호출자가 파일을 정리하는지 검증한다.
+     *
+     * @param location [expectedLocation]과 같아야 하는 원본 위치.
+     * @param destination 일부 바이트가 기록될 스크래치 경로.
+     * @throws IllegalStateException 항상 복사 실패를 나타낸다.
+     */
+    override suspend fun copyTo(location: DocumentLocation, destination: Path) {
+        check(location == expectedLocation)
+        copiedPath = destination
+        FileSystem.SYSTEM.sink(destination).buffer().use { sink -> sink.writeUtf8("partial") }
+        error("copy failed")
+    }
+
+    /** @return 테스트마다 격리된 임시 앱 전용 디렉터리. */
+    override fun appPrivateDirectory(): Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
+        "tedd-reader-partial-copy-${Random.nextLong().toString(16)}"
+}
+
+/**
  * 항상 같은 [bytes]를 돌려주면서, 각 메서드가 실제로 몇 번 호출되었는지 세는
  * [DocumentFileSource] — 이 파일의 대부분의 테스트가 전체 파일 읽기가 발생했는지 아닌지를
  * 증명하기 위해 단언하는 카운트다.
@@ -4996,6 +5229,9 @@ private fun manyTxtSectionsWithBlocks(documentId: String, count: Int): List<Sear
  * [FakeMultiDocumentDao] 참고.
  */
 private class FakeDocumentDao : DocumentDao {
+    /** 마지막 [upsertDocument] 호출이 실행된 코루틴 디스패처. */
+    var lastUpsertDispatcher: ContinuationInterceptor? = null
+
     /** 현재 "저장된" 그 하나의 문서, 또는 [deleteDocument]가 제거한 뒤에는 null. */
     var saved: DocumentEntity? = null
 
@@ -5018,6 +5254,7 @@ private class FakeDocumentDao : DocumentDao {
     var completionStampReached: CompletableDeferred<Unit>? = null
 
     override suspend fun upsertDocument(document: DocumentEntity) {
+        lastUpsertDispatcher = kotlin.coroutines.coroutineContext[ContinuationInterceptor]
         val stampsCompletionNow = saved?.importCompletedAtEpochMillis == null && document.importCompletedAtEpochMillis != null
         saved = document
         if (stampsCompletionNow) {
@@ -5223,6 +5460,12 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
     /** [upsertSearchIndex]가 기록하기 전, [upsertSearchIndexGate]에 도달하는 순간 완료된다. */
     var upsertSearchIndexReached: CompletableDeferred<Unit>? = null
 
+    /** [getLastSection]이 결과를 계산하기 전에 기다리는 동시 임포트 재현 게이트. */
+    var getLastSectionGate: CompletableDeferred<Unit>? = null
+
+    /** [getLastSection]이 [getLastSectionGate]에 도달했음을 알리는 신호. */
+    var getLastSectionReached: CompletableDeferred<Unit>? = null
+
     override suspend fun upsertSearchIndex(entries: List<SearchIndexEntity>) {
         upsertSearchIndexReached?.complete(Unit)
         upsertSearchIndexGate?.await()
@@ -5258,10 +5501,13 @@ private class FakeDocumentSearchIndexDao : SearchIndexDao {
             .map { SectionBlocksJsonEntry(it.sectionIndex, it.blocksJson) }
     }
 
-    override suspend fun getLastSection(documentId: String): SectionOffsetEntry? =
-        entries.filter { it.documentId == documentId }
+    override suspend fun getLastSection(documentId: String): SectionOffsetEntry? {
+        getLastSectionReached?.complete(Unit)
+        getLastSectionGate?.await()
+        return entries.filter { it.documentId == documentId }
             .maxByOrNull { it.sectionIndex }
             ?.let { SectionOffsetEntry(it.sectionIndex, it.endOffset) }
+    }
 
     override suspend fun updateSectionTitle(documentId: String, sectionIndex: Int, title: String) {
         val index = entries.indexOfFirst { it.documentId == documentId && it.sectionIndex == sectionIndex }
