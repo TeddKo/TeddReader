@@ -20,15 +20,16 @@ class TeddReaderMigrationListTest {
     /** 아래 `currentDatabaseVersion`은 TeddReaderDatabase의 `@Database(version = ...)`와 수동으로 동기화합니다. */
     @Test
     fun migrationListCoversEveryVersionUpToTheCurrentDatabaseVersionWithNoGaps() {
-        val currentDatabaseVersion = 9
+        val currentDatabaseVersion = 10
         val versions = TeddReaderMigrationList.map { it.startVersion to it.endVersion }
 
         assertEquals((1 until currentDatabaseVersion).map { version -> version to version + 1 }, versions)
     }
 
+    /** v9→v10 마이그레이션이 중복 없이 체인의 마지막에 등록되는지 검증한다. */
     @Test
-    fun migration8To9IsRegisteredExactlyOnceAndLast() {
-        assertSame(TeddReaderMigration8To9, TeddReaderMigrationList.last())
-        assertEquals(1, TeddReaderMigrationList.count { migration -> migration === TeddReaderMigration8To9 })
+    fun migration9To10IsRegisteredExactlyOnceAndLast() {
+        assertSame(TeddReaderMigration9To10, TeddReaderMigrationList.last())
+        assertEquals(1, TeddReaderMigrationList.count { migration -> migration === TeddReaderMigration9To10 })
     }
 }

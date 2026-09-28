@@ -30,7 +30,7 @@ import androidx.room3.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("documentId")],
+    indices = [Index(value = ["documentId", "startedAtEpochMillis"])],
 )
 data class ReadingSessionEntity(
     @PrimaryKey val id: String,

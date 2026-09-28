@@ -65,13 +65,13 @@ interface SearchIndexDao {
      * 일치하는 모든 섹션의 훨씬 큰 스타일 블록 페이로드를 구체화하지 않습니다.
      *
      * @param documentId 검색할 문서입니다.
-     * @param query 일치시킬 텍스트이며 저장소에서 이미 앞뒤 공백을 제거한 값입니다.
+     * @param query 일치시킬 텍스트를 `LIKE` 리터럴 패턴으로 이스케이프한 값이다.
      * @param limit 반환할 *섹션*의 최대 개수이며, 그 안의 일치 항목은 호출자가 계산합니다.
      * @return 문서 순서로 정렬된 일치 섹션 프로젝션입니다.
      */
     @Query(
         "SELECT documentId, sectionIndex, sectionTitle, text, startOffset, endOffset " +
-            "FROM search_index WHERE documentId = :documentId AND text LIKE '%' || :query || '%' " +
+            "FROM search_index WHERE documentId = :documentId AND text LIKE '%' || :query || '%' ESCAPE '\\' " +
             "ORDER BY sectionIndex LIMIT :limit",
     )
     suspend fun search(documentId: String, query: String, limit: Int): List<SearchIndexSearchEntry>

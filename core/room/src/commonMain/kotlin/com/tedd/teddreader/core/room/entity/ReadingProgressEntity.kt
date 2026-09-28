@@ -2,7 +2,6 @@ package com.tedd.teddreader.core.room.entity
 
 import androidx.room3.Entity
 import androidx.room3.ForeignKey
-import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
 /**
@@ -29,7 +28,6 @@ import androidx.room3.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("documentId")],
 )
 data class ReadingProgressEntity(
     @PrimaryKey val documentId: String,

@@ -125,6 +125,28 @@ internal val TeddReaderMigration8To9 = Migration(8, 9) { connection ->
 }
 
 /**
+ * 폴더 목록과 문서별 최신 북마크·독서 세션 조회가 전체 테이블을 정렬하지 않도록 실제 조회 순서에 맞춘
+ * 인덱스를 추가한다. 북마크와 독서 세션의 기존 단일 열 인덱스는 새 복합 인덱스의 선두 열과 중복되므로
+ * 교체하고, 독서 위치의 `documentId`는 기본 키 인덱스가 같은 역할을 하므로 별도 인덱스를 제거한다.
+ */
+internal val TeddReaderMigration9To10 = Migration(9, 10) { connection ->
+    connection.execSQL("DROP INDEX IF EXISTS `index_bookmarks_documentId`")
+    connection.execSQL("DROP INDEX IF EXISTS `index_reading_sessions_documentId`")
+    connection.execSQL("DROP INDEX IF EXISTS `index_reading_progress_documentId`")
+    connection.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_documents_folderId` ON `documents` (`folderId`)",
+    )
+    connection.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_bookmarks_documentId_createdAtEpochMillis` " +
+            "ON `bookmarks` (`documentId`, `createdAtEpochMillis`)",
+    )
+    connection.execSQL(
+        "CREATE INDEX IF NOT EXISTS `index_reading_sessions_documentId_startedAtEpochMillis` " +
+            "ON `reading_sessions` (`documentId`, `startedAtEpochMillis`)",
+    )
+}
+
+/**
  * 두 플랫폼 빌더가 등록하는 단일 원본인 전체 마이그레이션을 순서대로 담은 목록입니다.
  *
  * 플랫폼마다 호출을 직접 작성하지 않고 목록 하나를 사용합니다. Room의 `RoomDatabase.Builder`에는 추가한 뒤
@@ -141,4 +163,5 @@ internal val TeddReaderMigrationList: List<Migration> = listOf(
     TeddReaderMigration6To7,
     TeddReaderMigration7To8,
     TeddReaderMigration8To9,
+    TeddReaderMigration9To10,
 )

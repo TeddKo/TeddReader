@@ -231,6 +231,17 @@ class SearchRepositoryImplTest {
         assertEquals("reader", dao.lastQuery)
         assertEquals(1, dao.lastLimit)
     }
+
+    /** `%`, `_`, `\\`가 SQLite LIKE 와일드카드가 아니라 사용자가 입력한 문자로 검색되도록 이스케이프하는지 검증한다. */
+    @Test
+    fun likeMetacharactersAreEscapedBeforeDaoSearch() = runTest {
+        val dao = FakeSearchIndexDao()
+        val repository = SearchRepositoryImpl(dao)
+
+        repository.findInDocument(DocumentId("doc-1"), "100%_\\draft", limit = 10)
+
+        assertEquals("100\\%\\_\\\\draft", dao.lastQuery)
+    }
 }
 
 /**
