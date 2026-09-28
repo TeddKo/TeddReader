@@ -21,7 +21,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * 저장된 읽기 위치를 리더가 실제로 다루는 도메인 [ReadingProgress]로 되살린다. Room이 저장하는 평평한
- * [ReaderLocation] 문자열을 다시 원래의 타입 있는 형태로 파싱한다.
+ * [ReaderLocation] 문자열을 다시 원래의 타입 있는 형태로 파싱한다. 이전 행에 전체 페이지 수가 없거나
+ * 현재 페이지가 마지막 경계를 벗어나면 재개 anchor는 그대로 유지하고 표시용 인덱스만 유효 범위로 제한한다.
  *
  * @receiver 한 문서의 저장된 읽기 위치에 대한 Room 행.
  * @return 그에 대응하는 [ReadingProgress].
@@ -29,9 +30,24 @@ import kotlinx.serialization.json.Json
 fun ReadingProgressEntity.toReadingProgress(): ReadingProgress = ReadingProgress(
     documentId = DocumentId(documentId),
     location = parseReaderLocation(readerLocation),
-    pageIndex = PageIndex(currentPageIndex, totalPageCount ?: 0),
+    pageIndex = storedPageIndex(),
     updatedAtEpochMillis = updatedAtEpochMillis,
 )
+
+/**
+ * 저장 행의 선택적 전체 페이지 수와 현재 페이지를 [PageIndex]가 요구하는 0 기반 범위로 정규화한다.
+ *
+ * 전체 수가 없거나 양수가 아니면 표시할 페이지도 0으로 돌린다. 양수인 경우 현재 값만 `0..total-1`로
+ * 제한하므로 실제 재개 위치인 [ReadingProgressEntity.readerLocation]은 손대지 않는다.
+ *
+ * @receiver 이전 버전이나 불완전한 측정이 기록했을 수 있는 읽기 진행 행.
+ * @return 표시 가능한 현재 페이지와 음수가 아닌 전체 페이지 수.
+ */
+private fun ReadingProgressEntity.storedPageIndex(): PageIndex {
+    val total = totalPageCount?.coerceAtLeast(0) ?: 0
+    val current = if (total == 0) 0 else currentPageIndex.coerceIn(0, total - 1)
+    return PageIndex(current = current, total = total)
+}
 
 /**
  * [ReadingProgress]를 Room이 저장하는 행 형태로 평탄화한다. [toReadingProgress]의 역함수다.

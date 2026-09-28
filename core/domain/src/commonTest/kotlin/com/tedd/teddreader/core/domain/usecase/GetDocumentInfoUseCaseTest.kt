@@ -67,6 +67,7 @@ class GetDocumentInfoUseCaseTest {
             viewportSize: ViewportSize?,
             pageBreaker: ReaderPageBreaker?,
             anchorOffset: Long?,
+            viewportDensity: Float,
         ): List<PageWindow> = emptyList()
 
         override suspend fun importDocument(

@@ -276,9 +276,11 @@ data class ReaderDocument(
     val characterCount: Long get() = sections.sumOf { section -> section.text.length.toLong() }
 
     /**
-     * 파싱된 모든 섹션의 단어 수로, 캐시하지 않고 접근할 때마다 합산해 다시 계산한다.
+     * 파싱된 모든 섹션의 단어 수로, 최초 접근에 합산한 뒤 같은 불변 문서 스냅샷의 후속 접근에서 재사용한다.
+     *
+     * 생성자 밖의 파생 속성이므로 데이터 클래스의 동등성·해시·복사 계약에는 참여하지 않는다.
      */
-    val wordCount: Long get() = sections.sumOf { section -> section.text.wordCount().toLong() }
+    val wordCount: Long by lazy { sections.sumOf { section -> section.text.wordCount().toLong() } }
 }
 
 /**

@@ -380,6 +380,25 @@ class PaginatedDocumentTest {
     }
 
     /**
+     * 다음 장이 현재 페이지 안에서 시작해도 전체 페이지 수는 현재 페이지를 포함해 [PageIndex] 불변식을 지킨다.
+     */
+    @Test
+    fun chapterPageIndexAtKeepsCurrentBelowTotalWhenNextChapterStartsInsideThePage() {
+        val document = PaginatedDocument(
+            pageWindows = listOf(
+                page(range = TextRange(0, 10)),
+                page(range = TextRange(10, 20)),
+            ),
+            sections = listOf(
+                section(index = 0, start = 0, end = 15, title = "One"),
+                section(index = 1, start = 15, end = 20, title = "Two"),
+            ),
+        )
+
+        assertEquals(PageIndex(current = 1, total = 2), document.chapterPageIndexAt(1))
+    }
+
+    /**
      * 자체 섹션 끝과 범위 끝이 만나는 페이지만 끝이다. 리더는 이를 통해 장을 끝내는 페이지와 단순히 내부에 있는 페이지를 구별한다.
      */
     @Test

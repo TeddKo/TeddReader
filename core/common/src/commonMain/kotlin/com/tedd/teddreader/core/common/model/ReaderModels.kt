@@ -139,12 +139,21 @@ sealed interface ReaderLocation {
 fun parseReaderLocation(value: String): ReaderLocation {
     val parts = value.split(":")
     return when (parts.firstOrNull()) {
-        TEXT_LOCATION_PREFIX -> ReaderLocation.TextOffset(parts.requireLong(1, value))
-        EPUB_LOCATION_PREFIX -> ReaderLocation.EpubOffset(
-            spineIndex = parts.requireInt(1, value),
-            offset = parts.requireLong(2, value),
-        )
-        PDF_LOCATION_PREFIX -> ReaderLocation.PdfPage(parts.requireInt(1, value))
+        TEXT_LOCATION_PREFIX -> {
+            if (parts.size != 2) error("Invalid ReaderLocation: $value")
+            ReaderLocation.TextOffset(parts.requireLong(1, value))
+        }
+        EPUB_LOCATION_PREFIX -> {
+            if (parts.size != 3) error("Invalid ReaderLocation: $value")
+            ReaderLocation.EpubOffset(
+                spineIndex = parts.requireInt(1, value),
+                offset = parts.requireLong(2, value),
+            )
+        }
+        PDF_LOCATION_PREFIX -> {
+            if (parts.size != 2) error("Invalid ReaderLocation: $value")
+            ReaderLocation.PdfPage(parts.requireInt(1, value))
+        }
         else -> error("Unsupported ReaderLocation: $value")
     }
 }
@@ -180,7 +189,7 @@ private fun List<String>.requireLong(index: Int, source: String): Long =
  *
  * @property current 현재 표시 중인 0부터 시작하는 페이지.
  * @property total 현재까지 알려진 페이지 수로, 가져오기나 측정이 계속되는 동안 커진다.
- * @throws IllegalArgumentException 두 값 중 하나가 음수이거나 [current]가 0이 아닌 [total]을 초과하는 경우.
+ * @throws IllegalArgumentException 두 값 중 하나가 음수이거나, [total]이 0인데 [current]가 0이 아니거나, [total]이 양수인데 [current]가 마지막 유효 인덱스 이상인 경우.
  */
 @Serializable
 data class PageIndex(
@@ -190,7 +199,9 @@ data class PageIndex(
     init {
         require(current >= 0) { "current page must be positive." }
         require(total >= 0) { "total page count must be positive." }
-        require(current <= total || total == 0) { "current page must less than total." }
+        require(if (total == 0) current == 0 else current < total) {
+            "current page must be within total pages."
+        }
     }
 
     /**
@@ -520,12 +531,12 @@ enum class AutoScrollMode {
 /**
  * 활성화 여부, 이동 단위, 속도를 하나로 묶은 자동 스크롤 설정이다.
  *
- * 실제 의미가 [mode]와 기기 밀도에 따라 달라지므로 속도를 초당 픽셀 또는 줄 수가 아닌 `MIN_SPEED..MAX_SPEED`로 정규화하여 저장한다. 각 페이저가 사용하는 지점에서 변환한다. `init` 경계는 보정하지 않고 거부하므로 슬라이더가 생성 전에 제한할 수 있도록 [clampSpeed]를 공개한다.
+ * 실제 의미가 [mode]와 기기 밀도에 따라 달라지므로 속도를 각 페이저가 사용하는 지점에서 변환한다. 이전 저장 형식의 양수 상한 초과 값은 DataStore 경계가 [clampSpeed]로 정상화하므로 생성자는 호환을 위해 양수 유한 값까지 받지만, 새 사용자 입력은 먼저 [clampSpeed]로 제한한다.
  *
  * @property enabled 자동 스크롤이 실행 중인지 여부.
  * @property mode 이동 단위로, [speed]의 의미를 결정한다.
- * @property speed 0.01..1로 정규화한 값이며 각 페이저가 사용하는 지점에서 픽셀 또는 줄로 변환한다.
- * @throws IllegalArgumentException [speed]가 양수가 아닌 경우. `init`은 보정하지 않고 거부하므로 슬라이더 값에는 먼저 [AutoScrollConfig.clampSpeed]를 사용한다.
+ * @property speed 자동 스크롤의 원시 속도. 새 값은 [MIN_SPEED]..[MAX_SPEED]로 제한해서 전달하며 이전 저장 값은 읽기 경계에서 같은 범위로 정상화한다.
+ * @throws IllegalArgumentException [speed]가 양의 유한 값이 아닌 경우.
  */
 @Serializable
 data class AutoScrollConfig(
@@ -534,7 +545,7 @@ data class AutoScrollConfig(
     val speed: Float = MAX_SPEED,
 ) {
     init {
-        require(speed > 0f) { "Auto-scroll speed must be positive." }
+        require(speed.isFinite() && speed > 0f) { "Auto-scroll speed must be positive and finite." }
     }
 
     /**
