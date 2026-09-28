@@ -35,8 +35,14 @@ actual object LocalAppLocale {
         @Composable get() = LocalAppLocaleValue.current
 
     /**
-     * [value]를 [LANG_KEY] 아래 `NSUserDefaults`에 영속화하고([value]가 null이면 그 키를 제거하여
-     * 기기 자체의 [default] 선호 언어로 되돌린다), [LocalAppLocaleValue]를 통해 이를 제공한다.
+     * [value]를 [LocalAppLocaleValue]로 제공하고 [LANG_KEY] 아래 `NSUserDefaults`에도 기록한다. [value]가
+     * null이면 그 키를 제거하여 기기 자체의 [default] 선호 언어로 되돌린다. Compose Resources는 컴포지션 중에
+     * `NSLocale.preferredLanguages`를 읽어 문자열을 해석하므로, 쓰기를 `LaunchedEffect` 등으로 미루면 하위
+     * 트리가 이전 언어로 다시 그려져 언어가 섞인다. 따라서 쓰기는 컴포지션 중 동기적으로 수행하되, 저장된
+     * 값이 이미 같으면 건너뛰어 재컴포지션마다 반복되지 않게 멱등으로 유지한다.
+     *
+     * @param value 강제할 로케일 태그이며, null은 기기 선호 언어 사용을 뜻한다.
+     * @return 현재 로케일 범위에 설치할 [ProvidedValue].
      */
     @Composable
     actual infix fun provides(value: String?): ProvidedValue<*> {
@@ -44,10 +50,11 @@ actual object LocalAppLocale {
             default = NSLocale.preferredLanguages.firstOrNull() as? String ?: "en"
         }
         val new = value ?: default ?: "en"
+        val defaults = NSUserDefaults.standardUserDefaults
         if (value == null) {
-            NSUserDefaults.standardUserDefaults.removeObjectForKey(LANG_KEY)
-        } else {
-            NSUserDefaults.standardUserDefaults.setObject(listOf(new), forKey = LANG_KEY)
+            if (defaults.objectForKey(LANG_KEY) != null) defaults.removeObjectForKey(LANG_KEY)
+        } else if (defaults.stringArrayForKey(LANG_KEY) != listOf(new)) {
+            defaults.setObject(listOf(new), forKey = LANG_KEY)
         }
         return LocalAppLocaleValue.provides(new)
     }

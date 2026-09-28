@@ -1,12 +1,14 @@
 package com.tedd.teddreader.core.domain.usecase
 
 import com.tedd.teddreader.core.common.model.DocumentId
-import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.DocumentMetadata
+import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReadingStats
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import org.koin.core.annotation.Single
 
 /**
@@ -30,10 +32,10 @@ data class DocumentInfo(
  * 이 구성 요소가 없으면 호출자는 함께 있어야만 의미가 있는 세 번의 읽기를 위해 저장소 세 개를 주입해야 하며,
  * 그중 두 개는 각각 정확히 한 호출 지점에서만 사용했다. 여기서 조합하면 화면은 조합된 읽기를 위한 협력자 하나만
  * 갖는다. 저장소 메서드를 그대로 반복하는 시그니처의 유스 케이스라면 이 프로젝트가 이미 6개 제거한 단순
- * 단순 전달이었겠지만, 이는 계층 자체를 위한 추가가 아니라 실제 의존성 축소다.
+ * 전달이었겠지만, 이는 계층 자체를 위한 추가가 아니라 실제 의존성 축소다.
  *
- * 읽기는 순차 실행하고 예외는 전파하므로 하나라도 실패하면 호출자는 어느 결과도 적용하지 않는다. 화면은 절반만
- * 채운 패널 대신 오류를 표시한다.
+ * 서로 의존하지 않는 세 읽기는 같은 구조화된 코루틴 범위에서 동시에 실행한다. 하나라도 실패하면 범위가 나머지를
+ * 취소하고 예외를 전파하므로 호출자는 어느 결과도 적용하지 않으며, 화면은 절반만 채운 패널 대신 오류를 표시한다.
  *
  * 세 저장소를 받는 최상위 함수로 만들면 세 저장소가 모두 호출자의 생성자에 남아 아무것도
  * 축소되지 않으므로 주입할 수 있는 클래스로 만든다.
@@ -53,9 +55,14 @@ class GetDocumentInfoUseCase(
      * @return 메타데이터, 마지막으로 표시한 페이지, 읽기 합계.
      * @throws Throwable 세 읽기 중 하나가 던지는 모든 예외. 어떤 값도 부분적으로 적용하지 않는다.
      */
-    suspend operator fun invoke(documentId: DocumentId): DocumentInfo = DocumentInfo(
-        metadata = documentRepository.getDocument(documentId),
-        pageIndex = readerRepository.getProgress(documentId)?.pageIndex,
-        stats = readingStatsRepository.getStats(documentId),
-    )
+    suspend operator fun invoke(documentId: DocumentId): DocumentInfo = coroutineScope {
+        val metadata = async { documentRepository.getDocument(documentId) }
+        val progress = async { readerRepository.getProgress(documentId) }
+        val stats = async { readingStatsRepository.getStats(documentId) }
+        DocumentInfo(
+            metadata = metadata.await(),
+            pageIndex = progress.await()?.pageIndex,
+            stats = stats.await(),
+        )
+    }
 }

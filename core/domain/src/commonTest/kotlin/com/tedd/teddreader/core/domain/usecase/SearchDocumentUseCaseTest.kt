@@ -91,7 +91,7 @@ class SearchDocumentUseCaseTest {
             return metadata
         }
         override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
-        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?): List<PageWindow> = emptyList()
+        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?, viewportDensity: Float): List<PageWindow> = emptyList()
         override suspend fun importDocument(source: DocumentImportSource, importedAtEpochMillis: Long): ReaderDocument = error("unused")
         override suspend fun upsertDocument(document: DocumentMetadata) = Unit
         override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit

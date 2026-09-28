@@ -18,6 +18,7 @@ import com.tedd.teddreader.core.domain.repository.ReaderRepository
 import com.tedd.teddreader.core.domain.repository.ReadingProgress
 import com.tedd.teddreader.core.domain.repository.ReadingSession
 import com.tedd.teddreader.core.domain.repository.ReadingStatsRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -33,8 +34,10 @@ import kotlin.test.assertNull
  * 패널로 표시한다. 셋 중 둘만 적용하고 나머지를 비워 두면 실패가 아니라 읽기 이력이 없는 책처럼 보인다.
  */
 class GetDocumentInfoUseCaseTest {
+    /** 테스트가 세 저장소에 동일하게 전달하는 문서 식별자다. */
     private val documentId = DocumentId("file:///book.epub")
 
+    /** 문서 저장소가 정상 읽기에서 반환하는 EPUB 메타데이터다. */
     private val metadata = DocumentMetadata(
         id = documentId,
         location = DocumentLocation(sourceUri = documentId.value, displayName = "book.epub"),
@@ -42,6 +45,7 @@ class GetDocumentInfoUseCaseTest {
         addedAtEpochMillis = 1_000,
     )
 
+    /** 읽기 통계 저장소가 정상 읽기에서 반환하는 합계다. */
     private val stats = ReadingStats(documentId = documentId, activeMillis = 0, charactersRead = 12, wordsRead = 3)
 
     /**
@@ -49,15 +53,16 @@ class GetDocumentInfoUseCaseTest {
      *
      * @property metadata [getDocument]가 반환할 값.
      * @property failure 부분 결과 사례에서 대신 던질 예외.
+     * @property tracker 읽기의 동시 실행 구간을 기록할 선택적 추적기.
      */
     private class FakeDocuments(
         private val metadata: DocumentMetadata?,
         private val failure: Throwable? = null,
+        private val tracker: ConcurrencyTracker? = null,
     ) : DocumentRepository {
-        override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? {
-            failure?.let { throw it }
-            return metadata
-        }
+        override suspend fun getDocument(documentId: DocumentId): DocumentMetadata? = tracker?.wrap {
+            readDocument()
+        } ?: readDocument()
 
         override fun observeRecentDocuments(): Flow<List<DocumentMetadata>> = flowOf(emptyList())
         override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
@@ -67,6 +72,7 @@ class GetDocumentInfoUseCaseTest {
             viewportSize: ViewportSize?,
             pageBreaker: ReaderPageBreaker?,
             anchorOffset: Long?,
+            viewportDensity: Float,
         ): List<PageWindow> = emptyList()
 
         override suspend fun importDocument(
@@ -77,21 +83,43 @@ class GetDocumentInfoUseCaseTest {
         override suspend fun upsertDocument(document: DocumentMetadata) = Unit
         override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit
         override suspend fun deleteDocument(documentId: DocumentId) = Unit
+
+        /** @return 설정된 실패가 없을 때의 메타데이터. */
+        private fun readDocument(): DocumentMetadata? {
+            failure?.let { throw it }
+            return metadata
+        }
     }
 
-    /** 한 번도 열지 않은 책에는 저장된 위치가 없으며, 그 외에는 위치 하나를 보관한다. */
-    private class FakeReader(private val progress: ReadingProgress?) : ReaderRepository {
+    /**
+     * 한 번도 열지 않은 책에는 저장된 위치가 없으며, 그 외에는 위치 하나를 보관한다.
+     *
+     * @property progress [getProgress]가 반환할 저장 위치.
+     * @property tracker 읽기의 동시 실행 구간을 기록할 선택적 추적기.
+     */
+    private class FakeReader(
+        private val progress: ReadingProgress?,
+        private val tracker: ConcurrencyTracker? = null,
+    ) : ReaderRepository {
         override fun observeProgress(documentId: DocumentId): Flow<ReadingProgress?> = flowOf(progress)
-        override suspend fun getProgress(documentId: DocumentId): ReadingProgress? = progress
+        override suspend fun getProgress(documentId: DocumentId): ReadingProgress? = tracker?.wrap { progress } ?: progress
         override suspend fun saveProgress(progress: ReadingProgress) = Unit
         override suspend fun deleteProgress(documentId: DocumentId) = Unit
     }
 
-    /** 고정된 합계를 반환한다. 이 읽기에서는 인터페이스의 쓰기 쪽에 도달하지 않는다. */
-    private class FakeStats(private val stats: ReadingStats) : ReadingStatsRepository {
+    /**
+     * 고정된 합계를 반환하며 이 읽기에서는 인터페이스의 쓰기 쪽에 도달하지 않는다.
+     *
+     * @property stats [getStats]가 반환할 읽기 합계.
+     * @property tracker 읽기의 동시 실행 구간을 기록할 선택적 추적기.
+     */
+    private class FakeStats(
+        private val stats: ReadingStats,
+        private val tracker: ConcurrencyTracker? = null,
+    ) : ReadingStatsRepository {
         override fun observeSessions(documentId: DocumentId): Flow<List<ReadingSession>> = flowOf(emptyList())
         override suspend fun recordSession(session: ReadingSession) = Unit
-        override suspend fun getStats(documentId: DocumentId): ReadingStats = stats
+        override suspend fun getStats(documentId: DocumentId): ReadingStats = tracker?.wrap { stats } ?: stats
     }
 
     /** 세 읽기가 하나의 결과에 담긴다. 이 조합이 존재하는 이유 전체를 검증한다. */
@@ -140,5 +168,47 @@ class GetDocumentInfoUseCaseTest {
         val error = assertFailsWith<IllegalStateException> { useCase(documentId) }
 
         assertEquals("storage unavailable", error.message)
+    }
+
+    /** 서로 의존하지 않는 세 저장소 읽기가 같은 코루틴 범위에서 동시에 진행된다. */
+    @Test
+    fun readsIndependentSourcesConcurrently() = runTest {
+        val tracker = ConcurrencyTracker()
+        val useCase = GetDocumentInfoUseCase(
+            FakeDocuments(metadata, tracker = tracker),
+            FakeReader(null, tracker),
+            FakeStats(stats, tracker),
+        )
+
+        useCase(documentId)
+
+        assertEquals(3, tracker.maxConcurrent)
+    }
+
+    /** 지연 구간에 동시에 들어온 저장소 읽기 수의 최댓값을 기록한다. */
+    private class ConcurrencyTracker {
+        /** 현재 지연 구간에 들어와 있는 읽기 수다. */
+        private var current = 0
+
+        /** 테스트 실행 중 관측한 동시 읽기 수의 최댓값이다. */
+        var maxConcurrent = 0
+            private set
+
+        /**
+         * [block] 실행 전에 한 번 양보하여 다른 저장소 읽기가 같은 구간에 들어올 기회를 만든다.
+         *
+         * @param block 지연 뒤 실행할 저장소 결과 계산.
+         * @return [block]이 계산한 값.
+         */
+        suspend fun <T> wrap(block: () -> T): T {
+            current += 1
+            if (current > maxConcurrent) maxConcurrent = current
+            return try {
+                delay(1)
+                block()
+            } finally {
+                current -= 1
+            }
+        }
     }
 }
