@@ -298,7 +298,7 @@ internal fun ReaderPager(
 
 /**
  * [PageAnimation.SCROLL]을 뒷받침하는 연속 스크롤 pager: 별개의
- * `HorizontalPager`/`VerticalPager` 대신 페이지 앵커([readerScrollPageAnchors] 참고)로 이루어진
+ * `HorizontalPager`/`VerticalPager` 대신 산술 페이지 앵커([readerScrollAnchorCount] 참고)로 이루어진
  * `LazyColumn`/`LazyRow`이며, 그래서 spread의 두 pane이 하나의 연속적으로 흐르는 리스트 항목처럼 함께
  * 스크롤된다.
  *
@@ -356,24 +356,33 @@ private fun ReaderScrollPager(
     modifier: Modifier = Modifier,
     content: @Composable (page: Int) -> Unit,
 ) {
-    val anchors = readerScrollPageAnchors(pageCount = pageCount, pageStep = pageStep)
-    val currentAnchorIndex = readerScrollAnchorIndex(page = pageKey, anchors = anchors)
+    val scrollPageStep = pageStep.coerceAtLeast(1)
+    val anchorCount = readerScrollAnchorCount(pageCount = pageCount, pageStep = scrollPageStep)
+    val currentAnchorIndex = readerScrollAnchorIndex(
+        page = pageKey,
+        pageCount = pageCount,
+        pageStep = scrollPageStep,
+    )
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentAnchorIndex)
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(pageKey, anchors) {
-        if (anchors.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(pageKey, pageCount, scrollPageStep) {
+        if (anchorCount == 0) return@LaunchedEffect
         snapshotFlow { listState.isScrollInProgress }.first { scrolling -> !scrolling }
         if (listState.firstVisibleItemIndex != currentAnchorIndex) {
             listState.scrollToItem(currentAnchorIndex)
         }
     }
-    LaunchedEffect(pageMoveRequest?.id, pageKey, pageCount, pageStep, anchors) {
+    LaunchedEffect(pageMoveRequest?.id, pageKey, pageCount, scrollPageStep) {
         val request = pageMoveRequest ?: return@LaunchedEffect
         try {
-            val targetPage = readerPagerRequestedPage(pageKey, pageCount, pageStep, request.movement)
+            val targetPage = readerPagerRequestedPage(pageKey, pageCount, scrollPageStep, request.movement)
             if (targetPage != null) {
-                val targetIndex = readerScrollAnchorIndex(page = targetPage, anchors = anchors)
+                val targetIndex = readerScrollAnchorIndex(
+                    page = targetPage,
+                    pageCount = pageCount,
+                    pageStep = scrollPageStep,
+                )
                 if (targetIndex != listState.firstVisibleItemIndex) {
                     listState.animateScrollToItem(targetIndex)
                 }
@@ -384,17 +393,21 @@ private fun ReaderScrollPager(
             onPageMoveRequestConsumed(request.id)
         }
     }
-    LaunchedEffect(listState, anchors) {
+    LaunchedEffect(listState, pageCount, scrollPageStep) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .drop(1)
             .distinctUntilChanged()
             .collect { index ->
-                anchors.getOrNull(index)?.let(onPageSelected)
+                readerScrollAnchorPage(
+                    index = index,
+                    pageCount = pageCount,
+                    pageStep = scrollPageStep,
+                )?.let(onPageSelected)
             }
     }
     LaunchedEffect(
         listState,
-        anchors,
+        anchorCount,
         isAutoScrollEnabled,
         autoScrollMode,
         autoScrollSpeed,
@@ -402,11 +415,12 @@ private fun ReaderScrollPager(
         autoScrollDensity,
     ) {
         if (!isAutoScrollEnabled || autoScrollMode == AutoScrollMode.PAGE) return@LaunchedEffect
-        if (anchors.isEmpty()) {
+        if (anchorCount == 0) {
             onAutoScrollStop()
             return@LaunchedEffect
         }
-        if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
+        val lastAnchorIndex = anchorCount - 1
+        if (listState.firstVisibleItemIndex >= lastAnchorIndex && !listState.canScrollForward) {
             onAutoScrollStop()
             return@LaunchedEffect
         }
@@ -424,7 +438,7 @@ private fun ReaderScrollPager(
                             elapsedMillis = elapsedMillis,
                         )
                         if (distancePx > 0f) listState.scrollBy(distancePx)
-                        if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
+                        if (listState.firstVisibleItemIndex >= lastAnchorIndex && !listState.canScrollForward) {
                             onAutoScrollStop()
                             break
                         }
@@ -445,12 +459,12 @@ private fun ReaderScrollPager(
                     pixelsPerSecond = pixelsPerSecond,
                 )
                 while (isActive) {
-                    if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
+                    if (listState.firstVisibleItemIndex >= lastAnchorIndex && !listState.canScrollForward) {
                         onAutoScrollStop()
                         break
                     }
                     listState.animateScrollBy(lineHeightPx)
-                    if (listState.firstVisibleItemIndex >= anchors.lastIndex && !listState.canScrollForward) {
+                    if (listState.firstVisibleItemIndex >= lastAnchorIndex && !listState.canScrollForward) {
                         onAutoScrollStop()
                         break
                     }
@@ -469,7 +483,7 @@ private fun ReaderScrollPager(
         onNextPage,
         onToggleControls,
         onDoubleTap,
-        anchors,
+        anchorCount,
     ) {
         detectTapGestures(
             onDoubleTap = onDoubleTap,
@@ -479,7 +493,8 @@ private fun ReaderScrollPager(
                 } else {
                     val primary = if (isVerticalMode(pageTurnMode)) position.y else position.x
                     val extent = if (isVerticalMode(pageTurnMode)) size.height else size.width
-                    val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, anchors.lastIndex.coerceAtLeast(0))
+                    val lastAnchorIndex = (anchorCount - 1).coerceAtLeast(0)
+                    val currentIndex = listState.firstVisibleItemIndex.coerceIn(0, lastAnchorIndex)
                     when {
                         primary < extent * PreviousTapZoneRatio -> {
                             if (currentIndex > 0) {
@@ -488,7 +503,7 @@ private fun ReaderScrollPager(
                         }
 
                         primary > extent * NextTapZoneRatio -> {
-                            if (currentIndex < anchors.lastIndex) {
+                            if (currentIndex < lastAnchorIndex) {
                                 coroutineScope.launch { listState.animateScrollToItem(currentIndex + 1) }
                             } else if (canRequestNextPage) {
                                 onNextPage()
@@ -538,9 +553,9 @@ private fun ReaderScrollPager(
             userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
-            items(count = anchors.size, key = { index -> anchors[index] }) { index ->
+            items(count = anchorCount, key = { index -> index * scrollPageStep }) { index ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    content(anchors[index])
+                    content(index * scrollPageStep)
                 }
             }
         }
@@ -551,9 +566,9 @@ private fun ReaderScrollPager(
             userScrollEnabled = !isAutoScrollEnabled,
             overscrollEffect = null,
         ) {
-            items(count = anchors.size, key = { index -> anchors[index] }) { index ->
+            items(count = anchorCount, key = { index -> index * scrollPageStep }) { index ->
                 Box(modifier = Modifier.fillParentMaxSize()) {
-                    content(anchors[index])
+                    content(index * scrollPageStep)
                 }
             }
         }
@@ -791,33 +806,46 @@ internal enum class ReaderPageMovement(val pageOffset: Int) {
 }
 
 /**
- * [ReaderScrollPager]의 리스트가 스크롤 정지 지점으로 취급하는 페이지 인덱스 — 0부터 시작해
- * [pageStep] 번째마다 하나씩 — 그래서 spread의 두 pane이 두 개가 아니라 하나의 공유된 리스트 항목에
- * 놓인다.
+ * [ReaderScrollPager]가 문서를 [pageStep] 페이지씩 묶을 때 필요한 lazy list 항목 수를 계산한다.
+ * 목록을 만들지 않으므로 재구성 비용은 문서 페이지 수와 무관하다.
  *
  * @param pageCount 지금까지 알려진 전체 페이지 수.
- * @param pageStep 하나의 스크롤 앵커가 몇 페이지를 아우르는지.
- * @return 오름차순으로 정렬된 앵커 페이지 인덱스 목록; [pageCount]가 0이면 비어 있다.
+ * @param pageStep 하나의 스크롤 앵커가 아우르는 페이지 수; 1 미만이면 1로 해석한다.
+ * @return 필요한 앵커 수. [pageCount]가 0 이하면 0.
  */
-internal fun readerScrollPageAnchors(pageCount: Int, pageStep: Int): List<Int> {
-    if (pageCount <= 0) return emptyList()
+internal fun readerScrollAnchorCount(pageCount: Int, pageStep: Int): Int {
+    if (pageCount <= 0) return 0
     val step = pageStep.coerceAtLeast(1)
-    return (0 until pageCount step step).toList()
+    return (pageCount - 1) / step + 1
 }
 
 /**
- * [page]를 소유하는 [anchors] 안의 인덱스 — 그것과 같거나 그 이전의 마지막 앵커 — 로, 페이지
- * 번호를 [ReaderScrollPager]가 스크롤되어야 할 리스트 위치로 해석하는 데 쓰인다.
+ * lazy list의 [index]를 해당 항목이 시작하는 문서 페이지로 해석한다.
  *
- * @param page 해석할 페이지.
- * @param anchors [readerScrollPageAnchors]가 만든 오름차순 앵커 목록.
- * @return 소유하는 앵커의 인덱스, 또는 [anchors]가 비어 있거나 [page]가 모든 앵커보다 앞서면 0.
+ * @param index 해석할 lazy list 항목 위치.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 스크롤 앵커가 아우르는 페이지 수; 1 미만이면 1로 해석한다.
+ * @return 유효한 앵커의 문서 페이지, 또는 [index]가 앵커 범위 밖이면 null.
  */
-internal fun readerScrollAnchorIndex(page: Int, anchors: List<Int>): Int {
-    if (anchors.isEmpty()) return 0
-    return anchors.indexOfLast { anchor -> anchor <= page }
-        .takeIf { it >= 0 }
-        ?: 0
+internal fun readerScrollAnchorPage(index: Int, pageCount: Int, pageStep: Int): Int? {
+    val anchorCount = readerScrollAnchorCount(pageCount, pageStep)
+    if (index !in 0 until anchorCount) return null
+    return index * pageStep.coerceAtLeast(1)
+}
+
+/**
+ * [page]를 소유하는 lazy list 앵커 위치를 나눗셈으로 계산한다. 문서 범위 밖 페이지도 가장 가까운
+ * 유효한 앵커로 제한하여 진행 중인 재페이지 나누기에서 list 상태가 범위를 벗어나지 않게 한다.
+ *
+ * @param page 해석할 문서 페이지.
+ * @param pageCount 지금까지 알려진 전체 페이지 수.
+ * @param pageStep 하나의 스크롤 앵커가 아우르는 페이지 수; 1 미만이면 1로 해석한다.
+ * @return 소유하는 앵커 위치. 앵커가 없으면 0.
+ */
+internal fun readerScrollAnchorIndex(page: Int, pageCount: Int, pageStep: Int): Int {
+    val anchorCount = readerScrollAnchorCount(pageCount, pageStep)
+    if (anchorCount == 0) return 0
+    return (page.coerceAtLeast(0) / pageStep.coerceAtLeast(1)).coerceAtMost(anchorCount - 1)
 }
 
 /** [detectReaderSwipe]가 제스처를 스와이프로 취급하기까지 필요한 최소 드래그 거리(픽셀). */

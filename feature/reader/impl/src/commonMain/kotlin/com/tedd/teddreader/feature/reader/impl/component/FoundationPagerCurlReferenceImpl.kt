@@ -151,6 +151,7 @@ internal fun FoundationPagerCurlReferenceImpl(
     paneContent: (@Composable (page: Int, modifier: Modifier) -> Unit)? = null,
     content: @Composable (page: Int) -> Unit,
 ) {
+    FoundationPagerCurlShadowResourcesEffect()
     val axis = foundationReferenceCurlAxis(pageTurnMode)
     val pagerState = rememberPagerState(
         initialPage = FoundationReferenceCenterPage,
@@ -359,6 +360,7 @@ internal fun FoundationPagerCurlReferenceImpl(
             val curlGraphicsLayer = rememberGraphicsLayer().apply {
                 compositingStrategy = CompositingStrategy.Offscreen
             }
+            val frontDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
             val pageOffset = pagerPage - FoundationReferenceCenterPage
             val documentPage = readerPagerDisplayedPage(
                 currentPage = pageKey,
@@ -481,12 +483,14 @@ internal fun FoundationPagerCurlReferenceImpl(
                                 style = style,
                                 leafSize = leafSize,
                                 graphicsLayer = curlGraphicsLayer,
+                                drawBuffer = frontDrawBuffer,
                             ),
                         ) { content(documentPage) }
                         if (backPage != null) {
                             val backGraphicsLayer = rememberGraphicsLayer().apply {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             }
+                            val backDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -497,6 +501,7 @@ internal fun FoundationPagerCurlReferenceImpl(
                                         style = style,
                                         leafSize = leafSize,
                                         graphicsLayer = backGraphicsLayer,
+                                        drawBuffer = backDrawBuffer,
                                     )
                                     .foundationReferenceFaceContentMirror(backNeedsContentMirror, axis),
                             ) { content(backPage) }
@@ -575,9 +580,11 @@ private fun FoundationReferenceSpread(
     val curlGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
+    val frontDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
     val backGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
+    val backDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
     val leafHome = FoundationReferenceSpreadPane.Right
     val backNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
         style,
@@ -608,6 +615,7 @@ private fun FoundationReferenceSpread(
                             leafSize = leafSize,
                             spanBeyondSpinePx = spanBeyondSpinePx,
                             graphicsLayer = curlGraphicsLayer,
+                            drawBuffer = frontDrawBuffer,
                         )
                     }
                 },
@@ -625,6 +633,7 @@ private fun FoundationReferenceSpread(
                             leafSize = leafSize,
                             spanBeyondSpinePx = spanBeyondSpinePx,
                             graphicsLayer = backGraphicsLayer,
+                            drawBuffer = backDrawBuffer,
                         )
                         .foundationReferenceFaceContentMirror(backNeedsContentMirror, axis),
                 )
@@ -685,9 +694,11 @@ private fun FoundationReferenceBackwardSpread(
     val curlGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
+    val frontDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
     val backGraphicsLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
+    val backDrawBuffer = remember { FoundationReferenceLeafDrawBuffer() }
     val leafHome = FoundationReferenceSpreadPane.Left
     val frontNeedsContentMirror = foundationReferenceSpreadFaceNeedsContentMirror(
         style,
@@ -720,6 +731,7 @@ private fun FoundationReferenceBackwardSpread(
                         mirrorHorizontally = true,
                         spanBeyondSpinePx = spanBeyondSpinePx,
                         graphicsLayer = curlGraphicsLayer,
+                        drawBuffer = frontDrawBuffer,
                     )
                     .foundationReferenceFaceContentMirror(frontNeedsContentMirror, axis),
             )
@@ -736,6 +748,7 @@ private fun FoundationReferenceBackwardSpread(
                         mirrorHorizontally = true,
                         spanBeyondSpinePx = spanBeyondSpinePx,
                         graphicsLayer = backGraphicsLayer,
+                        drawBuffer = backDrawBuffer,
                     )
                     .foundationReferenceFaceContentMirror(backNeedsContentMirror, axis),
             )
@@ -1833,6 +1846,27 @@ private fun foundationReferenceThreeDCurlTapSpec(
 }
 
 /**
+ * leaf 한 면의 draw-cache 갱신에 필요한 mutable 기하를 소유한다. Composable이 이 객체를 한 번
+ * 기억하고 modifier에 전달하여 3D strip과 Standard Path·정점 저장소를 프레임마다 재사용한다.
+ */
+private class FoundationReferenceLeafDrawBuffer {
+    /** 3D curl 투영 경계와 strip 객체 저장소. */
+    val strips = FoundationReferenceThreeDCurlStripBuffer()
+
+    /** Standard curl에서 평평하게 남은 영역을 나타내는 재사용 Path. */
+    val clippedPath = Path()
+
+    /** Standard curl에서 접힌 영역을 나타내는 재사용 Path. */
+    val polygonPath = Path()
+
+    /** Standard curl polygon의 네 정점을 담는 재사용 목록. */
+    val polygonVertices = ArrayList<Offset>(4)
+
+    /** [polygonVertices]를 참조하여 플랫폼 그림자에도 전달되는 polygon view. */
+    val polygon = FoundationPagerCurlPolygon(polygonVertices)
+}
+
+/**
  * leaf의 평평한 앞면을 그리며, 3D 프로필의 crease 방향 diffuse shade만 추가한다.
  *
  * spread의 leaf pane과 단일 pane 슬롯(`pageOffset` -1/0) 모두 leaf 앞면을 이 함수 하나로 그린다.
@@ -1861,6 +1895,7 @@ private fun foundationReferenceThreeDCurlTapSpec(
  *   크기 대신 이 값을 기준으로 삼는다.
  * @param mirrorHorizontally 뒤로 가는 spread가 이 leaf를 spine을 중심으로 미러링하는지 여부.
  * @param graphicsLayer 모든 3D mesh 구간이 재사용하는 오프스크린 페이지 텍스처.
+ * @param drawBuffer 이 leaf 앞면이 프레임 사이에 재사용하는 strip·Path·정점 저장소.
  * @return 클립되고 선택적으로 조명이 적용된 앞면을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawLeafFront(
@@ -1871,6 +1906,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     mirrorHorizontally: Boolean = false,
     spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
+    drawBuffer: FoundationReferenceLeafDrawBuffer,
 ): Modifier = drawWithCache {
     val edge = edgeProvider()
     if (edge == FoundationReferenceCurlEdge.left(leafSize)) {
@@ -1881,8 +1917,8 @@ private fun Modifier.foundationReferenceDrawLeafFront(
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
         val progress = foundationReferenceThreeDCurlProgress(edge, leafSize.width.toFloat())
-        val strips = foundationReferenceThreeDCurlStripSpecs(progress)
-            .filter { !it.isBackFacing }
+        drawBuffer.strips.update(progress)
+        val strips = drawBuffer.strips.strips
         val meshLighting = foundationReferenceThreeDCurlLightingSpec(progress * PI.toFloat())
         val canonicalMeshSize = axis.canonicalSize(size)
         return@drawWithCache onDrawWithContent {
@@ -1891,6 +1927,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
             }
             foundationReferenceDrawThreeDCurlMesh(
                 strips = strips,
+                drawBackFace = false,
                 lighting = meshLighting,
                 graphicsLayer = graphicsLayer,
                 axis = axis,
@@ -1902,7 +1939,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
         }
     }
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
+    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize, drawBuffer)
         ?: return@drawWithCache onDrawWithContent { drawContent() }
     val lighting = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
         foundationReferenceThreeDCurlLightingSpec(fold.angle)
@@ -1973,6 +2010,7 @@ private fun Modifier.foundationReferenceDrawLeafFront(
  * @param spanBeyondSpinePx spine 너머로 그려도 되는 거리; 0 이하이면 반대쪽 pane이 없어
  *   [foundationReferenceLeafBackRestsOffscreen] 가드가 왼쪽 정지 edge를 걸러낼 수 있다는 뜻이다.
  * @param graphicsLayer 3D mesh 구간이 재사용하는, 이 뒷면 전용 오프스크린 페이지 텍스처.
+ * @param drawBuffer 이 leaf 뒷면이 프레임 사이에 재사용하는 strip·Path·정점 저장소.
  * @return 변환되고 선택적으로 조명이 적용된 뒷면을 그리는 modifier.
  */
 private fun Modifier.foundationReferenceDrawLeafBack(
@@ -1983,6 +2021,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     mirrorHorizontally: Boolean = false,
     spanBeyondSpinePx: Float = 0f,
     graphicsLayer: GraphicsLayer,
+    drawBuffer: FoundationReferenceLeafDrawBuffer,
 ): Modifier = drawWithCache {
     val edge = edgeProvider()
     if (edge == FoundationReferenceCurlEdge.right(leafSize)) {
@@ -1993,9 +2032,9 @@ private fun Modifier.foundationReferenceDrawLeafBack(
     }
     if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
         val progress = foundationReferenceThreeDCurlProgress(edge, leafSize.width.toFloat())
-        val strips = foundationReferenceThreeDCurlStripSpecs(progress)
-            .filter { it.isBackFacing }
-        if (strips.isEmpty()) {
+        drawBuffer.strips.update(progress)
+        val strips = drawBuffer.strips.strips
+        if (strips.none { it.isBackFacing }) {
             return@drawWithCache onDrawWithContent { }
         }
         val meshLighting = foundationReferenceThreeDCurlLightingSpec(progress * PI.toFloat())
@@ -2006,6 +2045,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
             }
             foundationReferenceDrawThreeDCurlMesh(
                 strips = strips,
+                drawBackFace = true,
                 lighting = meshLighting,
                 graphicsLayer = graphicsLayer,
                 axis = axis,
@@ -2017,7 +2057,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
         }
     }
     val canonicalSize = axis.canonicalSize(IntSize(size.width.toInt(), size.height.toInt()))
-    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize)
+    val fold = foundationReferenceCurlFold(axis, edge, canonicalSize, drawBuffer)
         ?: return@drawWithCache onDrawWithContent { }
     val lighting = if (style == FoundationReferenceCurlStyle.ThreeDimensional) {
         foundationReferenceThreeDCurlLightingSpec(fold.angle)
@@ -2047,7 +2087,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
                     axis = axis,
                     alpha = lighting?.shadowAlpha ?: FoundationReferenceShadowAlpha,
                 )
-                clipPath(fold.polygon.toPath(axis)) {
+                clipPath(fold.polygonPath) {
                     this@onDrawWithContent.drawContent()
                     if (backShade != null) {
                         drawRect(backShade)
@@ -2079,6 +2119,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
  * @property clippedPath 페이지의 평평한, 아직 접히지 않은 영역으로, 곧바로 클립 경로로 쓸 준비가
  *   되어 있다.
  * @property polygon fold 자신의(사전-[applyTo]) 프레임 기준, 접힌 영역의 윤곽.
+ * @property polygonPath [polygon]을 현재 축에 맞춰 미리 채운 재사용 클립 Path.
  * @property angle fold가 얼마나 열리도록 회전했는지, 라디안 단위.
  * @property pivot fold가 경첩처럼 움직이는 중심점, canonical 좌표계 기준.
  * @property shadowOffset fold로부터의 그림자 오프셋으로, 이미 [angle]에 맞춰 회전되어 있다.
@@ -2087,6 +2128,7 @@ private fun Modifier.foundationReferenceDrawLeafBack(
 private class FoundationReferenceCurlFold(
     val clippedPath: Path,
     val polygon: FoundationPagerCurlPolygon,
+    val polygonPath: Path,
     val angle: Float,
     val pivot: Offset,
     val shadowOffset: Offset,
@@ -2170,6 +2212,7 @@ private class FoundationReferenceCurlFold(
  *   좌표계에서 화면 좌표계로 다시 변환하는 데 쓰인다.
  * @param edge 이 페이지에 대해 풀어야 할, canonical 좌표계 기준의 (경계 없는) fold 선.
  * @param canonicalSize 축의 canonical 방향 기준 페이지의 크기.
+ * @param drawBuffer 현재 leaf 면이 소유한 재사용 Path와 polygon 정점 저장소.
  * @return fold의 전체 기하, 또는 [edge]가 정확히 수평이어서 페이지의 위/아래 edge와의 교차가
  *   정의되지 않으면 null.
  */
@@ -2177,6 +2220,7 @@ private fun CacheDrawScope.foundationReferenceCurlFold(
     axis: FoundationReferenceCurlAxis,
     edge: FoundationReferenceCurlEdge,
     canonicalSize: IntSize,
+    drawBuffer: FoundationReferenceLeafDrawBuffer,
 ): FoundationReferenceCurlFold? {
     val width = canonicalSize.width.toFloat()
     val height = canonicalSize.height.toFloat()
@@ -2197,14 +2241,31 @@ private fun CacheDrawScope.foundationReferenceCurlFold(
     val bottomCurlOffset = Offset(max(0f, bottomIntersection.x), bottomIntersection.y)
     val lineVector = topCurlOffset - bottomCurlOffset
     val angle = PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2f
+    drawBuffer.clippedPath.apply {
+        reset()
+        axis.fromCanonical(Offset.Zero).also { moveTo(it.x, it.y) }
+        axis.fromCanonical(topCurlOffset).also { lineTo(it.x, it.y) }
+        axis.fromCanonical(bottomCurlOffset).also { lineTo(it.x, it.y) }
+        axis.fromCanonical(Offset(0f, height)).also { lineTo(it.x, it.y) }
+    }
+    foundationReferenceCurlPolygon(
+        width = width,
+        height = height,
+        topCurlOffset = topCurlOffset,
+        bottomCurlOffset = bottomCurlOffset,
+        destination = drawBuffer.polygonVertices,
+    )
+    drawBuffer.polygonPath.apply {
+        reset()
+        drawBuffer.polygonVertices.forEachIndexed { index, point ->
+            val actual = axis.fromCanonical(point)
+            if (index == 0) moveTo(actual.x, actual.y) else lineTo(actual.x, actual.y)
+        }
+    }
     return FoundationReferenceCurlFold(
-        clippedPath = listOf(
-            Offset.Zero,
-            topCurlOffset,
-            bottomCurlOffset,
-            Offset(0f, height),
-        ).foundationReferencePath(axis),
-        polygon = foundationReferenceCurlPolygon(width, height, topCurlOffset, bottomCurlOffset),
+        clippedPath = drawBuffer.clippedPath,
+        polygon = drawBuffer.polygon,
+        polygonPath = drawBuffer.polygonPath,
         angle = angle,
         pivot = axis.fromCanonical(bottomCurlOffset),
         shadowOffset = axis.fromCanonical(
@@ -2242,41 +2303,45 @@ private fun CacheDrawScope.foundationReferenceCurlFold(
  *   지난 지점).
  * @param bottomCurlOffset crease가 페이지의 아래쪽 edge를 가로지르는 지점(또는 그 너머, 오른쪽
  *   edge를 지난 지점).
- * @return 접힌 영역의 윤곽으로, 항상 닫힌 4점 polygon.
+ * @param destination 계산된 네 정점을 기록할 재사용 목록.
  */
 private fun foundationReferenceCurlPolygon(
     width: Float,
     height: Float,
     topCurlOffset: Offset,
     bottomCurlOffset: Offset,
-): FoundationPagerCurlPolygon {
+    destination: MutableList<Offset>,
+) {
     /**
-     * crease 선이 실제로 페이지의 오른쪽 edge를 가로지르는 지점을, 호출한 분기가 여전히 평소의
-     * 정점 두 개를 기여하도록 두 배로 만든 것; crease가 그 edge와 정확히 평행하면 비어 있다.
+     * crease 선이 실제로 페이지의 오른쪽 edge를 가로지르는 지점이다. 호출 분기는 같은 점을 두 번
+     * 기록하여 평소와 같은 네 정점 계약을 유지한다.
      */
-    fun endSideIntersection(): List<Offset> {
-        val offset = foundationReferenceLineIntersection(
-            topCurlOffset,
-            bottomCurlOffset,
-            Offset(width, 0f),
-            Offset(width, height),
-        ) ?: return emptyList()
-        return listOf(offset, offset)
+    fun endSideIntersection(): Offset? = foundationReferenceLineIntersection(
+        topCurlOffset,
+        bottomCurlOffset,
+        Offset(width, 0f),
+        Offset(width, height),
+    )
+
+    destination.clear()
+    if (topCurlOffset.x < width) {
+        destination.add(topCurlOffset)
+        destination.add(Offset(width, topCurlOffset.y))
+    } else {
+        endSideIntersection()?.let { offset ->
+            destination.add(offset)
+            destination.add(offset)
+        }
     }
-    return FoundationPagerCurlPolygon(buildList {
-        if (topCurlOffset.x < width) {
-            add(topCurlOffset)
-            add(Offset(width, topCurlOffset.y))
-        } else {
-            addAll(endSideIntersection())
+    if (bottomCurlOffset.x < width) {
+        destination.add(Offset(width, height))
+        destination.add(bottomCurlOffset)
+    } else {
+        endSideIntersection()?.let { offset ->
+            destination.add(offset)
+            destination.add(offset)
         }
-        if (bottomCurlOffset.x < width) {
-            add(Offset(width, height))
-            add(bottomCurlOffset)
-        } else {
-            addAll(endSideIntersection())
-        }
-    })
+    }
 }
 
 /**
@@ -2425,23 +2490,105 @@ internal fun foundationReferenceThreeDCurlLightingSpec(
 }
 
 /**
+ * 3D curl 한 strip의 프레임별 기하를 보관한다. [FoundationReferenceThreeDCurlStripBuffer]가 객체를
+ * 한 번 만든 뒤 값만 갱신하여 draw 경로에서 strip 객체를 다시 만들지 않게 한다.
+ *
+ * @property sourceStartFraction 원본 leaf에서 strip이 시작하는 비율.
+ * @property sourceEndFraction 원본 leaf에서 strip이 끝나는 비율.
+ * @property destinationStartFraction 투영된 leaf에서 strip이 시작하는 비율.
+ * @property destinationEndFraction 투영된 leaf에서 strip이 끝나는 비율.
+ * @property depthFraction 카메라 방향 최대 깊이의 leaf 너비 비율.
+ * @property isBackFacing 뒷면으로 그려야 하는 strip인지 여부.
+ */
+internal class FoundationReferenceMutableThreeDCurlStrip(
+    var sourceStartFraction: Float = 0f,
+    var sourceEndFraction: Float = 0f,
+    var destinationStartFraction: Float = 0f,
+    var destinationEndFraction: Float = 0f,
+    var depthFraction: Float = 0f,
+    var isBackFacing: Boolean = false,
+)
+
+/**
+ * 3D curl의 경계 배열과 strip 객체를 프레임 사이에 유지하는 계산 버퍼다. 각 leaf 면이 자신만의
+ * 인스턴스를 `remember`하여 draw-cache 갱신은 배열과 기존 객체의 값만 덮어쓴다.
+ *
+ * @param grid leaf를 나눌 strip 수.
+ */
+internal class FoundationReferenceThreeDCurlStripBuffer(grid: Int = foundationPagerRenderProfile.threeDCurlGrid) {
+    /** 실제 계산에 쓰는 1 이상의 strip 수. */
+    private val gridSize = grid.coerceAtLeast(1)
+
+    /** 인접 strip이 공유하는 투영 경계 값. */
+    private val boundaries = FloatArray(gridSize + 1)
+
+    /** 각 경계의 실린더 깊이 값. */
+    private val depths = FloatArray(gridSize + 1)
+
+    /** 각 경계가 crease 바깥의 감긴 구간에 속하는지 여부. */
+    private val wrapped = BooleanArray(gridSize + 1)
+
+    /** 각 경계에서의 실린더 감김 각도. */
+    private val angles = FloatArray(gridSize + 1)
+
+    /**
+     * draw 경로가 프레임마다 재사용하는 strip 객체 목록이다. 목록과 원소의 정체성은 [update] 호출
+     * 사이에 유지된다.
+     */
+    val strips: List<FoundationReferenceMutableThreeDCurlStrip> =
+        List(gridSize) { FoundationReferenceMutableThreeDCurlStrip() }
+
+    /**
+     * [progress]에 맞춰 보관 중인 배열과 strip 값을 갱신한다.
+     *
+     * @param progress 평평한 현재 페이지의 0부터 viewport를 떠난 뒤의 1까지인 turn 진행률.
+     */
+    fun update(progress: Float) {
+        val clamped = progress.coerceIn(0f, 1f)
+        val ramp = FoundationReferenceThreeDCurlRadiusRampEnd
+        val radius = FoundationReferenceThreeDCurlRadius *
+            min(1f, clamped / ramp) * min(1f, (1f - clamped) / ramp)
+        val wrapArc = PI.toFloat() * radius
+        val crease = 1f - clamped - wrapArc / 2f
+        for (index in boundaries.indices) {
+            val source = index.toFloat() / gridSize
+            val along = source - crease
+            val theta = when {
+                along <= 0f -> 0f
+                radius <= FoundationReferenceThreeDCurlFlatEpsilon -> PI.toFloat()
+                else -> min(along / radius, PI.toFloat())
+            }
+            boundaries[index] = if (along <= 0f) {
+                source
+            } else {
+                crease + radius * sin(theta) - max(0f, along - wrapArc)
+            }
+            depths[index] = radius * (1f - cos(theta))
+            wrapped[index] = along > 0f
+            angles[index] = theta
+        }
+        strips.forEachIndexed { index, strip ->
+            strip.sourceStartFraction = index.toFloat() / gridSize
+            strip.sourceEndFraction = (index + 1).toFloat() / gridSize
+            strip.destinationStartFraction = boundaries[index]
+            strip.destinationEndFraction = boundaries[index + 1]
+            strip.depthFraction = max(depths[index], depths[index + 1])
+            strip.isBackFacing = wrapped[index] && wrapped[index + 1] &&
+                (angles[index] + angles[index + 1]) / 2f > PI.toFloat() / 2f
+        }
+    }
+}
+
+/**
  * PlayLikeCurl 사인 곡선 텍스처 mesh 안의 turn 축을 따라 자른 소스 구간 하나와, 그것이 투영된 화면
- * 범위.
+ * 범위다. 공유 목적지 경계는 인접 구간을 연속되게 하며, 뒷면 여부는 렌더러의 면 선택에 쓰인다.
  *
- * 참조 구현은 사인파가 깊이를 바꾸는 동안 모든 컬럼을 전면을 향한 채 순서대로 유지한다. 공유되는
- * 목적지 경계는 인접한 구간들을 연속되게 만든다; 음수인 목적지는 단순히 페이지의 그 부분이
- * viewport 시작점을 넘어 이동했다는 뜻이다. 렌더러는 클리핑이 독립적으로 래스터화된 글리프를
- * 절대 쪼개지 않도록 모든 구간을 하나의 오프스크린 페이지 텍스처에서 샘플링한다.
- *
- * @property sourceStartFraction 평평한 텍스처에서 이 구간이 시작되는 leaf-너비 비율.
- * @property sourceEndFraction 다음 소스 경계로, [sourceStartFraction]에서 정확히 grid 한 칸
- *   뒤다.
- * @property destinationStartFraction [sourceStartFraction]의 원근 투영.
- * @property destinationEndFraction [sourceEndFraction]의 원근 투영으로, 다음 구간의 시작과
- *   공유된다.
- * @property depthFraction 카메라 쪽으로의, 이 구간의 최대 실린더 깊이, leaf-너비 단위.
- * @property isBackFacing 이 구간의 표면 법선이 카메라에서 돌아섰는지 — 실린더 감김 각도가 `PI / 2`를
- *   지나면 참이 되며, 이 구간은 앞면이 아니라 뒷면으로 그려야 한다.
+ * @property sourceStartFraction 평평한 텍스처에서 이 구간이 시작되는 leaf 너비 비율.
+ * @property sourceEndFraction 다음 소스 경계.
+ * @property destinationStartFraction 시작 경계의 원근 투영.
+ * @property destinationEndFraction 끝 경계의 원근 투영.
+ * @property depthFraction 카메라 방향 최대 깊이의 leaf 너비 비율.
+ * @property isBackFacing 앞면 대신 뒷면으로 그려야 하는지 여부.
  */
 internal data class FoundationReferenceThreeDCurlStripSpec(
     val sourceStartFraction: Float,
@@ -2482,51 +2629,25 @@ internal data class FoundationReferenceThreeDCurlStripSpec(
  *
  * @param progress 평평한 현재 페이지에서의 0부터 viewport를 떠난 뒤의 1까지의 turn 진행률; 이
  *   범위 밖의 값은 clamp된다.
+ * @param grid 결과를 나눌 strip 수; 렌더 프로필 값이 기본이며 1 미만이면 1로 해석한다.
  * @return 비트 단위로 동일한 공유 경계를 가진, 플랫폼 프로필의 순서 있는 구간들. 앞면과 뒷면
  *   구간이 모두 들어 있으므로 호출자는 [FoundationReferenceThreeDCurlStripSpec.isBackFacing]으로
  *   걸러 쓴다.
  */
 internal fun foundationReferenceThreeDCurlStripSpecs(
     progress: Float,
+    grid: Int = foundationPagerRenderProfile.threeDCurlGrid,
 ): List<FoundationReferenceThreeDCurlStripSpec> {
-    val clamped = progress.coerceIn(0f, 1f)
-    val ramp = FoundationReferenceThreeDCurlRadiusRampEnd
-    val radius = FoundationReferenceThreeDCurlRadius *
-        min(1f, clamped / ramp) * min(1f, (1f - clamped) / ramp)
-    val grid = foundationPagerRenderProfile.threeDCurlGrid
-    val wrapArc = PI.toFloat() * radius
-    val crease = 1f - clamped - wrapArc / 2f
-    val boundaries = FloatArray(grid + 1)
-    val depths = FloatArray(grid + 1)
-    val wrapped = BooleanArray(grid + 1)
-    val angles = FloatArray(grid + 1)
-    for (index in boundaries.indices) {
-        val source = index.toFloat() / grid
-        val along = source - crease
-        val theta = when {
-            along <= 0f -> 0f
-            radius <= FoundationReferenceThreeDCurlFlatEpsilon -> PI.toFloat()
-            else -> min(along / radius, PI.toFloat())
-        }
-        val depth = radius * (1f - cos(theta))
-        boundaries[index] = if (along <= 0f) {
-            source
-        } else {
-            crease + radius * sin(theta) - max(0f, along - wrapArc)
-        }
-        depths[index] = depth
-        wrapped[index] = along > 0f
-        angles[index] = theta
-    }
-    return List(grid) { index ->
+    val buffer = FoundationReferenceThreeDCurlStripBuffer(grid)
+    buffer.update(progress)
+    return buffer.strips.map { strip ->
         FoundationReferenceThreeDCurlStripSpec(
-            sourceStartFraction = index.toFloat() / grid,
-            sourceEndFraction = (index + 1).toFloat() / grid,
-            destinationStartFraction = boundaries[index],
-            destinationEndFraction = boundaries[index + 1],
-            depthFraction = max(depths[index], depths[index + 1]),
-            isBackFacing = wrapped[index] && wrapped[index + 1] &&
-                (angles[index] + angles[index + 1]) / 2f > PI.toFloat() / 2f,
+            sourceStartFraction = strip.sourceStartFraction,
+            sourceEndFraction = strip.sourceEndFraction,
+            destinationStartFraction = strip.destinationStartFraction,
+            destinationEndFraction = strip.destinationEndFraction,
+            depthFraction = strip.depthFraction,
+            isBackFacing = strip.isBackFacing,
         )
     }
 }
@@ -2554,55 +2675,72 @@ internal fun foundationReferenceThreeDCurlProgress(
 }
 
 /**
- * [strips]가 목적지 노드 안에서 실제로 차지하는 turn 축 범위로, [foundationReferenceDrawThreeDCurlMesh]가
- * cast shadow와 front-shade 그라데이션을 어디에 그릴지 정하는 값과 같은 clamp된 픽셀 범위다.
+ * [foundationReferenceThreeDCurlMeshExtent]가 돌려주는, 한 면의 strip들이 목적지 노드 안에서 실제로
+ * 차지하는 turn 축 범위다. [foundationReferenceDrawThreeDCurlMesh]가 cast shadow와 front-shade
+ * 그라데이션을 어디에 그릴지 정하는 값과 같으며, 두 Float을 하나의 Long에 담은 value class라서
+ * 프레임마다 호출되는 draw 경로에서 객체를 할당하지 않는다.
  *
- * 값은 clamp하지 않는다: 뒷면을 반대쪽 pane에 놓는 배치는 spine 왼쪽(음수 목적지)을 실제로 보이는
- * 영역으로 쓰므로, 노드 폭으로 잘라내면 그 영역이 사라진 것으로 오판하게 된다.
+ * 값은 노드 폭으로 clamp하지 않는다: 뒷면을 반대쪽 pane에 놓는 배치는 spine 왼쪽(음수 목적지)을 실제로
+ * 보이는 영역으로 쓰므로, 노드 폭으로 잘라내면 그 영역이 사라진 것으로 오판하게 된다.
  *
- * @property alongStartPx 보이는 mesh의 turn 축 시작 끝, leaf 프레임 픽셀 값. [strips]가 비어
- *   있으면 의미 없는 0.
- * @property alongEndPx 보이는 mesh의 turn 축 끝 끝, leaf 프레임 픽셀 값. [strips]가 비어 있으면
- *   의미 없는 0.
- * @property isEmpty 그릴 strip 자체가 없음 — [strips] 리스트가 비어 있을 때만 참이 된다. 앞면은
- *   turn 완료 직전, 뒷면은 정지 상태에서 각각 자기 쪽 strip이 하나도 없어 참이 된다.
+ * @property packed 시작 끝과 끝 끝의 Float 비트를 상·하위 32비트에 나란히 담은 값.
  */
-internal data class FoundationReferenceThreeDCurlMeshExtent(
-    val alongStartPx: Float,
-    val alongEndPx: Float,
-    val isEmpty: Boolean,
-)
+@kotlin.jvm.JvmInline
+internal value class FoundationReferenceThreeDCurlMeshExtent(private val packed: Long) {
+    /** 보이는 mesh의 turn 축 시작 끝, leaf 프레임 픽셀 값. [isEmpty]이면 의미 없는 값이다. */
+    val alongStartPx: Float get() = Float.fromBits((packed ushr 32).toInt())
+
+    /** 보이는 mesh의 turn 축 끝 끝, leaf 프레임 픽셀 값. [isEmpty]이면 의미 없는 값이다. */
+    val alongEndPx: Float get() = Float.fromBits(packed.toInt())
+
+    /**
+     * 그릴 strip이 하나도 없음. 앞면은 turn 완료 직전, 뒷면은 정지 상태에서 각각 자기 쪽 strip이
+     * 없어 참이 된다. 시작이 끝보다 뒤에 놓이는 값은 실제 범위로는 만들어질 수 없으므로 빈 상태를
+     * 나타내는 표식으로 쓴다.
+     */
+    val isEmpty: Boolean get() = alongStartPx > alongEndPx
+}
 
 /**
- * [strips]가 목적지 노드 안에서 실제로 차지하는 turn 축 범위를 계산한다 —
- * [foundationReferenceDrawThreeDCurlMesh]가 인라인으로 하던 clamp 산술을 그대로 옮긴 것으로, mesh가
- * 비어 있을 때의 조기 반환 지점을 결과 값의 [FoundationReferenceThreeDCurlMeshExtent.isEmpty]로
- * 표현한다.
+ * [strips] 중 [drawBackFace]에 해당하는 면의 strip들이 목적지 노드 안에서 차지하는 turn 축 범위를
+ * 계산한다. [foundationReferenceDrawThreeDCurlMesh]가 그릴 범위와 조기 반환 시점을 정하는 유일한
+ * 산술이며, 단위 테스트도 같은 함수를 검증하므로 그리기 경로와 테스트가 갈라지지 않는다.
  *
- * @param strips [foundationReferenceThreeDCurlStripSpecs]가 만든 순서 있는 목적지 구간들.
+ * @param strips [FoundationReferenceThreeDCurlStripBuffer]가 유지하는 순서 있는 목적지 구간들.
+ * @param drawBackFace true면 뒷면 strip만, false면 앞면 strip만 범위에 포함한다.
  * @param alongPx mesh를 그리는 목적지 노드의 turn 축(canonical 너비) 크기, 픽셀 단위다.
  *   [foundationReferenceThreeDCurlProgress]가 받는 leaf 너비와 반드시 같은 값은 아니다 — 이 값은
  *   mesh가 실제로 그려지는 사각형이고, progress의 너비는 fold 진행률을 측정하는 edge 공간이므로,
  *   spread에서 두 pane의 폭이 다르면 서로 갈라진다. 둘을 섞어 넘기면 mesh가 잘못된 지점에서
- *   clamp된다.
- * @return [strips]가 비어 있으면 [FoundationReferenceThreeDCurlMeshExtent.isEmpty]가 참인 값; 그
- *   외에는 `[0, alongPx]`로 clamp된 turn 축 시작/끝을 담은 값.
+ *   계산된다.
+ * @return 해당 면의 strip이 없으면 [FoundationReferenceThreeDCurlMeshExtent.isEmpty]가 참인 값;
+ *   그 외에는 clamp하지 않은 turn 축 시작/끝을 담은 값.
  */
 internal fun foundationReferenceThreeDCurlMeshExtent(
-    strips: List<FoundationReferenceThreeDCurlStripSpec>,
+    strips: List<FoundationReferenceMutableThreeDCurlStrip>,
+    drawBackFace: Boolean,
     alongPx: Float,
 ): FoundationReferenceThreeDCurlMeshExtent {
-    val meshLeft = strips.minOfOrNull {
-        min(it.destinationStartFraction, it.destinationEndFraction)
-    }?.times(alongPx)
-        ?: return FoundationReferenceThreeDCurlMeshExtent(alongStartPx = 0f, alongEndPx = 0f, isEmpty = true)
-    val meshRight = strips.maxOf {
-        max(it.destinationStartFraction, it.destinationEndFraction)
-    } * alongPx
+    var visibleLeft = Float.POSITIVE_INFINITY
+    var visibleRight = Float.NEGATIVE_INFINITY
+    strips.forEach { strip ->
+        if (strip.isBackFacing == drawBackFace) {
+            visibleLeft = min(
+                visibleLeft,
+                min(strip.destinationStartFraction, strip.destinationEndFraction) * alongPx,
+            )
+            visibleRight = max(
+                visibleRight,
+                max(strip.destinationStartFraction, strip.destinationEndFraction) * alongPx,
+            )
+        }
+    }
+    if (!visibleLeft.isFinite() || !visibleRight.isFinite()) {
+        visibleLeft = Float.POSITIVE_INFINITY
+        visibleRight = Float.NEGATIVE_INFINITY
+    }
     return FoundationReferenceThreeDCurlMeshExtent(
-        alongStartPx = meshLeft,
-        alongEndPx = meshRight,
-        isEmpty = false,
+        (visibleLeft.toRawBits().toLong() shl 32) or (visibleRight.toRawBits().toLong() and 0xFFFFFFFFL),
     )
 }
 
@@ -2696,7 +2834,8 @@ internal fun foundationReferenceCurlAlongGradient(
  * 페이지 위로 옮겨가 방향에 따라 다르게 보인다.
  *
  * @receiver 기록된 페이지 텍스처를 재생하는 draw scope.
- * @param strips [foundationReferenceThreeDCurlStripSpecs]가 만든 순서 있는 소스·목적지 구간들.
+ * @param strips 재사용 버퍼가 보관하는 순서 있는 소스·목적지 구간들.
+ * @param drawBackFace true면 뒷면 strip만, false면 앞면 strip만 그린다.
  * @param lighting 이 프레임에 대한 매끄러운 시트 조명과 cast-shadow 강도.
  * @param graphicsLayer 모든 구간이 공유하는 오프스크린 페이지 텍스처.
  * @param axis fold가 가로로 움직이는지 세로로 움직이는지 — mesh 사각형·스케일·그라데이션의 방향을
@@ -2711,7 +2850,8 @@ internal fun foundationReferenceCurlAlongGradient(
  *   건너 반대쪽 pane까지 끊김 없이 이어진다.
  */
 private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
-    strips: List<FoundationReferenceThreeDCurlStripSpec>,
+    strips: List<FoundationReferenceMutableThreeDCurlStrip>,
+    drawBackFace: Boolean,
     lighting: FoundationReferenceThreeDCurlLightingSpec,
     graphicsLayer: GraphicsLayer,
     axis: FoundationReferenceCurlAxis,
@@ -2720,11 +2860,11 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
     mirrorHorizontally: Boolean,
     spanBeyondSpinePx: Float = 0f,
 ) {
-    val meshExtent = foundationReferenceThreeDCurlMeshExtent(strips, alongPx)
-    if (meshExtent.isEmpty) return
-    val visibleLeft = meshExtent.alongStartPx
-    val visibleRight = meshExtent.alongEndPx
-    val castsShadowBeyondTip = strips.all { it.isBackFacing }
+    val extent = foundationReferenceThreeDCurlMeshExtent(strips, drawBackFace, alongPx)
+    if (extent.isEmpty) return
+    val visibleLeft = extent.alongStartPx
+    val visibleRight = extent.alongEndPx
+    val castsShadowBeyondTip = drawBackFace
     val shadowSpread = alongPx * FoundationReferenceThreeDCurlShadowSpread
     val shadowStart = if (castsShadowBeyondTip) visibleLeft else visibleRight
     val shadowEnd = if (castsShadowBeyondTip) {
@@ -2752,6 +2892,7 @@ private fun ContentDrawScope.foundationReferenceDrawThreeDCurlMesh(
             )
         }
         strips.forEach { strip ->
+            if (strip.isBackFacing != drawBackFace) return@forEach
             val destStart = strip.destinationStartFraction * alongPx
             val destEnd = strip.destinationEndFraction * alongPx
             val left = min(destStart, destEnd).coerceIn(clipLow, clipHigh)
@@ -2924,6 +3065,17 @@ internal data class FoundationPagerRenderProfile(
 )
 
 internal expect val foundationPagerRenderProfile: FoundationPagerRenderProfile
+
+/**
+ * curl pager가 composition에 머무는 동안에만 플랫폼 그림자 자원을 유지하도록 묶는 효과다.
+ * [drawFoundationPagerCurlShadow]의 Android 구현은 프레임 사이에 화면 크기의 오프스크린 Bitmap을
+ * 재사용하는데, 프로세스 전역 버퍼에 두면 pager가 사라진 뒤에도 그 Bitmap이 계속 남으므로, pager가
+ * 컴포지션을 떠나는 시점에 이 효과가 자원을 해제한다. 해제는 다음 draw에서 자원을 다시 만들 수
+ * 있는 지연 초기화라서, 새 pager가 먼저 들어와도 안전하다. 유지할 자원이 없는 플랫폼은 아무것도
+ * 하지 않는다.
+ */
+@Composable
+internal expect fun FoundationPagerCurlShadowResourcesEffect()
 
 /**
  * 접힌 부분의 드롭 섀도를 그리며, 플랫폼마다 하나씩 `expect`되어 있다. Compose Multiplatform의
