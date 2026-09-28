@@ -24,6 +24,10 @@ import com.tedd.teddreader.core.designsystem.teddReaderSpacing
 import com.tedd.teddreader.core.designsystem.teddReaderTypography
 import com.tedd.teddreader.core.ui.component.TeddText
 import com.tedd.teddreader.core.ui.generated.resources.*
+import kotlinx.coroutines.CancellationException
+import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -71,13 +75,126 @@ fun PdfPageSurface(
     )
 }
 
+/** Android PDF Bitmap 한 픽셀이 사용하는 ARGB_8888 바이트 수다. */
+internal const val PdfArgbBytesPerPixel = 4L
+
+/** viewport가 비정상적으로 커도 PDF Bitmap 한 변이 넘지 않는 상한이다. */
+private const val PdfMaxRenderDimension = 4_096
+
+/** 한 PDF 페이지 Bitmap이 사용할 수 있는 최대 ARGB 메모리다. */
+private const val PdfMaxRenderBytes = 64L * 1_024L * 1_024L
+
+/**
+ * Android PDF 페이지가 viewport 안에서 원본 비율을 유지하며 사용할 Bitmap 크기다.
+ *
+ * @property width 렌더링할 Bitmap의 가로 픽셀 수.
+ * @property height 렌더링할 Bitmap의 세로 픽셀 수.
+ */
+internal data class PdfRenderSize(
+    val width: Int,
+    val height: Int,
+)
+
+/**
+ * PDF 원본 비율과 viewport를 기준으로 렌더 크기를 정하고 최대 변과 ARGB 메모리 한도 안으로 축소한다.
+ * 픽셀 수는 `Long`으로 계산해 큰 입력의 `Int` 곱셈 overflow가 할당 제한을 우회하지 못하게 한다.
+ *
+ * @param pageWidth PDF 페이지가 보고한 원본 가로 크기.
+ * @param pageHeight PDF 페이지가 보고한 원본 세로 크기.
+ * @param viewportWidth 페이지를 표시할 Compose viewport의 가로 픽셀 수.
+ * @param viewportHeight 페이지를 표시할 Compose viewport의 세로 픽셀 수.
+ * @param maxDimension Bitmap 한 변에 허용할 최대 픽셀 수.
+ * @param maxBytes Bitmap의 ARGB 픽셀에 허용할 최대 바이트 수.
+ * @return 유효한 입력이면 제한 안의 렌더 크기, 할당할 수 없는 입력이면 null.
+ */
+internal fun pdfRenderSize(
+    pageWidth: Int,
+    pageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    maxDimension: Int = PdfMaxRenderDimension,
+    maxBytes: Long = PdfMaxRenderBytes,
+): PdfRenderSize? {
+    if (
+        pageWidth <= 0 || pageHeight <= 0 ||
+        viewportWidth <= 0 || viewportHeight <= 0 ||
+        maxDimension <= 0 || maxBytes < PdfArgbBytesPerPixel
+    ) {
+        return null
+    }
+
+    val viewportScale = min(
+        viewportWidth.toDouble() / pageWidth.toDouble(),
+        viewportHeight.toDouble() / pageHeight.toDouble(),
+    )
+    var width = (pageWidth * viewportScale).roundToInt().coerceAtLeast(1)
+    var height = (pageHeight * viewportScale).roundToInt().coerceAtLeast(1)
+    val dimensionScale = min(1.0, maxDimension.toDouble() / maxOf(width, height).toDouble())
+    width = (width * dimensionScale).toInt().coerceAtLeast(1)
+    height = (height * dimensionScale).toInt().coerceAtLeast(1)
+
+    val maxPixels = maxBytes / PdfArgbBytesPerPixel
+    val pixelCount = width.toLong() * height.toLong()
+    if (pixelCount > maxPixels) {
+        val byteScale = sqrt(maxPixels.toDouble() / pixelCount.toDouble())
+        width = (width * byteScale).toInt().coerceAtLeast(1)
+        height = (height * byteScale).toInt().coerceAtLeast(1)
+        if (width.toLong() * height.toLong() > maxPixels) {
+            if (width >= height) {
+                width = (maxPixels / height.toLong()).toInt().coerceAtLeast(1)
+            } else {
+                height = (maxPixels / width.toLong()).toInt().coerceAtLeast(1)
+            }
+        }
+    }
+    return PdfRenderSize(width = width, height = height)
+}
+
+/**
+ * PDF 렌더 예외를 플랫폼 실패 상태로 바꾸되 coroutine 취소는 호출자에게 그대로 전파한다.
+ *
+ * @param render 실제 PDF 렌더 작업.
+ * @param onFailure 일반 렌더 예외를 고정 실패 상태로 바꾸고 상세를 기록하는 처리.
+ * @return 렌더 성공값 또는 [onFailure]가 만든 실패값.
+ * @throws CancellationException 렌더 작업이 취소된 경우.
+ */
+internal inline fun <T> pdfRenderOrElse(
+    render: () -> T,
+    onFailure: (Throwable) -> T,
+): T = try {
+    render()
+} catch (cancellation: CancellationException) {
+    throw cancellation
+} catch (throwable: Throwable) {
+    onFailure(throwable)
+}
+
+/**
+ * 생성된 PDF 렌더 리소스를 UI 결과로 전환하며, 전환 전 실패한 경우에만 즉시 해제한다.
+ *
+ * @param resource 렌더 단계가 임시로 소유하는 리소스.
+ * @param release 렌더가 결과를 반환하지 못했을 때 리소스를 해제하는 동작.
+ * @param render 리소스를 UI가 소유할 성공 결과로 전환하는 렌더 작업.
+ * @return [render]가 만든 성공 결과.
+ */
+internal inline fun <T, R> pdfResourceOrRelease(
+    resource: T,
+    release: (T) -> Unit,
+    render: (T) -> R,
+): R {
+    var transferred = false
+    return try {
+        render(resource).also { transferred = true }
+    } finally {
+        if (!transferred) release(resource)
+    }
+}
 
 internal fun ReaderStyle.pdfColorFilter(): ColorFilter? =
     pdfThemeLuminanceMatrix()?.let { ColorFilter.colorMatrix(ColorMatrix(it)) }
 
 internal fun ReaderStyle.pdfThemeLuminanceMatrix(): FloatArray? {
     if (themeMode == ReaderThemeMode.PUBLISHER) return null
-
     val textRed = ((textColor.argb shr 16) and 0xFF).toFloat()
     val textGreen = ((textColor.argb shr 8) and 0xFF).toFloat()
     val textBlue = (textColor.argb and 0xFF).toFloat()
@@ -154,7 +271,8 @@ internal expect fun PlatformPdfPageSurface(
 /**
  * 실제 PDF 페이지 대신 표시되는 대체 콘텐츠 — 페이지 번호 표시와 설명용 [message]로 이루어지며,
  * [PlatformPdfPageSurface]가 아직 그릴 것이 없을 때와 아예 그릴 수 없을 때(문서가 없거나 읽을 수 없을 때)
- * 모두에 쓰인다.
+ * 모두에 쓰인다. 읽기 화면은 `Surface`나 `Scaffold` 안에 있지 않아 `LocalContentColor`가 Material 기본값으로
+ * 남으므로, 각 텍스트는 플레이스홀더 표면의 semantic 색을 직접 지정한다.
  *
  * @param pageIndex 이 플레이스홀더가 대신하는 페이지와, 함께 표시되는 전체 페이지 수.
  * @param modifier 이 플레이스홀더의 루트에 적용된다.
@@ -183,9 +301,6 @@ internal fun PdfPlaceholderSurface(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(PdfPlaceholderContentSpacing),
         ) {
-            // 읽기 화면은 Surface나 Scaffold 안에 있지 않아 LocalContentColor가 Material 기본값인
-            // 검정으로 남는다 — 이 플레이스홀더의 표면색에 맞는 글자색을 명시해야 다크 테마에서
-            // 검은 글자가 어두운 표면에 묻히지 않는다.
             TeddText(text = "PDF", style = typography.headlineMedium, color = colors.onSurface)
             TeddText(
                 text = stringResource(Res.string.pdf_page_fraction, pageIndex.current + 1, pageIndex.total),
