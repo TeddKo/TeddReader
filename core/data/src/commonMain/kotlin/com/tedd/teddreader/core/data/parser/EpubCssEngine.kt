@@ -496,11 +496,13 @@ private inline fun mergeByRank(
  * @param css 스타일시트 텍스트, 주석은 이미 제거된 상태.
  * @param onFontFace 적용되는 컨텍스트에서 발견된 각 `@font-face` 본문과 함께 호출된다.
  * @param onRule 각 일반 규칙의 선택자 목록 텍스트와 선언 본문과 함께 호출된다.
+ * @param mediaDepth 현재 적용 중인 `@media` 중첩 깊이. 최상위 시트는 0이다.
  */
 private fun scanCssRules(
     css: String,
     onFontFace: (body: String) -> Unit,
     onRule: (selectorText: String, body: String) -> Unit,
+    mediaDepth: Int = 0,
 ) {
     var index = 0
     var preludeStart = 0
@@ -524,8 +526,11 @@ private fun scanCssRules(
                 val body = css.substring(bodyStart, bodyEnd)
                 when {
                     prelude.startsWith("@media", ignoreCase = true) -> {
-                        if (mediaQueryApplies(prelude.drop("@media".length))) {
-                            scanCssRules(body, onFontFace, onRule)
+                        if (
+                            mediaDepth < MAX_EPUB_CSS_MEDIA_DEPTH &&
+                            mediaQueryApplies(prelude.drop("@media".length))
+                        ) {
+                            scanCssRules(body, onFontFace, onRule, mediaDepth + 1)
                         }
                     }
                     prelude.startsWith("@font-face", ignoreCase = true) -> onFontFace(body)
@@ -845,6 +850,12 @@ private fun String.normalizeFontFamilyKey(): String = trimQuotes().lowercase()
 
 /** 끝의 `!important` 하나가 제거되고 나머지는 그대로 보존된 선언 값. */
 private fun String.stripImportant(): String = replace(ImportantSuffixRegex, "").trim()
+
+/**
+ * 조건부 규칙 스캔이 허용하는 `@media` 최대 중첩 깊이. 정상 CSS의 조건 중첩보다 큰 32단계로
+ * 제한해 적용 가능한 블록의 재귀 호출이 호출 스택을 무제한 소비하지 않게 한다.
+ */
+private const val MAX_EPUB_CSS_MEDIA_DEPTH = 32
 
 /** 모든 CSS 블록 주석이 지워진 [css]. 주석 처리된 규칙이 실제 규칙으로 파싱되는 일이 없도록 한다. */
 private fun stripCssComments(css: String): String = css.replace(CssCommentRegex, " ")

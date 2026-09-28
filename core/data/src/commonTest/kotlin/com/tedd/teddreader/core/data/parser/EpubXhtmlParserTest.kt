@@ -725,4 +725,70 @@ class EpubXhtmlParserTest {
         assertEquals(2f, page.style?.marginEndEm)
         assertEquals(2f, page.style?.marginTopEm)
     }
+
+    /** 열린 요소 계층이 128단계를 넘는 XHTML은 예외 없이 빈 콘텐츠가 된다. */
+    @Test
+    fun overDeepXhtmlYieldsEmptyContentInsteadOfThrowing() {
+        val xhtml = "<div>".repeat(129) + "text" + "</div>".repeat(129)
+
+        val content = parseXhtmlContent(xhtml)
+
+        assertEquals("", content.text)
+        assertTrue(content.blocks.isEmpty())
+    }
+
+    /** 슬래시 없는 빈 요소(`<br>`, `<img>`)는 열린 요소 깊이에 쌓이지 않아 정상 챕터가 거부되지 않는다. */
+    @Test
+    fun voidElementsDoNotAccumulateDepth() {
+        val xhtml = "<p>start" + "<br>".repeat(200) + "<img src=\"i.png\">".repeat(200) + "end</p>"
+
+        val content = parseXhtmlContent(xhtml)
+
+        assertTrue(content.text.contains("end"))
+    }
+
+    /** 자체 닫힘 스팬이 아무것도 열지 않아도 같은 이름의 바깥 스팬 스타일은 뒤 텍스트까지 유지된다. */
+    @Test
+    fun selfClosingSpanKeepsOuterSpanOpen() {
+        val content = parseXhtmlContent(
+            xhtml = """<p><span class="soft">A <span epub:type="pagebreak" id="p12"/> B</span></p>""",
+            css = EpubCss.parse(listOf(".soft{font-style:italic;}")),
+        )
+
+        val span = content.blocks.single().spans.single()
+        assertEquals("A B", content.text.substring(span.range.start.toInt(), span.range.end.toInt()))
+    }
+
+    /** 숨김 자체 닫힘 스팬도 바깥 스팬을 닫지 않는다. */
+    @Test
+    fun selfClosingHiddenSpanKeepsOuterSpanOpen() {
+        val content = parseXhtmlContent(
+            xhtml = """<p><span class="red">A<span class="hide" style="display:none"/>B</span></p>""",
+            css = EpubCss.parse(listOf(".red{font-style:italic;}")),
+        )
+
+        val span = content.blocks.single().spans.single()
+        assertEquals("AB", content.text.substring(span.range.start.toInt(), span.range.end.toInt()))
+    }
+
+    /** 숨김 영역 안의 자체 닫힘 div가 바깥 숨김 div를 풀어 숨겨진 본문을 노출하지 않는다. */
+    @Test
+    fun selfClosingDivInsideHiddenDoesNotRevealHiddenText() {
+        val content = parseXhtmlContent(
+            """<div style="display:none"><div class="clear"/>secret</div><p>shown</p>""",
+        )
+
+        assertEquals("shown", content.text)
+    }
+
+    /** 자체 닫힘 래퍼는 뒤따르는 형제의 CSS 조상으로 남지 않는다. */
+    @Test
+    fun selfClosingElementDoesNotLeakIntoFollowingAncestry() {
+        val content = parseXhtmlContent(
+            xhtml = "<div/><p>text</p>",
+            css = EpubCss.parse(listOf("div p { color: red }")),
+        )
+
+        assertEquals(null, content.blocks.single().style?.foregroundColor)
+    }
 }

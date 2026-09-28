@@ -123,48 +123,114 @@ internal fun parseNcxDocument(xml: String): ParsedNavigation {
         ?.get(1)
         ?.let(::stripMarkup)
         ?.takeIf(String::isNotBlank)
-    val entries = mutableListOf<ParsedNavigationEntry>()
-    parseNcxNavPoints(xml, 1, entries)
-    return ParsedNavigation(heading = heading, entries = entries)
+    return ParsedNavigation(heading = heading, entries = parseNcxNavPoints(xml))
 }
 
 /**
- * [xml] 안의 모든 `navPoint`에서 [ParsedNavigationEntry]를 문서 순서대로 [entries]에 재귀적으로
- * 모은다. 각 `navPoint`의 본문 안으로 내려가 [level] + 1에 중첩된 것들을 찾는다. `navLabel`/`text`
- * 제목이나 `content`의 `src`가 없는 `navPoint`는 건너뛴다 — 그 자식들은 여전히 방문하되, 빈 제목이나
- * href로 추가하지는 않는다.
+ * NCX 전체를 한 번 토큰화해 `navPoint`를 문서 순서로 수집한다. 본문 substring을 중첩마다
+ * 복사하지 않으며, 비정상적으로 깊거나 큰 목차는 정해진 깊이와 항목 수까지만 받아들인다.
  *
- * @param xml 이 레벨에서 `navPoint` 요소를 찾기 위해 스캔할 마크업; NCX 문서 전체이거나, 재귀
- *   호출일 때는 어느 `navPoint`의 본문이다.
- * @param level [xml]에서 직접 발견된 항목들에 부여할 중첩 깊이.
- * @param entries 항목이 추가되는 목록. 재귀 순회 전체에서 공유된다.
+ * @param xml `navPoint`를 찾을 NCX 원문.
+ * @return 깊이와 항목 수 상한 안에서 제목과 href가 모두 확인된 목차 항목들.
  */
-private fun parseNcxNavPoints(xml: String, level: Int, entries: MutableList<ParsedNavigationEntry>) {
-    var index = 0
-    while (true) {
-        val start = NcxNavPointOpenRegex.find(xml, index) ?: break
-        val end = findMatchingEndTag(xml, start.range.first, NcxNavPointTagPairRegex) ?: break
-        val body = xml.substring(start.range.last + 1, end.start)
-        val title = NcxNavLabelTextRegex
-            .find(body)
-            ?.groupValues
-            ?.get(1)
-            ?.let(::stripMarkup)
-            ?.trim()
-            .orEmpty()
-        val href = NcxContentSrcRegex
-            .find(body)
-            ?.groupValues
-            ?.get(1)
-            ?.let(::decodeXmlEntities)
-            .orEmpty()
-        if (title.isNotEmpty() && href.isNotEmpty()) {
-            entries += ParsedNavigationEntry(title = title, level = level, href = href)
+private fun parseNcxNavPoints(xml: String): List<ParsedNavigationEntry> {
+    val activePoints = mutableListOf<NcxNavPointState>()
+    val completedPoints = mutableListOf<NcxCompletedNavPoint>()
+    var depth = 0
+    var order = 0
+    var acceptedCount = 0
+    MarkupTokenRegex.findAll(xml).forEach { token ->
+        val value = token.value
+        if (!value.startsWith('<')) {
+            activePoints.lastOrNull()
+                ?.takeIf { point -> point.level == depth && point.capturesLabelText }
+                ?.label
+                ?.append(decodeXmlEntities(value))
+            return@forEach
         }
-        parseNcxNavPoints(body, level + 1, entries)
-        index = end.end
+        val tag = parseNavToken(value)
+        when {
+            !tag.isClosing && tag.name == "navpoint" -> {
+                depth += 1
+                order += 1
+                if (depth <= MAX_NCX_NAVIGATION_DEPTH && acceptedCount < MAX_NCX_NAVIGATION_ITEMS) {
+                    activePoints += NcxNavPointState(order = order, level = depth)
+                    acceptedCount += 1
+                }
+            }
+            tag.isClosing && tag.name == "navpoint" -> {
+                activePoints.lastOrNull()?.takeIf { point -> point.level == depth }?.let { point ->
+                    activePoints.removeAt(activePoints.lastIndex)
+                    val title = point.label.toString().replace(WhitespaceRunRegex, " ").trim()
+                    val href = point.href
+                    if (title.isNotEmpty() && href != null && href.isNotEmpty()) {
+                        completedPoints += NcxCompletedNavPoint(
+                            order = point.order,
+                            entry = ParsedNavigationEntry(title = title, level = point.level, href = href),
+                        )
+                    }
+                }
+                depth = (depth - 1).coerceAtLeast(0)
+            }
+            !tag.isClosing && tag.name == "navlabel" -> {
+                activePoints.lastOrNull()
+                    ?.takeIf { point -> point.level == depth }
+                    ?.insideLabel = true
+            }
+            tag.isClosing && tag.name == "navlabel" -> {
+                activePoints.lastOrNull()
+                    ?.takeIf { point -> point.level == depth }
+                    ?.insideLabel = false
+            }
+            !tag.isClosing && tag.name == "text" -> {
+                activePoints.lastOrNull()
+                    ?.takeIf { point -> point.level == depth && point.insideLabel }
+                    ?.capturesLabelText = true
+            }
+            tag.isClosing && tag.name == "text" -> {
+                activePoints.lastOrNull()
+                    ?.takeIf { point -> point.level == depth }
+                    ?.capturesLabelText = false
+            }
+            !tag.isClosing && tag.name == "content" -> {
+                activePoints.lastOrNull()
+                    ?.takeIf { point -> point.level == depth && point.href == null }
+                    ?.href = tag.attributes["src"]?.let(::decodeXmlEntities)
+            }
+        }
     }
+    return completedPoints.sortedBy(NcxCompletedNavPoint::order).map(NcxCompletedNavPoint::entry)
 }
+
+/**
+ * 단일 패스 NCX 순회 중 아직 닫히지 않은 `navPoint`의 제한된 상태.
+ *
+ * @property order 원문에서 여는 태그가 나타난 순서.
+ * @property level 최상위가 1인 중첩 깊이.
+ * @property label `navLabel`의 `text`에서 누적한 표시 문자열.
+ * @property href `content`의 디코딩된 `src`, 아직 없으면 null.
+ * @property insideLabel 현재 `navLabel` 안을 순회하는지 여부.
+ * @property capturesLabelText 현재 `text` 본문을 [label]에 추가하는 중인지 여부.
+ */
+private data class NcxNavPointState(
+    val order: Int,
+    val level: Int,
+    val label: StringBuilder = StringBuilder(),
+    var href: String? = null,
+    var insideLabel: Boolean = false,
+    var capturesLabelText: Boolean = false,
+)
+
+/**
+ * 닫힌 NCX 항목과 원문 순서를 함께 보관해 자식보다 늦게 닫히는 부모도 앞에 반환한다.
+ *
+ * @property order 원문의 `navPoint` 여는 태그 순서.
+ * @property entry 완성된 목차 항목.
+ */
+private data class NcxCompletedNavPoint(
+    val order: Int,
+    val entry: ParsedNavigationEntry,
+)
 
 /** [findMatchingEndTag]가 찾은 닫는 태그의 범위. `<`부터 `>`까지 포함한다. */
 private data class EndTagRange(val start: Int, val end: Int)
@@ -294,14 +360,14 @@ private val WhitespaceRunRegex = Regex("""\s+""")
 /** NCX `docTitle`의 텍스트 콘텐츠를 그룹 1에 캡처한다. [parseNcxDocument]가 보고하는 제목이다. */
 private val NcxDocTitleRegex = Regex("""(?is)<docTitle>.*?<text>(.*?)</text>.*?</docTitle>""")
 
-/** `navPoint` 여는 태그를 매칭한다. [parseNcxNavPoints]가 순회하는 요소다. */
-private val NcxNavPointOpenRegex = Regex("""(?is)<navPoint\b[^>]*>""")
+/**
+ * NCX 목차가 허용하는 최대 `navPoint` 중첩 깊이. 실제 책의 장·절 구조보다 충분히 큰 64단계로
+ * 제한해 악성 중첩이 상태 스택을 계속 키우지 못하게 한다.
+ */
+private const val MAX_NCX_NAVIGATION_DEPTH = 64
 
-/** [findMatchingEndTag]가 중첩 깊이의 균형을 맞출 수 있도록 `<navPoint …>`와 `</navPoint>`를 모두 매칭한다. */
-private val NcxNavPointTagPairRegex = Regex("""(?is)<(/?)navPoint\b[^>]*>""")
-
-/** `navPoint`의 `navLabel`/`text` 제목을 그룹 1에 캡처한다. */
-private val NcxNavLabelTextRegex = Regex("""(?is)<navLabel>.*?<text>(.*?)</text>.*?</navLabel>""")
-
-/** `navPoint`의 `content` `src` 링크 대상을 그룹 1에 캡처한다. */
-private val NcxContentSrcRegex = Regex("""(?is)<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*/?>""")
+/**
+ * NCX 한 문서에서 상태와 결과로 보관할 최대 `navPoint` 수. 대형 기술서 목차도 수용하면서
+ * 항목당 문자열과 객체의 누적 메모리를 제한하는 4,096개다.
+ */
+private const val MAX_NCX_NAVIGATION_ITEMS = 4_096
