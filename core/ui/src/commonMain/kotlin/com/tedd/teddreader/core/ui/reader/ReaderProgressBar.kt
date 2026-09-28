@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.extension.toOneBasedPageNumber
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.darkReaderStyle
@@ -127,7 +128,7 @@ fun ReaderPageLabel(
  * 아직 아무것도 측정되지 않은 책이 첫 페이지에 있다고 주장하지 않게 한다.
  * @return `"current / total"` 형식의 텍스트.
  */
-private fun PageIndex.pageLabel(current: Int = if (total == 0) 0 else this.current.toOneBasedPageNumber()): String = "$current / $total"
+private fun PageIndex.pageLabel(current: Int = if (total == 0) 0 else this.current.toOneBasedPageNumber()): String = "${current.toGroupedString()} / ${total.toGroupedString()}"
 
 /**
  * @receiver 렌더링할 page index.

@@ -68,6 +68,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
 import com.tedd.teddreader.core.common.model.AutoScrollMode
 import com.tedd.teddreader.core.common.model.DocumentFormat
@@ -1577,7 +1578,7 @@ private fun ReaderOutlineItem.displayTitle(): String = when {
  */
 @Composable
 private fun com.tedd.teddreader.core.common.model.ReaderLocation.displayLabel(): String = when (this) {
-    is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, pageIndex + 1)
+    is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, (pageIndex + 1).toGroupedString())
     is ReaderLocation.TextOffset -> stringResource(Res.string.reader_location_text_position, offset + 1)
     is ReaderLocation.EpubOffset -> stringResource(Res.string.reader_location_epub_section, spineIndex + 1)
 }
@@ -1608,7 +1609,7 @@ private fun GoToPageSheet(
     TeddOptionGroup(
         title = null,
         modifier = modifier,
-        description = stringResource(Res.string.go_to_page_description, totalPages),
+        description = stringResource(Res.string.go_to_page_description, totalPages.toGroupedString()),
     ) {
         Row(
             modifier = Modifier

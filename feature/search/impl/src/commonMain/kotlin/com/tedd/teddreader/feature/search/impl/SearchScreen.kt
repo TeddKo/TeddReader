@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.common.model.SearchResult
@@ -382,7 +383,7 @@ private fun buildSearchSupportingText(result: SearchResult): String = buildList 
  */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
-    is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, pageIndex + 1)
+    is ReaderLocation.PdfPage -> stringResource(Res.string.reader_location_page, (pageIndex + 1).toGroupedString())
     is ReaderLocation.TextOffset -> stringResource(Res.string.reader_location_text_position, offset + 1)
     is ReaderLocation.EpubOffset -> stringResource(Res.string.reader_location_epub_section, spineIndex + 1)
 }

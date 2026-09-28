@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.ReaderLocation
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -415,7 +416,7 @@ private fun buildBookmarkSupportingText(bookmark: Bookmark): String = bookmark.n
  */
 @Composable
 private fun ReaderLocation.displayLabel(): String = when (this) {
-    is ReaderLocation.PdfPage -> stringResource(Res.string.bookmark_location_pdf_page, pageIndex + 1)
+    is ReaderLocation.PdfPage -> stringResource(Res.string.bookmark_location_pdf_page, (pageIndex + 1).toGroupedString())
     is ReaderLocation.TextOffset -> stringResource(Res.string.bookmark_location_text_position, offset + 1)
     is ReaderLocation.EpubOffset -> stringResource(Res.string.bookmark_location_epub_position, spineIndex + 1, offset + 1)
 }

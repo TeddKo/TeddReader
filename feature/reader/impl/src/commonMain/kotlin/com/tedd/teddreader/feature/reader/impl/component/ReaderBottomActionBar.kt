@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -39,7 +40,7 @@ internal fun readerChapterPageLabel(chapterTitle: String?, chapterPageIndex: Pag
     if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
         null
     } else {
-        "$chapterTitle • ${chapterPageIndex.current + 1}/${chapterPageIndex.total}"
+        "$chapterTitle • ${(chapterPageIndex.current + 1).toGroupedString()}/${chapterPageIndex.total.toGroupedString()}"
     }
 
 /**
@@ -120,9 +121,9 @@ fun ReaderBottomActionBar(
     val documentPageLabel = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
     } else if (isPaginationComplete) {
-        "${latestSelectedPage + 1} / ${pageIndex.total}"
+        "${(latestSelectedPage + 1).toGroupedString()} / ${pageIndex.total.toGroupedString()}"
     } else {
-        "${latestSelectedPage + 1} / ${pageIndex.total}+"
+        "${(latestSelectedPage + 1).toGroupedString()} / ${pageIndex.total.toGroupedString()}+"
     }
     val chapterPageLabel = readerChapterPageLabel(chapterTitle, chapterPageIndex)
     val pageLabel = chapterPageLabel ?: documentPageLabel

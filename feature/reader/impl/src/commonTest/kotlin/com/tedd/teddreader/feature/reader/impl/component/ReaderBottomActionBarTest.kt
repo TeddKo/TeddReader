@@ -15,6 +15,14 @@ class ReaderBottomActionBarTest {
     }
 
     @Test
+    fun chapterPageLabelGroupsThousands() {
+        assertEquals(
+            "Chapter • 1,234/12,345",
+            readerChapterPageLabel("Chapter", PageIndex(current = 1_233, total = 12_345)),
+        )
+    }
+
+    @Test
     fun chapterPageLabelIsAbsentWithoutAUsableChapterPosition() {
         assertNull(readerChapterPageLabel(null, PageIndex(current = 0, total = 1)))
         assertNull(readerChapterPageLabel("Chapter", null))

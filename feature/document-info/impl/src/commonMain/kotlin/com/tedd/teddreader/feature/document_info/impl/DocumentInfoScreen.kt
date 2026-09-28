@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -401,7 +402,7 @@ internal fun formatReadingPace(
  * @param value 형식화할 수치다. 알 수 없으면 null이다.
  * @param unavailable [value]가 null일 때 표시할 텍스트다.
  */
-internal fun formatCount(value: Long?, unavailable: String = "Not available"): String = value?.toString() ?: unavailable
+internal fun formatCount(value: Long?, unavailable: String = "Not available"): String = value?.toGroupedString() ?: unavailable
 
 /**
  * 선택적인 페이지 수를 일반 텍스트로 렌더링한다. 아직 문서를 측정한 결과가 없으면
@@ -410,7 +411,7 @@ internal fun formatCount(value: Long?, unavailable: String = "Not available"): S
  * @param pageCount 형식화할 페이지 수다. 알 수 없으면 null이다.
  * @param unavailable [pageCount]가 null일 때 표시할 텍스트다.
  */
-internal fun formatPageCount(pageCount: Int?, unavailable: String = "Not available"): String = pageCount?.toString() ?: unavailable
+internal fun formatPageCount(pageCount: Int?, unavailable: String = "Not available"): String = pageCount?.toGroupedString() ?: unavailable
 
 /**
  * 독자가 마지막으로 읽던 위치를 현재 페이지 번호와 전체 페이지 번호를 이어붙인 형태로
@@ -428,7 +429,7 @@ internal fun formatPagePosition(
     separator: String = " of ",
 ): String {
     if (pageIndex == null || pageIndex.total <= 0) return unavailable
-    return "${pageIndex.current + 1}$separator${pageIndex.total}"
+    return "${(pageIndex.current + 1).toGroupedString()}$separator${pageIndex.total.toGroupedString()}"
 }
 
 /**
