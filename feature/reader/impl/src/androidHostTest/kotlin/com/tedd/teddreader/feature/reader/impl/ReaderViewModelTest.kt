@@ -397,6 +397,60 @@ class ReaderViewModelTest {
         )
     }
 
+    /** 페이지 나누기는 실제 픽셀 박스를 viewport로 저장소에 넘기고, 저장소가 밀도로 나누어 sp를 얻는다. */
+    @Test
+    fun measuredViewportReachesTheRepositoryInPixelsWithItsDensity() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-density")
+        val viewModel = createViewModel(
+            FakeDocumentRepository(documentId, paginatedText = "a".repeat(960)),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(
+            width = 320,
+            height = 560,
+            measuredWidthPx = 960,
+            measuredHeightPx = 1_680,
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            30,
+            viewModel.uiState.value.pageIndex.total,
+            "960px at density 3 must paginate by 320sp; passing the sp box as the viewport would divide it again",
+        )
+    }
+
+    /** 더 오래 걸린 이전 viewport reload는 최신 viewport가 발행한 페이지를 덮지 못한다. */
+    @Test
+    fun staleViewportReloadDoesNotOverwriteTheLatestViewport() = runTest(dispatcher) {
+        val documentId = DocumentId("doc-viewport-race")
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            paginatedText = "a".repeat(400),
+            freezeGetPageWindowsAtCallIndex = 1,
+        )
+        val viewModel = createViewModel(documentRepository)
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 200, height = 400)
+        advanceUntilIdle()
+        viewModel.reportMeasuredViewport(width = 400, height = 800)
+        advanceUntilIdle()
+        assertEquals(10, viewModel.uiState.value.pageIndex.total)
+
+        documentRepository.unfreezeGetPageWindows()
+        advanceUntilIdle()
+
+        assertEquals(
+            10,
+            viewModel.uiState.value.pageIndex.total,
+            "the non-cancellable 200sp request must not replace the newer 400sp result",
+        )
+    }
+
     /**
      * 텍스트 문서에 저장된 [ReaderLocation.TextOffset] 진행 상황은, [openDocument] 자체가 추정한
      * 기본 viewport가 아니라 실제 pane 측정을 대상으로 pagination이 실제로 실행된 뒤에 올바른
@@ -485,6 +539,26 @@ class ReaderViewModelTest {
         advanceUntilIdle()
 
         assertEquals(DocumentFormat.CBZ, viewModel.uiState.value.documentFormat)
+        assertContentEquals(imageBytes, viewModel.uiState.value.visualPageImages[0])
+    }
+
+    /** 캐시 예산보다 큰 현재 CBZ 페이지도 최초 로드 결과로는 화면에 전달된다. */
+    @Test
+    fun oversizedCurrentComicPageRemainsVisibleWithoutBeingCached() = runTest(dispatcher) {
+        val documentId = DocumentId("comic-oversized")
+        val imageBytes = ByteArray(24 * 1024 * 1024 + 1) { 7 }
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.CBZ,
+                pageCount = 1,
+                visualPageImages = mapOf(0 to imageBytes),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
         assertContentEquals(imageBytes, viewModel.uiState.value.visualPageImages[0])
     }
 
@@ -587,6 +661,49 @@ class ReaderViewModelTest {
         assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/pic.png"])
     }
 
+    /** 캐시 예산보다 큰 현재 EPUB 이미지도 최초 로드 결과로는 현재 페이지에 전달된다. */
+    @Test
+    fun oversizedCurrentEpubImageRemainsVisibleWithoutBeingCached() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-oversized-image")
+        val imageBytes = ByteArray(16 * 1024 * 1024 + 1) { 5 }
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.IMAGE,
+            range = TextRange(0, 1),
+            imageHref = "images/large.png",
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Oversized image",
+                    sections = emptyList(),
+                    blocks = listOf(block),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "\n",
+                        textRange = TextRange(0, 1),
+                        blocks = listOf(block),
+                    ),
+                ),
+                embeddedImages = mapOf("images/large.png" to imageBytes),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+
+        assertContentEquals(
+            imageBytes,
+            viewModel.uiState.value.currentPage.embeddedImages["images/large.png"],
+        )
+    }
+
     @Test
     fun openEpubDocumentPublishesEmbeddedFontFilesAndFailuresAfterFirstFrame() = runTest(dispatcher) {
         val documentId = DocumentId("epub-fonts")
@@ -683,6 +800,237 @@ class ReaderViewModelTest {
         )
         markDocumentOpenedGate.complete(Unit)
         advanceUntilIdle()
+    }
+
+    /** 사용자 폰트로 연 EPUB은 내장 폰트를 미루고 출판사 폰트로 전환할 때 한 번만 해석한다. */
+    @Test
+    fun userFontDefersEmbeddedFontLoadingUntilPublisherFontIsSelected() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-user-font")
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.PARAGRAPH,
+            range = TextRange(0, 4),
+            style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
+        )
+        val settingsRepository = FakeReaderSettingsRepository(
+            ReaderSettings(style = ReaderStyle(fontFamilyName = "serif")),
+        )
+        val documentRepository = FakeDocumentRepository(
+            documentId = documentId,
+            format = DocumentFormat.EPUB,
+            readerDocument = ReaderDocument(
+                id = documentId,
+                format = DocumentFormat.EPUB,
+                title = "User font",
+                sections = emptyList(),
+                blocks = listOf(block),
+            ),
+            pageWindows = listOf(
+                PageWindow(
+                    pageIndex = PageIndex(current = 0, total = 1),
+                    location = ReaderLocation.TextOffset(0),
+                    text = "font",
+                    textRange = TextRange(0, 4),
+                    blocks = listOf(block),
+                ),
+            ),
+            embeddedFontFiles = mapOf("fonts/body.otf" to "/tmp/body.otf"),
+        )
+        val viewModel = createViewModel(
+            documentRepository = documentRepository,
+            readerSettingsRepository = settingsRepository,
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        assertEquals(0, documentRepository.referencedEmbeddedFontRequests)
+        val requestsBeforeMeasurement = documentRepository.pageWindowRequests
+
+        viewModel.reportMeasuredViewport(width = 320, height = 560)
+        advanceUntilIdle()
+        assertTrue(documentRepository.pageWindowRequests > requestsBeforeMeasurement)
+
+        viewModel.updateFontFamily(null)
+        assertFalse(viewModel.uiState.value.areEmbeddedFontsResolved)
+        advanceUntilIdle()
+
+        assertEquals(1, documentRepository.referencedEmbeddedFontRequests)
+        assertEquals(
+            mapOf("fonts/body.otf" to "/tmp/body.otf"),
+            viewModel.uiState.value.embeddedFontFiles,
+        )
+    }
+
+    /** 보이는 CBZ 페이지와 양옆 짝 페이지는 예산 압박에도 남고, 가장 먼 페이지부터 축출된다. */
+    @Test
+    fun comicEvictionKeepsVisiblePagesAndTheirNeighboursAndDropsFarthestFirst() = runTest(dispatcher) {
+        val documentId = DocumentId("comic-eviction-order")
+        val images = (0..5).associateWith { page -> ByteArray(6 * 1024 * 1024) { page.toByte() } }
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.CBZ,
+                pageCount = 6,
+                visualPageImages = images,
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.moveToPage(2)
+        advanceUntilIdle()
+
+        assertEquals(setOf(1, 2, 3, 4), viewModel.uiState.value.visualPageImages.keys)
+    }
+
+    /** 예산보다 큰 CBZ 페이지는 같은 중심 페이지의 이후 발행에서도 사라지지 않는다. */
+    @Test
+    fun oversizedComicPageSurvivesLaterPublishesForTheSameCenter() = runTest(dispatcher) {
+        val documentId = DocumentId("comic-oversized-republish")
+        val big = ByteArray(24 * 1024 * 1024 + 1) { 9 }
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.CBZ,
+                pageCount = 2,
+                visualPageImages = mapOf(0 to big, 1 to byteArrayOf(2)),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.moveToPage(1)
+        advanceUntilIdle()
+
+        assertContentEquals(big, viewModel.uiState.value.visualPageImages[0])
+        assertContentEquals(byteArrayOf(2), viewModel.uiState.value.visualPageImages[1])
+    }
+
+    /** 이전 중심에서 시작된 CBZ 로드가 중심 이동 뒤에 끝나도 옛 중심의 예산 초과 페이지는 새 중심의 발행에 섞이지 않는다. */
+    @Test
+    fun staleComicLoadDoesNotPopulateOversizedSlotOfNewCenter() = runTest(dispatcher) {
+        val documentId = DocumentId("comic-oversized-stale-center")
+        val big = ByteArray(24 * 1024 * 1024 + 1) { 9 }
+        val visualPageImageGate = CompletableDeferred<Unit>()
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.CBZ,
+                pageCount = 8,
+                visualPageImages = (0..7).associateWith { page -> if (page == 0) big else byteArrayOf(page.toByte()) },
+                freezeVisualPageImagesAtCallIndex = 2,
+                visualPageImageGate = visualPageImageGate,
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        viewModel.moveToPage(7)
+        advanceUntilIdle()
+        viewModel.moveToPage(0)
+        advanceUntilIdle()
+        viewModel.moveToPage(7)
+        advanceUntilIdle()
+        visualPageImageGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(7, viewModel.uiState.value.pageIndex.current)
+        assertTrue(0 !in viewModel.uiState.value.visualPageImages.keys)
+    }
+
+    /** 폰트 해석이 이미지 로드 뒤에 끝나 페이지를 다시 발행해도 예산보다 큰 표지 이미지는 유지된다. */
+    @Test
+    fun oversizedEpubImageSurvivesLaterFontRefresh() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-oversized-font-refresh")
+        val imageBytes = ByteArray(16 * 1024 * 1024 + 1) { 5 }
+        val image = ReaderBlock(kind = ReaderBlockKind.IMAGE, range = TextRange(0, 1), imageHref = "images/large.png")
+        val text = ReaderBlock(
+            kind = ReaderBlockKind.PARAGRAPH,
+            range = TextRange(1, 5),
+            style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
+        )
+        val viewModel = createViewModel(
+            documentRepository = FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Oversized cover",
+                    sections = emptyList(),
+                    blocks = listOf(image, text),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "\nfont",
+                        textRange = TextRange(0, 5),
+                        blocks = listOf(image, text),
+                    ),
+                ),
+                embeddedImages = mapOf("images/large.png" to imageBytes),
+                embeddedFontFiles = mapOf("fonts/body.otf" to "/tmp/body.otf"),
+            ),
+            readerSettingsRepository = FakeReaderSettingsRepository(
+                ReaderSettings(style = ReaderStyle(fontFamilyName = "serif")),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/large.png"])
+
+        viewModel.updateFontFamily(null)
+        advanceUntilIdle()
+
+        assertEquals(mapOf("fonts/body.otf" to "/tmp/body.otf"), viewModel.uiState.value.embeddedFontFiles)
+        assertContentEquals(imageBytes, viewModel.uiState.value.currentPage.embeddedImages["images/large.png"])
+    }
+
+    /** 폰트 집합이 이미 확정된 EPUB에서 사용자 폰트를 거쳐 출판사 폰트로 돌아와도 측정 게이트는 닫히지 않는다. */
+    @Test
+    fun returningToPublisherFontKeepsSettledFontsResolved() = runTest(dispatcher) {
+        val documentId = DocumentId("epub-font-return")
+        val block = ReaderBlock(
+            kind = ReaderBlockKind.PARAGRAPH,
+            range = TextRange(0, 4),
+            style = ReaderBlockStyle(fontHref = "fonts/body.otf"),
+        )
+        val viewModel = createViewModel(
+            FakeDocumentRepository(
+                documentId = documentId,
+                format = DocumentFormat.EPUB,
+                readerDocument = ReaderDocument(
+                    id = documentId,
+                    format = DocumentFormat.EPUB,
+                    title = "Font return",
+                    sections = emptyList(),
+                    blocks = listOf(block),
+                ),
+                pageWindows = listOf(
+                    PageWindow(
+                        pageIndex = PageIndex(current = 0, total = 1),
+                        location = ReaderLocation.TextOffset(0),
+                        text = "font",
+                        textRange = TextRange(0, 4),
+                        blocks = listOf(block),
+                    ),
+                ),
+                embeddedFontFiles = mapOf("fonts/body.otf" to "/tmp/body.otf"),
+            ),
+        )
+
+        viewModel.openDocument(documentId.value)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.areEmbeddedFontsResolved)
+
+        viewModel.updateFontFamily("serif")
+        advanceUntilIdle()
+        viewModel.updateFontFamily(null)
+        assertTrue(viewModel.uiState.value.areEmbeddedFontsResolved)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.areEmbeddedFontsResolved)
     }
 
     @Test
@@ -2864,14 +3212,26 @@ class ReaderViewModelTest {
 private val FakePageBreaker = ReaderPageBreaker { _, _ -> IntArray(0) }
 
 /**
- * 리더 pane이 측정된 크기 [width] by [height]를 보고하는 것을 흉내 낸다. 실제 composition으로부터
- * [ReaderViewModel.updatePageBreaker]가 받게 될 것과 같은 호출이다. sp와 px 인자 둘 다 같은
- * [ViewportSize]를 받는다. [FakeDocumentRepository]는 오직 크기만 읽을 뿐, 그것이 두 단위 중 어느
- * 것으로 도착했는지는 읽지 않기 때문이다.
+ * 리더 pane이 sp viewport와 실제 픽셀 박스를 보고하는 것을 흉내 낸다.
+ *
+ * 기본값은 기존 테스트가 쓰던 1:1 크기(밀도 1)를 유지하고, 밀도 변환을 검증하는 테스트만 별도 픽셀
+ * 크기를 넘긴다. [FakeDocumentRepository]는 저장소가 받은 픽셀 viewport를 밀도로 나누어 페이지를
+ * 나눈다.
+ *
+ * @param width 보고할 sp 기준 너비.
+ * @param height 보고할 sp 기준 높이.
+ * @param measuredWidthPx 실제 측정된 픽셀 너비.
+ * @param measuredHeightPx 실제 측정된 픽셀 높이.
  */
-private fun ReaderViewModel.reportMeasuredViewport(width: Int, height: Int) {
-    val size = ViewportSize(widthPx = width, heightPx = height)
-    updatePageBreaker(uiState.value.style, size, size, FakePageBreaker)
+private fun ReaderViewModel.reportMeasuredViewport(
+    width: Int,
+    height: Int,
+    measuredWidthPx: Int = width,
+    measuredHeightPx: Int = height,
+) {
+    val viewportSp = ViewportSize(widthPx = width, heightPx = height)
+    val measuredSizePx = ViewportSize(widthPx = measuredWidthPx, heightPx = measuredHeightPx)
+    updatePageBreaker(uiState.value.style, viewportSp, measuredSizePx, FakePageBreaker)
 }
 
 /**
@@ -2897,6 +3257,9 @@ private fun ReaderViewModel.reportMeasuredViewport(width: Int, height: Int) {
  *   요청된 viewport에 맞춰 고정 크기 window로 [getPageWindows]가 pagination하는 원본 텍스트.
  * @property visualPageImages CBZ 문서에 대해 [getVisualPageImages]가 응답하는 디코딩된 페이지
  *   이미지.
+ * @property freezeVisualPageImagesAtCallIndex 설정되면, 그 번호의 [getVisualPageImages] 호출을
+ *   [visualPageImageGate]가 열릴 때까지 대기시켜, 테스트가 진행 중인 로드 도중의 중심 이동을 모델링할 수 있게 한다.
+ *   `visualPageImageGate`는 그 게이트로, 설정된 인덱스와 함께 쓰인다.
  * @property embeddedImages EPUB 문서에 대해 [getEmbeddedImages]가 응답하는 디코딩된 내장 이미지.
  * @property throwOnGetEmbeddedImagesCall 설정되면, 그 번호의 [getEmbeddedImages] 호출이 응답하기 전에
  *   throw하게 만들어, 테스트가 일시적인 preload 실패와 그 이후 재시도를 모델링할 수 있게 한다.
@@ -2984,6 +3347,8 @@ private class FakeDocumentRepository(
     private val paginatedText: String? = null,
     private val visualPageImages: Map<Int, ByteArray> = emptyMap(),
     private val throwOnGetVisualPageImagesCall: Int? = null,
+    private val freezeVisualPageImagesAtCallIndex: Int? = null,
+    private val visualPageImageGate: CompletableDeferred<Unit>? = null,
     private val embeddedImages: Map<String, ByteArray> = emptyMap(),
     private val embeddedFontFiles: Map<String, String> = emptyMap(),
     private val throwOnGetEmbeddedFontFilesCall: Int? = null,
@@ -3210,6 +3575,7 @@ private class FakeDocumentRepository(
     ): Map<Int, ByteArray> {
         val callIndex = visualPageImageRequests++
         if (callIndex == throwOnGetVisualPageImagesCall) error("visual page fetch failed")
+        if (callIndex == freezeVisualPageImagesAtCallIndex) visualPageImageGate?.await()
         return visualPageImages.filterKeys(pageIndexes::contains)
     }
 
@@ -3233,9 +3599,19 @@ private class FakeDocumentRepository(
         return embeddedFontFiles.filterKeys(hrefs::contains)
     }
 
-    /** 프로덕션 저장소가 응답하는 것과 같은 문서 전체 스캔을, 이 fake의 window들에 대해 수행한다. */
-    override suspend fun getReferencedEmbeddedFontHrefs(documentId: DocumentId): Set<String> =
-        pageWindows.orEmpty().asSequence()
+    /** 문서 전체 내장 폰트 참조 스캔이 실행된 횟수. */
+    var referencedEmbeddedFontRequests = 0
+        private set
+
+    /**
+     * 프로덕션 저장소가 응답하는 것과 같은 문서 전체 스캔을 이 fake의 window들에 대해 수행한다.
+     *
+     * @param documentId 참조 폰트를 조회할 문서 id.
+     * @return window의 블록과 span이 참조하는 모든 폰트 href.
+     */
+    override suspend fun getReferencedEmbeddedFontHrefs(documentId: DocumentId): Set<String> {
+        referencedEmbeddedFontRequests += 1
+        return pageWindows.orEmpty().asSequence()
             .flatMap { window -> window.blocks.asSequence() }
             .flatMap { block ->
                 sequenceOf(block.style?.fontHref)
@@ -3243,6 +3619,7 @@ private class FakeDocumentRepository(
             }
             .filterNotNull()
             .toSet()
+    }
 
     /**
      * [getPageWindows]가 호출된 횟수. reload가 일어났는지 일어나지 않았는지 단언하는 테스트가
@@ -3357,7 +3734,7 @@ private class FakeDocumentRepository(
             LazyBlockPageWindows(pageWindows, liveSections, ::warmedSectionsSnapshot, blocksBySection)
         } ?: pageWindows
     } else if (paginatedText != null) {
-        paginate(paginatedText, viewportSize ?: ViewportSize(widthPx = 320, heightPx = 560))
+        paginate(paginatedText, viewportSize ?: ViewportSize(widthPx = 320, heightPx = 560), viewportDensity)
     } else {
         listOf(
             PageWindow(
@@ -3377,11 +3754,16 @@ private class FakeDocumentRepository(
     }
 
     /**
-     * [text]를 [viewportSize]의 너비에 맞춘 고정 크기 window로 나눈다. 테스트가 정확한 측정이 아니라
+     * [text]를 [viewportSize]의 픽셀 너비를 [viewportDensity]로 나눈 sp 너비에 맞춘 고정 크기 window로
+     * 나눈다. 프로덕션 estimator와 같은 px 대 밀도 계약을 따르므로, 테스트가 정확한 측정이 아니라
      * 그럴듯한 페이지 수만 필요할 때 실제 pagination 엔진을 대신한다.
+     *
+     * @param text 나눌 전체 텍스트.
+     * @param viewportSize 저장소가 받은 픽셀 단위 viewport.
+     * @param viewportDensity [viewportSize]를 sp로 환산하는 sp당 픽셀 수.
      */
-    private fun paginate(text: String, viewportSize: ViewportSize): List<PageWindow> {
-        val charsPerPage = (viewportSize.widthPx / 10).coerceAtLeast(1)
+    private fun paginate(text: String, viewportSize: ViewportSize, viewportDensity: Float): List<PageWindow> {
+        val charsPerPage = (viewportSize.widthPx / viewportDensity / 10).toInt().coerceAtLeast(1)
         val starts = (0 until text.length step charsPerPage).toList()
         return starts.mapIndexed { index, start ->
             val end = (start + charsPerPage).coerceAtMost(text.length)
