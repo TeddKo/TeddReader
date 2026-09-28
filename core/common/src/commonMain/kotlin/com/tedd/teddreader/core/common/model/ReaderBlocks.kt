@@ -478,11 +478,28 @@ fun String.isBlankIgnoringObjects(): Boolean =
  * @return 텍스트 블록이 감싸지 않는 독립 블록, 즉 문장 안의 그림이 아닌 플레이트.
  */
 fun List<ReaderBlock>.standaloneBlocks(): List<ReaderBlock> {
-    val textRanges = filter { !it.kind.isStandalone() && it.kind != ReaderBlockKind.CONTAINER }.map { it.range }
+    val textRanges = filter { !it.kind.isStandalone() && it.kind != ReaderBlockKind.CONTAINER }
+        .map { it.range }
+        .sortedBy(TextRange::start)
     if (textRanges.isEmpty()) return filter { it.kind.isStandalone() }
+    val furthestEnd = LongArray(textRanges.size)
+    textRanges.indices.forEach { index ->
+        furthestEnd[index] = if (index == 0) {
+            textRanges[index].end
+        } else {
+            maxOf(furthestEnd[index - 1], textRanges[index].end)
+        }
+    }
     return filter { block ->
-        block.kind.isStandalone() &&
-            textRanges.none { range -> range.start <= block.range.start && range.end >= block.range.end }
+        if (!block.kind.isStandalone()) return@filter false
+        var low = 0
+        var high = textRanges.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (textRanges[middle].start <= block.range.start) low = middle + 1 else high = middle
+        }
+        val containingPrefix = low - 1
+        containingPrefix < 0 || furthestEnd[containingPrefix] < block.range.end
     }
 }
 
