@@ -1,6 +1,7 @@
 package com.tedd.teddreader.app.reader.importer
 
 import android.app.Activity
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -31,6 +32,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.getKoin
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.MessageDigest
 
 /**
  * Android의 `OpenMultipleDocuments` 선택기로 "파일 열기" 진입점을 열 때 사용하는 MIME 타입
@@ -94,17 +99,18 @@ internal actual fun rememberDocumentImporter(
         scope.launch {
             try {
                 val client = authorizationClient ?: error("Google Drive is unavailable on this device.")
-                val sources = fetchGoogleDriveImportSources(
-                    authorizationClient = client,
-                    pickerResult = result,
-                ).map { source ->
-                    source.copyMaterialized(documentFileSource)
-                }
-                val importResult = importDocuments(sources) { source ->
-                    documentRepository.importDocument(
-                        source = source,
-                        importedAtEpochMillis = System.currentTimeMillis(),
-                    ).id
+                val importResult = importDocuments(result.fileIds) { fileId ->
+                    withContext(Dispatchers.IO) {
+                        val source = fetchGoogleDriveImportSource(
+                            authorizationClient = client,
+                            pickerResult = result,
+                            fileId = fileId,
+                        ).copyMaterialized(documentFileSource)
+                        documentRepository.importDocument(
+                            source = source,
+                            importedAtEpochMillis = System.currentTimeMillis(),
+                        ).id
+                    }
                 }
                 dispatchBatchImportResult(importResult, importedCallback, errorCallback)
             } catch (cancellationException: CancellationException) {
@@ -143,7 +149,6 @@ internal actual fun rememberDocumentImporter(
                     uri = uri,
                     grantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     documentRepository = documentRepository,
-                    documentFileSource = documentFileSource,
                 )
             }
             dispatchBatchImportResult(result, importedCallback, errorCallback)
@@ -153,8 +158,11 @@ internal actual fun rememberDocumentImporter(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             try {
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val hasPersistedPermission = tryTakePersistableReadPermission {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
                 }
                 val documentUris = withContext(Dispatchers.IO) {
                     resolveSupportedTreeDocumentUris(context, uri)
@@ -165,7 +173,7 @@ internal actual fun rememberDocumentImporter(
                         uri = documentUri,
                         grantFlags = 0,
                         documentRepository = documentRepository,
-                        documentFileSource = documentFileSource,
+                        materializeInAppStorage = !hasPersistedPermission,
                     )
                 }
                 dispatchBatchImportResult(result, importedCallback, errorCallback)
@@ -244,7 +252,6 @@ internal actual fun rememberDocumentImporter(
                                 context = context,
                                 request = request,
                                 documentRepository = documentRepository,
-                                documentFileSource = documentFileSource,
                             ),
                         )
                     } catch (cancellationException: CancellationException) {
@@ -269,20 +276,17 @@ internal actual fun rememberDocumentImporter(
  * @param request 원본 인텐트에서 이미 해석한 대체 메타데이터를 제공하는 외부 전달 문서다.
  * @param documentRepository 해석된
  *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 가져온다.
- * @param documentFileSource 문서를 앱 저장소에 구체화한다.
  * @return 가져온 문서의 [DocumentId]다.
  */
 private suspend fun importExternalRequest(
     context: Context,
     request: ExternalDocumentImportRequest,
     documentRepository: DocumentRepository,
-    documentFileSource: AndroidDocumentFileSource,
 ): DocumentId = importUri(
     context = context,
     uri = Uri.parse(request.sourceUri),
     grantFlags = request.grantFlags,
     documentRepository = documentRepository,
-    documentFileSource = documentFileSource,
     overrideDisplayName = request.displayName,
     overrideMimeType = request.mimeType,
     overrideSizeBytes = request.sizeBytes,
@@ -298,17 +302,10 @@ private suspend fun importExternalRequest(
  * 인텐트 전달이 끝난 뒤에도 결과 [DocumentLocation]을 열 수 있게 한다. 이 처리가 없으면 해당
  * 컨텍스트가 끝날 때 권한이 취소되어 나중에 가져온 문서를 다시 열지 못한다.
  *
- * EPUB 또는 CBZ에서는 [bytes]를 여기서 읽지 않고 의도적으로 null로 둔다. 두 형식 모두 파서가
- * 필요에 따라 열고 탐색하는 zip 압축 파일이므로, 전체를 메모리로 읽은 뒤 파서가 즉시 임시 파일로
- * 다시 쓰게 하는 것은 낭비다. CBZ는 애초에 바이트가 필요하지도 않았으며 파일이 클수록 비용이 크다.
- * `DocumentFormatDetector`는 `displayName`/`mimeType`만으로 형식을 해석하므로 `bytes = null`이어도
- * 손실이 없다. 대신 `DocumentRepositoryImpl`의 점진적 가져오기가 CBZ 가져오기에서 기존에 하던 것과
- * 같은 방식으로 [DocumentLocation]의 자체 로컬 복사본을 스트리밍한다. 이 방식은 EPUB에도 적용된다.
- *
- * [materializeInAppStorage]가 요청되면 zip 형식은 [bytes] 없이 소스 URI에서 직접 스트리밍하는
- * [AndroidDocumentFileSource.materializeFromSource]로 복사하고, 나머지 형식은 이미 메모리에 읽은
- * 바이트를 [AndroidDocumentFileSource.materialize]에 전달해 복사한다. 요청되지 않으면 [location]
- * 자체를 그대로 저장하여 원본 `content://` URI를 문서 파일 소스로 유지한다.
+ * 외부 전달 문서와 지속 권한 획득에 실패한 SAF 문서는 provider가 보고한 크기를 먼저 검사하고,
+ * [copyDocumentWithLimit]로 실제 스트림 크기도 제한하면서 앱 저장소에 복사한다. TXT와 형식을 위치
+ * 정보만으로 확정할 수 없는 입력만 bounded [ByteArray]를 만들며, PDF·EPUB·CBZ·이미지는 구체화된
+ * 파일 위치에서 직접 파싱하여 전체 내용을 메모리에 중복 적재하지 않는다.
  *
  * @param context 문서를 해석하고 읽는 [ContentResolver]에 접근하는 데 사용한다.
  * @param uri 가져올 `content://` URI다.
@@ -316,7 +313,6 @@ private suspend fun importExternalRequest(
  *   지속할지 결정한다.
  * @param documentRepository 생성한
  *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 가져온다.
- * @param documentFileSource [materializeInAppStorage]가 true일 때 문서를 앱 저장소에 구체화한다.
  * @param overrideDisplayName [uri] 자체의 메타데이터에서 해석한 값보다 우선할 표시 이름이다. 외부
  *   가져오기 요청처럼 호출자가 이미 더 신뢰할 값을 해석한 경우 사용한다.
  * @param overrideMimeType [uri] 자체의 메타데이터에서 해석한 값보다 우선할 MIME 타입이다.
@@ -324,7 +320,8 @@ private suspend fun importExternalRequest(
  * @param overrideSizeBytes [uri] 자체의 메타데이터에서 해석한 값보다 우선할 크기다.
  *   [overrideDisplayName]과 같은 이유로 사용한다.
  * @param materializeInAppStorage 원본 `content://` URI를 계속 참조하지 않고 앱 전용 저장소로 문서를
- *   복사할지 나타낸다. 외부에서 전달된 문서는 true, SAF로 직접 선택한 문서는 false다.
+ *   복사할지 나타낸다. 외부에서 전달된 문서는 true다. false인 SAF 문서도 지속 권한 획득이 실패하면
+ *   안전한 fallback으로 구체화된다.
  * @return 가져온 문서의 [DocumentId]다.
  * @throws IllegalStateException 바이트가 필요할 때 [uri]를 읽기용으로 열 수 없으면 발생한다.
  */
@@ -333,46 +330,65 @@ private suspend fun importUri(
     uri: Uri,
     grantFlags: Int,
     documentRepository: DocumentRepository,
-    documentFileSource: AndroidDocumentFileSource,
     overrideDisplayName: String? = null,
     overrideMimeType: String? = null,
     overrideSizeBytes: Long? = null,
     materializeInAppStorage: Boolean = false,
-): DocumentId {
-    return withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        if ((grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) {
-            runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        }
-
-        val metadata = resolver.queryDocumentMetadata(uri)
-        val location = DocumentLocation(
-            sourceUri = uri.toString(),
-            displayName = overrideDisplayName ?: metadata.displayName ?: uri.lastPathSegment ?: uri.toString(),
-            mimeType = overrideMimeType ?: resolver.getType(uri),
-            sizeBytes = overrideSizeBytes ?: metadata.sizeBytes ?: 0L,
-        )
-        val extension = location.displayName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
-        val mimeType = location.mimeType?.lowercase()
-        val isCbzImport = extension == "cbz" || mimeType == "application/vnd.comicbook+zip" || mimeType == "application/x-cbz"
-        val isEpubImport = extension == "epub" || mimeType == "application/epub+zip"
-        val bytes = if (isCbzImport || isEpubImport) {
-            null
-        } else {
-            resolver.openInputStream(uri)?.use { input -> input.readBytes() }
-                ?: error("Cannot open document: $uri")
-        }
-        val persistedLocation = when {
-            !materializeInAppStorage -> location
-            isCbzImport || isEpubImport -> documentFileSource.materializeFromSource(location)
-            else -> documentFileSource.materialize(location, requireNotNull(bytes))
-        }
-        val document = documentRepository.importDocument(
-            source = DocumentImportSource(location = persistedLocation, bytes = bytes),
-            importedAtEpochMillis = System.currentTimeMillis(),
-        )
-        document.id
+): DocumentId = withContext(Dispatchers.IO) {
+    check(uri.scheme == ContentResolver.SCHEME_CONTENT) { "Unsupported document URI: $uri" }
+    val resolver = context.contentResolver
+    val readGrant = grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+    val hasPersistedPermission = readGrant == 0 || tryTakePersistableReadPermission {
+        resolver.takePersistableUriPermission(uri, readGrant)
     }
+
+    val metadata = resolver.queryDocumentMetadata(uri)
+    val displayName = overrideDisplayName ?: metadata.displayName ?: uri.lastPathSegment ?: uri.toString()
+    val mimeType = overrideMimeType ?: resolver.getType(uri)
+    val reportedSize = overrideSizeBytes ?: metadata.sizeBytes ?: 0L
+    requireDocumentSizeWithinLimit(sizeBytes = reportedSize, displayName = displayName)
+    val location = DocumentLocation(
+        sourceUri = uri.toString(),
+        displayName = displayName,
+        mimeType = mimeType,
+        sizeBytes = reportedSize,
+    )
+    val shouldMaterialize = materializeInAppStorage || !hasPersistedPermission
+    val persistedLocation = if (shouldMaterialize) {
+        materializeContentUriWithLimit(
+            context = context,
+            resolver = resolver,
+            uri = uri,
+            location = location,
+        )
+    } else {
+        location
+    }
+    val bytes = if (persistedLocation.requiresImportBytes()) {
+        val sourceUri = Uri.parse(persistedLocation.sourceUri)
+        val input = when (sourceUri.scheme) {
+            ContentResolver.SCHEME_FILE -> File(sourceUri.path ?: error("Cannot open document: $sourceUri")).inputStream()
+            ContentResolver.SCHEME_CONTENT -> resolver.openInputStream(sourceUri)
+            else -> null
+        } ?: error("Cannot open document: $sourceUri")
+        input.use { stream ->
+            val output = java.io.ByteArrayOutputStream()
+            copyDocumentWithLimit(
+                input = stream,
+                output = output,
+                maximumBytes = MaximumDocumentImportBytes,
+                displayName = displayName,
+            )
+            output.toByteArray()
+        }
+    } else {
+        null
+    }
+    val document = documentRepository.importDocument(
+        source = DocumentImportSource(location = persistedLocation, bytes = bytes),
+        importedAtEpochMillis = System.currentTimeMillis(),
+    )
+    document.id
 }
 
 /**
@@ -384,16 +400,146 @@ private suspend fun importUri(
  * @receiver 전체 콘텐츠를 [DocumentImportSource.bytes]에 담고 있는, Drive에서 다운로드한 구체화할
  *   소스다.
  * @param documentFileSource 앱 저장소에 실제 복사를 수행한다.
- * @return 새로 구체화한 [DocumentLocation]을 가리키는 이 소스의 복사본이다.
+ * @return 새로 구체화한 [DocumentLocation]을 가리키며, TXT 또는 형식 감지에 필요한 경우에만
+ *   [DocumentImportSource.bytes]를 유지하는 소스다.
  */
 private suspend fun DocumentImportSource.copyMaterialized(
     documentFileSource: AndroidDocumentFileSource,
 ): DocumentImportSource {
     val sourceBytes = bytes
+    val materializedLocation = if (sourceBytes != null) {
+        documentFileSource.materialize(location, sourceBytes)
+    } else {
+        documentFileSource.materializeFromSource(location)
+    }
     return DocumentImportSource(
-        location = if (sourceBytes != null) documentFileSource.materialize(location, sourceBytes) else documentFileSource.materializeFromSource(location),
-        bytes = sourceBytes,
+        location = materializedLocation,
+        bytes = sourceBytes?.takeIf { materializedLocation.requiresImportBytes() },
     )
+}
+
+/** 실제 바이트 상한 검사 중 한 번에 할당하는 복사 버퍼 크기다. */
+private const val AndroidImportCopyBufferBytes = 8 * 1024
+
+/** 구체화 파일명에서 보존할 확장자의 최대 길이로 core:data의 저장 규칙과 일치한다. */
+private const val AndroidMaterializedExtensionLength = 8
+
+/**
+ * 지속 읽기 권한 획득을 시도하고 provider가 이를 지원하지 않는 경우에만 앱 저장소 fallback을
+ * 요청한다. 예상 밖 런타임 오류는 저장 성공으로 오인하지 않도록 그대로 전파한다.
+ *
+ * @param takePermission Android `ContentResolver`에 지속 권한을 요청하는 작업이다.
+ * @return 권한 획득에 성공하면 true, 일시 권한만 제공되어 `SecurityException`이 발생하면 false다.
+ */
+internal inline fun tryTakePersistableReadPermission(takePermission: () -> Unit): Boolean =
+    try {
+        takePermission()
+        true
+    } catch (_: SecurityException) {
+        false
+    }
+
+/**
+ * 입력 스트림을 출력 스트림으로 복사하면서 실제 읽은 바이트 수가 지정 경계를 넘지 않게 한다.
+ * provider의 크기 메타데이터가 없거나 거짓이어도 초과분은 출력하지 않고 실패한다.
+ *
+ * @param input 원본 문서 스트림이다.
+ * @param output 앱 소유 파일이나 bounded 메모리 버퍼의 대상 스트림이다.
+ * @param maximumBytes 허용할 최대 실제 바이트 수다.
+ * @param displayName 초과 오류에서 문서를 식별할 이름이다.
+ * @return 출력에 기록한 실제 바이트 수다.
+ * @throws IllegalStateException 실제 읽은 크기가 [maximumBytes]를 넘으면 발생한다.
+ */
+internal fun copyDocumentWithLimit(
+    input: InputStream,
+    output: OutputStream,
+    maximumBytes: Long,
+    displayName: String,
+): Long {
+    val buffer = ByteArray(AndroidImportCopyBufferBytes)
+    var copiedBytes = 0L
+    while (true) {
+        val readBytes = input.read(buffer)
+        if (readBytes < 0) return copiedBytes
+        if (readBytes == 0) continue
+        check(copiedBytes + readBytes <= maximumBytes) {
+            "Document is too large: $displayName (maximum $maximumBytes bytes)."
+        }
+        output.write(buffer, 0, readBytes)
+        copiedBytes += readBytes
+    }
+}
+
+/**
+ * content provider 문서를 앱의 `files/documents` 아래 결정적 파일로 bounded 스트리밍한다. 같은 원본은
+ * core:data의 SHA-1 기반 이름 규칙과 같은 경로를 사용하므로 반복 import가 중복 파일이나 새 문서 id를
+ * 만들지 않는다. 완성 전 데이터는 `.part` 파일에 두어 실패한 복사가 기존 사본을 손상시키지 않는다.
+ *
+ * @param context 앱 소유 문서 디렉터리를 해석할 Android context다.
+ * @param resolver [uri]를 읽을 content resolver다.
+ * @param uri 복사할 content URI다.
+ * @param location 원본 URI와 표시 메타데이터를 담은 위치다.
+ * @return 앱 소유 `file` URI와 실제 크기로 갱신된 위치다.
+ * @throws IllegalStateException 원본을 열 수 없거나 실제 크기가 상한을 넘거나 파일 교체가 실패하면
+ *   발생한다.
+ */
+private fun materializeContentUriWithLimit(
+    context: Context,
+    resolver: android.content.ContentResolver,
+    uri: Uri,
+    location: DocumentLocation,
+): DocumentLocation {
+    val directory = File(context.filesDir, "documents").apply { mkdirs() }
+    val destination = File(directory, androidMaterializedDocumentFileName(location))
+    if (destination.exists() && destination.length() > 0L) {
+        requireDocumentSizeWithinLimit(destination.length(), location.displayName)
+        return location.copy(sourceUri = Uri.fromFile(destination).toString(), sizeBytes = destination.length())
+    }
+
+    val part = File(directory, "${destination.name}.part")
+    if (part.exists()) check(part.delete()) { "Cannot replace temporary document: $part" }
+    try {
+        val input = resolver.openInputStream(uri) ?: error("Cannot open document: $uri")
+        val copiedBytes = input.use { source ->
+            part.outputStream().use { target ->
+                copyDocumentWithLimit(
+                    input = source,
+                    output = target,
+                    maximumBytes = MaximumDocumentImportBytes,
+                    displayName = location.displayName,
+                )
+            }
+        }
+        if (destination.exists()) check(destination.delete()) { "Cannot replace materialized document: $destination" }
+        check(part.renameTo(destination)) { "Cannot materialize document: $destination" }
+        return location.copy(sourceUri = Uri.fromFile(destination).toString(), sizeBytes = copiedBytes)
+    } finally {
+        if (part.exists()) part.delete()
+    }
+}
+
+/**
+ * core:data와 같은 원본 URI SHA-1 및 안전한 확장자 규칙으로 앱 소유 파일 이름을 만든다. 반복 import가
+ * 같은 파일을 가리키도록 core:data의 `materializedDocumentFileName`과 규칙이 항상 동일하게 유지되어야
+ * 한다.
+ *
+ * @param location 파일 이름을 만들 원본 위치다.
+ * @return 반복 import에서도 안정적인 파일 이름이다.
+ */
+private fun androidMaterializedDocumentFileName(location: DocumentLocation): String {
+    val name = location.displayName.substringAfterLast('/').substringAfterLast('\\')
+    val extension = name.substringAfterLast('.', missingDelimiterValue = "")
+        .takeIf {
+            it.isNotBlank() &&
+                it.length <= AndroidMaterializedExtensionLength &&
+                it.all(Char::isLetterOrDigit)
+        }
+    val digest = MessageDigest.getInstance("SHA-1").digest(location.sourceUri.encodeToByteArray())
+    val hash = digest.joinToString(separator = "") { byte ->
+        val value = byte.toInt() and 0xff
+        value.toString(16).padStart(2, '0')
+    }
+    return if (extension == null) hash else "$hash.$extension"
 }
 
 /**

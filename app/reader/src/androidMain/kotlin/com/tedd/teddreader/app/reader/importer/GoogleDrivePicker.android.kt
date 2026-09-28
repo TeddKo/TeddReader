@@ -94,31 +94,30 @@ internal suspend fun AuthorizationClient.clearAccessToken(token: String) {
 }
 
 /**
- * 완료된 Google Drive 선택에서 고른 모든 파일을 다운로드한다. Drive 토큰은 수명이 짧아 배치
- * 가져오기보다 먼저 만료될 수 있으므로 다운로드가 인증 실패를 반환하면 액세스 토큰을 지우고 명확한
- * 메시지를 발생시킨다.
+ * 선택한 Google Drive 파일 하나를 다운로드한다. 호출자가 이 함수의 반환값을 즉시 구체화하고
+ * 가져오도록 파일 id 단위 API를 제공하여 여러 선택 파일의 바이트 배열을 동시에 보관하지 않는다.
+ * 인증 실패에서는 발급 토큰을 지운 뒤 재인증 가능한 오류를 반환한다.
  *
  * @param authorizationClient 토큰을 발급한 client이며 401 응답에서 토큰을 지우는 데 사용한다.
- * @param pickerResult 액세스 토큰과 다운로드할 id를 담은 완료된 선택 결과다.
- * @return [GoogleDrivePickerResult.fileIds]에 나열된 순서대로 선택한 파일마다 하나의
- *   [com.tedd.teddreader.core.domain.repository.DocumentImportSource]를 반환한다.
+ * @param pickerResult 액세스 토큰과 선택한 파일 id를 담은 완료된 선택 결과다.
+ * @param fileId 지금 다운로드할 선택 파일 id다.
+ * @return 다운로드가 끝난 한 파일의 import source다.
  * @throws java.io.IOException 다운로드가 실패하면 발생한다. 토큰이 만료된 `HTTP 401`에는 설명
  *   메시지를 포함한다.
  */
-internal suspend fun fetchGoogleDriveImportSources(
+internal suspend fun fetchGoogleDriveImportSource(
     authorizationClient: AuthorizationClient,
     pickerResult: GoogleDrivePickerResult,
-): List<com.tedd.teddreader.core.domain.repository.DocumentImportSource> = withContext(Dispatchers.IO) {
-    pickerResult.fileIds.map { fileId ->
-        try {
-            fetchGoogleDriveImportSource(fileId = fileId, accessToken = pickerResult.accessToken)
-        } catch (exception: GoogleDriveHttpException) {
-            if (exception.statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
-                authorizationClient.clearAccessToken(pickerResult.accessToken)
-                throw IOException("Google Drive session expired (HTTP 401). Please try again.", exception)
-            }
-            throw exception
+    fileId: String,
+): com.tedd.teddreader.core.domain.repository.DocumentImportSource = withContext(Dispatchers.IO) {
+    try {
+        fetchGoogleDriveImportSource(fileId = fileId, accessToken = pickerResult.accessToken)
+    } catch (exception: GoogleDriveHttpException) {
+        if (exception.statusCode == HttpURLConnection.HTTP_UNAUTHORIZED) {
+            authorizationClient.clearAccessToken(pickerResult.accessToken)
+            throw IOException("Google Drive session expired (HTTP 401). Please try again.", exception)
         }
+        throw exception
     }
 }
 
@@ -142,6 +141,7 @@ private fun fetchGoogleDriveImportSource(
     val metadata = fetchGoogleDriveMetadata(fileId = fileId, accessToken = accessToken)
     check(metadata.canDownload) { "Google Drive file cannot be downloaded: ${metadata.name}" }
     check(metadata.isImportSupported()) { "Unsupported Google Drive document: ${metadata.name}" }
+    requireDocumentSizeWithinLimit(sizeBytes = metadata.sizeBytes, displayName = metadata.name)
     val bytes = downloadGoogleDriveFile(fileId = fileId, accessToken = accessToken)
     check(bytes.isNotEmpty()) { "Google Drive file is empty: ${metadata.name}" }
     return metadata.toDocumentImportSource(bytes)
@@ -162,6 +162,8 @@ private fun fetchGoogleDriveMetadata(
         executeGoogleDriveRequest(
             url = googleDriveMetadataUrl(fileId),
             accessToken = accessToken,
+            maximumBytes = MaximumGoogleDriveMetadataBytes,
+            responseName = "Google Drive metadata",
         ).decodeToString(),
     )
 
@@ -178,6 +180,8 @@ private fun downloadGoogleDriveFile(
 ): ByteArray = executeGoogleDriveRequest(
     url = googleDriveDownloadUrl(fileId),
     accessToken = accessToken,
+    maximumBytes = MaximumDocumentImportBytes,
+    responseName = "Google Drive document",
 )
 
 /**
@@ -186,12 +190,17 @@ private fun downloadGoogleDriveFile(
  *
  * @param url [googleDriveMetadataUrl] 또는 [googleDriveDownloadUrl]이 구성한 전체 요청 URL이다.
  * @param accessToken `Authorization` 헤더에 보낼 bearer 토큰이다.
+ * @param maximumBytes 응답 본문에 허용할 최대 실제 바이트 수다.
+ * @param responseName 크기 초과 오류에서 응답을 식별할 이름이다.
  * @return 응답 본문의 원본 바이트다.
  * @throws GoogleDriveHttpException 응답 상태가 200-299 범위 밖이면 발생한다.
+ * @throws IllegalStateException 보고되거나 실제 읽은 응답 크기가 [maximumBytes]를 넘으면 발생한다.
  */
 private fun executeGoogleDriveRequest(
     url: String,
     accessToken: String,
+    maximumBytes: Long,
+    responseName: String,
 ): ByteArray {
     val connection = (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
@@ -207,7 +216,22 @@ private fun executeGoogleDriveRequest(
         if (statusCode !in 200..299) {
             throw GoogleDriveHttpException(statusCode = statusCode)
         }
-        httpConnection.inputStream.use { inputStream -> inputStream.readBytes() }
+        val contentLength = httpConnection.contentLengthLong
+        if (contentLength > 0L) {
+            check(contentLength <= maximumBytes) {
+                "$responseName is too large (maximum $maximumBytes bytes)."
+            }
+        }
+        httpConnection.inputStream.use { inputStream ->
+            val output = java.io.ByteArrayOutputStream()
+            copyDocumentWithLimit(
+                input = inputStream,
+                output = output,
+                maximumBytes = maximumBytes,
+                displayName = responseName,
+            )
+            output.toByteArray()
+        }
     }
 }
 

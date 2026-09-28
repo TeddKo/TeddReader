@@ -52,6 +52,26 @@ class DocumentImporterTest {
         assertEquals("IllegalStateException", result.firstFailureReason)
     }
 
+    /** 문서 크기 상한 이하의 알려진 크기는 정상 가져오기 대상으로 유지되는지 검증한다. */
+    @Test
+    fun documentSizeLimitAcceptsMaximumSize() {
+        requireDocumentSizeWithinLimit(
+            sizeBytes = MaximumDocumentImportBytes,
+            displayName = "maximum.cbz",
+        )
+    }
+
+    /** provider가 보고한 크기가 상한을 넘으면 다운로드나 파싱 전에 거부되는지 검증한다. */
+    @Test
+    fun documentSizeLimitRejectsReportedOversize() {
+        assertFailsWith<IllegalStateException> {
+            requireDocumentSizeWithinLimit(
+                sizeBytes = MaximumDocumentImportBytes + 1L,
+                displayName = "oversize.pdf",
+            )
+        }
+    }
+
     @Test
     fun importDocumentsRethrowsCancellationException() = runTest {
         val cancellation = CancellationException("cancel import")

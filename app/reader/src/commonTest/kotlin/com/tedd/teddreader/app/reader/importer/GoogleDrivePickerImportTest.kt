@@ -1,5 +1,6 @@
 package com.tedd.teddreader.app.reader.importer
 
+import com.tedd.teddreader.core.common.model.DocumentLocation
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -144,6 +145,45 @@ class GoogleDrivePickerImportTest {
                 fileIds = emptyList(),
             )
         }
+    }
+
+    /** 앱 파일 위치에서 직접 처리하는 PDF는 전체 ByteArray를 요구하지 않는지 검증한다. */
+    @Test
+    fun materializedPdfDoesNotRequireImportBytes() {
+        val location = DocumentLocation(
+            sourceUri = "file:///documents/book.pdf",
+            displayName = "book.pdf",
+            mimeType = "application/pdf",
+            sizeBytes = 100L,
+        )
+
+        assertFalse(location.requiresImportBytes())
+    }
+
+    /** 지속 권한으로 원본 content URI를 보관한 PDF는 메타데이터 리더가 직접 열 수 없어 바이트를 요구하는지 검증한다. */
+    @Test
+    fun contentUriPdfRequiresImportBytes() {
+        val location = DocumentLocation(
+            sourceUri = "content://com.android.providers.media.documents/document/book.pdf",
+            displayName = "book.pdf",
+            mimeType = "application/pdf",
+            sizeBytes = 100L,
+        )
+
+        assertTrue(location.requiresImportBytes())
+    }
+
+    /** 텍스트 디코더 입력인 TXT는 앱 파일 구체화 뒤에도 전체 ByteArray를 요구하는지 검증한다. */
+    @Test
+    fun materializedTextRequiresImportBytes() {
+        val location = DocumentLocation(
+            sourceUri = "file:///documents/book.txt",
+            displayName = "book.txt",
+            mimeType = "text/plain",
+            sizeBytes = 100L,
+        )
+
+        assertTrue(location.requiresImportBytes())
     }
 
     @Test

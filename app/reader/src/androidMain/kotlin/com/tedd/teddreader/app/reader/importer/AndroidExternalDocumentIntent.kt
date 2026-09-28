@@ -17,8 +17,10 @@ import android.provider.OpenableColumns
  *   열기"를 실행하는 [Intent.ACTION_VIEW]에 사용한다.
  * @param streamUri 문자열로 표현한 인텐트의 `EXTRA_STREAM` URI다. 공유 시트 대상인
  *   [Intent.ACTION_SEND]에 사용한다.
- * @return 문서를 식별하는 URI 문자열이다. [action]이 지원하는 액션이 아니거나 해당 URI 필드가
- *   null이면 null이다.
+ * @return 문서를 식별하는 `content` URI 문자열이다. [action]이 지원하는 액션이 아니거나 해당 URI
+ *   필드가 null이거나 외부 앱에 허용하지 않는 scheme이면 null이다. `file` URI는 앱 프로세스가 읽을 수
+ *   있는 내부 경로를 외부 호출자가 지정할 수 있고 현대 Android 공유 계약도 `content` URI를 요구하므로
+ *   허용하지 않는다.
  */
 internal fun externalDocumentUriString(
     action: String?,
@@ -28,6 +30,8 @@ internal fun externalDocumentUriString(
     Intent.ACTION_VIEW -> dataUri
     Intent.ACTION_SEND -> streamUri
     else -> null
+}?.takeIf { sourceUri ->
+    sourceUri.substringBefore(':', missingDelimiterValue = "").equals(ContentResolver.SCHEME_CONTENT, ignoreCase = true)
 }
 
 /**
