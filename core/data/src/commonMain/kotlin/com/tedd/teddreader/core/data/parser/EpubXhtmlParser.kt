@@ -67,7 +67,8 @@ internal data class XhtmlContent(
  *   버려야 하면 null을 반환한다 — 예: 이 리더가 가져올 수 없는 원격 `http(s)://` URL.
  * @param css 이 챕터 요소 계층에 적용되는 전체 CSS 캐스케이드 — 정렬, 굵기, 스타일, 글꼴 패밀리,
  *   줄 높이, 들여쓰기, 단락 간격, 이미지 너비 모두 포함. 기본값은 [EpubCss.Empty].
- * @return 이 챕터에 대한 평탄화된 [XhtmlContent].
+ * @return 이 챕터에 대한 평탄화된 [XhtmlContent]. 열린 요소 계층이 [MAX_EPUB_XHTML_ELEMENT_DEPTH]를
+ *   넘는 챕터는 예외 없이 빈 콘텐츠가 되어, 점진적 가져오기가 해당 섹션을 건너뛰고 다음으로 진행한다.
  */
 internal fun parseXhtmlContent(
     xhtml: String,
@@ -81,6 +82,7 @@ internal fun parseXhtmlContent(
         css = css,
     )
     var index = 0
+    val openElementNames = mutableListOf<String>()
     while (index < xhtml.length) {
         val tagStart = xhtml.indexOf('<', index)
         if (tagStart < 0) {
@@ -119,10 +121,51 @@ internal fun parseXhtmlContent(
             continue
         }
 
-        if (tag.isClosing) builder.closeElement(tag.name) else builder.openElement(tag)
+        if (tag.isClosing) {
+            builder.closeElement(tag.name)
+            openElementNames.indexOfLast { name -> name == tag.name }
+                .takeIf { openIndex -> openIndex >= 0 }
+                ?.let(openElementNames::removeAt)
+        } else {
+            val tracksDepth = !tag.isSelfClosing && tag.name !in VoidElements
+            if (tracksDepth) {
+                if (tag.name in ImplicitlyClosedElements && openElementNames.lastOrNull() == tag.name) {
+                    openElementNames.removeAt(openElementNames.lastIndex)
+                }
+                if (openElementNames.size >= MAX_EPUB_XHTML_ELEMENT_DEPTH) {
+                    return XhtmlContentBuilder(
+                        baseOffset = baseOffset,
+                        resolveImageHref = resolveImageHref,
+                        css = css,
+                    ).build()
+                }
+                openElementNames += tag.name
+            }
+            if (tag.isSelfClosing) {
+                val mark = builder.markOpenState()
+                builder.openElement(tag)
+                builder.closeOpenedSince(mark, tag.name)
+            } else {
+                builder.openElement(tag)
+            }
+        }
     }
     return builder.build()
 }
+
+/**
+ * 닫는 태그가 없는 HTML 빈 요소. 열린 요소 깊이 계산에서 제외되지 않으면 슬래시 없는 `<br>`이 챕터 안에서
+ * 쌓여 정상 챕터가 깊이 상한에 걸린다.
+ */
+private val VoidElements = setOf(
+    "br", "img", "hr", "col", "wbr", "input", "source", "area", "embed", "meta", "link", "param", "track", "base",
+)
+
+/**
+ * 같은 이름의 요소가 바로 이어 열리면 앞의 것이 묵시적으로 닫히는 HTML 요소. 닫는 태그 없는 `<p>`/`<li>`가
+ * 깊이로 누적되지 않게 한다.
+ */
+private val ImplicitlyClosedElements = setOf("p", "li")
 
 /**
  * [from] 이후에서 [marker]가 처음 나타나는 위치의 바로 다음 인덱스를 반환하고,
@@ -173,6 +216,27 @@ private fun parseTagAttributes(body: String): Map<String, String> =
     }
 
 /**
+ * [XhtmlContentBuilder.markOpenState]가 기록한 열린 상태 크기들. 자체 닫는 태그가 쌓은 항목만 되돌리는 기준이다.
+ *
+ * @property inline 열린 인라인 스팬 수.
+ * @property blocks 열린 블록·컨테이너 요소 수.
+ * @property containers 열린 시각 컨테이너 수.
+ * @property hidden 숨김 요소 수.
+ * @property lists 열린 리스트 수.
+ * @property tables 열린 표 수.
+ * @property preformatted `<pre>` 중첩 깊이.
+ */
+private class OpenStateMark(
+    val inline: Int,
+    val blocks: Int,
+    val containers: Int,
+    val hidden: Int,
+    val lists: Int,
+    val tables: Int,
+    val preformatted: Int,
+)
+
+/**
  * [XhtmlContentBuilder]의 스택에 현재 열려 있는 요소. CSS 계층 매칭과 이름 기반 닫기를 위해 보관한다.
  */
 private class OpenElement(
@@ -186,13 +250,9 @@ private class OpenElement(
     val inlineDeclarations: CssDeclarations = CssDeclarations.Empty,
     /** 이 요소의 완전히 해석된 스타일; [ComputedStyle] 참조. */
     val computed: ComputedStyle = ComputedStyle.Root,
-) {
-    /**
-     * [EpubCss.declarationsFor]가 필요로 하는 형태로 이 요소를 표현한 것. 한 번 빌드되어
-     * 모든 자식의 캐스케이드 조회에 재사용된다.
-     */
-    val cssElement: CssElement = CssElement(tag = name, classes = classNames.toSet(), id = id)
-}
+    /** [EpubCss.declarationsFor]가 CSS 계층 매칭에 재사용하는 요소 표현. */
+    val cssElement: CssElement,
+)
 
 /**
  * 해석기가 전달하는 `line-height`: 적용될 글꼴의 배율 인수로 남아 있거나,
@@ -440,6 +500,10 @@ private class XhtmlContentBuilder(
      * 모두 순회하는 계층.
      */
     private val openBlocks = mutableListOf<OpenElement>()
+
+    /** [openBlocks]와 같은 순서로 유지되어 태그마다 조상 목록을 새로 만들지 않는 CSS 계층. */
+    private val cssAncestry = mutableListOf<CssElement>()
+
     private val openContainers = mutableListOf<OpenContainer>()
     private val hiddenElements = mutableListOf<String>()
 
@@ -567,13 +631,13 @@ private class XhtmlContentBuilder(
 
             "ol", "ul" -> {
                 lists += ListContext(isOrdered = tag.name == "ol", nextOrdinal = tag.attributes.startOrdinal())
-                openBlocks += currentElement
+                pushOpenBlock(currentElement)
                 return
             }
 
             "table" -> {
                 tables += TableContext()
-                openBlocks += currentElement
+                pushOpenBlock(currentElement)
                 return
             }
 
@@ -582,7 +646,7 @@ private class XhtmlContentBuilder(
                     table.rowIndex += 1
                     table.columnIndex = -1
                 }
-                openBlocks += currentElement
+                pushOpenBlock(currentElement)
                 return
             }
         }
@@ -615,7 +679,7 @@ private class XhtmlContentBuilder(
                 if (tag.name in PureInlineContainers) {
                     ensureBlockOpen()
                     val delta = currentElement.computed.toSpanDelta(spanDeltaBase(), css)
-                    openBlocks += currentElement
+                    pushOpenBlock(currentElement)
                     if (delta != null) {
                         flushPendingSpace()
                         openInline += OpenSpan(
@@ -628,7 +692,7 @@ private class XhtmlContentBuilder(
                         )
                     }
                 } else {
-                    openBlocks += currentElement
+                    pushOpenBlock(currentElement)
                     maybeOpenContainer(tag.name, currentElement.computed.toReaderBlockStyle(css))
                 }
             }
@@ -636,7 +700,7 @@ private class XhtmlContentBuilder(
         }
 
         flushBlock()
-        openBlocks += currentElement
+        pushOpenBlock(currentElement)
         maybeOpenContainer(tag.name, currentElement.computed.toReaderBlockStyle(css))
         blockComputed = currentElement.computed
         blockStyle = currentElement.computed.toReaderBlockStyle(css)
@@ -669,6 +733,42 @@ private class XhtmlContentBuilder(
     }
 
     /**
+     * [openElement] 직전의 열린 상태 크기를 기록한다. 자체 닫는 태그가 실제로 쌓은 것만 되돌리기 위한 기준이다.
+     *
+     * @return [closeOpenedSince]에 넘길 기준점.
+     */
+    fun markOpenState() = OpenStateMark(
+        inline = openInline.size,
+        blocks = openBlocks.size,
+        containers = openContainers.size,
+        hidden = hiddenElements.size,
+        lists = lists.size,
+        tables = tables.size,
+        preformatted = preformattedDepth,
+    )
+
+    /**
+     * 자체 닫는 태그(`<name/>`)를 [openElement]가 실제로 쌓은 항목만 닫는다. [openElement]는 스타일 변화가 없는
+     * `span`이나 숨김 요소에서는 아무것도 쌓지 않으므로, 이름 기반 [closeElement]를 쓰면 같은 이름의 바깥 요소가
+     * 대신 닫힌다.
+     *
+     * @param mark [openElement] 호출 전에 [markOpenState]로 얻은 기준점.
+     * @param name 자체 닫는 태그의 소문자 요소 이름.
+     */
+    fun closeOpenedSince(mark: OpenStateMark, name: String) {
+        if (mark.hidden > 0 || hiddenElements.size > mark.hidden) return
+        if (openInline.size > mark.inline) closeInlineAt(openInline.lastIndex)
+        if (lists.size > mark.lists) lists.removeLastOrNull()
+        if (tables.size > mark.tables) tables.removeLastOrNull()
+        if (preformattedDepth > mark.preformatted) preformattedDepth = mark.preformatted
+        if (openBlocks.size > mark.blocks) {
+            removeOpenBlockAt(openBlocks.lastIndex)
+            if (name in BlockKinds) flushBlock()
+        }
+        if (openContainers.size > mark.containers) closeContainer(name)
+    }
+
+    /**
      * 닫는 태그 하나를 처리한다. 이 이름의 가장 안쪽에 열려 있는 인라인 스팬이 있으면 닫고,
      * 리스트/테이블 추적을 팝하며, 이 이름의 가장 안쪽에 열려 있는 블록 요소가 있으면 닫는다(플러시 포함).
      * 매칭되는 열린 요소가 없는 닫는 태그 — 조상의 자체 닫기로 이미 소비됐거나,
@@ -682,17 +782,7 @@ private class XhtmlContentBuilder(
             hiddenElements.indexOfLast { it == lowered }.takeIf { it >= 0 }?.let { hiddenElements.removeAt(it) }
             return
         }
-        openInline.indexOfLast { it.name == lowered }.takeIf { it >= 0 }?.let { spanIndex ->
-            val span = openInline.removeAt(spanIndex)
-            if (text.length > span.start) {
-                blockSpans += ReaderSpan(
-                    range = TextRange(baseOffset + span.start, baseOffset + text.length),
-                    style = span.style,
-                    href = span.href,
-                    styleDelta = span.styleDelta?.takeIf { !it.isEmpty() },
-                )
-            }
-        }
+        openInline.indexOfLast { it.name == lowered }.takeIf { it >= 0 }?.let(::closeInlineAt)
 
         when (lowered) {
             "ol", "ul" -> lists.removeLastOrNull()
@@ -702,10 +792,27 @@ private class XhtmlContentBuilder(
 
         val blockIndex = openBlocks.indexOfLast { it.name == lowered }
         if (blockIndex >= 0) {
-            openBlocks.removeAt(blockIndex)
+            removeOpenBlockAt(blockIndex)
             if (lowered in BlockKinds) flushBlock()
         }
         closeContainer(lowered)
+    }
+
+    /**
+     * [openInline]의 [spanIndex] 번째 스팬을 제거하고, 내용이 있으면 블록 스팬으로 기록한다.
+     *
+     * @param spanIndex 닫을 스팬의 [openInline] 인덱스.
+     */
+    private fun closeInlineAt(spanIndex: Int) {
+        val span = openInline.removeAt(spanIndex)
+        if (text.length > span.start) {
+            blockSpans += ReaderSpan(
+                range = TextRange(baseOffset + span.start, baseOffset + text.length),
+                style = span.style,
+                href = span.href,
+                styleDelta = span.styleDelta?.takeIf { !it.isEmpty() },
+            )
+        }
     }
 
     /**
@@ -767,20 +874,51 @@ private class XhtmlContentBuilder(
         }
     }
 
-    /** 스타일을 가장 안쪽 열린 조상에서 점진적으로 해석하여 [OpenElement] 하나를 빌드한다. */
+    /**
+     * 스타일을 가장 안쪽 열린 조상에서 점진적으로 해석하여 [OpenElement] 하나를 빌드한다.
+     * [cssAncestry]를 임시 확장해 조상 목록의 반복 복사를 피한다.
+     *
+     * @param tag 계산할 열린 태그.
+     * @return CSS와 인라인 선언이 계산된 요소.
+     */
     private fun openElementFor(tag: XhtmlTag): OpenElement {
         val classNames = tag.classNames()
         val id = tag.attributes["id"]
         val inline = tag.attributes.inlineCssDeclarations()
-        val ancestry = openBlocks.map(OpenElement::cssElement) + CssElement(tag = tag.name, classes = classNames.toSet(), id = id)
-        val computed = resolveComputedStyle(
-            parent = openBlocks.lastOrNull()?.computed ?: ComputedStyle.Root,
-            css = css,
-            ancestry = ancestry,
-            inline = inline,
-            accumulatesInset = tag.name.accumulatesInset(),
-        )
-        return OpenElement(tag.name, classNames, id, inline, computed)
+        val cssElement = CssElement(tag = tag.name, classes = classNames.toSet(), id = id)
+        cssAncestry += cssElement
+        val computed = try {
+            resolveComputedStyle(
+                parent = openBlocks.lastOrNull()?.computed ?: ComputedStyle.Root,
+                css = css,
+                ancestry = cssAncestry,
+                inline = inline,
+                accumulatesInset = tag.name.accumulatesInset(),
+            )
+        } finally {
+            cssAncestry.removeAt(cssAncestry.lastIndex)
+        }
+        return OpenElement(tag.name, classNames, id, inline, computed, cssElement)
+    }
+
+    /**
+     * 열린 요소와 CSS 표현을 같은 인덱스에 추가한다.
+     *
+     * @param element 계층의 가장 안쪽에 추가할 요소.
+     */
+    private fun pushOpenBlock(element: OpenElement) {
+        openBlocks += element
+        cssAncestry += element.cssElement
+    }
+
+    /**
+     * 잘못 중첩된 닫는 태그도 두 평행 목록에서 같은 요소를 제거해 CSS 계층을 일치시킨다.
+     *
+     * @param index 제거할 열린 요소의 인덱스.
+     */
+    private fun removeOpenBlockAt(index: Int) {
+        openBlocks.removeAt(index)
+        cssAncestry.removeAt(index)
     }
 
     /** 다음 인라인 스팬이 델타를 계산할 기준 스타일: 가장 안쪽 스팬, 없으면 블록. */
@@ -1632,6 +1770,12 @@ private fun parseRgbColor(value: String, hasAlpha: Boolean): ReaderColor? {
  * 일반적인 브라우저 기본값과 일치한다.
  */
 private const val CssDefaultFontPx = 16f
+
+/**
+ * XHTML이 허용하는 열린 요소의 최대 깊이. 정상 문서의 래퍼·인라인 중첩보다 충분히 큰 128단계로
+ * 제한해 CSS 조상 매칭 목록과 열린 상태 컬렉션이 무제한 성장하지 않게 한다.
+ */
+private const val MAX_EPUB_XHTML_ELEMENT_DEPTH = 128
 
 /** [String.toBoldOrNull]이 굵음으로 읽는 숫자 `font-weight`의 최솟값(이상). */
 private const val BoldWeightThreshold = 600

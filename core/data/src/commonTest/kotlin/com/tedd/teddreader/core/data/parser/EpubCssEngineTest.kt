@@ -520,6 +520,19 @@ class EpubCssEngineTest {
         assertNull(sheet.declarationsFor(theQuoteItself).fontStyle)
     }
 
+    /** 32단계까지의 적용 가능한 `@media`는 읽되 그보다 깊은 조건부 규칙은 내려가지 않는다. */
+    @Test
+    fun applyingMediaDepthIsBounded() {
+        fun nestedMedia(depth: Int): String =
+            "@media screen { ".repeat(depth) + "p { color: red }" + " }".repeat(depth)
+
+        assertEquals(
+            "red",
+            css(nestedMedia(32)).declarationsFor(listOf(element("p"))).color,
+        )
+        assertNull(css(nestedMedia(33)).declarationsFor(listOf(element("p"))).color)
+    }
+
     /**
      * 성능에 민감한 회귀 방지: 관련 없는 단일 태그 규칙이 많은 시트를 대상으로 `<p>` 하나에
      * 스타일을 적용하는 일이, 그 관련 없는 규칙들을 요소에 대해 아예 평가하지 않아야 한다. 엔진이

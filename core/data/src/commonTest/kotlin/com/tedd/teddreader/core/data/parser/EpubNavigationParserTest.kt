@@ -63,4 +63,41 @@ class EpubNavigationParserTest {
         assertEquals(listOf("Chapter 1", "Scene 1"), parsed.entries.map { it.title })
         assertEquals(listOf(1, 2), parsed.entries.map { it.level })
     }
+
+    /** 64단계보다 깊은 NCX는 스택을 더 키우지 않고 허용 깊이의 항목만 반환한다. */
+    @Test
+    fun ncxNavigationDepthIsBounded() {
+        val depth = 70
+        val xml = buildString {
+            append("<ncx><navMap>")
+            repeat(depth) { index ->
+                append("<navPoint><navLabel><text>Chapter $index</text></navLabel><content src=\"$index.xhtml\"/>")
+            }
+            repeat(depth) { append("</navPoint>") }
+            append("</navMap></ncx>")
+        }
+
+        val parsed = parseNcxDocument(xml)
+
+        assertEquals(64, parsed.entries.size)
+        assertEquals((1..64).toList(), parsed.entries.map { it.level })
+    }
+
+    /** NCX가 4,096개보다 많은 형제 항목을 선언해도 결과와 상태는 앞의 4,096개로 제한된다. */
+    @Test
+    fun ncxNavigationItemCountIsBounded() {
+        val xml = buildString {
+            append("<ncx><navMap>")
+            repeat(4_100) { index ->
+                append("<navPoint><navLabel><text>Chapter $index</text></navLabel>")
+                append("<content src=\"$index.xhtml\"/></navPoint>")
+            }
+            append("</navMap></ncx>")
+        }
+
+        val parsed = parseNcxDocument(xml)
+
+        assertEquals(4_096, parsed.entries.size)
+        assertEquals("Chapter 4095", parsed.entries.last().title)
+    }
 }

@@ -13,6 +13,7 @@ import com.tedd.teddreader.core.common.model.isBlankIgnoringObjects
 import kotlin.random.Random
 import okio.Buffer
 import okio.FileSystem
+import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.buffer
@@ -119,17 +120,12 @@ open class EpubDocumentParser {
         bytes: ByteArray,
     ): EpubParseResult {
         val fileSystem = systemFileSystem()
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-epub-${Random.nextLong().toString(16)}.epub"
-        val sink = fileSystem.sink(path).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
-        }
-        return try {
+        return withTemporaryEpubFile(
+            bytes = bytes,
+            namePrefix = "tedd-reader-epub",
+            fileSystem = fileSystem,
+        ) { path ->
             parseWithCover(id = id, title = title, path = path, fileSystem = fileSystem)
-        } finally {
-            fileSystem.delete(path)
         }
     }
 
@@ -187,14 +183,26 @@ open class EpubDocumentParser {
         val zip = fileSystem.openZip(path)
         val opfPath = zip.readUtf8OrNull(ContainerPath.toPath())?.let(::findRootFilePath)
         if (opfPath == null) {
-            val fallbackChapters = zip.listRecursively("/".toPath())
-                .filter { it.name.endsWith(".xhtml") || it.name.endsWith(".html") }
-                .mapNotNull { candidate ->
-                    zip.readUtf8OrNull(candidate)?.let { xhtml ->
-                        EpubChapter(title = candidate.name, xhtml = xhtml, path = candidate.toString())
-                    }
+            val fallbackChapters = mutableListOf<EpubChapter>()
+            var fallbackEntryCount = 0
+            var fallbackCharacterCount = 0L
+            zip.listRecursively("/".toPath()).forEach { candidate ->
+                if (!candidate.name.endsWith(".xhtml") && !candidate.name.endsWith(".html")) return@forEach
+                fallbackEntryCount += 1
+                require(fallbackEntryCount <= MAX_EPUB_FALLBACK_ENTRY_COUNT) {
+                    "EPUB fallback contains more than $MAX_EPUB_FALLBACK_ENTRY_COUNT HTML entries"
                 }
-                .toList()
+                val xhtml = zip.readUtf8OrNull(candidate) ?: return@forEach
+                fallbackCharacterCount += xhtml.length
+                require(fallbackCharacterCount <= MAX_EPUB_FALLBACK_CHARACTERS) {
+                    "EPUB fallback HTML exceeds $MAX_EPUB_FALLBACK_CHARACTERS characters"
+                }
+                fallbackChapters += EpubChapter(
+                    title = candidate.name,
+                    xhtml = xhtml,
+                    path = candidate.toString(),
+                )
+            }
             return EpubParseResult(document = parseChapters(id, title, fallbackChapters), coverBytes = null)
         }
 
@@ -317,17 +325,12 @@ open class EpubDocumentParser {
      */
     fun coverImageBytes(bytes: ByteArray): ByteArray? {
         val fileSystem = systemFileSystem()
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-epub-cover-${Random.nextLong().toString(16)}.epub"
-        val sink = fileSystem.sink(path).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
-        }
-        return try {
+        return withTemporaryEpubFile(
+            bytes = bytes,
+            namePrefix = "tedd-reader-epub-cover",
+            fileSystem = fileSystem,
+        ) { path ->
             coverImageBytes(path, fileSystem)
-        } finally {
-            fileSystem.delete(path)
         }
     }
 
@@ -349,21 +352,16 @@ open class EpubDocumentParser {
         val normalizedHrefs = hrefs.map(String::trim).filter(String::isNotEmpty).toSet()
         if (normalizedHrefs.isEmpty()) return emptyMap()
         val fileSystem = systemFileSystem()
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "tedd-reader-epub-embedded-${Random.nextLong().toString(16)}.epub"
-        val sink = fileSystem.sink(path).buffer()
-        try {
-            sink.write(bytes)
-        } finally {
-            sink.close()
-        }
-        return try {
+        return withTemporaryEpubFile(
+            bytes = bytes,
+            namePrefix = "tedd-reader-epub-embedded",
+            fileSystem = fileSystem,
+        ) { path ->
             extractEmbeddedImageBytes(
                 path = path,
                 hrefs = normalizedHrefs,
                 fileSystem = fileSystem,
             )
-        } finally {
-            fileSystem.delete(path)
         }
     }
 
@@ -450,7 +448,9 @@ open class EpubDocumentParser {
      * @param hrefs 읽어들일 컨테이너 상대 경로들.
      * @param fileSystem [path]를 읽을 파일 시스템; 기본값은 실제 플랫폼 파일 시스템.
      * @return 그것을 만들어낸 href를 키로 하는 바이트들; 일치하는 엔트리가 없거나 그 엔트리를
-     *   읽을 수 없는 href는 결과에서 그냥 빠진다.
+     *   읽을 수 없거나 엔트리별 상한을 넘는 href는 결과에서 그냥 빠진다. 요청 수나 누적 바이트에는
+     *   상한이 없다 — 호출자가 한 창의 모든 href를 한 번에 요청하며, 일부만 돌려주면 돌려받지 못한
+     *   href를 영구 누락으로 오인해 이미지가 끝내 로드되지 않기 때문이다.
      */
     internal open fun extractEmbeddedImageBytes(
         path: Path,
@@ -458,7 +458,44 @@ open class EpubDocumentParser {
         fileSystem: FileSystem = systemFileSystem(),
     ): Map<String, ByteArray> {
         val zip = fileSystem.openZip(path)
-        return hrefs.mapNotNull { href -> zip.readBytesOrNull(href.toPath())?.let { href to it } }.toMap()
+        val result = linkedMapOf<String, ByteArray>()
+        hrefs.forEach { href ->
+            val bytes = zip.readBytesOrNull(href.toPath()) ?: return@forEach
+            result[href] = bytes
+        }
+        return result
+    }
+}
+
+/**
+ * 메모리의 EPUB 바이트를 고유한 임시 파일에 기록하고 [block] 실행 전체에서만 유지한다.
+ * 파일 생성이나 기록이 실패해도 같은 수명 경계에서 삭제를 시도하므로 부분 파일이 임시 디렉터리에
+ * 남지 않는다.
+ *
+ * @param bytes 임시 EPUB 파일에 기록할 원본 바이트.
+ * @param namePrefix 임시 파일 이름에서 무작위 토큰 앞에 붙일 역할 이름.
+ * @param fileSystem 임시 파일을 만들고 삭제할 파일 시스템.
+ * @param block 완전히 기록된 임시 파일 경로를 받아 실행할 작업.
+ * @return [block]이 반환한 값.
+ * @throws IOException 임시 파일 기록이나 삭제가 실패한 경우.
+ */
+internal fun <T> withTemporaryEpubFile(
+    bytes: ByteArray,
+    namePrefix: String,
+    fileSystem: FileSystem,
+    block: (Path) -> T,
+): T {
+    val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "$namePrefix-${Random.nextLong().toString(16)}.epub"
+    return try {
+        val sink = fileSystem.sink(path).buffer()
+        try {
+            sink.write(bytes)
+        } finally {
+            sink.close()
+        }
+        block(path)
+    } finally {
+        fileSystem.delete(path, mustExist = false)
     }
 }
 
@@ -750,16 +787,38 @@ private data class ResolvedReference(
     val fragment: String?,
 )
 
-/** [path]의 전체 내용을 UTF-8로 읽는다. 존재하지 않거나 읽을 수 없으면 null. */
-private fun FileSystem.readUtf8OrNull(path: Path): String? =
-    runCatching {
-        val source = source(path).buffer()
-        try {
-            source.readUtf8()
-        } finally {
-            source.close()
+/**
+ * [path]의 UTF-8 텍스트를 스트리밍으로 읽으며 엔트리 하나가 [MAX_EPUB_TEXT_ENTRY_BYTES]를
+ * 넘으면 그 엔트리를 없는 것으로 취급한다. 존재하지 않거나 I/O로 읽을 수 없는 엔트리도 null이다.
+ * 예외를 던지지 않으므로 점진적 가져오기 중 거대한 스파인 XHTML은 섹션이 건너뛰어지고, 거대한 CSS나
+ * nav는 무시되어 책 전체가 실패하지 않는다.
+ *
+ * @receiver [path]를 읽을 EPUB 아카이브.
+ * @param path 읽을 텍스트 엔트리 경로.
+ * @return 디코딩된 UTF-8 텍스트, 또는 엔트리를 열거나 읽을 수 없거나 상한을 넘으면 null.
+ */
+private fun FileSystem.readUtf8OrNull(path: Path): String? {
+    val source = try {
+        source(path).buffer()
+    } catch (_: IOException) {
+        return null
+    }
+    return try {
+        val buffer = Buffer()
+        var totalBytes = 0L
+        while (true) {
+            val read = source.read(buffer, EPUB_STREAM_CHUNK_BYTES)
+            if (read == -1L) break
+            totalBytes += read
+            if (totalBytes > MAX_EPUB_TEXT_ENTRY_BYTES) return null
         }
-    }.getOrNull()
+        buffer.readUtf8()
+    } catch (_: IOException) {
+        null
+    } finally {
+        source.close()
+    }
+}
 
 /**
  * [chapterPath]가 링크하는 모든 스타일시트의 캐스케이드. `<link>` 순서대로 처리해 동점일 때는
@@ -789,7 +848,7 @@ private fun linkedCss(
             zip.readUtf8OrNull(href.toPath())?.let { css -> CssStyleSheetSource(path = href, css = css) }
         },
     )
-    cache[key] = parsed
+    if (cache.size < MAX_LINKED_CSS_CACHE_ENTRIES) cache[key] = parsed
     return parsed
 }
 
@@ -867,14 +926,18 @@ internal fun fillIntrinsicImageSizes(
  * @return 엔트리 시작부터 최대 [maxBytes]바이트, 또는 열 수 없거나 읽는 도중 예외가 나면 null.
  */
 private fun FileSystem.readHeaderBytesOrNull(path: Path, maxBytes: Int): ByteArray? {
-    val source = runCatching { source(path).buffer() }.getOrNull() ?: return null
+    val source = try {
+        source(path).buffer()
+    } catch (_: IOException) {
+        return null
+    }
     return try {
         val buffer = Buffer()
         while (buffer.size < maxBytes) {
             if (source.read(buffer, maxBytes - buffer.size) == -1L) break
         }
         buffer.readByteArray()
-    } catch (_: Throwable) {
+    } catch (_: IOException) {
         null
     } finally {
         source.close()
@@ -891,7 +954,11 @@ private fun FileSystem.readHeaderBytesOrNull(path: Path, maxBytes: Int): ByteArr
  *   초과했으면 null.
  */
 private fun FileSystem.readBytesOrNull(path: Path): ByteArray? {
-    val source = runCatching { source(path).buffer() }.getOrNull() ?: return null
+    val source = try {
+        source(path).buffer()
+    } catch (_: IOException) {
+        return null
+    }
     return try {
         val buffer = Buffer()
         var totalBytes = 0L
@@ -902,7 +969,7 @@ private fun FileSystem.readBytesOrNull(path: Path): ByteArray? {
             if (totalBytes > MAX_EPUB_IMAGE_BYTES) return null
         }
         buffer.readByteArray()
-    } catch (_: Throwable) {
+    } catch (_: IOException) {
         null
     } finally {
         source.close()
@@ -914,7 +981,7 @@ private fun FileSystem.readBytesOrNull(path: Path): ByteArray? {
  * 없거나 형식이 잘못됐으면 null.
  */
 private fun findRootFilePath(containerXml: String): Path? =
-    Regex("""full-path\s*=\s*["']([^"']+)["']""")
+    ContainerRootFileRegex
         .find(containerXml)
         ?.groupValues
         ?.get(1)
@@ -936,7 +1003,7 @@ private fun parsePackageData(opf: String, opfPath: Path): PackageData {
         val path = resolveContainerHref(opfPath.toString(), item.href) ?: return@mapNotNull null
         SpineItem(item = item, path = path, linear = ref.linear)
     }
-    val spineTocId = Regex("""(?is)<spine\b[^>]*toc\s*=\s*["']([^"']+)["']""")
+    val spineTocId = SpineTocRegex
         .find(opf)
         ?.groupValues
         ?.get(1)
@@ -962,7 +1029,7 @@ private fun parsePackageData(opf: String, opfPath: Path): PackageData {
  * null.
  */
 private fun parseDcTitle(opf: String): String? =
-    Regex("""(?is)<dc:title\b[^>]*>(.*?)</dc:title>""")
+    DcTitleRegex
         .find(opf)
         ?.groupValues
         ?.get(1)
@@ -974,7 +1041,7 @@ private fun parseDcTitle(opf: String): String? =
  * 버려진다.
  */
 private fun parseManifest(opf: String): Map<String, ManifestItem> =
-    Regex("""(?is)<item\b[^>]*>""")
+    ManifestItemRegex
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -992,7 +1059,7 @@ private fun parseManifest(opf: String): Map<String, ManifestItem> =
 
 /** OPF의 `<spine>`에 있는 모든 `<itemref>`. 문서 순서대로; `idref`가 없는 항목은 버려진다. */
 private fun parseSpine(opf: String): List<SpineItemRef> =
-    Regex("""(?is)<itemref\b[^>]*>""")
+    SpineItemRefRegex
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -1048,7 +1115,7 @@ private fun findEpubCoverItem(opf: String, manifest: Map<String, ManifestItem>, 
  * 없으면 null.
  */
 private fun findCoverMetaId(opf: String): String? =
-    Regex("""(?is)<meta\b[^>]*>""")
+    MetaTagRegex
         .findAll(opf)
         .mapNotNull { match ->
             val attrs = parseAttributes(match.value)
@@ -1094,7 +1161,7 @@ private fun ManifestItem.isCoverImageProperty(): Boolean = navTypeTokens(propert
  * @param tag 한 태그의 원본 텍스트, 예를 들어 호출자의 정규식이 매칭한 `<item id="..." href="..."/>`.
  */
 internal fun parseAttributes(tag: String): Map<String, String> =
-    Regex("""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+    AttributeRegex
         .findAll(tag)
         .associate { match ->
             match.groupValues[1].lowercase() to (match.groupValues[2].ifEmpty { match.groupValues[3] })
@@ -1216,6 +1283,54 @@ private fun firstHeadingTitle(
     }
 
 /**
+ * 섹션 경로를 뒤에서부터 공유하는 trie로 인덱싱해 nav href의 임의 접미사를 경로 수와 무관하게 찾는다.
+ * 같은 접미사가 여러 섹션에 있으면 기존 선형 검색과 같이 먼저 추가된 섹션을 유지한다.
+ */
+private class SectionPathSuffixIndex {
+    /** 역방향 경로 문자 trie의 루트. */
+    private val root = SectionPathSuffixNode()
+
+    /**
+     * [path]의 모든 접미사가 끝나는 역방향 노드에 [sectionIndex]를 연결한다.
+     *
+     * @param path 컨테이너 안의 전체 섹션 경로.
+     * @param sectionIndex 해당 경로를 소유한 섹션 인덱스.
+     */
+    fun add(path: String, sectionIndex: Int) {
+        var node = root
+        path.indices.reversed().forEach { index ->
+            node = node.children.getOrPut(path[index]) { SectionPathSuffixNode() }
+            if (node.sectionIndex == null) node.sectionIndex = sectionIndex
+        }
+    }
+
+    /**
+     * [suffix]로 끝나는 첫 섹션을 반환한다.
+     *
+     * @param suffix nav href에서 해석된 경로 접미사.
+     * @return 일치하는 첫 섹션 인덱스, 없으면 null.
+     */
+    operator fun get(suffix: String): Int? {
+        var node = root
+        suffix.indices.reversed().forEach { index ->
+            node = node.children[suffix[index]] ?: return null
+        }
+        return node.sectionIndex
+    }
+}
+
+/**
+ * [SectionPathSuffixIndex]의 문자 하나와 그 아래 역방향 경로를 보관한다.
+ *
+ * @property children 다음 역방향 문자를 키로 하는 자식 노드.
+ * @property sectionIndex 현재 접미사와 일치하는 첫 섹션 인덱스.
+ */
+private class SectionPathSuffixNode(
+    val children: MutableMap<Char, SectionPathSuffixNode> = mutableMapOf(),
+    var sectionIndex: Int? = null,
+)
+
+/**
  * [navigation]의 원본 항목들(EPUB 3 nav 문서 또는 EPUB 2 NCX에서 온)을, 리더가 점프할 수 있는
  * 절대 섹션과 오프셋으로 주소가 매겨진 [ReaderNavigationItem]들로 바꾼다.
  *
@@ -1256,13 +1371,17 @@ private fun resolveNavigation(
     navigationBasePath: String,
 ): ReaderNavigation {
     val sectionByPath = sectionPathByIndex.entries.associateBy({ it.value }, { it.key })
+    val sectionByPathSuffix = SectionPathSuffixIndex()
+    sectionPathByIndex.forEach { (sectionIndex, path) ->
+        sectionByPathSuffix.add(path, sectionIndex)
+    }
     val firstContentSection = firstReadableContentSectionIndex
         ?: sectionPathByIndex.keys.firstOrNull { it != coverSpineIndex }
         ?: 0
     val items = navigation.entries.mapNotNull { entry ->
         val resolved = resolveContainerReference(navigationBasePath, entry.href) ?: return@mapNotNull null
         val matchingSection = sectionByPath[resolved.path]
-            ?: sectionByPath.entries.firstOrNull { (path, _) -> path.endsWith(resolved.path) }?.value
+            ?: sectionByPathSuffix[resolved.path]
             ?: return@mapNotNull null
         val spineIndex = if (coverSpineIndex != null && matchingSection == coverSpineIndex && !entry.title.isVisibleCoverLabel()) {
             firstContentSection
@@ -1289,7 +1408,7 @@ private fun resolveNavigation(
  * 읽히는지 여부 — 이 책들이 실제로 커버 항목에 쓰는 두 라벨이다.
  */
 private fun String.isVisibleCoverLabel(): Boolean {
-    val normalized = lowercase().replace(Regex("""\s+"""), "")
+    val normalized = lowercase().replace(WhitespaceRegex, "")
     return normalized == "cover" || normalized == "표지"
 }
 
@@ -1300,7 +1419,7 @@ private fun String.isVisibleCoverLabel(): Boolean {
 private fun navTypeTokens(value: String?): Set<String> =
     value.orEmpty()
         .let(::decodeXmlEntities)
-        .split(Regex("""\s+"""))
+        .split(WhitespaceRegex)
         .map(String::trim)
         .filter(String::isNotEmpty)
         .map(String::lowercase)
@@ -1309,6 +1428,34 @@ private fun navTypeTokens(value: String?): Set<String> =
 /** 문서를 텍스트 하나로 읽을 때 섹션들은 개행 문자 하나로 이어붙여진다. private이 아니라
  * internal인 이유: DocumentRepositoryImpl.importNextSections가 배치마다 같은 오프셋을 진행시킨다. */
 internal const val SectionSeparatorLength = 1L
+
+
+/**
+ * 압축 해제된 EPUB 텍스트 엔트리 하나가 사용할 수 있는 최대 바이트 수. OPF, nav, CSS, XHTML
+ * 하나가 일반 챕터보다 충분히 크면서도 ZIP 폭탄 한 엔트리가 모바일 힙을 독점하지 않는 8 MiB다.
+ */
+private const val MAX_EPUB_TEXT_ENTRY_BYTES = 8L * 1024 * 1024
+
+/**
+ * OPF가 없는 아카이브에서 챕터로 인정할 HTML 엔트리 수의 상한. 정상적인 장편을 수용하면서
+ * fallback이 파일 수만큼 객체를 무제한 보관하지 않도록 256개로 제한한다.
+ */
+private const val MAX_EPUB_FALLBACK_ENTRY_COUNT = 256
+
+/**
+ * OPF 없는 fallback이 동시에 보관할 XHTML 텍스트의 누적 문자 수 상한. 엔트리별 한도의 두 배인
+ * 16 Mi 문자로 여러 정상 챕터를 허용하되 전체 아카이브 동시 적재를 제한한다.
+ */
+private const val MAX_EPUB_FALLBACK_CHARACTERS = 16L * 1024 * 1024
+
+/**
+ * 한 EPUB 임포트에서 보관할 서로 다른 연결 CSS 조합 수의 상한. 보통 한두 조합을 재사용하므로
+ * 16개면 변형 시트를 허용하면서 챕터별 고유 조합의 무제한 성장을 막는다.
+ */
+private const val MAX_LINKED_CSS_CACHE_ENTRIES = 16
+
+/** ZIP 엔트리를 스트리밍할 때 작은 고정 버퍼로 사용하는 일반적인 8 KiB 청크. */
+private const val EPUB_STREAM_CHUNK_BYTES = 8_192L
 
 /** 임베드 이미지 하나의 디코딩된 크기 상한. [readBytesOrNull]이 강제한다. */
 private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
@@ -1323,6 +1470,31 @@ private const val MAX_EPUB_IMAGE_BYTES = 8L * 1024 * 1024
  * 전부다.
  */
 private const val ImageHeaderSniffBytes = 64 * 1024
+
+
+/** EPUB 컨테이너에서 OPF 경로를 캡처하는 패턴. */
+private val ContainerRootFileRegex = Regex("""full-path\s*=\s*["']([^"']+)["']""")
+
+/** OPF spine이 지정한 NCX 매니페스트 id를 캡처하는 패턴. */
+private val SpineTocRegex = Regex("""(?is)<spine\b[^>]*toc\s*=\s*["']([^"']+)["']""")
+
+/** OPF의 `dc:title` 본문을 캡처하는 패턴. */
+private val DcTitleRegex = Regex("""(?is)<dc:title\b[^>]*>(.*?)</dc:title>""")
+
+/** OPF 매니페스트의 item 태그를 찾는 패턴. */
+private val ManifestItemRegex = Regex("""(?is)<item\b[^>]*>""")
+
+/** OPF spine의 itemref 태그를 찾는 패턴. */
+private val SpineItemRefRegex = Regex("""(?is)<itemref\b[^>]*>""")
+
+/** EPUB 2 cover 포인터 후보인 meta 태그를 찾는 패턴. */
+private val MetaTagRegex = Regex("""(?is)<meta\b[^>]*>""")
+
+/** OPF·nav 태그의 이름과 따옴표로 감싼 값을 캡처하는 패턴. */
+private val AttributeRegex = Regex("""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+/** 속성 토큰 분리와 cover 라벨 정규화에 재사용하는 연속 공백 패턴. */
+private val WhitespaceRegex = Regex("""\s+""")
 
 /** 챕터가 연결한 스타일시트를 찾기 위한 `<link>` 태그 매칭. */
 private val StyleSheetLinkRegex = Regex("""(?is)<link\b[^>]*>""")
