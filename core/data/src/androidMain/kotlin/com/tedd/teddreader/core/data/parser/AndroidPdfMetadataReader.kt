@@ -6,6 +6,8 @@ import android.os.ParcelFileDescriptor
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 
 /** [defaultPdfMetadataReader] 계약에 대한 Android 구현. */
@@ -31,7 +33,9 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
      * @param bytes 폴백으로 쓰이는 문서의 원본 바이트. [location]을 직접 열 수 없을 때만 [PdfRenderer]가
      *   열도록 임시 파일에 기록된다. 호출자가 [location]이 접근 가능한 로컬 파일임을 보장하면 null.
      * @return 페이지 수. PDF를 전혀 열거나 렌더링할 수 없었으면(손상된 파일, I/O 실패, 바이트 폴백 없이
-     *   접근 불가능한 위치) `1` — 이 메서드는 절대 던지지 않는다.
+     *   접근 불가능한 위치) `1`.
+     * @throws CancellationException 호출 중인 코루틴이 취소되었을 때.
+     * @throws OutOfMemoryError 파일 기록·렌더링·이미지 인코딩 중 메모리가 고갈될 때.
      */
     override fun pageCount(location: DocumentLocation, bytes: ByteArray?): Int =
         withPdfRenderer(location, bytes) { renderer ->
@@ -44,8 +48,10 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
      * @param bytes 폴백으로 쓰이는 문서의 원본 바이트. [location]을 직접 열 수 없을 때만 [PdfRenderer]가
      *   열도록 임시 파일에 기록된다. 호출자가 [location]이 접근 가능한 로컬 파일임을 보장하면 null.
      * @return 첫 페이지를 PNG로 인코딩한 썸네일. 종횡비를 유지하면서 360×480 영역에 맞도록 축소만
-     *   되며(확대되지 않는다), 문서에 페이지가 없거나 페이지에 쓸 수 있는 크기가 없거나 어떤 이유로든
-     *   렌더링이 실패하면 `null`.
+     *   되며(확대되지 않는다), 문서에 페이지가 없거나 페이지에 쓸 수 있는 크기가 없거나 예상된 I/O·
+     *   권한·렌더러 상태 실패가 발생하면 `null`.
+     * @throws CancellationException 호출 중인 코루틴이 취소되었을 때.
+     * @throws OutOfMemoryError 파일 기록·렌더링·이미지 인코딩 중 메모리가 고갈될 때.
      */
     override fun coverImageBytes(location: DocumentLocation, bytes: ByteArray?): ByteArray? =
         withPdfRenderer(location, bytes) { renderer ->
@@ -78,7 +84,9 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
      * @param bytes [location]을 직접 열 수 없을 때 임시 파일로 구체화할 폴백 바이트.
      * @param block 열린 렌더러로 수행할 작업.
      * @return [block]의 결과, 또는 어떤 렌더러도 열 수 없었으면(위치에 접근 불가능하고 bytes도
-     *   null이거나, 어떤 I/O 실패가 있었으면) null.
+     *   null이거나, 예상된 I/O·권한·인자·렌더러 상태 실패가 있었으면) null.
+     * @throws CancellationException 호출 중인 코루틴이 취소되었을 때.
+     * @throws OutOfMemoryError 파일 기록·렌더링·이미지 인코딩 중 메모리가 고갈될 때.
      */
     private fun <T> withPdfRenderer(
         location: DocumentLocation,
@@ -87,25 +95,25 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
     ): T? {
         val localFile = resolveLocalFile(location)
         if (localFile != null) {
-            return try {
+            return androidPdfResultOrNull {
                 ParcelFileDescriptor.open(localFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                     PdfRenderer(descriptor).use(block)
                 }
-            } catch (_: Throwable) {
-                null
             }
         }
         if (bytes == null) return null
-        val tempFile = File.createTempFile("tedd-reader", ".pdf")
+        var tempFile: File? = null
         return try {
-            tempFile.writeBytes(bytes)
-            ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
-                PdfRenderer(descriptor).use(block)
+            androidPdfResultOrNull {
+                val createdFile = File.createTempFile("tedd-reader", ".pdf")
+                tempFile = createdFile
+                createdFile.writeBytes(bytes)
+                ParcelFileDescriptor.open(createdFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                    PdfRenderer(descriptor).use(block)
+                }
             }
-        } catch (_: Throwable) {
-            null
         } finally {
-            tempFile.delete()
+            tempFile?.delete()
         }
     }
 
@@ -124,4 +132,27 @@ class AndroidPdfMetadataReader : PdfMetadataReader {
         val file = File(path)
         return file.takeIf { it.exists() && it.canRead() }
     }
+}
+
+/**
+ * Android PDF 플랫폼 API가 손상 파일·권한·상태 문제로 보고하는 예상 실패만 null로 바꾼다. 메모리
+ * 고갈 같은 [Error]는 잡지 않고, 코루틴 취소는 [IllegalStateException] 계층에 포함되더라도 다시
+ * 던져 호출자의 작업 수명을 보존한다.
+ *
+ * @param block PDF 파일 열기나 렌더링 작업.
+ * @return 작업 결과, 또는 예상된 I/O·권한·인자·렌더러 상태 실패이면 null.
+ * @throws CancellationException 호출 중인 코루틴이 취소되었을 때.
+ * @throws OutOfMemoryError PDF 파일 열기나 렌더링 중 메모리가 고갈될 때.
+ */
+internal inline fun <T> androidPdfResultOrNull(block: () -> T): T? = try {
+    block()
+} catch (_: IOException) {
+    null
+} catch (_: SecurityException) {
+    null
+} catch (_: IllegalArgumentException) {
+    null
+} catch (failure: IllegalStateException) {
+    if (failure is CancellationException) throw failure
+    null
 }

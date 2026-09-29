@@ -14,12 +14,11 @@ object TxtTextDecoder {
      *
      * 순서는 다음과 같다: 바이트 순서 표시(BOM)가 있으면 그것이 곧바로 문제를 해결한다
      * ([decodeBom]). 아니라면, 이미 유효한 UTF-8인 바이트는 곧바로 UTF-8로 디코딩된다 — 아무것도
-     * 추측하기 전에 취하는 빠르고 확실한 경로다. 둘 다 아니면, 세 후보가 병렬로 디코딩된다 —
-     * 레거시 한국어(플랫폼별 [decodeLegacyKoreanText]를 통해), UTF-16 리틀엔디안, UTF-16
-     * 빅엔디안 — 그리고 [readableScore]로 점수가 매겨진다; 양수 점수 중 가장 높은 후보가
-     * 승리한다. 여기서 잘못 고르는 것은 사소한 문제가 아니다: 한국어 소설이 읽을 수 있는
-     * 산문으로 열리는 것과, 책 전체가 대체 문자 벽이나 깨진 글자로 열리는 것의 차이인데, 이
-     * 함수가 반환하고 나면 그 뒤로 아무도 다시 추측하지 않기 때문이다.
+     * 추측하기 전에 취하는 빠르고 확실한 경로다. 둘 다 아니면, 레거시 한국어(플랫폼별
+     * [decodeLegacyKoreanText]를 통해), UTF-16 리틀엔디안, UTF-16 빅엔디안 후보를 순서대로 하나씩
+     * 디코딩하고 [readableScore]를 한 번 계산해 현재 최선만 유지한다. 여기서 잘못 고르는 것은 사소한
+     * 문제가 아니다: 한국어 소설이 읽을 수 있는 산문으로 열리는 것과, 책 전체가 대체 문자 벽이나 깨진
+     * 글자로 열리는 것의 차이인데, 이 함수가 반환하고 나면 그 뒤로 아무도 다시 추측하지 않기 때문이다.
      *
      * @param bytes 파일의 원시 내용.
      * @return 디코딩된 텍스트. 모든 후보가 0점 이하면(어느 것도 읽을 수 있어 보이지 않으면),
@@ -30,11 +29,28 @@ object TxtTextDecoder {
         decodeBom(bytes)?.let { return it }
         if (bytes.isValidUtf8()) return bytes.decodeToString()
 
-        return listOfNotNull(
-            decodeLegacyKoreanText(bytes)?.takeIfReadable(),
-            bytes.decodeUtf16LittleEndian(startIndex = 0).takeIfReadable(),
-            bytes.decodeUtf16BigEndian(startIndex = 0).takeIfReadable(),
-        ).maxByOrNull { it.readableScore() } ?: bytes.decodeToString()
+        var bestText: String? = null
+        var bestScore = 0
+
+        decodeLegacyKoreanText(bytes)?.let { candidate ->
+            val score = candidate.readableScore()
+            if (score > bestScore) {
+                bestText = candidate
+                bestScore = score
+            }
+        }
+        bytes.decodeUtf16LittleEndian(startIndex = 0).let { candidate ->
+            val score = candidate.readableScore()
+            if (score > bestScore) {
+                bestText = candidate
+                bestScore = score
+            }
+        }
+        bytes.decodeUtf16BigEndian(startIndex = 0).let { candidate ->
+            val score = candidate.readableScore()
+            if (score > bestScore) bestText = candidate
+        }
+        return bestText ?: bytes.decodeToString()
     }
 
     /**
@@ -66,16 +82,6 @@ object TxtTextDecoder {
  *   그것을 그저 실패한 다른 후보 하나로 취급할 수 있다.
  */
 internal expect fun decodeLegacyKoreanText(bytes: ByteArray): String?
-
-/**
- * 실제 텍스트처럼 보이지 않는 디코딩 후보를, [readableScore]만으로 다른 것들과 경쟁하기 전에
- * 걸러낸다. 대체 문자나 제어 바이트가 지배적인 후보가 똑같이 잘못된 다른 후보보다 "덜
- * 부정적인" 점수를 가졌다는 이유만으로 이기는 일이 없도록 한다.
- *
- * @receiver 같은 원본 바이트의 후보 디코딩.
- * @return 이 문자열, 또는 [readableScore]가 0 이하면 `null`.
- */
-private fun String.takeIfReadable(): String? = takeIf { it.readableScore() > 0 }
 
 /**
  * 이 문자열이 잘못된 인코딩으로 바이트를 디코딩한 결과물이 아니라 실제로 읽을 수 있는 텍스트에
@@ -163,11 +169,11 @@ private fun ByteArray.decodeUtf16BigEndian(startIndex: Int): String = buildStrin
  * 전혀 돌리지 않고 빠르고 확실한 UTF-8 경로를 취한다.
  *
  * @receiver 검증할 바이트들.
- * @return 모든 앞쪽 바이트가 유효한 시퀀스 길이를 선언하고(유효하지 않은 `0x80..0xC1`,
- *   `0xF5..0xFF` 앞쪽 바이트 범위는 거부됨) 그것이 암시하는 모든 이어지는 바이트가
- *   `0x80..0xBF`에 속하며, 배열 끝에서 잘린 시퀀스가 없으면 `true`.
+ * @return 모든 앞쪽 바이트가 RFC 3629의 최소 인코딩과 `U+0000..U+10FFFF` 범위를 지키고,
+ *   surrogate 코드 포인트를 만들지 않으며, 모든 이어지는 바이트가 `0x80..0xBF`에 속하고 배열 끝에서
+ *   잘린 시퀀스가 없으면 `true`.
  */
-private fun ByteArray.isValidUtf8(): Boolean {
+internal fun ByteArray.isValidUtf8(): Boolean {
     var index = 0
     while (index < size) {
         val first = this[index].toInt() and 0xFF
@@ -179,9 +185,24 @@ private fun ByteArray.isValidUtf8(): Boolean {
             else -> return false
         }
         if (index + needed >= size) return false
-        repeat(needed) { offset ->
-            val next = this[index + offset + 1].toInt() and 0xFF
+        if (needed > 0) {
+            val second = this[index + 1].toInt() and 0xFF
+            if (second !in when (first) {
+                    0xE0 -> 0xA0..0xBF
+                    0xED -> 0x80..0x9F
+                    0xF0 -> 0x90..0xBF
+                    0xF4 -> 0x80..0x8F
+                    else -> 0x80..0xBF
+                }
+            ) {
+                return false
+            }
+        }
+        var offset = 2
+        while (offset <= needed) {
+            val next = this[index + offset].toInt() and 0xFF
             if (next !in 0x80..0xBF) return false
+            offset += 1
         }
         index += needed + 1
     }
