@@ -1436,7 +1436,9 @@ private fun ReaderActiveSheet(
 /**
  * 사이드 드로어의 콘텐츠로 렌더링되는 목차로, `uiState.activeSheet == ReaderOptionSheet.TableOfContents`인
  * 동안 [ReaderContent]가 `ModalNavigationDrawer`를 통해 보여준다. 표제를 보여주고, 보여줄 것이 없으면 빈
- * 목록 대신 설명 메시지를 보여준다.
+ * 목록 대신 설명 메시지를 보여준다. 항목 키는 위치 객체가 아니라 `asStorageString()` 문자열을 쓴다.
+ * Android의 lazy 목록 키는 `Bundle`에 저장 가능한 타입이어야 해서, `EpubOffset` 같은 위치 객체를 그대로
+ * 키로 넘기면 드로어를 여는 순간 `IllegalArgumentException`으로 앱이 종료된다.
  *
  * @param uiState 리더의 현재 상태; 목록으로 나열할 아웃라인 항목을 제공한다.
  * @param onLocationClick 항목이 탭되면 이동할 위치와 함께 호출된다.
@@ -1473,7 +1475,7 @@ private fun TableOfContentsDrawerContent(
                 )
             }
         } else {
-            itemsIndexed(uiState.outlineItems, key = { _, item -> item.location }) { index, item ->
+            itemsIndexed(uiState.outlineItems, key = { _, item -> item.location.asStorageString() }) { index, item ->
                 NavigationDrawerItem(
                     label = { TeddText(text = item.displayTitle()) },
                     selected = false,
