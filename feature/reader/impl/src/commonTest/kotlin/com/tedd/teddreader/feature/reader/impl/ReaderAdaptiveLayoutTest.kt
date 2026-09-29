@@ -9,6 +9,34 @@ import kotlin.test.assertEquals
 
 class ReaderAdaptiveLayoutTest {
     @Test
+    fun lastPageOrSpreadShowsFullProgressOnceMeasured() {
+        assertEquals(
+            100,
+            readerDisplayedReadProgressPercent(98, PageIndex(current = 70, total = 72), paneCount = 2, isPaginationComplete = true),
+        )
+        assertEquals(
+            100,
+            readerDisplayedReadProgressPercent(99, PageIndex(current = 60, total = 61), paneCount = 1, isPaginationComplete = true),
+        )
+        assertEquals(
+            92,
+            readerDisplayedReadProgressPercent(92, PageIndex(current = 68, total = 72), paneCount = 2, isPaginationComplete = true),
+        )
+        assertEquals(
+            98,
+            readerDisplayedReadProgressPercent(98, PageIndex(current = 70, total = 72), paneCount = 2, isPaginationComplete = false),
+        )
+    }
+
+    @Test
+    fun oddPageInTwoPaneSnapsToItsSpreadStart() {
+        val spread = readerSpreadPageIndex(currentPage = 71, totalPages = 72, paneCount = 2)
+        assertEquals(70, readerSpreadAnchorPage(spread.current, totalPages = 72, paneCount = 2))
+        val single = readerSpreadPageIndex(currentPage = 71, totalPages = 72, paneCount = 1)
+        assertEquals(71, readerSpreadAnchorPage(single.current, totalPages = 72, paneCount = 1))
+    }
+
+    @Test
     fun phoneLandscapeUsesOnePane() {
         assertEquals(1, readerPaneCount(widthDp = 840f, heightDp = 360f))
     }
