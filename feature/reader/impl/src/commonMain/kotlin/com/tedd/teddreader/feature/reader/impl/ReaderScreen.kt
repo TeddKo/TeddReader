@@ -465,6 +465,13 @@ fun ReaderScreen(
  * 이동이 실제로 실행될 때 그 시점에 유효한 페이지 나누기를 기준으로 이동 폭을 해석하므로, 탭과 이동 처리
  * 사이에 재페이지 나누기가 끼어들어도 잘못된 페이지가 선택되는 일이 없다.
  *
+ * spread pager는 현재 원시 페이지를 왼쪽 pane, 그다음 페이지를 오른쪽 pane에 놓는다. 그래서 2-pane일 때
+ * 현재 페이지는 항상 spread의 첫 페이지여야 한다. 폴더블을 접은 상태에서 저장한 위치를 펼친 화면 기준으로
+ * 복원하거나 페이지 번호로 직접 이동하면 홀수 원시 페이지가 될 수 있다. 그러면 마지막 페이지만 왼쪽 pane에
+ * 홀로 놓이고 슬라이더 라벨과 실제 spread가 어긋난다. 이를 막으려고 이 composable은 현재 페이지를 그 페이지가
+ * 속한 spread의 시작 페이지로 옮긴다. 원래 페이지는 같은 spread의 오른쪽 pane에 남으므로 읽던 위치는 화면에서
+ * 벗어나지 않는다.
+ *
  * @param uiState view model이 발행하는, 리더의 현재 상태.
  * @param onBack 사용자가 리더를 떠나려 할 때 호출된다.
  * @param onToggleControls 사용자가 탭하여 읽기 컨트롤을 보이거나 숨길 때 호출된다.
@@ -684,6 +691,14 @@ private fun ReaderContent(
             )
             LaunchedEffect(actionBarPageIndex.current, actionBarPageIndex.total) {
                 onBottomSliderValueChange(actionBarPageIndex.current.toFloat())
+            }
+            val spreadStartPage = readerSpreadAnchorPage(
+                selectedSpread = actionBarPageIndex.current,
+                totalPages = uiState.pageIndex.total,
+                paneCount = paneCount,
+            )
+            LaunchedEffect(spreadStartPage, uiState.pageIndex.current) {
+                if (spreadStartPage != uiState.pageIndex.current) onGoToPage(spreadStartPage)
             }
             val actionBarSliderValue = bottomSliderValue
             val canRequestNextPage = !uiState.isVisualMode && !uiState.isPaginationComplete
@@ -956,7 +971,12 @@ private fun ReaderContent(
 
                 ReaderStatusFooter(
                     title = uiState.documentTitle,
-                    readProgressPercent = uiState.readProgressPercent,
+                    readProgressPercent = readerDisplayedReadProgressPercent(
+                        readProgressPercent = uiState.readProgressPercent,
+                        pageIndex = uiState.pageIndex,
+                        paneCount = paneCount,
+                        isPaginationComplete = uiState.isPaginationComplete,
+                    ),
                     batteryPercent = batteryPercent,
                     style = uiState.style,
                     windowInsets = systemBarsInsets.only(WindowInsetsSides.Bottom),
@@ -2255,6 +2275,32 @@ internal fun readerReadProgressPercent(
         .roundToInt()
         .coerceIn(0, 100)
 }
+
+/**
+ * [ReaderStatusFooter]가 실제로 표시하는 읽기 진행률. 텍스트 진행률은 현재 페이지의 시작 오프셋 기준이고
+ * visual 진행률은 spread의 첫 페이지 기준이라, 문서 끝이 화면에 보이는 마지막 페이지나 마지막 spread에서도
+ * 100%에 닿지 못하고 92~99%에 머문다. 더 넘길 페이지가 없고 pagination이 끝났다면 문서 끝이 이미 보이는
+ * 상태이므로 100%로 올린다. pagination이 아직 진행 중이면 뒤에 페이지가 더 생길 수 있어 원래 값을 유지한다.
+ *
+ * @param readProgressPercent view model이 발행한 원래 진행률.
+ * @param pageIndex 원시 페이지 기준의 현재 위치와 알려진 전체 페이지 수.
+ * @param paneCount 한 번에 보이는 pane 수로, 마지막 spread 판정에 쓰인다.
+ * @param isPaginationComplete 전체 페이지 수가 확정되었는지 여부.
+ * @return 마지막 페이지(또는 spread)에서는 100, 그 외에는 [readProgressPercent].
+ */
+internal fun readerDisplayedReadProgressPercent(
+    readProgressPercent: Int,
+    pageIndex: PageIndex,
+    paneCount: Int,
+    isPaginationComplete: Boolean,
+): Int =
+    if (isPaginationComplete && pageIndex.total > 0 &&
+        readerNextPage(pageIndex.current, pageIndex.total, paneCount) == null
+    ) {
+        100
+    } else {
+        readProgressPercent
+    }
 
 /** visual 페이지 형식에 대해 [ReaderStatusFooter]가 보여주는 백분율로, 여전히 페이지 기준이다. */
 internal fun readerVisualReadProgressPercent(pageIndex: PageIndex): Int =
