@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.KoinViewModel
+import kotlin.math.abs
 import kotlin.time.Clock
 
 /**
@@ -146,18 +147,18 @@ class ReaderViewModel(
     private var anchorOffset: Long? = null
 
     /**
-     * 페이지 나누기와 페이지 레이아웃 저장이 키로 삼는 viewport — px가 아니라 sp. [loadOpenState]가
-     * 저장된 레이아웃의 viewport를 채택할 때, 그리고 [updatePageBreaker]가 pane이 진짜 새로운
-     * 크기를 보고할 때 기록한다(단위가 pane의 실제 픽셀 박스 — 이는 대신 [pageBreakerSize]가
-     * 담는다 — 가 아니라 sp인 이유는 그 함수 자체의 문서를 참고).
+     * 페이지 나누기와 페이지 레이아웃 저장이 키로 삼는 viewport — sp가 아니라 pane의 실제 픽셀
+     * 박스. [loadOpenState]가 저장된 레이아웃의 viewport를 채택할 때, 그리고 [updatePageBreaker]가
+     * pane이 진짜 새로운 크기를 보고할 때 기록한다. 밀도가 다른 두 pane(폴더블의 내부 화면과 커버
+     * 화면)은 같은 sp 크기로 반올림되어도 줄바꿈이 다를 수 있으므로 sp 박스를 키로 삼으면 한쪽의
+     * 페이지 나누기를 다른 쪽에 재사용해 마지막 줄이 잘리고, 이미 저장된 레이아웃 키도 어긋난다.
+     * 저장소는 이 값을 [paneDensity]로 나누어 estimator가 쓰는 sp로 환산한다.
      */
     private var viewportSize: ViewportSize = DefaultViewportSize
 
     /**
-     * [viewportSize]가 측정된 pane의 sp당 픽셀 수, pane이 보고하기 전까지는 1. 페이지 나누기
-     * geometry는 실제 픽셀 박스를 기준으로 키가 걸린다(밀도가 다른 두 디스플레이는 같은 sp
-     * 박스로 반올림되어도 줄바꿈은 다르게 될 수 있다), 이것이 그 값을 estimator가 계산에 쓰는
-     * sp로 다시 변환해 준다.
+     * [viewportSize]가 측정된 pane의 sp당 픽셀 수, pane이 보고하기 전까지는 1. 픽셀 단위인
+     * [viewportSize]를 estimator가 계산에 쓰는 sp로 다시 변환할 때 저장소가 나누는 값이다.
      */
     private var paneDensity: Float = 1f
 
@@ -190,11 +191,20 @@ class ReaderViewModel(
     private var pageBreakerSize: ViewportSize? = null
 
     /**
-     * [updatePageBreaker]가 가장 최근에 받아들인 보고에 대해 시작한, 진행 중인 재 페이지 나누기;
-     * 취소되고 교체될 뿐 절대 await되지 않으므로, 더 새로운 보고는 여전히 실행 중인 더 오래된
-     * reload를 항상 이긴다.
+     * [updatePageBreaker]가 가장 최근에 받아들인 보고에 대해 시작한, 진행 중인 재 페이지 나누기.
+     *
+     * 취소 불가능한 저장소 읽기는 취소 뒤에도 돌아올 수 있으므로, 최신 결과 여부는
+     * [viewportReloadGeneration]으로 별도 확인한다.
      */
     private var viewportReloadJob: Job? = null
+
+    /**
+     * 받아들인 viewport 보고의 세대로, 취소된 이전 저장소 읽기가 최신 페이지를 덮지 못하게 한다.
+     *
+     * 새 문서를 열거나 실제로 다른 viewport를 받아들일 때 증가하며, viewport reload는 자신이
+     * 포착한 값이 발행 직전까지 이 값과 같을 때만 내부 페이지와 UI 상태를 바꾼다.
+     */
+    private var viewportReloadGeneration = 0L
 
     /**
      * [currentDocumentId]에 대해 진행 중인 [openDocument] 코루틴; 더 새로운 [openDocument]
@@ -248,9 +258,21 @@ class ReaderViewModel(
 
     /**
      * CBZ 문서에 대해 디코딩된 페이지 이미지들로, 페이지 인덱스를 키로 한다; 24 MiB 예산으로
-     * 제한되며 [loadVisualPagesAround]가 현재 마운트 창을 축출로부터 보호해 둔다.
+     * 제한되며 [loadVisualPagesAround]가 보이는 페이지(중심과 양옆의 spread 짝)를 축출로부터 우선 보호한다.
      */
     private val visualPageCache = ByteArrayLruCache<Int>(VisualPageCacheBudgetBytes)
+
+    /**
+     * [visualPageCache] 예산보다 커서 캐시에 남지 못한 보이는 CBZ 페이지의 바이트로, 한 슬롯만
+     * 유지한다. 캐시에 없으면 표지 같은 큰 페이지가 이후 발행에서 빈 화면이 되므로 [loadVisualPagesAround]가
+     * 모든 발행에 병합하며, 중심 페이지가 [oversizedVisualCenter]와 달라지거나 문서가 바뀌면 비운다.
+     * 이전 중심에서 시작된 로드가 뒤늦게 끝나도 [oversizedVisualCenter]가 그 로드의 중심과 같을 때만
+     * 이 슬롯에 병합하므로, 옛 중심의 보호 페이지가 새 중심의 슬롯에 섞이지 않는다.
+     */
+    private var oversizedVisualPages: Map<Int, ByteArray> = emptyMap()
+
+    /** [oversizedVisualPages]가 유효한 [loadVisualPagesAround]의 중심 페이지, 슬롯이 비어 있으면 null. */
+    private var oversizedVisualCenter: Int? = null
 
     /**
      * [loadVisualPagesAround]가 이미 디코딩을 시도했다가 실패한 페이지 인덱스들로, 리더가 근처를
@@ -269,9 +291,22 @@ class ReaderViewModel(
 
     /**
      * EPUB 문서에 대해 디코딩된 내장 이미지들로, href를 키로 한다; 16 MiB 예산으로 제한되며
-     * [loadEmbeddedImagesAround]가 현재 마운트 창이 여전히 필요로 하는 모든 href를 보호한다.
+     * [loadEmbeddedImagesAround]가 보이는 페이지(중심과 양옆의 spread 짝)가 참조하는 href를 축출로부터 우선 보호한다.
      */
     private val embeddedImageCache = ByteArrayLruCache<String>(EmbeddedImageCacheBudgetBytes)
+
+    /**
+     * [embeddedImageCache] 예산보다 커서 캐시에 남지 못한 보이는 페이지의 내장 이미지 바이트로,
+     * 한 슬롯만 유지한다. [pageUiContext]가 모든 발행에 병합하므로 폰트 로드 완료, 이미지·폰트
+     * 실패, import 완료로 [refreshEpubPages]가 다시 실행되어도 표지가 비지 않는다. 중심 페이지가
+     * [oversizedEmbeddedCenter]와 달라지거나 문서가 바뀌면 비운다.
+     * 이전 중심에서 시작된 로드가 뒤늦게 끝나도 [oversizedEmbeddedCenter]가 그 로드의 중심과 같을 때만
+     * 이 슬롯에 병합하므로, 옛 중심의 이미지가 새 중심의 슬롯에 섞이지 않는다.
+     */
+    private var oversizedEmbeddedImages: Map<String, ByteArray> = emptyMap()
+
+    /** [oversizedEmbeddedImages]가 유효한 [loadEmbeddedImagesAround]의 중심 페이지, 슬롯이 비어 있으면 null. */
+    private var oversizedEmbeddedCenter: Int? = null
 
     /** 해석된 내장 EPUB 폰트 파일들로, href를 키로 하며 바이트가 아니라 임시 파일 경로로 유지된다. */
     private var embeddedFontFiles: Map<String, String> = emptyMap()
@@ -344,6 +379,7 @@ class ReaderViewModel(
         currentDocumentId = documentId
         openDocumentJob?.cancel()
         viewportReloadJob?.cancel()
+        viewportReloadGeneration += 1
         visualPageLoadJob?.cancel()
         embeddedImageLoadJob?.cancel()
         embeddedFontLoadJob?.cancel()
@@ -360,8 +396,12 @@ class ReaderViewModel(
         saveProgressJob?.cancel()
         finalCharacterCount = null
         visualPageCache.clear()
+        oversizedVisualPages = emptyMap()
+        oversizedVisualCenter = null
         failedVisualPages.clear()
         embeddedImageCache.clear()
+        oversizedEmbeddedImages = emptyMap()
+        oversizedEmbeddedCenter = null
         failedEmbeddedImageHrefs.clear()
         embeddedFontFiles = emptyMap()
         failedEmbeddedFontHrefs.clear()
@@ -594,7 +634,8 @@ class ReaderViewModel(
                 style = styleWithPublisherFontKey(state.settings.style, state.documentFormat),
                 pageLayoutStyle = paginatedStyle,
                 publisherPageMargins = epubPageContainerMarginsEm(currentPageUi),
-                areEmbeddedFontsResolved = state.documentFormat != DocumentFormat.EPUB || embeddedFontsSettled,
+                areEmbeddedFontsResolved = state.documentFormat != DocumentFormat.EPUB ||
+                    state.settings.style.fontFamilyName != null || embeddedFontsSettled,
                 pageTurnMode = state.settings.pageTurnMode,
                 pageAnimation = state.settings.pageAnimation,
                 autoScrollConfig = state.settings.autoScrollConfig.copy(enabled = false),
@@ -741,8 +782,22 @@ class ReaderViewModel(
      * 호출이 두 번 일어났다(`Job.cancel()`은 이미 진행 중인 DB 읽기를 멈출 수 없다). 이제 pane은
      * 자신의 크기를 한 번, 두 값으로 나누어 보고한다: [viewportSp]는 페이지 나누기와 페이지 레이아웃
      * 저장이 키로 삼는 sp 값 — PageLayoutEntity의 viewportWidthPx/viewportHeightPx 컬럼이
-     * 이름과 달리 실제로 담고 있는 것과 같은 단위 — 이며 아래의 [viewportSize]가 된다;
-     * [measuredSizePx]는 실제 픽셀 박스로, 리더가 이미 답한 보고를 알아보는 용도로만 유지된다.
+     * 이름과 달리 실제로 담고 있는 것과 같은 단위 — 이며 밀도([paneDensity]) 계산에만 쓰인다;
+     * [measuredSizePx]는 실제 픽셀 박스로, 리더가 이미 답한 보고를 알아보는 용도이자 아래의
+     * [viewportSize]가 되어 페이지 나누기와 저장 키의 단위가 된다.
+     *
+     * 페이지 나누기는 (텍스트, style, 폰트 집합, pane 픽셀)의 순수 함수이므로 키는 sp 박스가 아니라
+     * 실제 픽셀 박스다: 밀도가 다른 두 pane은 같은 sp 크기로 반올림되어도 줄바꿈이 달라질 수 있고,
+     * 한쪽의 페이지 나누기를 다른 쪽에 재사용하면 마지막 줄이 잘렸다.
+     *
+     * EPUB의 폰트 집합이 확정되기 전에 만들어진 breaker는 대체 활자로 측정되며, 그 측정값이 최종
+     * 키로 저장되면 이후의 모든 open을 오염시키므로 거부한다.
+     *
+     * @param style pane이 측정한 레이아웃 style.
+     * @param viewportSp pane의 sp 기준 크기로, 밀도 계산에만 쓰인다.
+     * @param measuredSizePx 페이지 나누기와 저장 키, 중복 측정 구분에 쓰이는 실제 픽셀 박스.
+     * @param breaker 이 style과 픽셀 박스에서 측정된 페이지 경계 계산기.
+     * @param measuredWithFinalFonts EPUB 측정이 최종 폰트 집합으로 수행되었으면 true.
      */
     fun updatePageBreaker(
         style: ReaderStyle,
@@ -751,20 +806,13 @@ class ReaderViewModel(
         breaker: ReaderPageBreaker,
         measuredWithFinalFonts: Boolean = true,
     ) {
-        // 페이지 나누기는 (텍스트, style, 폰트 집합, pane 픽셀)의 순수 함수다. 문서의 폰트 집합이
-        // 확정되기 전에 만들어진 breaker는 대체 활자로 측정되며, 그 측정값이 최종 키로 저장되면
-        // 이후의 모든 open을 오염시킨다 — 유효한 것처럼 복원되어, 실제 활자가 더 길게 뻗는 모든
-        // 페이지를 잘라낸다. 모든 측정값이 지나가는 이 한 지점에서 거부하는 것이, 화면의
-        // recomposition 전반에 걸쳐 composition 타이밍을 신뢰하던 방식을 대체한다.
-        if (_uiState.value.documentFormat == DocumentFormat.EPUB &&
+        val usesPublisherFont = style.fontFamilyName == null
+        if (_uiState.value.documentFormat == DocumentFormat.EPUB && usesPublisherFont &&
             (!measuredWithFinalFonts || !embeddedFontsSettled)
         ) {
             logger.d { "breaker report rejected: embedded fonts not settled yet" }
             return
         }
-        // 페이지 나누기는 sp 박스가 아니라 실제 픽셀 박스를 기준으로 키가 걸린다: 밀도가 다른 두
-        // pane(폴더블의 내부 화면과 커버 화면)은 같은 sp 크기로 반올림되어도 줄바꿈은 다르게 될 수
-        // 있으며, 한쪽의 페이지 나누기를 다른 쪽에 재사용하면 다른 쪽의 마지막 줄이 잘렸다.
         val outcome = paneReportOutcome(
             reportedStyle = style,
             reportedSizePx = measuredSizePx,
@@ -779,7 +827,7 @@ class ReaderViewModel(
             return
         }
         if (outcome == PaneReportOutcome.RecordOnly) {
-            logger.d { "breaker report accepted without reload, viewport already answered by $viewportSp" }
+            logger.d { "breaker report accepted without reload, viewport already answered by $measuredSizePx" }
             pageBreaker = breaker
             pageBreakerStyle = style
             pageBreakerSize = measuredSizePx
@@ -791,14 +839,17 @@ class ReaderViewModel(
         pageBreakerSize = measuredSizePx
         viewportSize = measuredSizePx
         paneDensity = (measuredSizePx.widthPx.toFloat() / viewportSp.widthPx.toFloat()).takeIf { it > 0f && it.isFinite() } ?: 1f
+        val reloadGeneration = ++viewportReloadGeneration
         viewportReloadJob?.cancel()
         viewportReloadJob = viewModelScope.launch {
-            reloadPages(style = _uiState.value.style)
+            reloadPages(style = style, expectedViewportGeneration = reloadGeneration)
+            if (reloadGeneration != viewportReloadGeneration) return@launch
             currentDocumentId?.let { documentId ->
                 refreshPaginationCompleteness(
-                    documentId,
-                    style,
-                    isImportComplete = documentRepository.isImportComplete(documentId)
+                    documentId = documentId,
+                    style = style,
+                    isImportComplete = documentRepository.isImportComplete(documentId),
+                    expectedViewportGeneration = reloadGeneration,
                 )
             }
         }
@@ -938,18 +989,27 @@ class ReaderViewModel(
      * [ImportProgress.isComplete]에 있는 가장 최신의 답을 가지고 있기 때문이다 — 다시 물어봐야 실제
      * 프로덕션에서는 같은 답을 반복할 뿐이고, importNextSections()의 반환값과 별개로
      * isImportComplete()를 모델링하는 테스트 더블에는 둘이 일치하리라고 보장할 근거가 없다.
+     *
+     * @param documentId 완료 여부를 확인할 현재 문서.
+     * @param style 완료 여부가 적용되는 페이지 레이아웃 style.
+     * @param isImportComplete 호출자가 이미 확인한 import 완료 여부.
+     * @param expectedViewportGeneration viewport reload가 포착한 세대, 다른 호출 경로면 null.
      */
     private suspend fun refreshPaginationCompleteness(
         documentId: DocumentId,
         style: ReaderStyle,
-        isImportComplete: Boolean
+        isImportComplete: Boolean,
+        expectedViewportGeneration: Long? = null,
     ) {
-        if (currentDocumentId != documentId) return
+        if (expectedViewportGeneration != null && expectedViewportGeneration != viewportReloadGeneration) return
+        if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
         if (!isImportComplete) {
             _uiState.update { state -> state.copy(isPaginationComplete = false) }
             return
         }
         val isPaginationMeasured = documentRepository.isPaginationComplete(documentId)
+        if (expectedViewportGeneration != null && expectedViewportGeneration != viewportReloadGeneration) return
+        if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
         if (needsPaginationContinuation(
                 isPaginationMeasured,
                 hasMeasurementForStyle = pageBreakerFor(style) != null
@@ -1263,9 +1323,15 @@ class ReaderViewModel(
      */
     private fun updateStyle(style: ReaderStyle) {
         val previousStyle = _uiState.value.style
+        val activatesPublisherFont = previousStyle.fontFamilyName != null && style.fontFamilyName == null
         _uiState.update { state ->
-            state.copy(style = styleWithPublisherFontKey(style, state.documentFormat))
+            state.copy(
+                style = styleWithPublisherFontKey(style, state.documentFormat),
+                areEmbeddedFontsResolved = state.documentFormat != DocumentFormat.EPUB ||
+                    style.fontFamilyName != null || embeddedFontsSettled,
+            )
         }
+        if (activatesPublisherFont) loadAllEmbeddedFonts()
         saveReaderSettings {
             readerSettingsRepository.updateStyle(style)
             if (previousStyle.layoutKey() != style.layoutKey()) {
@@ -1316,6 +1382,12 @@ class ReaderViewModel(
         }
     }
 
+    /**
+     * 저장소가 발행한 설정을 현재 리더에 적용하고 사용자 폰트에서 출판사 폰트로 바뀌면 폰트 해석을 시작한다.
+     *
+     * @param settings 현재 리더에 적용할 저장된 설정 스냅샷.
+     * @param preserveAutoScrollEnabled 초기 구독이나 쓰기 실패 복원에서 현재 자동 스크롤 실행 상태를 유지할지 여부.
+     */
     private fun applyReaderSettings(
         settings: ReaderSettings,
         preserveAutoScrollEnabled: Boolean = false,
@@ -1328,6 +1400,7 @@ class ReaderViewModel(
         } else {
             settings.autoScrollConfig
         }
+        val activatesPublisherFont = before.style.fontFamilyName != null && style.fontFamilyName == null
         _uiState.update { state ->
             state.copy(
                 style = styleWithPublisherFontKey(settings.style, state.documentFormat),
@@ -1335,8 +1408,11 @@ class ReaderViewModel(
                 pageAnimation = settings.pageAnimation,
                 autoScrollConfig = autoScrollConfig,
                 isControlsVisible = state.isControlsVisible && !autoScrollConfig.enabled,
+                areEmbeddedFontsResolved = state.documentFormat != DocumentFormat.EPUB ||
+                    style.fontFamilyName != null || embeddedFontsSettled,
             )
         }
+        if (activatesPublisherFont) loadAllEmbeddedFonts()
     }
 
     /**
@@ -1361,6 +1437,7 @@ class ReaderViewModel(
      * @param pageIndex 현재 페이지를 읽어올 페이지 나누기.
      * @param documentUri 이미지를 렌더링하는 페이지를 위해 그대로 실려 가는, 문서 자신의 URI.
      * @param isPdfMode 문서가 visual 페이지 형식인지 여부로, 페이지 텍스트를 억제한다.
+     * @param paginatedOverride 페이지와 섹션을 읽을 스냅샷.
      * @return 현재 페이지의 UI 뷰, 실제 것이거나 빈 것.
      */
     private fun pageUiContext(
@@ -1373,7 +1450,7 @@ class ReaderViewModel(
         documentUri = documentUri,
         isPdfMode = isPdfMode,
         paginated = paginatedOverride,
-        embeddedImages = embeddedImageCache.snapshot(),
+        embeddedImages = embeddedImageCache.snapshot() + oversizedEmbeddedImages,
         embeddedFontFiles = embeddedFontFiles,
         failedEmbeddedImageHrefs = failedEmbeddedImageHrefs,
         failedEmbeddedFontHrefs = failedEmbeddedFontHrefs,
@@ -1563,8 +1640,12 @@ class ReaderViewModel(
      * 나가게 만든다.
      *
      * @param style 측정하고 페이지를 배치할 style.
+     * @param expectedViewportGeneration viewport 보고가 시작한 reload의 세대, 다른 경로의 reload면 null.
      */
-    private suspend fun reloadPages(style: ReaderStyle) {
+    private suspend fun reloadPages(
+        style: ReaderStyle,
+        expectedViewportGeneration: Long? = null,
+    ) {
         val documentId = currentDocumentId ?: return
         if (_uiState.value.isVisualMode) return
 
@@ -1582,6 +1663,7 @@ class ReaderViewModel(
             anchorOffset = anchorOffset,
         )
         if (pageWindows.isEmpty()) return
+        if (expectedViewportGeneration != null && expectedViewportGeneration != viewportReloadGeneration) return
         if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
 
         val currentPage =
@@ -1590,10 +1672,12 @@ class ReaderViewModel(
         paginated = paginated.withPages(pageWindows)
         paginatedStyle = style
         val freshSections = documentRepository.getReaderDocument(documentId)?.sections
+        if (expectedViewportGeneration != null && expectedViewportGeneration != viewportReloadGeneration) return
         if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
         if (freshSections != null) paginated = paginated.withSections(freshSections)
         val reloaded = PaginatedDocument(pageWindows, freshSections ?: paginated.sections)
         warmMountWindow(documentId, currentPage, reloaded)
+        if (expectedViewportGeneration != null && expectedViewportGeneration != viewportReloadGeneration) return
         if (currentDocumentId != documentId || _uiState.value.style.layoutKey() != style.layoutKey()) return
         val pageIndex = PageIndex(current = currentPage, total = pageWindows.size)
         _uiState.update {
@@ -1754,8 +1838,11 @@ class ReaderViewModel(
      * [DocumentFormat.CBZ]가 아닌 문서, 또는 아직 페이지 수를 모르는 동안은 아무 일도 하지
      * 않는다.
      *
-     * 성공하면, [visualPageCache]는 요청된 마운트 창의 모든 페이지를 보호하면서 더 오래된
-     * 바이트를 24 MiB 예산 아래로 잘라낸다; 실패하면, 빠진 페이지들은 끝없이 다시 요청되지
+     * 성공하면, [visualPageCache]는 보이는 페이지를 우선 보호하면서 더 오래된 바이트를 24 MiB
+     * 예산 아래로 잘라낸다. UI가 몇 개의 pane을 그리는지는 이 클래스가 모르므로 spread 짝이 될 수
+     * 있는 양옆 페이지까지 [centerPage]와 함께 보호하고, 가져온 페이지는 중심에서 먼 것부터 삽입해
+     * 가까운 이웃이 마지막에 축출되게 한다. 보호 페이지가 예산보다 커서 캐시에 남지 못하면
+     * [oversizedVisualPages]에 두고 이후 모든 발행에 병합한다; 실패하면, 빠진 페이지들은 끝없이 다시 요청되지
      * 않도록 [failedVisualPages]에 기록된다.
      *
      * @param centerPage [pagerMountWindow]가 fetch 창을 중심에 두는 페이지.
@@ -1766,12 +1853,17 @@ class ReaderViewModel(
         if (state.documentFormat != DocumentFormat.CBZ || state.pageIndex.total <= 0) return
         val requestedPages = pagerMountWindow(centerPage)
             .filterTo(linkedSetOf()) { it in 0 until state.pageIndex.total }
+        val protectedPages = (centerPage - 1..centerPage + 1).filterTo(linkedSetOf()) { it in requestedPages }
+        if (oversizedVisualCenter != centerPage) {
+            oversizedVisualPages = emptyMap()
+            oversizedVisualCenter = centerPage
+        }
         val cachedPages = visualPageCache.snapshot()
-        val missingPages = requestedPages - cachedPages.keys - failedVisualPages
+        val missingPages = requestedPages - cachedPages.keys - oversizedVisualPages.keys - failedVisualPages
         if (missingPages.isEmpty()) {
             _uiState.update {
                 it.copy(
-                    visualPageImages = cachedPages.filterKeys(requestedPages::contains)
+                    visualPageImages = (cachedPages.filterKeys(requestedPages::contains) + oversizedVisualPages)
                         .toImmutableMap(),
                     failedVisualPages = failedVisualPages.toImmutableSet(),
                 )
@@ -1784,15 +1876,20 @@ class ReaderViewModel(
             try {
                 val loadedPages = documentRepository.getVisualPageImages(documentId, missingPages)
                 if (currentDocumentId != documentId) return@launch
-                loadedPages.forEach { (page, bytes) ->
-                    visualPageCache.put(page, bytes, protectedKeys = requestedPages)
+                loadedPages.entries.sortedByDescending { abs(it.key - centerPage) }.forEach { (page, bytes) ->
+                    visualPageCache.put(page, bytes, protectedKeys = protectedPages)
                 }
                 failedVisualPages += missingPages - loadedPages.keys
                 val visualSnapshot = visualPageCache.snapshot()
+                if (oversizedVisualCenter == centerPage) {
+                    oversizedVisualPages += loadedPages.filter { (page, _) ->
+                        page in protectedPages && page !in visualSnapshot
+                    }
+                }
+                val visiblePages = visualSnapshot.filterKeys(requestedPages::contains) + oversizedVisualPages
                 _uiState.update {
                     it.copy(
-                        visualPageImages = visualSnapshot.filterKeys(requestedPages::contains)
-                            .toImmutableMap(),
+                        visualPageImages = visiblePages.toImmutableMap(),
                         failedVisualPages = failedVisualPages.toImmutableSet(),
                     )
                 }
@@ -1804,7 +1901,7 @@ class ReaderViewModel(
                     val visualSnapshot = visualPageCache.snapshot()
                     _uiState.update {
                         it.copy(
-                            visualPageImages = visualSnapshot.filterKeys(requestedPages::contains)
+                            visualPageImages = (visualSnapshot.filterKeys(requestedPages::contains) + oversizedVisualPages)
                                 .toImmutableMap(),
                             failedVisualPages = failedVisualPages.toImmutableSet(),
                         )
@@ -1825,10 +1922,11 @@ class ReaderViewModel(
      * 이 함수가 href를 읽어오는 창은 `pageSlots()`가 실제로 마운트하는 창과 일치하므로
      * ([pagerMountWindow] 참고), 리더가 미리보기로 스와이프할 수 있는 모든 슬롯이 바로
      * 이웃뿐 아니라 이미 자신의 이미지를 요청받은 상태다. 성공하면, [embeddedImageCache]는
-     * 현재 창이 여전히 필요로 하는 모든 href를(예를 들어, 나중에 다시 방문하는 표지) 보존하고,
-     * 캐시가 16 MiB 예산을 넘으면 나머지 중 가장 오래된 것만 축출한다 — 단순한 삽입 순서 LRU는
-     * 여전히 필요한 이미지(표지는 항상 처음 로드된 것이었다)를 오직 그 이후 더 새로운 이미지가
-     * 캐시되었다는 이유만으로 축출해버렸다. 아카이브 미스는 끝없이 다시 요청되지 않도록
+     * 보이는 페이지가 참조하는 href를 우선 보호하고 캐시가 16 MiB 예산을 넘으면 나머지 중 가장
+     * 오래된 것부터 축출한다. UI가 몇 개의 pane을 그리는지는 이 클래스가 모르므로 spread 짝이 될 수
+     * 있는 양옆 페이지까지 [centerPage]와 함께 보호하고, 가져온 이미지는 중심에서 먼 것부터 삽입해
+     * 가까운 이웃이 마지막에 축출되게 한다. 보호된 이미지 합계가 예산을 넘어 캐시에 남지 못한
+     * 항목은 [oversizedEmbeddedImages]에 두어 이후 모든 발행에 병합한다. 아카이브 미스는 끝없이 다시 요청되지 않도록
      * [failedEmbeddedImageHrefs]에 기록되지만, 일시적인 fetch 실패는 다음 preload에서 재시도할
      * 수 있도록 href를 그대로 남겨 둔다.
      *
@@ -1839,8 +1937,13 @@ class ReaderViewModel(
         val state = _uiState.value
         if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
         val relevantHrefs = paginated.imageHrefsIn(pagerMountWindow(centerPage))
-        val missingHrefs =
-            relevantHrefs - embeddedImageCache.snapshot().keys - failedEmbeddedImageHrefs
+        val protectedHrefs = paginated.imageHrefsIn(centerPage - 1..centerPage + 1)
+        if (oversizedEmbeddedCenter != centerPage) {
+            oversizedEmbeddedImages = emptyMap()
+            oversizedEmbeddedCenter = centerPage
+        }
+        val missingHrefs = relevantHrefs - embeddedImageCache.snapshot().keys -
+            oversizedEmbeddedImages.keys - failedEmbeddedImageHrefs
         if (missingHrefs.isEmpty()) {
             refreshEpubPages()
             return
@@ -1851,10 +1954,20 @@ class ReaderViewModel(
             try {
                 val loadedImages = documentRepository.getEmbeddedImages(documentId, missingHrefs)
                 if (currentDocumentId != documentId) return@launch
-                loadedImages.forEach { (href, bytes) ->
-                    embeddedImageCache.put(href, bytes, protectedKeys = relevantHrefs)
+                val hrefDistance = pagerMountWindow(centerPage)
+                    .flatMap { page -> paginated.imageHrefsIn(page..page).map { href -> href to abs(page - centerPage) } }
+                    .groupBy({ it.first }, { it.second })
+                    .mapValues { (_, distances) -> distances.min() }
+                loadedImages.entries.sortedByDescending { hrefDistance[it.key] ?: Int.MAX_VALUE }.forEach { (href, bytes) ->
+                    embeddedImageCache.put(href, bytes, protectedKeys = protectedHrefs)
                 }
                 failedEmbeddedImageHrefs += missingHrefs - loadedImages.keys
+                val cachedImages = embeddedImageCache.snapshot()
+                if (oversizedEmbeddedCenter == centerPage) {
+                    oversizedEmbeddedImages += loadedImages.filter { (href, _) ->
+                        href in protectedHrefs && href !in cachedImages
+                    }
+                }
                 refreshEpubPages()
             } catch (cancellationException: CancellationException) {
                 throw cancellationException
@@ -1873,20 +1986,25 @@ class ReaderViewModel(
      * 변경마다 책 전체를 다시 측정했고, 리더는 이를 정착되는 동안 페이지가 깜박이고 다시
      * 스타일링되고 잘리는 것으로 경험했다. 전체 집합을 한 번에 해석하면 key는 문서당 최대 한
      * 번만 바뀌며, [refreshEpubPages]는 실제로 그것이 바뀌었을 때만 호출할 가치가 있다.
+     *
+     * 사용자 폰트가 활성화된 동안에는 출판사 폰트가 렌더링이나 측정에 쓰이지 않으므로 전체 스캔을
+     * 미룬다. 출판사 폰트로 전환되면 [updateStyle] 또는 [applyReaderSettings]가 이 함수를 한 번
+     * 시작하며, import가 완료된 책에서는 [allEmbeddedFontsResolved]가 이후 호출을 막는다.
+     *
+     * 점진적 import 중 스캔은 지금까지 저장된 섹션만 볼 수 있으므로 완료된 집합으로 표시하지 않는다.
+     * 폰트 key가 바뀌지 않아도 측정 게이트를 열기 위해 페이지를 다시 발행하며, 로드 실패는 대기 상태로
+     * 남겨 측정을 영구 차단하는 대신 이번 open에서 출판사 폰트를 실패 처리한다.
      */
     private fun loadAllEmbeddedFonts() {
         val documentId = currentDocumentId ?: return
         val state = _uiState.value
         if (state.documentFormat != DocumentFormat.EPUB || state.pageIndex.total <= 0) return
-        if (allEmbeddedFontsResolved) return
+        if (state.style.fontFamilyName != null || allEmbeddedFontsResolved) return
 
         embeddedFontLoadJob?.cancel()
         embeddedFontLoadJob = viewModelScope.launch {
             var missingHrefs = emptySet<String>()
             try {
-                // 폰트 집합은 책 전체가 파싱된 뒤에만 최종이라고 부를 수 있다: 점진적인 (재)import
-                // 도중의 스캔은 지금까지 저장된 섹션만 — 또는 복구 도중이면 아무것도 — 보지
-                // 못하며, 그 빈 답을 "해석됨"이라고 부르면 책이 영원히 폰트 없는 채로 굳어버렸다.
                 val isImportComplete = documentRepository.isImportComplete(documentId)
                 val referencedHrefs = documentRepository.getReferencedEmbeddedFontHrefs(documentId)
                 if (currentDocumentId != documentId) return@launch
@@ -1899,18 +2017,11 @@ class ReaderViewModel(
                 }
                 allEmbeddedFontsResolved = isImportComplete
                 embeddedFontsSettled = true
-                // 폰트 key가 바뀌지 않았을 때도(내장 폰트가 전혀 없는 책) 다시 발행된다: 측정
-                // 게이트는 areEmbeddedFontsResolved를 기다리며, 이는 오직 발행과 함께만 전달된다.
                 refreshEpubPages()
             } catch (cancellationException: CancellationException) {
                 throw cancellationException
             } catch (_: Throwable) {
                 if (currentDocumentId == documentId) {
-                    // 보류 상태로 남기는 대신 실패로 표시한다: 보류 중인 참조 폰트는 측정된
-                    // 페이지 나누기를 영원히 막는데(canMeasureEpubPage 참고), 이는 이번 open에
-                    // 리더 자신의 폰트로 되돌아가는 것보다 더 나쁘다. resolved 플래그는 내려간
-                    // 채로 남아, 다음 트리거가 (이제는 저렴해진) 스캔을 다시 실행해 여전히
-                    // 제대로 결론 낼 수 있게 한다.
                     failedEmbeddedFontHrefs += missingHrefs
                     refreshEpubPages()
                 }
@@ -1924,6 +2035,10 @@ class ReaderViewModel(
      * 자신을 더한 것 — [loadEmbeddedImagesAround]나 [loadAllEmbeddedFonts]가 내장 이미지/폰트
      * 캐시나 실패 집합이 담고 있는 것을 바꾼 뒤 호출되므로, 이미지나 폰트 로딩이 방금
      * 끝났거나(또는 실패한) 페이지가 그 결과와 함께 다시 렌더링된다.
+     *
+     * 캐시 예산보다 큰 보이는 페이지 이미지는 [oversizedEmbeddedImages]를 통해 이 함수의 모든
+     * 발행에 포함되어 페이지가 비지 않는다. 기존 출판사 여백은 새로 해석된 값이 0일 때 유지하여
+     * 디코딩 중인 페이지가 불필요한 재측정을 촉발하지 않게 한다.
      */
     private fun refreshEpubPages() {
         _uiState.update {
@@ -1942,12 +2057,10 @@ class ReaderViewModel(
                 pageSlots = facing.slots,
                 style = styleWithPublisherFontKey(it.style, it.documentFormat),
                 pageLayoutStyle = paginatedStyle,
-                // 찾아지면 그대로 유지: 여전히 디코딩 중인 페이지는 컨테이너를 전혀 가지고 있지
-                // 않으며, 그것을 0으로 떨어뜨리면 pane의 패딩이 뒤집혀 아무 의미 없이 책을 다시
-                // 측정하게 될 것이다.
                 publisherPageMargins = it.publisherPageMargins.takeUnless(ReaderPageMarginsEm::isZero)
                     ?: epubPageContainerMarginsEm(facing.current),
-                areEmbeddedFontsResolved = it.documentFormat != DocumentFormat.EPUB || embeddedFontsSettled,
+                areEmbeddedFontsResolved = it.documentFormat != DocumentFormat.EPUB ||
+                    it.style.fontFamilyName != null || embeddedFontsSettled,
                 embeddedFontFiles = embeddedFontFiles.toImmutableMap(),
                 failedEmbeddedFontHrefs = failedEmbeddedFontHrefs.toImmutableSet(),
             )
@@ -1979,13 +2092,13 @@ class ReaderViewModel(
 private val DefaultViewportSize = ViewportSize(widthPx = 320, heightPx = 560)
 
 /**
- * [loadVisualPagesAround]가 현재 마운트 창을 축출로부터 보호하면서 [visualPageCache]에
- * 유지하는, 디코딩된 CBZ 페이지 이미지의 바이트 예산.
+ * [loadVisualPagesAround]가 현재 페이지를 우선 보호하면서 [visualPageCache]에 유지하는,
+ * 디코딩된 CBZ 페이지 이미지의 바이트 예산.
  */
 private const val VisualPageCacheBudgetBytes = 24 * 1024 * 1024
 
 /**
- * [loadEmbeddedImagesAround]가 현재 마운트 창이 여전히 필요로 하는 href를 보호하면서
- * [embeddedImageCache]에 유지하는, 디코딩된 EPUB 내장 이미지의 바이트 예산.
+ * [loadEmbeddedImagesAround]가 현재 페이지의 href를 우선 보호하면서 [embeddedImageCache]에
+ * 유지하는, 디코딩된 EPUB 내장 이미지의 바이트 예산.
  */
 private const val EmbeddedImageCacheBudgetBytes = 16 * 1024 * 1024

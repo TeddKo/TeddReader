@@ -22,16 +22,34 @@ class ByteArrayLruCacheTest {
         assertFalse("b" in cache.snapshot())
     }
 
+    /** 보호된 단일 배열도 예산보다 크면 기존 캐시를 밀어내지 않고 저장되지 않는다. */
     @Test
-    fun putKeepsTheProtectedCurrentEntryEvenWhenItAloneExceedsBudget() {
+    fun putRejectsAProtectedEntryThatAloneExceedsBudget() {
         val cache = ByteArrayLruCache<String>(maxByteCount = 3)
 
         cache.put("old", byteArrayOf(1, 2))
         cache.put("current", byteArrayOf(3, 4, 5, 6), protectedKeys = setOf("current"))
 
-        assertNull(cache["old"])
-        assertContentEquals(byteArrayOf(3, 4, 5, 6), cache["current"])
-        assertEquals(4, cache.totalByteCount)
+        assertContentEquals(byteArrayOf(1, 2), cache["old"])
+        assertNull(cache["current"])
+        assertEquals(2, cache.totalByteCount)
+    }
+
+    /** 보호 집합의 합계가 예산을 넘게 만드는 새 항목도 저장되지 않는다. */
+    @Test
+    fun putRejectsAProtectedEntryWhenProtectedBytesWouldExceedBudget() {
+        val cache = ByteArrayLruCache<String>(maxByteCount = 5)
+
+        cache.put("first", byteArrayOf(1, 2, 3), protectedKeys = setOf("first"))
+        cache.put(
+            "second",
+            byteArrayOf(4, 5, 6),
+            protectedKeys = setOf("first", "second"),
+        )
+
+        assertContentEquals(byteArrayOf(1, 2, 3), cache["first"])
+        assertNull(cache["second"])
+        assertEquals(3, cache.totalByteCount)
     }
 
     @Test
