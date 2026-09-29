@@ -148,6 +148,7 @@ class ReaderPagePolicyTest {
 
         assertEquals(3, items.size)
         assertEquals(listOf("Page 1", "Page 2", "Page 3"), items.map { it.title })
+        assertEquals("Page 1,500", readerOutlineItems(DocumentFormat.CBZ, document(format = DocumentFormat.CBZ), totalPages = 1_500).last().title)
         assertEquals(
             listOf(ReaderLocation.PdfPage(0), ReaderLocation.PdfPage(1), ReaderLocation.PdfPage(2)),
             items.map { it.location },

@@ -28,4 +28,10 @@ class ReaderBottomActionBarTest {
         assertNull(readerChapterPageLabel("Chapter", null))
         assertNull(readerChapterPageLabel("Chapter", PageIndex(current = 0, total = 0)))
     }
+
+    @Test
+    fun documentPageLabelGroupsThousandsAndMarksIncompletePagination() {
+        assertEquals("1,234 / 12,345", readerDocumentPageLabel(1_233, 12_345, isPaginationComplete = true))
+        assertEquals("1,234 / 12,345+", readerDocumentPageLabel(1_233, 12_345, isPaginationComplete = false))
+    }
 }

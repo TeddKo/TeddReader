@@ -27,7 +27,6 @@ fun Int.toDisplayCount(maxDisplayCount: Int = DefaultMaxDisplayCount): Int =
  */
 fun Int.toOneBasedPageNumber(): Int = this + 1
 
-
 /**
  * 화면에 보여줄 숫자를 `#,##0` 패턴, 즉 세 자리마다 쉼표를 넣은 정수 문자열로 만든다.
  *
