@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
  * @property label 이 위치에 독자가 붙인 이름. 토글로만 저장한 위치는 null.
  * @property note 해당 구절에 독자가 작성한 메모. 작성하지 않았으면 null.
  * @property createdAtEpochMillis 위치를 저장한 시각. 북마크 화면을 최신순으로 정렬한다.
+ * @throws IllegalArgumentException [id]가 공백이거나 [createdAtEpochMillis]가 음수인 경우.
  */
 data class Bookmark(
     val id: String,
@@ -27,7 +28,12 @@ data class Bookmark(
     val label: String? = null,
     val note: String? = null,
     val createdAtEpochMillis: Long,
-)
+) {
+    init {
+        require(id.isNotBlank()) { "Bookmark id must not be blank." }
+        require(createdAtEpochMillis >= 0L) { "Bookmark creation time must be non-negative." }
+    }
+}
 
 /**
  * 문서별 저장 위치로, 리더와 북마크 화면이 공유한다.

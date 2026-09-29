@@ -124,7 +124,7 @@ class PaginatedDocument(
     /**
      * [page]를 포함하는 장 안에서 0부터 시작하는 페이지 위치와 페이지 수이다.
      *
-     * 장 경계는 [chapterTitleAt]을 따른다. 제목 없는 섹션은 이전 제목 있는 섹션에 속하고 다음 제목 있는 섹션이 다음 장을 시작한다. 페이지 조회는 로그 시간으로 유지되므로 지연으로 생성되는 [pageWindows] 목록을 순회하지 않는다.
+     * 장 경계는 [chapterTitleAt]을 따른다. 제목 없는 섹션은 이전 제목 있는 섹션에 속하고 다음 제목 있는 섹션이 다음 장을 시작한다. 페이지 조회는 로그 시간으로 유지되므로 지연으로 생성되는 [pageWindows] 목록을 순회하지 않는다. 다음 장이 현재 페이지 중간에서 시작해 장 끝 페이지가 현재 페이지와 같아지더라도 [PageIndex] 불변식이 깨지지 않도록 전체 페이지 수는 현재 페이지를 포함하는 값 이상으로 보정한다.
      */
     fun chapterPageIndexAt(page: Int): PageIndex? {
         val pageWindow = pageWindows.getOrNull(page) ?: return null
@@ -138,7 +138,8 @@ class PaginatedDocument(
         val chapterEndPage = nextChapterSection
             ?.let { index -> pageOf(sections[index].range.start) }
             ?: pageCount
-        return PageIndex(current = page - chapterStartPage, total = chapterEndPage - chapterStartPage)
+        val current = page - chapterStartPage
+        return PageIndex(current = current, total = (chapterEndPage - chapterStartPage).coerceAtLeast(current + 1))
     }
 
     private fun titledSectionPositionAtOrBefore(sectionPosition: Int): Int? {

@@ -82,6 +82,7 @@ class OpenReaderDocumentUseCaseTest {
             documentId = documentId,
             hasReportedPaneSize = false,
             viewportSize = viewport,
+            viewportDensity = 1f,
             pageBreaker = null,
             pageBreakerStyle = null,
         )
@@ -105,6 +106,7 @@ class OpenReaderDocumentUseCaseTest {
             documentId = documentId,
             hasReportedPaneSize = true,
             viewportSize = viewport,
+            viewportDensity = 1f,
             pageBreaker = breaker,
             pageBreakerStyle = ReaderStyle(fontSizeSp = 22f),
         )
@@ -123,7 +125,7 @@ class OpenReaderDocumentUseCaseTest {
         )
         val useCase = OpenReaderDocumentUseCase(repository, FakeReader(null), FakeSettings(style))
 
-        val open = useCase(documentId, false, viewport, null, null)
+        val open = useCase(documentId, false, viewport, 1f, null, null)
 
         assertTrue(open.isVisualMode)
         assertTrue(open.isPaginationMeasured)
@@ -153,6 +155,7 @@ class OpenReaderDocumentUseCaseTest {
             documentId = documentId,
             hasReportedPaneSize = true,
             viewportSize = viewport,
+            viewportDensity = 1f,
             pageBreaker = null,
             pageBreakerStyle = null,
         )
@@ -180,6 +183,7 @@ class OpenReaderDocumentUseCaseTest {
             documentId = documentId,
             hasReportedPaneSize = true,
             viewportSize = viewport,
+            viewportDensity = 1f,
             pageBreaker = null,
             pageBreakerStyle = null,
         )
@@ -208,7 +212,7 @@ class OpenReaderDocumentUseCaseTest {
             didReadReaderDocument = true
             readerDocument
         } ?: readerDocument.also { didReadReaderDocument = true }
-        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?): List<PageWindow> {
+        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?, viewportDensity: Float): List<PageWindow> {
             lastViewportPassed = viewportSize
             lastPageBreakerPassed = pageBreaker
             return pageWindows

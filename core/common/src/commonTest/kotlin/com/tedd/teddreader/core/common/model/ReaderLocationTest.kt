@@ -37,4 +37,14 @@ class ReaderLocationTest {
         assertFailsWith<IllegalArgumentException> { ReaderLocation.EpubOffset(spineIndex = -1, offset = 0L) }
         assertFailsWith<IllegalArgumentException> { ReaderLocation.PdfPage(pageIndex = -1) }
     }
+
+    /**
+     * 저장 위치는 [ReaderLocation.asStorageString]이 정의한 필드 수와 정확히 일치해야 하며, 뒤쪽의 알 수 없는 필드를 무시하면 손상되거나 미래 형식인 행을 현재 형식으로 오해한다.
+     */
+    @Test
+    fun rejectsStorageLocationsWithTrailingFields() {
+        assertFailsWith<IllegalStateException> { parseReaderLocation("txt:42:extra") }
+        assertFailsWith<IllegalStateException> { parseReaderLocation("epub:3:128:extra") }
+        assertFailsWith<IllegalStateException> { parseReaderLocation("pdf:9:extra") }
+    }
 }

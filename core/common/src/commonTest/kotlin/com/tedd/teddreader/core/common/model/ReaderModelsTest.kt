@@ -16,6 +16,25 @@ class ReaderModelsTest {
         assertEquals(0.5f, PageIndex(current = 5, total = 10).progress)
     }
 
+    /**
+     * 0부터 시작하는 현재 페이지는 알려진 페이지 수보다 작아야 하며, 페이지가 없을 때는 반드시 0이어야 한다.
+     */
+    @Test
+    fun pageIndexRejectsCurrentPageOutsideKnownPages() {
+        assertFailsWith<IllegalArgumentException> { PageIndex(current = 3, total = 3) }
+        assertFailsWith<IllegalArgumentException> { PageIndex(current = 1, total = 0) }
+    }
+
+    /**
+     * 자동 스크롤 속도는 프레임 이동 계산에 쓰이므로 무한대가 모델에 들어와 레이아웃 계산을 오염시키지 못해야 한다.
+     */
+    @Test
+    fun autoScrollConfigRejectsInfiniteSpeed() {
+        assertFailsWith<IllegalArgumentException> {
+            AutoScrollConfig(speed = Float.POSITIVE_INFINITY)
+        }
+    }
+
     @Test
     fun textRangeRejectsInvalidOrder() {
         assertFailsWith<IllegalArgumentException> {

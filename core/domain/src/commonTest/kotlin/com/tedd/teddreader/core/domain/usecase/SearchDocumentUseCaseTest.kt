@@ -38,6 +38,63 @@ class SearchDocumentUseCaseTest {
         assertEquals(1, search.lastLimit)
     }
 
+    /**
+     * 저장소가 구체화할 결과 수는 공개 기본 상한을 넘지 않아 큰 호출자 값이 과도한 결과 할당으로 이어지지 않아야 한다.
+     */
+    @Test
+    fun capsResultLimitBeforeDelegating() = runTest {
+        val search = RecordingSearchRepository()
+        val useCase = SearchDocumentUseCase(FakeDocuments(DocumentFormat.EPUB), search)
+
+        useCase(documentId, "reader", limit = 10_000)
+
+        assertEquals(50, search.lastLimit)
+    }
+
+    /**
+     * 사용자 입력은 저장소의 SQL 검색과 섹션별 문자열 검색에 전달되기 전에 최대 길이로 잘려야 한다.
+     */
+    @Test
+    fun capsQueryLengthBeforeDelegating() = runTest {
+        val search = RecordingSearchRepository()
+        val useCase = SearchDocumentUseCase(FakeDocuments(DocumentFormat.EPUB), search)
+        val query = "x".repeat(300)
+
+        val result = useCase(documentId, query)
+
+        assertEquals("x".repeat(256), result.query)
+        assertEquals("x".repeat(256), search.lastQuery)
+    }
+
+    /**
+     * 길이 제한이 서로게이트 쌍을 가운데서 자르면 앞 절반을 버려 LIKE 검색이 깨진 문자로 항상 실패하지 않아야 한다.
+     */
+    @Test
+    fun capDoesNotLeaveDanglingHighSurrogate() = runTest {
+        val search = RecordingSearchRepository()
+        val useCase = SearchDocumentUseCase(FakeDocuments(DocumentFormat.EPUB), search)
+        val query = "x".repeat(255) + "\uD83D\uDE00"
+
+        val result = useCase(documentId, query)
+
+        assertEquals("x".repeat(255), result.query)
+        assertEquals("x".repeat(255), search.lastQuery)
+    }
+
+    /**
+     * 길이 제한으로 잘린 끝에 공백이 남으면 제거해 검색창에 되돌려 쓰는 질의가 공백으로 끝나지 않아야 한다.
+     */
+    @Test
+    fun capDoesNotLeaveTrailingWhitespace() = runTest {
+        val search = RecordingSearchRepository()
+        val useCase = SearchDocumentUseCase(FakeDocuments(DocumentFormat.EPUB), search)
+        val query = "x".repeat(255) + " y"
+
+        val result = useCase(documentId, query)
+
+        assertEquals("x".repeat(255), result.query)
+    }
+
     @Test
     fun blankQuerySkipsSearchButStillChecksFormat() = runTest {
         val documents = FakeDocuments(DocumentFormat.EPUB)
@@ -91,7 +148,7 @@ class SearchDocumentUseCaseTest {
             return metadata
         }
         override suspend fun getReaderDocument(documentId: DocumentId): ReaderDocument? = null
-        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?): List<PageWindow> = emptyList()
+        override suspend fun getPageWindows(documentId: DocumentId, style: ReaderStyle, viewportSize: ViewportSize?, pageBreaker: ReaderPageBreaker?, anchorOffset: Long?, viewportDensity: Float): List<PageWindow> = emptyList()
         override suspend fun importDocument(source: DocumentImportSource, importedAtEpochMillis: Long): ReaderDocument = error("unused")
         override suspend fun upsertDocument(document: DocumentMetadata) = Unit
         override suspend fun markDocumentOpened(documentId: DocumentId, openedAtEpochMillis: Long) = Unit

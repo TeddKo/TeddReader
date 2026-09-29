@@ -26,6 +26,34 @@ class DocumentModelsTest {
         assertEquals("Favorites", metadata.folderName)
     }
 
+    /**
+     * 파싱된 문서는 생성 뒤 불변인 섹션 스냅샷의 단어 수를 최초 접근에 한 번 계산하고 이후 접근에는 같은 값을 재사용해야 한다.
+     */
+    @Test
+    fun readerDocumentCachesWordCountAfterFirstRead() {
+        val sections = mutableListOf(
+            ReaderSection(
+                index = 0,
+                text = "hello reader",
+                range = TextRange(0L, 12L),
+            ),
+        )
+        val document = ReaderDocument(
+            id = DocumentId("doc-1"),
+            format = DocumentFormat.TXT,
+            title = "Sample",
+            sections = sections,
+        )
+
+        assertEquals(2L, document.wordCount)
+        sections += ReaderSection(
+            index = 1,
+            text = "late mutation",
+            range = TextRange(13L, 26L),
+        )
+        assertEquals(2L, document.wordCount)
+    }
+
     @Test
     fun documentMetadataRejectsPartialFolderMembershipPair() {
         assertFailsWith<IllegalArgumentException> {
