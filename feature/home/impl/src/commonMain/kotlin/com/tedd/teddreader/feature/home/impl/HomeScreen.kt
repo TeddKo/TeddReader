@@ -351,13 +351,16 @@ fun HomeScreen(
             val previewDocuments = remember(uiState.libraryDocuments, previewLimit) {
                 homeLibraryPreviewDocuments(uiState.libraryDocuments, previewLimit)
             }
+            val folderPreviewDocumentsById = remember(uiState.libraryDocuments, previewLimit) {
+                libraryFolderPreviewDocumentsById(uiState.libraryDocuments, previewLimit)
+            }
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 state = scrollState,
                 contentPadding = PaddingValues(top = resolvedTopPadding, bottom = resolvedBottomPadding),
             ) {
-                item {
+                item(contentType = "masthead") {
                     TeddSection(kind = TeddSectionKind.Masthead) {
                         HomeMasthead(
                             showAddAction = uiState.hasDocuments,
@@ -368,7 +371,7 @@ fun HomeScreen(
                 }
 
                 uiState.errorMessage?.let { message ->
-                    item {
+                    item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddErrorBanner(message = message)
                         }
@@ -376,7 +379,7 @@ fun HomeScreen(
                 }
 
                 uiState.unsupportedFormatMessage?.let { message ->
-                    item {
+                    item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddErrorBanner(message = message)
                         }
@@ -384,7 +387,7 @@ fun HomeScreen(
                 }
 
                 if (!uiState.hasDocuments) {
-                    item {
+                    item(contentType = "status") {
                         TeddSection(kind = TeddSectionKind.Status) {
                             TeddEmptyState(
                                 title = stringResource(Res.string.home_no_documents_title),
@@ -400,7 +403,7 @@ fun HomeScreen(
                         }
                     }
                 } else {
-                    item {
+                    item(contentType = "sortFilter") {
                         TeddSection(kind = TeddSectionKind.Form) {
                             HomeSortFilterControls(
                                 sort = uiState.sort,
@@ -411,7 +414,7 @@ fun HomeScreen(
                         }
                     }
                     if (uiState.libraryDocuments.isEmpty()) {
-                        item {
+                        item(contentType = "status") {
                             TeddSection(kind = TeddSectionKind.Status) {
                                 HomeFilteredEmptyState(
                                     onShowAllClick = { onFormatFilterChange(HomeFormatFilter.All) },
@@ -422,7 +425,7 @@ fun HomeScreen(
                 }
 
                 if (uiState.favoriteDocuments.isNotEmpty()) {
-                    item {
+                    item(contentType = "documentShelf") {
                         HomeDocumentCollection(
                             section = HomeDocumentSection.Favorites,
                             title = stringResource(Res.string.favorites),
@@ -454,7 +457,7 @@ fun HomeScreen(
                 }
 
                 if (uiState.recentDocuments.isNotEmpty()) {
-                    item {
+                    item(contentType = "documentShelf") {
                         HomeDocumentCollection(
                             section = HomeDocumentSection.Recent,
                             title = stringResource(Res.string.recent_reading),
@@ -481,12 +484,14 @@ fun HomeScreen(
                 }
 
                 if (uiState.libraryDocuments.isNotEmpty()) {
-                    item {
+                    item(
+                        contentType = "libraryPreview",
+                    ) {
                         HomeLibraryPreviewSection(
                             previewMode = previewMode,
                             onPreviewModeChange = { previewMode = it },
                             previewDocuments = previewDocuments,
-                            allDocuments = uiState.libraryDocuments,
+                            folderPreviewDocumentsById = folderPreviewDocumentsById,
                             folders = uiState.libraryFolders,
                             previewLimit = previewLimit,
                             selectedDocumentIds = selectedDocumentIds,
@@ -684,7 +689,7 @@ private fun SelectionTopBar(
  * @param previewMode 그리드가 현재 모든 문서와 폴더 중 무엇을 표시하는지 나타낸다.
  * @param onPreviewModeChange All/Folders chip 선택이 바뀔 때 호출한다.
  * @param previewDocuments All 모드에 표시할 이미 제한된 문서.
- * @param allDocuments Folders 모드에서 각 폴더의 미리보기 썸네일을 계산할 전체 라이브러리 문서 목록.
+ * @param folderPreviewDocumentsById Folders 모드에서 폴더 id로 바로 찾는 제한된 미리보기 문서 목록.
  * @param folders 표시 전에 [previewLimit]로 한 번 더 제한할 라이브러리 폴더.
  * @param previewLimit 가용 화면 크기에 따라 선택한 미리보기 최대 타일 수(`libraryPreviewLimit` 참고).
  *   2열 또는 4열 그리드도 선택한다.
@@ -707,7 +712,7 @@ private fun HomeLibraryPreviewSection(
     previewMode: LibraryCollectionMode,
     onPreviewModeChange: (LibraryCollectionMode) -> Unit,
     previewDocuments: ImmutableList<DocumentMetadata>,
-    allDocuments: ImmutableList<DocumentMetadata>,
+    folderPreviewDocumentsById: ImmutableMap<String, ImmutableList<DocumentMetadata>>,
     folders: ImmutableList<LibraryFolder>,
     previewLimit: Int,
     selectedDocumentIds: Set<String>,
@@ -812,11 +817,8 @@ private fun HomeLibraryPreviewSection(
                                 if (folder == null) {
                                     Spacer(modifier = Modifier.weight(1f))
                                 } else {
-                                    val folderPreviewDocuments = libraryFolderPreviewDocuments(
-                                        documents = allDocuments,
-                                        folderId = folder.id,
-                                        previewLimit = previewLimit,
-                                    )
+                                    val folderPreviewDocuments =
+                                        folderPreviewDocumentsById[folder.id] ?: persistentListOf()
                                     FolderCoverCard(
                                         folder = folder,
                                         previewDocuments = folderPreviewDocuments,

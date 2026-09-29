@@ -81,6 +81,7 @@ import com.tedd.teddreader.core.ui.system.rememberDisplayFold
 import com.tedd.teddreader.feature.home.impl.component.DocumentCard
 import com.tedd.teddreader.feature.home.impl.component.FolderCoverCard
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -267,6 +268,9 @@ fun LibraryScreen(
                 tabletMinWidth = breakpoints.medium,
             )
             val useAdaptiveGrid = shortestSide >= breakpoints.medium || (displayFold?.isVertical == true && displayFold.isSeparating)
+            val folderPreviewDocumentsById = remember(uiState.libraryDocuments, previewLimit) {
+                libraryFolderPreviewDocumentsById(uiState.libraryDocuments, previewLimit)
+            }
 
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -284,7 +288,7 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(spacing.medium),
                 ) {
                     if (folderId == null) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
+                        item(contentType = "header", span = { GridItemSpan(maxLineSpan) }) {
                             TeddSection(kind = TeddSectionKind.Form, fullBleed = true) {
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(spacing.small),
@@ -307,19 +311,20 @@ fun LibraryScreen(
                     when {
                         folderId == null && mode == LibraryCollectionMode.Folders -> {
                             if (uiState.libraryFolders.isEmpty()) {
-                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                item(contentType = "status", span = { GridItemSpan(maxLineSpan) }) {
                                     TeddEmptyState(
                                         title = stringResource(Res.string.library_empty_folder_title),
                                         description = stringResource(Res.string.library_empty_folder_description),
                                     )
                                 }
                             } else {
-                                items(uiState.libraryFolders, key = { it.id }) { folder ->
-                                    val folderPreviewDocuments = libraryFolderPreviewDocuments(
-                                        documents = uiState.libraryDocuments,
-                                        folderId = folder.id,
-                                        previewLimit = previewLimit,
-                                    )
+                                items(
+                                    items = uiState.libraryFolders,
+                                    key = { it.id },
+                                    contentType = { "folder" },
+                                ) { folder ->
+                                    val folderPreviewDocuments =
+                                        folderPreviewDocumentsById[folder.id] ?: persistentListOf()
                                     FolderCoverCard(
                                         folder = folder,
                                         previewDocuments = folderPreviewDocuments,
@@ -342,7 +347,7 @@ fun LibraryScreen(
                         }
 
                         documents.isEmpty() -> {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
+                            item(contentType = "status", span = { GridItemSpan(maxLineSpan) }) {
                                 TeddEmptyState(
                                     title = stringResource(
                                         if (folderId == null) Res.string.library_empty_all_title else Res.string.library_empty_folder_title,
@@ -354,7 +359,11 @@ fun LibraryScreen(
                             }
                         }
 
-                        else -> items(documents, key = { it.id.value }) { document ->
+                        else -> items(
+                            items = documents,
+                            key = { it.id.value },
+                            contentType = { "document" },
+                        ) { document ->
                             DocumentCard(
                                 document = document,
                                 coverImageBytes = uiState.documentCoverImages[document.id.value],

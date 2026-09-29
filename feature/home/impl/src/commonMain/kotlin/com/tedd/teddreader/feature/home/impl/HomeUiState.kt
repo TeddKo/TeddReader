@@ -9,6 +9,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 /**
  * [HomeViewModel][com.tedd.teddreader.feature.home.impl.HomeViewModel]이 발행하고
@@ -21,6 +22,9 @@ import kotlinx.collections.immutable.toImmutableList
  * 표시되는 문서 중 해당 폴더에 속한 문서가 없다는 이유만으로 폴더가 사라지지 않는다. [hasDocuments]는
  * 빈 [libraryDocuments]와 다른 질문에 답한다. 라이브러리에 무엇이든 하나라도 있으면 true를 유지하여
  * 화면이 "한 번도 가져오지 않음"과 "현재 필터에 일치하는 항목 없음"을 구분할 수 있게 한다.
+ *
+ * [documentCoverImages]의 값인 [ByteArray]는 호출자가 변경할 수 있는 가변 타입이다. 이 스냅샷은 컬렉션
+ * 컨테이너만 불변이어도 값까지 불변이라고 보장할 수 없으므로 `@Immutable`로 선언하지 않는다.
  *
  * @property favoriteDocuments [libraryDocuments]와 같은 방식으로 필터링하고 정렬한 즐겨찾기 문서.
  * @property recentDocuments [formatFilter]에 일치하는 즐겨찾기 아닌 문서 중 가장 최근 20개. 각 문서를
@@ -41,7 +45,6 @@ import kotlinx.collections.immutable.toImmutableList
  *   관한 메시지. [HomeViewModel][com.tedd.teddreader.feature.home.impl.HomeViewModel] 자체는 항상 null을
  *   발행하며, `HomeRouteScreen`이 화면에 상태를 전달하기 전에 해당 가져오기 결과에서 이 값을 채운다.
  */
-@Immutable
 data class HomeUiState(
     val favoriteDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
     val recentDocuments: ImmutableList<DocumentMetadata> = persistentListOf(),
@@ -212,19 +215,23 @@ internal fun <T : Any> homeLibraryGridRows(
 }
 
 /**
- * [documents] 자체의 순서에서 [folderId]에 속한 앞쪽 [previewLimit]개 문서다. 폴더 전체 내용을 로드하지
- * 않고 폴더 표지 타일에 표시할 썸네일이다.
+ * [documents]를 폴더 id별로 한 번 그룹화하고 각 폴더에서 앞쪽 [previewLimit]개 문서만 남긴다. 폴더 카드마다
+ * 전체 문서 목록을 다시 검색하지 않고 이 map에서 바로 미리보기를 찾을 때 사용한다. 폴더가 없는 문서는
+ * 결과에 포함하지 않으며 각 폴더 안에서는 입력 순서를 유지한다.
  *
- * @param documents 썸네일로 선택될 순서대로 정렬된 검색 대상 라이브러리 문서.
- * @param folderId 문서를 모을 폴더.
- * @param previewLimit 유지할 문서 수.
+ * @param documents 썸네일로 선택될 순서대로 정렬된 라이브러리 문서.
+ * @param previewLimit 폴더마다 유지할 문서 수.
+ * @return 폴더 id를 키로 하고 해당 폴더의 제한된 미리보기 문서를 값으로 하는 map.
  */
-internal fun libraryFolderPreviewDocuments(
+internal fun libraryFolderPreviewDocumentsById(
     documents: List<DocumentMetadata>,
-    folderId: String,
     previewLimit: Int,
-): ImmutableList<DocumentMetadata> =
-    documents.filter { it.folderId == folderId }.take(previewLimit).toImmutableList()
+): ImmutableMap<String, ImmutableList<DocumentMetadata>> =
+    documents
+        .mapNotNull { document -> document.folderId?.let { folderId -> folderId to document } }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+        .mapValues { (_, folderDocuments) -> folderDocuments.take(previewLimit).toImmutableList() }
+        .toImmutableMap()
 
 /**
  * 폴더 표지 타일이 썸네일과 함께 표시하는 "+N more" 레이블을 위해 미리보기에 나오지 않은 폴더 문서 수를

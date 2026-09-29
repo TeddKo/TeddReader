@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -130,10 +130,12 @@ fun BookmarksRouteScreen(
  * 다른 매개변수에서 오고, 모든 사용자 작업은 콜백으로 다시 전달되며, 자체적으로 저장 위치 상태를 보관하지
  * 않는다.
  *
- * 빈 상태 설명과 북마크 목록은 각각 하나의 [TeddSectionKind.Status] 또는 [TeddSectionKind.Collection]
- * 섹션이며 구조상 동시에 표시되지 않는다. 빈 상태에는 별도의 행동 유도 요소를 두지 않는다. 상단 바의 뒤로 가기
- * 작업이
- * 빈 저장 위치 화면에서 독자에게 필요한 유일한 내비게이션을 이미 제공하기 때문이다.
+ * 빈 상태 설명은 하나의 [TeddSectionKind.Status] 섹션이며 북마크 목록과 구조상 동시에 표시되지 않는다.
+ * 북마크 목록의 각 행은 개별 lazy item이다. 첫 행에는 collection 섹션의 위쪽 간격과 가로 inset을, 후속
+ * 행에는 같은 섹션 안의 item 간격과 가로 inset을 적용한다. 따라서 [TeddSection] 하나 안에서 모든 행을 즉시
+ * compose하던 시각적 배치는 유지하면서 화면 밖 행은 compose하지 않는다. 빈 상태에는 별도의 행동 유도
+ * 요소를 두지 않는다. 상단 바의 뒤로 가기 작업이 빈 저장 위치 화면에서 독자에게 필요한 유일한 내비게이션을
+ * 이미 제공하기 때문이다.
  * [TeddReaderBreakpoints.compactControlWidth][com.tedd.teddreader.core.designsystem.TeddReaderBreakpoints.compactControlWidth]
  * 미만에서는 컨테이너가 좁아 중앙 정렬이 답답해 보이므로 빈 상태 메시지를 중앙 정렬에서 시작점 정렬로 바꾼다.
  *
@@ -254,18 +256,20 @@ fun BookmarksScreen(
                             }
                         }
                     }
-                    else -> item {
-                        TeddSection(kind = TeddSectionKind.Collection) {
-                            uiState.bookmarks.forEach { bookmark ->
-                                key(bookmark.id) {
-                                    BookmarkRow(
-                                        bookmark = bookmark,
-                                        onBookmarkClick = { onBookmarkClick(bookmark.location) },
-                                        onEditClick = { onEditClick(bookmark) },
-                                    )
-                                }
-                            }
-                        }
+                    else -> itemsIndexed(
+                        items = uiState.bookmarks,
+                        key = { _, bookmark -> bookmark.id },
+                        contentType = { _, _ -> "bookmark" },
+                    ) { index, bookmark ->
+                        BookmarkRow(
+                            bookmark = bookmark,
+                            onBookmarkClick = { onBookmarkClick(bookmark.location) },
+                            onEditClick = { onEditClick(bookmark) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = if (index == 0) spacing.sectionGap else spacing.itemGap)
+                                .padding(horizontal = spacing.screenPadding),
+                        )
                     }
                 }
             }

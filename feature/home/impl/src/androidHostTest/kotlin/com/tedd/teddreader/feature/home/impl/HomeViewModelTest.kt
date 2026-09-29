@@ -375,57 +375,47 @@ class HomeViewModelTest {
         )
     }
 
-    /** `libraryFolderPreviewDocuments`가 요청한 폴더의 문서만 원래 순서로 반환하고 지정한 미리보기 제한에서
-     * 자르는지 검증한다. */
+    /** `libraryFolderPreviewDocumentsById`가 모든 폴더를 한 번의 결과로 묶고 각 폴더에서 원래 순서와
+     * 미리보기 제한을 보존하는지 검증한다. */
     @Test
-    fun libraryFolderPreviewDocumentsReturnsOnlyRequestedFolderInSourceOrderAndLimit() {
+    fun libraryFolderPreviewDocumentsGroupEveryFolderInSourceOrderAndLimit() {
         val documents = buildList {
-            repeat(10) { index ->
+            repeat(6) { index ->
                 add(
                     testDocument(
-                        id = "folder-doc-$index",
+                        id = "folder-1-doc-$index",
                         isBookmarked = false,
                         addedAtEpochMillis = index.toLong(),
                         folderId = "folder-1",
                         folderName = "Folder 1",
                     ),
                 )
+                add(
+                    testDocument(
+                        id = "folder-2-doc-$index",
+                        isBookmarked = false,
+                        addedAtEpochMillis = index.toLong(),
+                        folderId = "folder-2",
+                        folderName = "Folder 2",
+                    ),
+                )
             }
-            add(
-                testDocument(
-                    id = "other-folder-doc",
-                    isBookmarked = false,
-                    addedAtEpochMillis = 100L,
-                    folderId = "folder-2",
-                    folderName = "Folder 2",
-                ),
-            )
+            add(testDocument(id = "unfiled", isBookmarked = false))
         }
 
+        val previews = libraryFolderPreviewDocumentsById(
+            documents = documents,
+            previewLimit = 4,
+        )
+
+        assertEquals(setOf("folder-1", "folder-2"), previews.keys)
         assertEquals(
-            listOf("folder-doc-0", "folder-doc-1", "folder-doc-2", "folder-doc-3"),
-            libraryFolderPreviewDocuments(
-                documents = documents,
-                folderId = "folder-1",
-                previewLimit = 4,
-            ).map { it.id.value },
+            listOf("folder-1-doc-0", "folder-1-doc-1", "folder-1-doc-2", "folder-1-doc-3"),
+            previews.getValue("folder-1").map { it.id.value },
         )
         assertEquals(
-            listOf(
-                "folder-doc-0",
-                "folder-doc-1",
-                "folder-doc-2",
-                "folder-doc-3",
-                "folder-doc-4",
-                "folder-doc-5",
-                "folder-doc-6",
-                "folder-doc-7",
-            ),
-            libraryFolderPreviewDocuments(
-                documents = documents,
-                folderId = "folder-1",
-                previewLimit = 8,
-            ).map { it.id.value },
+            listOf("folder-2-doc-0", "folder-2-doc-1", "folder-2-doc-2", "folder-2-doc-3"),
+            previews.getValue("folder-2").map { it.id.value },
         )
     }
 
