@@ -191,23 +191,22 @@ internal fun EpubPageSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    semanticText.containerDecorations
-                        .filter(ReaderContainerDecoration::isPageContainer)
-                        .forEach { decoration ->
-                            drawReaderBoxBackground(
-                                boxStyle = decoration.boxStyle,
-                                rect = Rect(Offset.Zero, size),
-                                usePublisherColors = publisherColorsEnabled,
-                            )
-                            drawReaderBoxBorders(
-                                boxStyle = decoration.boxStyle,
-                                rect = Rect(Offset.Zero, size),
-                                currentColor = decoration.foregroundColor?.toColor() ?: baseTextColor,
-                                usePublisherColors = publisherColorsEnabled,
-                                drawTop = decoration.startsHere,
-                                drawBottom = decoration.endsHere,
-                            )
-                        }
+                    for (decoration in semanticText.containerDecorations) {
+                        if (!decoration.isPageContainer) continue
+                        drawReaderBoxBackground(
+                            boxStyle = decoration.boxStyle,
+                            rect = Rect(Offset.Zero, size),
+                            usePublisherColors = publisherColorsEnabled,
+                        )
+                        drawReaderBoxBorders(
+                            boxStyle = decoration.boxStyle,
+                            rect = Rect(Offset.Zero, size),
+                            currentColor = decoration.foregroundColor?.toColor() ?: baseTextColor,
+                            usePublisherColors = publisherColorsEnabled,
+                            drawTop = decoration.startsHere,
+                            drawBottom = decoration.endsHere,
+                        )
+                    }
                 },
         ) { measurables, constraints ->
             val placeable = measurables.first().measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
@@ -463,27 +462,26 @@ private fun DrawScope.drawContainerDecorations(
     publisherColorsEnabled: Boolean,
     emPx: Float,
 ) {
-    decorations
-        .filterNot(ReaderContainerDecoration::isPageContainer)
-        .forEach { decoration ->
-            val rect = fullWidthRangeRect(layout, decoration.start, decoration.end)
-                ?.grownByPadding(decoration, emPx)
-                ?: return@forEach
-            val currentColor = decoration.foregroundColor.takeIf { publisherColorsEnabled }?.toColor() ?: baseTextColor
-            drawReaderBoxBackground(
-                boxStyle = decoration.boxStyle,
-                rect = rect,
-                usePublisherColors = publisherColorsEnabled,
-            )
-            drawReaderBoxBorders(
-                boxStyle = decoration.boxStyle,
-                rect = rect,
-                currentColor = currentColor,
-                usePublisherColors = publisherColorsEnabled,
-                drawTop = decoration.startsHere,
-                drawBottom = decoration.endsHere,
-            )
-        }
+    for (decoration in decorations) {
+        if (decoration.isPageContainer) continue
+        val rect = fullWidthRangeRect(layout, decoration.start, decoration.end)
+            ?.grownByPadding(decoration, emPx)
+            ?: continue
+        val currentColor = decoration.foregroundColor.takeIf { publisherColorsEnabled }?.toColor() ?: baseTextColor
+        drawReaderBoxBackground(
+            boxStyle = decoration.boxStyle,
+            rect = rect,
+            usePublisherColors = publisherColorsEnabled,
+        )
+        drawReaderBoxBorders(
+            boxStyle = decoration.boxStyle,
+            rect = rect,
+            currentColor = currentColor,
+            usePublisherColors = publisherColorsEnabled,
+            drawTop = decoration.startsHere,
+            drawBottom = decoration.endsHere,
+        )
+    }
 }
 
 private fun fullWidthRangeRect(layout: TextLayoutResult, start: Int, end: Int): Rect? {

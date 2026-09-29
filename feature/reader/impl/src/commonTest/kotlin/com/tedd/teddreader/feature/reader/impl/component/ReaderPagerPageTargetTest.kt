@@ -60,18 +60,24 @@ class ReaderPagerPageTargetTest {
     }
 
     /**
-     * [readerScrollPageAnchors]가 step 1에서는 모든 페이지를 각자의 anchor로, step 2에서는 한 페이지
-     * 걸러 anchor로 만들어내는지 — 빈 문서 포함 — 그리고 [readerScrollAnchorIndex]가 페이지 번호를
-     * 그 페이지를 소유한 anchor로 해석하는지 검증한다.
+     * Scroll 앵커 산술이 step 1과 step 2에서 문서 전체를 덮고, 빈 문서와 범위 밖 페이지를 안전한
+     * 리스트 위치로 해석하는지 검증한다.
      */
     @Test
-    fun `scroll anchors cover whole document and map page to anchor index`() {
-        assertEquals(listOf(0, 1, 2, 3, 4), readerScrollPageAnchors(pageCount = 5, pageStep = 1))
-        assertEquals(listOf(0, 2, 4), readerScrollPageAnchors(pageCount = 5, pageStep = 2))
-        assertEquals(emptyList(), readerScrollPageAnchors(pageCount = 0, pageStep = 1))
+    fun `scroll anchor arithmetic covers document without materialized list`() {
+        assertEquals(5, readerScrollAnchorCount(pageCount = 5, pageStep = 1))
+        assertEquals(3, readerScrollAnchorCount(pageCount = 5, pageStep = 2))
+        assertEquals(0, readerScrollAnchorCount(pageCount = 0, pageStep = 1))
 
-        assertEquals(1, readerScrollAnchorIndex(page = 3, anchors = listOf(0, 2, 4)))
-        assertEquals(2, readerScrollAnchorIndex(page = 4, anchors = listOf(0, 2, 4)))
+        assertEquals(0, readerScrollAnchorPage(index = 0, pageCount = 5, pageStep = 2))
+        assertEquals(2, readerScrollAnchorPage(index = 1, pageCount = 5, pageStep = 2))
+        assertEquals(4, readerScrollAnchorPage(index = 2, pageCount = 5, pageStep = 2))
+        assertNull(readerScrollAnchorPage(index = 3, pageCount = 5, pageStep = 2))
+
+        assertEquals(1, readerScrollAnchorIndex(page = 3, pageCount = 5, pageStep = 2))
+        assertEquals(2, readerScrollAnchorIndex(page = 8, pageCount = 5, pageStep = 2))
+        assertEquals(0, readerScrollAnchorIndex(page = -1, pageCount = 5, pageStep = 2))
+        assertEquals(0, readerScrollAnchorIndex(page = 0, pageCount = 0, pageStep = 1))
     }
 
     /**

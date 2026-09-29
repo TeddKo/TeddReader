@@ -32,6 +32,51 @@ import kotlin.test.assertTrue
  */
 class FoundationPagerCurlReferenceImplTest {
     /**
+     * [progress]로 갱신한 새 [FoundationReferenceThreeDCurlStripBuffer]의 strip 목록을 만든다 —
+     * mesh 범위 테스트가 그리기 경로와 같은 가변 strip 타입으로 [foundationReferenceThreeDCurlMeshExtent]를
+     * 호출하기 위한 준비 과정이다.
+     *
+     * @param progress 버퍼를 갱신할 turn 진행률.
+     * @return 갱신된 strip 목록.
+     */
+    private fun stripsAt(progress: Float): List<FoundationReferenceMutableThreeDCurlStrip> =
+        FoundationReferenceThreeDCurlStripBuffer().also { it.update(progress) }.strips
+
+    /**
+     * 3D curl strip 버퍼가 진행률 갱신 사이에도 같은 strip 객체를 유지하고, 갱신된 값이 이전 프레임의
+     * 잔재가 아니라 순수 기하 함수의 값과 같은지(신선도)를 검증한다. 순수 함수도 같은 버퍼로 계산되므로
+     * 이 비교는 기하 정확성이 아니라 정체성·신선도만 보장한다; 정확성은 grid 4·progress 0.75에서
+     * 손으로 계산해 고정한 목적지 경계(반지름 0.18, crease -0.0327)와 뒷면 여부가 맡는다.
+     */
+    @Test
+    fun threeDCurlStripBufferReusesEntriesAcrossFrames() {
+        val buffer = FoundationReferenceThreeDCurlStripBuffer(grid = 4)
+        buffer.update(progress = 0.25f)
+        val firstStrip = buffer.strips.first()
+
+        buffer.update(progress = 0.75f)
+
+        assertSame(firstStrip, buffer.strips.first())
+        assertEquals(
+            listOf(false, true, true, true),
+            buffer.strips.map { it.isBackFacing },
+        )
+        listOf(-0.0002f, 0.1473f, -0.0002f, -0.25f, -0.5f).zipWithNext().zip(buffer.strips).forEach { (bounds, strip) ->
+            assertEquals(bounds.first, strip.destinationStartFraction, 0.001f)
+            assertEquals(bounds.second, strip.destinationEndFraction, 0.001f)
+        }
+        val expected = foundationReferenceThreeDCurlStripSpecs(progress = 0.75f, grid = 4)
+        buffer.strips.zip(expected).forEach { (actual, immutable) ->
+            assertEquals(immutable.sourceStartFraction, actual.sourceStartFraction)
+            assertEquals(immutable.sourceEndFraction, actual.sourceEndFraction)
+            assertEquals(immutable.destinationStartFraction, actual.destinationStartFraction)
+            assertEquals(immutable.destinationEndFraction, actual.destinationEndFraction)
+            assertEquals(immutable.depthFraction, actual.depthFraction)
+            assertEquals(immutable.isBackFacing, actual.isBackFacing)
+        }
+    }
+
+    /**
      * [foundationReferenceCurlEdge]가 접힘의 위/아래 edge 점을, 현재 포인터 위치에 viewport의 가까운
      * 모서리로 이어지는 선에서 90도 회전한 벡터를 더하고 뺀 값으로 만드는지 검증한다.
      */
@@ -641,8 +686,7 @@ class FoundationPagerCurlReferenceImplTest {
         val across = SpreadHeight
 
         listOf(0.5f, 1f).forEach { progress ->
-            val strips = foundationReferenceThreeDCurlStripSpecs(progress)
-            val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
+            val extent = foundationReferenceThreeDCurlMeshExtent(stripsAt(progress), false, width)
 
             val rect = foundationReferenceThreeDCurlMeshRect(
                 FoundationReferenceCurlAxis.Horizontal,
@@ -913,16 +957,16 @@ class FoundationPagerCurlReferenceImplTest {
     }
 
     /**
-     * [foundationReferenceThreeDCurlMeshExtent]로 뽑아낸 산술이 [foundationReferenceDrawThreeDCurlMesh]가
-     * 인라인으로 하던 계산과 비트 단위로 동일한 결과를 내는지 여러 progress 값에서 검증한다 — 단일
-     * pane 3D curl이 이 리팩터로 회귀하지 않는다는 근거다.
+     * [foundationReferenceThreeDCurlMeshExtent]가 앞면 strip의 목적지 최소·최대 비율에 pane 폭을
+     * 곱한 값을 여러 progress에서 내는지 검증한다 — [foundationReferenceDrawThreeDCurlMesh]가 그림자와
+     * front-shade를 놓는 범위가 바로 이 값이다. 기대값은 사양 리스트에서 독립적으로 계산한다.
      */
     @Test
     fun singlePaneMeshExtentIsUnchangedByTheExtraction() {
         val width = SpreadViewportWidth
 
         listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { progress ->
-            val strips = foundationReferenceThreeDCurlStripSpecs(progress)
+            val strips = foundationReferenceThreeDCurlStripSpecs(progress).filterNot { it.isBackFacing }
             val expectedLeft = strips.minOf {
                 min(it.destinationStartFraction, it.destinationEndFraction)
             } * width
@@ -930,7 +974,7 @@ class FoundationPagerCurlReferenceImplTest {
                 max(it.destinationStartFraction, it.destinationEndFraction)
             } * width
 
-            val extent = foundationReferenceThreeDCurlMeshExtent(strips, width)
+            val extent = foundationReferenceThreeDCurlMeshExtent(stripsAt(progress), false, width)
 
             assertFalse(extent.isEmpty)
             assertEquals(expectedLeft, extent.alongStartPx, 0.001f)
@@ -1093,9 +1137,8 @@ class FoundationPagerCurlReferenceImplTest {
     @Test
     fun spreadBackFaceGrowsMonotonicallyFromTheSpineToTheOuterEdge() {
         fun visibleWidth(progress: Float, widthPx: Float): Float {
-            val strips = foundationReferenceThreeDCurlStripSpecs(progress).filter { it.isBackFacing }
-            if (strips.isEmpty()) return 0f
-            val extent = foundationReferenceThreeDCurlMeshExtent(strips, widthPx)
+            val extent = foundationReferenceThreeDCurlMeshExtent(stripsAt(progress), true, widthPx)
+            if (extent.isEmpty) return 0f
             val left = max(extent.alongStartPx, -widthPx)
             val right = min(extent.alongEndPx, 0f)
             return (right - left).coerceAtLeast(0f)
@@ -1145,10 +1188,7 @@ class FoundationPagerCurlReferenceImplTest {
      */
     @Test
     fun spreadBackFaceHasNoStripsWhileTheTurnRests() {
-        val strips = foundationReferenceThreeDCurlStripSpecs(0f).filter { it.isBackFacing }
-
-        assertTrue(strips.isEmpty())
-        assertTrue(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
+        assertTrue(foundationReferenceThreeDCurlMeshExtent(stripsAt(0f), true, BackFacePaneWidth).isEmpty)
     }
 
     /**
@@ -1161,7 +1201,7 @@ class FoundationPagerCurlReferenceImplTest {
         val strips = foundationReferenceThreeDCurlStripSpecs(0.5f).filter { it.isBackFacing }
 
         assertTrue(strips.isNotEmpty())
-        assertFalse(foundationReferenceThreeDCurlMeshExtent(strips, BackFacePaneWidth).isEmpty)
+        assertFalse(foundationReferenceThreeDCurlMeshExtent(stripsAt(0.5f), true, BackFacePaneWidth).isEmpty)
         strips.forEach { strip ->
             assertTrue(strip.destinationEndFraction < strip.destinationStartFraction)
         }

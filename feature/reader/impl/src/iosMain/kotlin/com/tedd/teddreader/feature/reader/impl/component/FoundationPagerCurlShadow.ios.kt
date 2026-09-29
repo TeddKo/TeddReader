@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.reader.impl.component
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -8,6 +9,12 @@ internal actual val foundationPagerRenderProfile = FoundationPagerRenderProfile(
     threeDCurlGrid = 12,
     curlShadowLayers = 4,
 )
+
+/**
+ * iOS의 그림자는 프레임 사이에 유지하는 네이티브 자원이 없으므로 해제할 것이 없다.
+ */
+@Composable
+internal actual fun FoundationPagerCurlShadowResourcesEffect() = Unit
 
 /**
  * iOS의 해법이다 — 이 타깃의 [DrawScope]는 Android의 `Paint.setShadowLayer`처럼 블러 그림자 primitive를
