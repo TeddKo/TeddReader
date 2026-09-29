@@ -10,7 +10,6 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -56,7 +55,6 @@ actual fun SystemBarsThemeEffect(backgroundColor: Color) {
     }
 
     SideEffect { apply() }
-    LaunchedEffect(window, view, backgroundColor) { apply() }
 
     DisposableEffect(window) {
         onDispose {
@@ -90,7 +88,6 @@ actual fun ReaderSystemBarsEffect(
     }
 
     SideEffect { apply() }
-    LaunchedEffect(window, view, visible, keepScreenOn) { apply() }
 
     DisposableEffect(window, view) {
         onDispose {
