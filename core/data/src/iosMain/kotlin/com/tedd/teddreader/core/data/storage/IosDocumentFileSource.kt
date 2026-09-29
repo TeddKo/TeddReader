@@ -96,6 +96,18 @@ class IosDocumentFileSource : DocumentFileSource {
     }
 
     /**
+     * [copyIntoAppContainer]가 같은 인자로 쓸 목적지에 이미 내용이 있는 사본이 존재하는지 확인한다.
+     * 안정적인 키를 쓰는 재가져오기는 이미 라이브러리 문서가 참조하는 파일과 같은 목적지를 가리키므로,
+     * 호출자는 복사 전에 이 값을 기록해 두었다가 자신이 새로 만든 사본만 취소 시 정리한다.
+     *
+     * @param sourceKey [copyIntoAppContainer]에 넘길 원본 식별자다.
+     * @param displayName [copyIntoAppContainer]에 넘길 문서 표시 이름이다.
+     * @return 목적지에 비어 있지 않은 사본이 이미 있으면 true다.
+     */
+    fun hasMaterializedCopy(sourceKey: String, displayName: String): Boolean =
+        fileSize(materializedPath(sourceKey = sourceKey, displayName = displayName)) > 0L
+
+    /**
      * 이 앱의 현재 또는 재배치된 `Documents` 디렉터리의 직계 자식들을 삭제한다. 컨테이너 루트
      * 비교는 관계없는 외부 디렉터리를 거부하면서도 UUID 변경에 걸친 [resolveExistingPath]와
      * 일치하며, 레거시 해시 이전 방식 materialize 이름도 대상에 포함시킨다.
@@ -136,17 +148,26 @@ class IosDocumentFileSource : DocumentFileSource {
      * @param displayName 문서의 표시 이름. materialize된 파일 이름을 만드는 데 쓰이고 반환되는
      *   [DocumentLocation]에 저장된다.
      * @param mimeType 알려진 경우 문서의 MIME 타입. 반환되는 [DocumentLocation]에 저장된다.
+     * @param sourceKey 사본 파일 이름과 문서 id를 결정하는 원본 식별자. 기본값은 [sourcePath]이며,
+     *   임시 경로로 내려받는 원본은 재선택해도 같은 문서로 남도록 안정적인 키를 넘긴다.
+     * @param replaceOnSizeMismatch true이면 기존 사본의 크기가 [sourcePath]와 다를 때 사본을
+     *   교체한다. 원격 원본이 갱신되어도 오래된 사본이 유지되지 않도록 하기 위한 것이다.
      * @return materialize된 사본을 가리키는 [DocumentLocation].
-     * @throws IllegalStateException 같은 크기의 사본이 아직 없고 `NSFileManager`가 [sourcePath]를
-     *   materialize 목적지로 복사하는 데 실패할 때.
+     * @throws IllegalStateException 복사가 필요한데 `NSFileManager`가 [sourcePath]를 materialize
+     *   목적지로 복사하는 데 실패할 때.
      */
     @OptIn(ExperimentalForeignApi::class)
     fun copyIntoAppContainer(
         sourcePath: String,
         displayName: String,
         mimeType: String? = null,
+        sourceKey: String = sourcePath,
+        replaceOnSizeMismatch: Boolean = false,
     ): DocumentLocation {
-        val destination = materializedPath(sourceKey = sourcePath, displayName = displayName)
+        val destination = materializedPath(sourceKey = sourceKey, displayName = displayName)
+        if (replaceOnSizeMismatch && fileSize(destination) != fileSize(sourcePath)) {
+            FileSystem.SYSTEM.delete(destination.toPath(), mustExist = false)
+        }
         if (fileSize(destination) <= 0L) {
             atomicCopyTo(FileSystem.SYSTEM, destination.toPath()) { partial ->
                 check(

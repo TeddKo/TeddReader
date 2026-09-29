@@ -2,6 +2,9 @@ package com.tedd.teddreader.app.reader.importer
 
 import androidx.compose.runtime.Composable
 import com.tedd.teddreader.core.common.model.DocumentId
+import com.tedd.teddreader.core.common.model.DocumentLocation
+import com.tedd.teddreader.core.common.model.SupportedDocumentExtensions
+import com.tedd.teddreader.core.common.model.SupportedDocumentMimeTypes
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -213,4 +216,52 @@ internal fun DocumentImportBatchResult.toImportErrorMessage(): String? = when {
     failedCount == 0 -> null
     firstFailureReason == null -> "$failedCount documents failed to import."
     else -> "$failedCount documents failed to import. $firstFailureReason"
+}
+
+/**
+ * 단일 문서 가져오기가 읽거나 앱 저장소에 기록할 수 있는 최대 바이트 수다. 외부 provider와 Drive
+ * 응답이 보고한 크기를 신뢰하지 않고 실제 콘텐츠에도 같은 256 MiB 경계를 적용하여 메모리와 디스크
+ * 고갈을 제한한다.
+ */
+internal const val MaximumDocumentImportBytes = 256L * 1024L * 1024L
+
+/**
+ * Google Drive 메타데이터 응답에 허용하는 최대 바이트 수다. 문서 본문 상한과 별도로 작은 JSON 응답을
+ * 1 MiB로 제한하여 비정상 응답을 본문처럼 크게 적재하지 않는다.
+ */
+internal const val MaximumGoogleDriveMetadataBytes = 1024L * 1024L
+
+/**
+ * provider가 보고했거나 실제로 관찰한 문서 크기가 가져오기 경계 안인지 검증한다. 0은 크기를 알 수
+ * 없다는 기존 플랫폼 계약 때문에 허용하며, 실제 스트림 복사가 끝나면 다시 관찰한 크기로 호출한다.
+ *
+ * @param sizeBytes 검증할 보고값 또는 실제 바이트 수다.
+ * @param displayName 실패 메시지에서 사용자가 문서를 식별할 이름이다.
+ * @throws IllegalStateException [sizeBytes]가 [MaximumDocumentImportBytes]를 넘으면 발생한다.
+ */
+internal fun requireDocumentSizeWithinLimit(
+    sizeBytes: Long,
+    displayName: String,
+) {
+    check(sizeBytes <= MaximumDocumentImportBytes) {
+        "Document is too large: $displayName (maximum $MaximumDocumentImportBytes bytes)."
+    }
+}
+
+/**
+ * import 파서가 전체 [ByteArray]를 요구하는 형식인지 판단한다. TXT와 위치·이름·MIME만으로 형식을
+ * 확정할 수 없는 입력은 true다. EPUB·CBZ·이미지는 앱 소유 파일 위치에서 직접 처리된다. PDF 메타데이터
+ * 리더는 `file://` 위치만 직접 열 수 있으므로, 지속 권한으로 원본 `content://` URI를 그대로 보관한 PDF는
+ * 상한이 적용된 바이트를 함께 넘겨야 하며 그렇지 않으면 페이지 수와 표지가 비게 된다.
+ *
+ * @receiver 앱 저장소 구체화 여부가 반영된 문서 위치다.
+ * @return 메모리 바이트가 반드시 필요하면 true다.
+ */
+internal fun DocumentLocation.requiresImportBytes(): Boolean {
+    val extension = displayName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+    val normalizedMimeType = mimeType?.lowercase()
+    if (extension == "txt" || normalizedMimeType == "text/plain") return true
+    val isPdf = extension == "pdf" || normalizedMimeType == "application/pdf"
+    if (isPdf && !sourceUri.startsWith("file://")) return true
+    return extension !in SupportedDocumentExtensions && normalizedMimeType !in SupportedDocumentMimeTypes
 }
