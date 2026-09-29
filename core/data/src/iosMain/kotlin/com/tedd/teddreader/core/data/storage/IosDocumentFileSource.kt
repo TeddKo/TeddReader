@@ -2,17 +2,10 @@ package com.tedd.teddreader.core.data.storage
 
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.convert
-import kotlinx.cinterop.usePinned
 import okio.FileSystem
 import okio.Path.Companion.toPath
-import okio.buffer
-import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHomeDirectory
-import platform.Foundation.dataWithContentsOfFile
-import platform.posix.memcpy
 
 /**
  * iOS의 [DocumentFileSource]: 문서를 샌드박스 파일시스템 경로로 읽고 복사하며, 이 클래스 자신의
@@ -22,14 +15,13 @@ import platform.posix.memcpy
 class IosDocumentFileSource : DocumentFileSource {
     /**
      * @param location 읽을 문서.
-     * @return [location]의 해석된 경로에서 `NSData`로 읽은 문서의 원시 바이트.
+     * @return [location]의 해석된 경로를 Okio로 스트리밍해 만든 단일 Kotlin 바이트 배열.
      * @throws IllegalStateException [location]의 저장된 경로에도, 현재 컨테이너의 `Documents` 아래
      *   같은 파일 이름으로도 파일이 존재하지 않을 때.
      */
     override suspend fun readBytes(location: DocumentLocation): ByteArray {
         val path = resolveExistingPath(location) ?: error("Cannot open document: ${location.sourceUri}")
-        val data = NSData.dataWithContentsOfFile(path) ?: error("Cannot open document: $path")
-        return data.toByteArray()
+        return FileSystem.SYSTEM.read(path.toPath()) { readByteArray() }
     }
 
     /**
@@ -82,7 +74,8 @@ class IosDocumentFileSource : DocumentFileSource {
     /**
      * [bytes]를 이 문서의 앱 전용 파일에 쓰되, 같은 크기의 파일이 이미 있으면 쓰기를 건너뛴다 — 이
      * 앱이 이미 임포트한 소스에 대해 두 번째 `materialize` 호출에서 문서 전체를 다시 쓰는 것을
-     * 피하는 값싼 멱등성 검사다.
+     * 피하는 값싼 멱등성 검사다. 새 내용은 같은 디렉터리의 임시 파일에 완전히 쓴 뒤 원자 이동하며,
+     * 실패한 임시 파일은 항상 제거한다.
      *
      * @param location 문서의 현재 위치.
      * @param bytes 문서의 바이트.
@@ -92,11 +85,8 @@ class IosDocumentFileSource : DocumentFileSource {
     override suspend fun materialize(location: DocumentLocation, bytes: ByteArray): DocumentLocation {
         val destination = materializedPath(sourceKey = location.sourceUri, displayName = location.displayName)
         if (fileSize(destination) != bytes.size.toLong()) {
-            val sink = FileSystem.SYSTEM.sink(destination.toPath()).buffer()
-            try {
-                sink.write(bytes)
-            } finally {
-                sink.close()
+            atomicCopyTo(FileSystem.SYSTEM, destination.toPath()) { partial ->
+                FileSystem.SYSTEM.write(partial) { write(bytes) }
             }
         }
         return location.copy(
@@ -140,7 +130,7 @@ class IosDocumentFileSource : DocumentFileSource {
      * 여는 것이, 예전에는 첫 사본 옆에 전체를 다시 쓰게 만들었다(
      * [materializedDocumentFileName] 참고). 파일을 읽어서 크기를 재는 대신 디스크상의 기존 파일
      * 크기만 확인하는 것이, 사본이 필요한지 결정하기 위해 그 첫 사본조차 두 번 읽히지 않게 해주는
-     * 지점이다.
+     * 지점이다. 새 사본은 임시 경로에 완전히 복사한 뒤 원자 이동하며 실패하면 임시 파일을 제거한다.
      *
      * @param sourcePath 원본 문서의 파일시스템 경로(`file://` 접두사 없음).
      * @param displayName 문서의 표시 이름. materialize된 파일 이름을 만드는 데 쓰이고 반환되는
@@ -158,13 +148,15 @@ class IosDocumentFileSource : DocumentFileSource {
     ): DocumentLocation {
         val destination = materializedPath(sourceKey = sourcePath, displayName = displayName)
         if (fileSize(destination) <= 0L) {
-            check(
-                NSFileManager.defaultManager.copyItemAtPath(
-                    srcPath = sourcePath,
-                    toPath = destination,
-                    error = null,
-                ),
-            ) { "Cannot copy document: $sourcePath" }
+            atomicCopyTo(FileSystem.SYSTEM, destination.toPath()) { partial ->
+                check(
+                    NSFileManager.defaultManager.copyItemAtPath(
+                        srcPath = sourcePath,
+                        toPath = partial.toString(),
+                        error = null,
+                    ),
+                ) { "Cannot copy document" }
+            }
         }
         return DocumentLocation(
             sourceUri = "file://$destination",
@@ -197,24 +189,4 @@ class IosDocumentFileSource : DocumentFileSource {
     /** 아무것도 저장되어 있지 않은 경로에는 0. "아직 사본 없음"과 "빈 사본"이 같게 읽히도록 한다. */
     private fun fileSize(path: String): Long =
         FileSystem.SYSTEM.metadataOrNull(path.toPath())?.size ?: 0L
-}
-
-/**
- * 이 `NSData`의 바이트를 Kotlin [ByteArray]로 복사한다.
- *
- * @receiver 복사할 데이터.
- * @return 같은 길이의 [ByteArray]. 빈 입력은 네이티브 메모리를 건드리지 않고 빈 배열로 특수 처리된다.
- *   길이 0인 [ByteArray]를 pin하고 그 주소를 얻는 것은 Kotlin/Native에서 정의되지 않은 동작이기
- *   때문이다.
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun NSData.toByteArray(): ByteArray {
-    val size = length.toInt()
-    val result = ByteArray(size)
-    if (size == 0) return result
-
-    result.usePinned { pinned ->
-        memcpy(pinned.addressOf(0), bytes, size.convert())
-    }
-    return result
 }

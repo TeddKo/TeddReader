@@ -15,6 +15,15 @@ import kotlin.test.assertTrue
  * 변형한 것이 아니라 해시와 정제된 확장자로만 구성되기 때문이다.
  */
 class MaterializedDocumentFileNameTest {
+    /** 임시 사본은 표시 이름 본문과 경로를 버리고 검증된 짧은 확장자만 유지해야 한다. */
+    @Test
+    fun temporaryNameDoesNotExposeDisplayNameOrPath() {
+        val name = temporaryDocumentFileName("../../private/비밀 제목.epub", nonce = 42L)
+
+        assertEquals("tedd-reader-document-2a.epub", name)
+        assertEquals("tedd-reader-document-2a", temporaryDocumentFileName("secret.extensiontoolong", nonce = 42L))
+    }
+
     /**
      * 이 파일이 존재하는 이유인 수정 사항을 지킨다: 같은 소스를 두 번째로 임포트하는 상황 —
      * 다른 앱이 "다른 앱으로 열기"를 통해 같은 책을 다시 넘겨줄 때 발생함 — 은 첫 임포트가 이미

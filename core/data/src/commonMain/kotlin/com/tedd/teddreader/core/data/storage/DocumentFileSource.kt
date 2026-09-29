@@ -2,7 +2,9 @@ package com.tedd.teddreader.core.data.storage
 
 import com.tedd.teddreader.core.common.model.DocumentLocation
 import okio.ByteString.Companion.encodeUtf8
+import okio.FileSystem
 import okio.Path
+import kotlin.random.Random
 
 /**
  * 이 플랫폼에서 문서의 바이트에 실제로 도달하는 방법 — Android의 SAF `content://` Uri와 일반
@@ -74,6 +76,38 @@ internal fun isDirectChildOf(path: Path, directory: Path): Boolean =
     path.normalized().parent == directory.normalized()
 
 /**
+ * [destination]과 같은 디렉터리의 임시 파일을 완성한 뒤 원자 이동하여 부분 파일이 최종 경로로
+ * 관찰되거나 다음 호출에서 완성본으로 재사용되지 않게 한다.
+ *
+ * 프로세스가 복사 도중 죽으면 `finally`가 실행되지 못해 `<이름>.partial-` 임시 파일이 남으므로,
+ * 진입할 때 [destination]과 같은 디렉터리에서 그 접두사를 가진 직계 파일을 먼저 지운다. 같은
+ * 목적지에 대한 복사는 동시에 실행되지 않는다는 전제에 기대므로 호출자가 직렬화해야 한다.
+ *
+ * @param fileSystem 사본과 최종 파일을 관리할 파일시스템.
+ * @param destination 완전히 기록된 뒤에만 갱신되어야 하는 최종 경로.
+ * @param copyToPartial 호출자가 원본을 복사할 임시 경로를 받는 작업.
+ * @throws IllegalStateException [destination]에 부모 디렉터리가 없을 때.
+ */
+internal inline fun atomicCopyTo(
+    fileSystem: FileSystem,
+    destination: Path,
+    copyToPartial: (Path) -> Unit,
+) {
+    val directory = destination.parent ?: error("Destination must have a parent directory")
+    val partialPrefix = "${destination.name}.partial-"
+    runCatching { fileSystem.list(directory) }.getOrNull()?.forEach { candidate ->
+        if (candidate.name.startsWith(partialPrefix)) fileSystem.delete(candidate, mustExist = false)
+    }
+    val partial = directory / "$partialPrefix${Random.nextLong().toString(16)}"
+    try {
+        copyToPartial(partial)
+        fileSystem.atomicMove(partial, destination)
+    } finally {
+        fileSystem.delete(partial, mustExist = false)
+    }
+}
+
+/**
  * [path]가 [currentDirectory]의 직계 자식이거나, 같은 플랫폼 컨테이너 루트 아래 이전 앱 컨테이너
  * UUID 안의 같은 디렉터리인지 여부.
  *
@@ -110,11 +144,35 @@ internal fun isDirectChildOfCurrentOrRelocatedDirectory(path: Path, currentDirec
  * 모든 질문을 피할 수 있다. 확장자는 포맷 감지가 그것을 읽으므로 유지된다.
  */
 internal fun materializedDocumentFileName(sourceKey: String, displayName: String): String {
-    val name = displayName.substringAfterLast('/').substringAfterLast('\\')
-    val extension = name.substringAfterLast('.', "")
-        .takeIf { it.isNotBlank() && it.length <= MaxMaterializedExtensionLength && it.all(Char::isLetterOrDigit) }
+    val extension = safeDocumentExtension(displayName)
     val hash = sourceKey.encodeUtf8().sha1().hex()
     return if (extension == null) hash else "$hash.$extension"
+}
+
+/**
+ * 파서가 잠시 사용할 문서 사본 이름으로, 표시 이름 본문 대신 무작위 nonce를 사용하고 포맷 감지에
+ * 필요한 검증된 확장자만 유지한다.
+ *
+ * @param displayName 원본 표시 이름. 짧은 영숫자 확장자 외의 내용은 결과에 포함되지 않는다.
+ * @param nonce 호출자가 새 사본마다 생성한 무작위 값.
+ * @return 임시 디렉터리의 다른 파일과 충돌하지 않는 안전한 단일 파일 이름.
+ */
+internal fun temporaryDocumentFileName(displayName: String, nonce: Long): String {
+    val extension = safeDocumentExtension(displayName)
+    val base = "tedd-reader-document-${nonce.toString(16)}"
+    return if (extension == null) base else "$base.$extension"
+}
+
+/**
+ * 표시 이름에서 파일시스템 경로에 보존해도 되는 확장자만 해석한다.
+ *
+ * @param displayName 검사할 표시 이름.
+ * @return 길이 제한 안의 영숫자 확장자, 조건을 만족하지 않으면 null.
+ */
+private fun safeDocumentExtension(displayName: String): String? {
+    val name = displayName.substringAfterLast('/').substringAfterLast('\\')
+    return name.substringAfterLast('.', "")
+        .takeIf { it.isNotBlank() && it.length <= MaxMaterializedExtensionLength && it.all(Char::isLetterOrDigit) }
 }
 
 /**

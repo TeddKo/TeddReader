@@ -46,6 +46,7 @@ import com.tedd.teddreader.core.data.parser.parseEpubSpineItem
 import com.tedd.teddreader.core.data.parser.resolveEpubNavigationAtCompletion
 import com.tedd.teddreader.core.data.parser.systemFileSystem
 import com.tedd.teddreader.core.data.storage.DocumentFileSource
+import com.tedd.teddreader.core.data.storage.temporaryDocumentFileName
 import com.tedd.teddreader.core.domain.repository.DocumentImportSource
 import com.tedd.teddreader.core.domain.repository.DocumentRepository
 import com.tedd.teddreader.core.domain.repository.ImportProgress
@@ -226,6 +227,15 @@ class DocumentRepositoryImpl(
      */
     private val paginationContinuationLock = Mutex()
 
+    /** 문서별 [importNextSections] 락 맵의 생성과 조회를 보호한다. */
+    private val epubImportLocksLock = Mutex()
+
+    /**
+     * 같은 문서의 점진 임포트가 마지막 섹션 읽기부터 새 섹션 커밋까지 겹치지 않도록 하는 락들이다.
+     * 서로 다른 문서는 독립적으로 진행되며, 저장소 인스턴스 수명 동안 접근한 문서 수만큼만 유지된다.
+     */
+    private val epubImportLocksByDocumentId = mutableMapOf<DocumentId, Mutex>()
+
     /**
      * [epubScratchDocumentId], [epubScratchPath], [epubScratchContainer],
      * [epubEmbeddedFontFilesByHref]를 보호한다. 스크래치 사본 파일에 대한 모든 I/O
@@ -294,6 +304,8 @@ class DocumentRepositoryImpl(
      * 상태를 추적하는 것보다 훨씬 저렴하다.
      */
     private var epubScratchInvalidationCount = 0L
+    /** 문서별로 스크래치 사본을 열지 못한 연속 횟수로, [epubScratchLock]이 보호한다. 열기에 성공하면 지워진다. */
+    private val epubScratchIoFailureCounts = mutableMapOf<DocumentId, Int>()
     /** 현재 보유 중인 스크래치 사본에 대해 열린 임포트 컨테이너로, 점진적 배치들 사이에서 재사용된다. */
     private var epubScratchContainer: EpubImportContainer? = null
     /** 현재 EPUB에 대해 추출된 임시 폰트 파일들을, 추출 대상이었던 href를 키로 하여 재사용할 수 있도록 보관한다. */
@@ -342,19 +354,17 @@ class DocumentRepositoryImpl(
                 -> {
                 val fileSource = documentFileSource ?: return@withContext null
                 coverStore.cached(documentId)?.let {
-                    logger.d { "cover: served ${it.size} B from file for ${metadata.location.displayName}" }
+                    logger.d { "cover: served ${it.size} B from file for ${documentLogKey(documentId)}" }
                     return@withContext it
                 }
-                logger.d {
-                    "cover: no cached file at ${coverStore.pathFor(documentId)} for ${metadata.location.displayName}, extracting"
-                }
+                logger.d { "cover: no cached file for ${documentLogKey(documentId)}, extracting" }
                 val extracted = when (metadata.format) {
                     DocumentFormat.CBZ -> cbzScratchLock.withLock {
                         cbzArchiveLocked(metadata, fileSource).coverImageBytes()
                     }
                     else -> coverStore.extract(metadata)
                 }
-                logger.d { "cover: extraction gave ${extracted?.size ?: -1} B for ${metadata.location.displayName}" }
+                logger.d { "cover: extraction gave ${extracted?.size ?: -1} B for ${documentLogKey(documentId)}" }
                 extracted?.also { coverStore.store(documentId, it) }
             }
         }
@@ -429,7 +439,8 @@ class DocumentRepositoryImpl(
      *
      * 요청된 각 ZIP 엔트리를 한 번에 하나의 href씩, 각자의 임시 파일로 곧바로 스트리밍한다. 그
      * 덕분에 오래 유지되는 캐시와 추출 시 피크 메모리 모두 폰트 바이트 배열 전체가 아니라
-     * 파일 경로와 작은 복사 버퍼 수준으로 유지된다. 요청된 href만 건드린다.
+     * 파일 경로와 작은 복사 버퍼 수준으로 유지된다. 요청된 href만 건드리되, 악성 EPUB이 임시
+     * 저장소를 채우지 못하도록 문서당 32개·누적 128 MiB와 파일당 64 MiB를 넘기지 않는다.
      *
      * 추출은 전적으로 [epubScratchLock] 안에서 실행되므로, 이 호출이 스트리밍하는 동안 동시에
      * 발생하는 문서 삭제나 교체가 스크래치 파일을 제거할 수 없다. 문서 ID는 락 안에서 다시
@@ -458,23 +469,41 @@ class DocumentRepositoryImpl(
         val fileSource = documentFileSource ?: return@withContext emptyMap()
         val normalizedHrefs = hrefs.map(String::trim).filterTo(linkedSetOf(), String::isNotEmpty)
         if (normalizedHrefs.isEmpty()) return@withContext emptyMap()
+        val boundedHrefs = normalizedHrefs.take(MAX_EPUB_FONT_FILES).toSet()
         epubScratchCopy(metadata, fileSource)
         epubScratchLock.withLock {
             val path = epubScratchPath
             if (epubScratchDocumentId != documentId || path == null) return@withLock emptyMap()
-            val missingHrefs = normalizedHrefs.filter { href ->
+            val missingHrefs = boundedHrefs.filter { href ->
                 epubEmbeddedFontFilesByHref[href]?.let(systemFileSystem()::exists) != true
-            }.toSet()
+            }
             if (missingHrefs.isNotEmpty()) {
                 val zip = systemFileSystem().openZip(path)
+                var extractedBytes = epubEmbeddedFontFilesByHref.values.sumOf { fontPath ->
+                    systemFileSystem().metadataOrNull(fontPath)?.size ?: 0L
+                }
                 missingHrefs.forEach { href ->
-                    streamEmbeddedFontScratchFile(zip = zip, href = href)?.let { fontPath ->
+                    if (epubEmbeddedFontFilesByHref.size >= MAX_EPUB_FONT_FILES) return@forEach
+                    val remainingBytes = MAX_EPUB_FONT_BYTES_PER_DOCUMENT - extractedBytes
+                    if (remainingBytes <= 0L) {
+                        logger.w { "embedded font dropped, document byte cap reached: $href" }
+                        return@forEach
+                    }
+                    val fontPath = streamEmbeddedFontScratchFile(
+                        zip = zip,
+                        href = href,
+                        maxBytes = minOf(MAX_EPUB_FONT_BYTES, remainingBytes),
+                    )
+                    if (fontPath == null) {
+                        logger.w { "embedded font dropped, missing or over the size cap: $href" }
+                    } else {
                         epubEmbeddedFontFilesByHref[href] = fontPath
+                        extractedBytes += systemFileSystem().metadataOrNull(fontPath)?.size ?: 0L
                     }
                 }
                 deleteAbandonedEmbeddedFontScratchFiles(keep = epubEmbeddedFontFilesByHref.values.toSet())
             }
-            normalizedHrefs.mapNotNull { href ->
+            boundedHrefs.mapNotNull { href ->
                 epubEmbeddedFontFilesByHref[href]?.takeIf(systemFileSystem()::exists)?.let { href to it.toString() }
             }.toMap()
         }
@@ -654,18 +683,18 @@ class DocumentRepositoryImpl(
 
         val restoreStarted = TimeSource.Monotonic.markNow()
         val restored = suspendRunCatching { restorePageWindows(documentId, document, key) }
-            .onFailure { error -> logger.w(error) { "Failed to restore stored page layout for $documentId" } }
+            .onFailure { error -> logger.w(error) { "Failed to restore stored page layout for ${documentLogKey(documentId)}" } }
             .getOrNull()
         if (restored != null) {
             val windows = restored.windows
             logger.d {
-                "${document.title.orEmpty().take(12)}: ${windows.size} pages from ${document.sections.size} sections " +
+                "${documentLogKey(documentId)}: ${windows.size} pages from ${document.sections.size} sections " +
                     "restored from storage in ${restoreStarted.elapsedNow().inWholeMilliseconds} ms"
             }
             logger.d {
                 val decodedSections = restored.sectionBlocksCache?.decodedSectionCount ?: document.sections.size
                 val builtWindows = (windows as? RestoredPageWindows)?.builtCount ?: windows.size
-                "${document.title.orEmpty().take(12)}: on-demand pagination decoded $decodedSections/${document.sections.size} " +
+                "${documentLogKey(documentId)}: on-demand pagination decoded $decodedSections/${document.sections.size} " +
                     "sections and built $builtWindows/${windows.size} windows to open"
             }
             documentCacheLock.withLock {
@@ -750,7 +779,7 @@ class DocumentRepositoryImpl(
         val pageWindows = session.snapshotWindows(textPageLayoutEngine)
         val elapsedMs = started.elapsedNow().inWholeMilliseconds
         logger.d {
-            "${document.title.orEmpty().take(12)}: measured section ${anchorPosition + 1}/" +
+            "${documentLogKey(documentId)}: measured section ${anchorPosition + 1}/" +
                 "${resolved.contentSections.size.coerceAtLeast(1)} (${pageWindows.size} pages so far) " +
                 "in $elapsedMs ms, measured=$wantsMeasured, complete=${session.isComplete}"
         }
@@ -981,7 +1010,7 @@ class DocumentRepositoryImpl(
             val started = TimeSource.Monotonic.markNow()
             val result = runCatching { json.decodeFromString<List<String>>(indexed).toSet() }.getOrDefault(emptySet())
             logger.d {
-                "${entity.name.take(12)}: font index served ${result.size} hrefs from stored JSON " +
+                "${documentLogKey(documentId)}: font index served ${result.size} hrefs from stored JSON " +
                     "in ${started.elapsedNow().inWholeMilliseconds} ms (O(F), no blocks DAO read)"
             }
             return result
@@ -1005,7 +1034,7 @@ class DocumentRepositoryImpl(
             val hrefsJson = json.encodeToString(sortedHrefs)
             documentDao.updateEmbeddedFontHrefsJson(documentId.value, hrefsJson)
             logger.d {
-                "${entity.name.take(12)}: legacy font scan found ${hrefs.size} hrefs, backfilled index " +
+                "${documentLogKey(documentId)}: legacy font scan found ${hrefs.size} hrefs, backfilled index " +
                     "in ${started.elapsedNow().inWholeMilliseconds} ms"
             }
             hrefs
@@ -1088,7 +1117,7 @@ class DocumentRepositoryImpl(
         val pageStartsBlob = stored.pageStartsBlob ?: return null
         val pageStarts = decodePageStartsBlob(pageStartsBlob)
         if (!pageStarts.isStrictlyAscending()) {
-            logger.w { "Discarding a stored page layout for $documentId whose page starts do not ascend" }
+            logger.w { "Discarding a stored page layout for ${documentLogKey(documentId)} whose page starts do not ascend" }
             pageLayoutDao.deletePageLayouts(documentId.value)
             return null
         }
@@ -1210,7 +1239,8 @@ class DocumentRepositoryImpl(
      * 드라이브 다운로드 — 는 나머지 스파인을 미루는 것에서 아무 이득도 얻지 못하므로, EPUB
      * 임포트가 항상 해왔던 것과 같은 동기적 전체 파싱([importEpubFullyFromBytes])을 그대로
      * 받는다. `bytes=null` 경로만이 [importEpubPhase0]의 단계적 경로를 타며, 이 경로는 되돌아갈
-     * 바이트가 없으므로 스트리밍할 실제 파일 소스를 필요로 한다.
+     * 바이트가 없으므로 스트리밍할 실제 파일 소스를 필요로 한다. 포맷 감지부터 파싱과 영속화까지
+     * 전체 작업은 [Dispatchers.Default]에서 실행되어 호출자의 UI 스레드를 점유하지 않는다.
      *
      * @param source 선택된 파일의 위치와, 있다면 이미 읽어 들인 바이트.
      * @param importedAtEpochMillis 이 임포트가 일어난 시각으로, (진짜로 새 문서인 경우)
@@ -1223,11 +1253,11 @@ class DocumentRepositoryImpl(
     override suspend fun importDocument(
         source: DocumentImportSource,
         importedAtEpochMillis: Long,
-    ): ReaderDocument {
+    ): ReaderDocument = withContext(Dispatchers.Default) {
         val id = DocumentId(source.location.sourceUri)
         val existingDocument = getDocument(id)
         if (existingDocument != null && isImportComplete(id)) {
-            getReaderDocument(id)?.let { return it }
+            getReaderDocument(id)?.let { return@withContext it }
         }
         val format = formatDetector.detect(source.location, source.bytes)
         val document = when (format) {
@@ -1237,7 +1267,7 @@ class DocumentRepositoryImpl(
                 text = TxtTextDecoder.decode(requireDocumentBytes(source)),
             )
 
-            DocumentFormat.EPUB -> return source.bytes?.let { bytes ->
+            DocumentFormat.EPUB -> return@withContext source.bytes?.let { bytes ->
                 importEpubFullyFromBytes(id, source, existingDocument, importedAtEpochMillis, bytes)
             } ?: importEpubPhase0(
                 id = id,
@@ -1297,7 +1327,7 @@ class DocumentRepositoryImpl(
             ),
             document = document,
         )
-        return document
+        document
     }
 
     /**
@@ -1542,8 +1572,14 @@ class DocumentRepositoryImpl(
 
         val invalidationsBeforeCopy = epubScratchLock.withLock { epubScratchInvalidationCount }
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
-            "tedd-reader-epub-open-${Random.nextLong().toString(16)}.epub"
-        fileSource.copyTo(metadata.location, path)
+            "$ScratchCopyPrefix${Random.nextLong().toString(16)}.epub"
+        var copyCompleted = false
+        try {
+            fileSource.copyTo(metadata.location, path)
+            copyCompleted = true
+        } finally {
+            if (!copyCompleted) suspendRunCatching { systemFileSystem().delete(path) }
+        }
 
         return epubScratchLock.withLock {
             epubScratchPath?.takeIf { epubScratchDocumentId == metadata.id && systemFileSystem().exists(it) }
@@ -1584,34 +1620,72 @@ class DocumentRepositoryImpl(
      * - 컨테이너를 만든 뒤: 같은 검사로 결과를 캐시할 가치가 있는지 결정한다(파싱 도중 동시에
      *   무효화가 실행되면 컨테이너가 오래된 것이 된다).
      *
-     * OPF가 발견되지 않은 경우(비점진적 폴백)와 진행 중에 스크래치 사본이 무효화된 경우 모두
-     * null을 반환한다 — 호출자([importNextSections])는 두 경우 모두 "더 이상 점진적으로
-     * 임포트할 것이 없다"로 취급하고 [finishNonProgressiveEpubImport]를 통해 문서를 완료한다.
+     * OPF 부재, 스크래치 무효화, ZIP I/O 실패는 [EpubScratchContainerResult]의 서로 다른 값으로
+     * 반환한다. 호출자는 OPF 부재만 비점진 완료 폴백으로 처리하고, 나머지는 문서를 미완료로
+     * 유지해 삭제 경합이나 일시적인 읽기 실패가 남은 스파인을 영구히 건너뛰지 않게 한다.
      *
      * @param documentId 컨테이너를 열거나 재사용할 문서.
      * @param path 이 문서에 대해 [epubScratchCopy]가 반환한 스크래치 사본 경로.
      * @param title OPF에 제목이 없을 때 컨테이너에 쓸 대체 제목.
-     * @return 컨테이너, OPF가 없거나 스크래치가 무효화되었으면 null.
+     * @return 열린 컨테이너 또는 OPF 부재·무효화·I/O 실패를 구분한 결과.
      */
     private suspend fun openEpubScratchContainer(
         documentId: DocumentId,
         path: Path,
         title: String,
-    ): EpubImportContainer? {
+    ): EpubScratchContainerResult {
         epubScratchLock.withLock {
             if (epubScratchDocumentId == documentId && epubScratchPath == path) {
-                epubScratchContainer?.let { return it }
+                epubScratchContainer?.let { return EpubScratchContainerResult.Opened(it) }
             }
-            if (epubScratchDocumentId != documentId || epubScratchPath != path) return null
+            if (epubScratchDocumentId != documentId || epubScratchPath != path) {
+                return EpubScratchContainerResult.Invalidated
+            }
         }
-        val zip = runCatching { systemFileSystem().openZip(path) }.getOrNull() ?: return null
-        val container = openEpubImportContainer(zip, title)
-        epubScratchLock.withLock {
+        val zip = suspendRunCatching { systemFileSystem().openZip(path) }
+            .getOrElse { return EpubScratchContainerResult.IoFailure }
+        val container = suspendRunCatching { openEpubImportContainer(zip, title) }
+            .getOrElse { return EpubScratchContainerResult.IoFailure }
+            ?: return EpubScratchContainerResult.NoOpf
+        return epubScratchLock.withLock {
             if (epubScratchDocumentId == documentId && epubScratchPath == path) {
                 epubScratchContainer = container
+                EpubScratchContainerResult.Opened(container)
+            } else {
+                EpubScratchContainerResult.Invalidated
             }
         }
-        return container
+    }
+
+    /**
+     * [importNextSections]가 스크래치 사본을 열지 못했을 때, 깨졌을 수 있는 사본을 버려 다음
+     * 호출이 원본에서 사본을 새로 만들게 한다. [epubScratchCopy]는 디스크에 남은 사본을 그대로
+     * 재사용하므로, 이를 버리지 않으면 손상된 사본에 대한 실패가 영구히 반복되고 호출자의 루프가
+     * 대기 없이 계속 돌게 된다.
+     *
+     * 같은 문서에서 연속 두 번 실패하면 새 사본으로도 열 수 없는 것이므로 더 재시도하지 않도록
+     * 호출자에게 알린다.
+     *
+     * @param documentId 스크래치 사본을 열지 못한 문서.
+     * @return 연속 실패 횟수가 [MaxEpubScratchIoFailures]에 도달해 호출자가 임포트를 마무리해야
+     *   하면 true, 사본을 새로 만들어 다시 시도해도 되면 false.
+     */
+    private suspend fun releaseFailedEpubScratch(documentId: DocumentId): Boolean = epubScratchLock.withLock {
+        if (epubScratchDocumentId == documentId) {
+            epubScratchPath?.let { path -> runCatching { systemFileSystem().delete(path) } }
+            clearEmbeddedFontScratchFilesLocked()
+            epubScratchDocumentId = null
+            epubScratchPath = null
+            epubScratchContainer = null
+        }
+        val failures = (epubScratchIoFailureCounts[documentId] ?: 0) + 1
+        if (failures >= MaxEpubScratchIoFailures) {
+            epubScratchIoFailureCounts.remove(documentId)
+            true
+        } else {
+            epubScratchIoFailureCounts[documentId] = failures
+            false
+        }
     }
 
     private suspend fun clearEpubScratchContainer(documentId: DocumentId) {
@@ -1670,9 +1744,18 @@ class DocumentRepositoryImpl(
         epubEmbeddedFontFilesByHref.clear()
     }
 
+    /**
+     * EPUB ZIP의 폰트 하나를 메모리에 올리지 않고 임시 파일로 복사하며 허용 크기를 넘으면 제거한다.
+     *
+     * @param zip 폰트 엔트리를 읽을 열린 EPUB 파일시스템.
+     * @param href ZIP 안의 폰트 상대 경로.
+     * @param maxBytes 이 파일에 허용되는 개별·문서 누적 예산의 남은 바이트.
+     * @return 완전히 기록된 임시 경로, 엔트리가 없거나 제한을 넘거나 복사에 실패하면 null.
+     */
     private fun streamEmbeddedFontScratchFile(
         zip: FileSystem,
         href: String,
+        maxBytes: Long,
     ): Path? {
         val suffix = href.substringAfterLast('/', missingDelimiterValue = href)
             .takeIf(String::isNotBlank)
@@ -1690,7 +1773,7 @@ class DocumentRepositoryImpl(
                         val read = source.read(sink.buffer, 8_192)
                         if (read == -1L) break
                         totalBytes += read
-                        if (totalBytes > MAX_EPUB_FONT_BYTES) throw IllegalStateException("Embedded font too large: $href")
+                        if (totalBytes > maxBytes) throw IllegalStateException("Embedded font is over the extraction limit")
                         sink.emitCompleteSegments()
                     }
                     sink.flush()
@@ -1907,7 +1990,12 @@ class DocumentRepositoryImpl(
             addedAtEpochMillis = existingDocument?.addedAtEpochMillis ?: importedAtEpochMillis,
         )
         val path = epubScratchCopy(scratchMetadata, fileSource)
-        val container = openEpubScratchContainer(id, path, title)
+        val container = when (val result = openEpubScratchContainer(id, path, title)) {
+            is EpubScratchContainerResult.Opened -> result.container
+            EpubScratchContainerResult.NoOpf -> null
+            EpubScratchContainerResult.Invalidated -> error("EPUB scratch copy was invalidated during import.")
+            EpubScratchContainerResult.IoFailure -> error("Cannot open EPUB scratch copy.")
+        }
 
         val isFullyImported: Boolean
         val document: ReaderDocument
@@ -2136,13 +2224,15 @@ class DocumentRepositoryImpl(
      * 스파인 전체가 마침내 소진됐을 때만 [finishEpubImport]를 실행해 내비게이션을 해석하고
      * 문서를 완료로 스탬프 찍는다. 각 배치는 문자/단어 수와 정확한 폰트 href들을 점진적으로
      * 영속화한다. 목차 항목이 어떤 스파인 항목이든 가리킬 수 있으므로, 내비게이션과 섹션
-     * 제목 해석만은 완료될 때까지 기다린다.
+     * 제목 해석만은 완료될 때까지 기다린다. 같은 문서의 호출은 문서별 [Mutex]로 마지막 섹션
+     * 읽기부터 커밋까지 직렬화하여 동일 인덱스나 누산값을 두 번 추가하지 않는다.
      *
      * [documentId]가 서가에 없거나, 그 임포트가 이미 완료됐거나, EPUB이 아니거나,
      * [documentFileSource]를 사용할 수 없으면 이미 완료된 것으로 보고하는 아무 일도 하지
      * 않는 호출이다. EPUB에 OPF가 아예 없을 때는 [importEpubPhase0]의 폴백 챕터 분기가 이미
      * 임포트해야 할 모든 것을 한 번에 임포트했으므로, 여기 남은 유일한 일은 그 분기가
-     * 건너뛴 완료 스탬프뿐이며, 이는 [finishNonProgressiveEpubImport]가 처리한다.
+     * 건너뛴 완료 스탬프뿐이며, 이는 [finishNonProgressiveEpubImport]가 처리한다. 반대로
+     * 스크래치 무효화나 ZIP I/O 실패는 미완료로 반환하여 다음 호출이 다시 시도하게 한다.
      *
      * 아래 파싱 루프에서: `parsed` 결과가 null인 경우(순수 표지 건너뜀, 또는 읽을 수 없는
      * 항목)는 [importEpubPhase0]의 일회성 루프와 마찬가지로 섹션이 되지 않은 채 스파인
@@ -2167,101 +2257,115 @@ class DocumentRepositoryImpl(
         pageBreaker: ReaderPageBreaker?,
         viewportDensity: Float,
     ): ImportProgress = withContext(Dispatchers.Default) {
-        val entity = documentDao.getDocument(documentId.value)
-            ?: return@withContext ImportProgress(isComplete = true, sectionsImported = 0)
-        val fileSource = documentFileSource
-        if (entity.importCompletedAtEpochMillis != null || entity.format != DocumentFormat.EPUB.name || fileSource == null) {
-            return@withContext ImportProgress(isComplete = true, sectionsImported = 0)
+        val importLock = epubImportLocksLock.withLock {
+            epubImportLocksByDocumentId.getOrPut(documentId) { Mutex() }
         }
-
-        val path = epubScratchCopy(entity.toDocumentMetadata(), fileSource)
-        val container = openEpubScratchContainer(documentId, path, entity.name)
-            ?: return@withContext finishNonProgressiveEpubImport(documentId, entity)
-        var buildState = resolveImportBuildState(documentId, entity)
-        if (pageBreaker != null) {
-            ensurePartialLayoutForCurrentPrefix(
-                documentId = documentId,
-                style = style,
-                viewportSize = viewportSize,
-                viewportDensity = viewportDensity,
-                pageBreaker = pageBreaker,
-                expectedCharacterCount = buildState.characterCount,
-            )
-        }
-
-        val lastSection = searchIndexDao.getLastSection(documentId.value)
-        var sectionIndex = (lastSection?.sectionIndex?.plus(1)) ?: 0
-        var offset = lastSection?.endOffset?.plus(SectionSeparatorLength) ?: 0L
-        var spinePosition = resolveNextSpineCursor(documentId, container, sectionIndex)
-
-        val newEntries = mutableListOf<SearchIndexEntity>()
-        val newSections = mutableListOf<Pair<ReaderSection, List<ReaderBlock>>>()
-        val sectionPathByIndex = mutableMapOf<Int, String>()
-        var sectionsImported = 0
-        while (sectionsImported < count && spinePosition < container.linearSpineItems.size) {
-            val parsed = parseEpubSpineItem(container, spinePosition, sectionIndex, offset)
-            spinePosition += 1
-            if (parsed == null) continue
-            val blocks = parsed.blocks.toMutableList()
-            fillIntrinsicImageSizes(blocks, container.zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
-            val relativeBlocks = blocks.rebasedBy(parsed.section.range.start)
-            val spinePath = container.linearSpineItems[spinePosition - 1].path
-            sectionPathByIndex[parsed.section.index] = spinePath
-            newEntries += parsed.section.toSearchIndexEntity(
-                documentId = documentId,
-                blocks = relativeBlocks,
-                json = json,
-                sourcePath = spinePath,
-            )
-            newSections += parsed.section to relativeBlocks
-            offset = parsed.section.range.end + SectionSeparatorLength
-            sectionIndex += 1
-            sectionsImported += 1
-        }
-
-        if (newEntries.isNotEmpty()) {
-            val batchStarted = TimeSource.Monotonic.markNow()
-            val expectedExistingCharacterCount = buildState.characterCount
-            val batchCharCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
-            val batchWordCount = newSections.sumOf { (section, _) -> section.text.wordCount().toLong() }
-            val batchFontHrefs = extractFontHrefs(newSections.flatMap { (_, blocks) -> blocks })
-            val mergedFontHrefs = buildState.embeddedFontHrefs + batchFontHrefs
-            buildState = ImportBuildState(
-                characterCount = expectedExistingCharacterCount + batchCharCount,
-                wordCount = buildState.wordCount + batchWordCount,
-                embeddedFontHrefs = mergedFontHrefs,
-            )
-            searchIndexDao.upsertImportBatch(
-                documentDao = documentDao,
-                entries = newEntries,
-                documentId = documentId.value,
-                characterCount = buildState.characterCount,
-                wordCount = buildState.wordCount,
-                embeddedFontHrefsJson = json.encodeToString(mergedFontHrefs.sorted()),
-            )
-            rememberSectionPaths(documentId, sectionPathByIndex)
-            appendMeasuredPageStarts(
-                documentId = documentId,
-                style = style,
-                viewportSize = viewportSize,
-                viewportDensity = viewportDensity,
-                pageBreaker = pageBreaker,
-                newSections = newSections,
-                expectedExistingCharacterCount = expectedExistingCharacterCount,
-            )
-            logger.d {
-                "${entity.name.take(12)}: import batch $sectionsImported sections, " +
-                    "+$batchCharCount chars, ${buildState.embeddedFontHrefs.size} fonts indexed " +
-                    "in ${batchStarted.elapsedNow().inWholeMilliseconds} ms"
+        importLock.withLock importBatch@ {
+            val entity = documentDao.getDocument(documentId.value)
+                ?: return@importBatch ImportProgress(isComplete = true, sectionsImported = 0)
+            val fileSource = documentFileSource
+            if (entity.importCompletedAtEpochMillis != null || entity.format != DocumentFormat.EPUB.name || fileSource == null) {
+                return@importBatch ImportProgress(isComplete = true, sectionsImported = 0)
             }
+
+            val path = epubScratchCopy(entity.toDocumentMetadata(), fileSource)
+            val container = when (val result = openEpubScratchContainer(documentId, path, entity.name)) {
+                is EpubScratchContainerResult.Opened -> result.container
+                EpubScratchContainerResult.NoOpf -> return@importBatch finishNonProgressiveEpubImport(documentId, entity)
+                EpubScratchContainerResult.Invalidated -> return@importBatch ImportProgress(isComplete = false, sectionsImported = 0)
+                EpubScratchContainerResult.IoFailure -> return@importBatch if (releaseFailedEpubScratch(documentId)) {
+                    finishNonProgressiveEpubImport(documentId, entity)
+                } else {
+                    ImportProgress(isComplete = false, sectionsImported = 0)
+                }
+            }
+            epubScratchLock.withLock { epubScratchIoFailureCounts.remove(documentId) }
+            var buildState = resolveImportBuildState(documentId, entity)
+            if (pageBreaker != null) {
+                ensurePartialLayoutForCurrentPrefix(
+                    documentId = documentId,
+                    style = style,
+                    viewportSize = viewportSize,
+                    viewportDensity = viewportDensity,
+                    pageBreaker = pageBreaker,
+                    expectedCharacterCount = buildState.characterCount,
+                )
+            }
+
+            val lastSection = searchIndexDao.getLastSection(documentId.value)
+            var sectionIndex = (lastSection?.sectionIndex?.plus(1)) ?: 0
+            var offset = lastSection?.endOffset?.plus(SectionSeparatorLength) ?: 0L
+            var spinePosition = resolveNextSpineCursor(documentId, container, sectionIndex)
+
+            val newEntries = mutableListOf<SearchIndexEntity>()
+            val newSections = mutableListOf<Pair<ReaderSection, List<ReaderBlock>>>()
+            val sectionPathByIndex = mutableMapOf<Int, String>()
+            var sectionsImported = 0
+            while (sectionsImported < count && spinePosition < container.linearSpineItems.size) {
+                val parsed = parseEpubSpineItem(container, spinePosition, sectionIndex, offset)
+                spinePosition += 1
+                if (parsed == null) continue
+                val blocks = parsed.blocks.toMutableList()
+                fillIntrinsicImageSizes(blocks, container.zip, container.coverDecision.coverHref, container.coverDecision.coverBytes)
+                val relativeBlocks = blocks.rebasedBy(parsed.section.range.start)
+                val spinePath = container.linearSpineItems[spinePosition - 1].path
+                sectionPathByIndex[parsed.section.index] = spinePath
+                newEntries += parsed.section.toSearchIndexEntity(
+                    documentId = documentId,
+                    blocks = relativeBlocks,
+                    json = json,
+                    sourcePath = spinePath,
+                )
+                newSections += parsed.section to relativeBlocks
+                offset = parsed.section.range.end + SectionSeparatorLength
+                sectionIndex += 1
+                sectionsImported += 1
+            }
+
+            if (newEntries.isNotEmpty()) {
+                val batchStarted = TimeSource.Monotonic.markNow()
+                val expectedExistingCharacterCount = buildState.characterCount
+                val batchCharCount = newSections.sumOf { (section, _) -> section.text.length.toLong() }
+                val batchWordCount = newSections.sumOf { (section, _) -> section.text.wordCount().toLong() }
+                val batchFontHrefs = extractFontHrefs(newSections.flatMap { (_, blocks) -> blocks })
+                val mergedFontHrefs = buildState.embeddedFontHrefs + batchFontHrefs
+                buildState = ImportBuildState(
+                    characterCount = expectedExistingCharacterCount + batchCharCount,
+                    wordCount = buildState.wordCount + batchWordCount,
+                    embeddedFontHrefs = mergedFontHrefs,
+                )
+                searchIndexDao.upsertImportBatch(
+                    documentDao = documentDao,
+                    entries = newEntries,
+                    documentId = documentId.value,
+                    characterCount = buildState.characterCount,
+                    wordCount = buildState.wordCount,
+                    embeddedFontHrefsJson = json.encodeToString(mergedFontHrefs.sorted()),
+                )
+                rememberSectionPaths(documentId, sectionPathByIndex)
+                appendMeasuredPageStarts(
+                    documentId = documentId,
+                    style = style,
+                    viewportSize = viewportSize,
+                    viewportDensity = viewportDensity,
+                    pageBreaker = pageBreaker,
+                    newSections = newSections,
+                    expectedExistingCharacterCount = expectedExistingCharacterCount,
+                )
+                logger.d {
+                    "${documentLogKey(documentId)}: import batch $sectionsImported sections, " +
+                        "+$batchCharCount chars, ${buildState.embeddedFontHrefs.size} fonts indexed " +
+                        "in ${batchStarted.elapsedNow().inWholeMilliseconds} ms"
+                }
+            }
+            rememberNextSpineCursor(documentId, spinePosition)
+
+            val isComplete = spinePosition >= container.linearSpineItems.size
+            if (!isComplete) return@importBatch ImportProgress(isComplete = false, sectionsImported = sectionsImported)
+
+            finishEpubImport(documentId, entity, container, buildState)
+            ImportProgress(isComplete = true, sectionsImported = sectionsImported)
         }
-        rememberNextSpineCursor(documentId, spinePosition)
-
-        val isComplete = spinePosition >= container.linearSpineItems.size
-        if (!isComplete) return@withContext ImportProgress(isComplete = false, sectionsImported = sectionsImported)
-
-        finishEpubImport(documentId, entity, container, buildState)
-        ImportProgress(isComplete = true, sectionsImported = sectionsImported)
     }
 
     /**
@@ -2542,7 +2646,7 @@ class DocumentRepositoryImpl(
         )
         pageLayoutDao.promotePartialLayouts(documentId.value, finalCharCount)
         logger.d {
-            "${entity.name.take(12)}: finishEpubImport completed in " +
+            "${documentLogKey(documentId)}: finishEpubImport completed in " +
                 "${finishStarted.elapsedNow().inWholeMilliseconds} ms, " +
                 "$sectionCount sections, ${titleUpdates.size} title updates, " +
                 "no full section text query"
@@ -2853,6 +2957,15 @@ internal fun coverFilePath(fileSource: DocumentFileSource, documentId: DocumentI
     fileSource.appPrivateDirectory() / "covers" / "${documentId.value.encodeUtf8().sha1().hex()}.img"
 
 /**
+ * 로그 상관관계에만 쓰는 비가역 문서 키로, 원본 URI·절대 경로·제목을 진단 로그에 남기지 않는다.
+ *
+ * @param documentId URI일 수 있어 원문을 기록하면 안 되는 문서 식별자.
+ * @return SHA-1 앞 12자리로 만든 짧은 로그 키.
+ */
+internal fun documentLogKey(documentId: DocumentId): String =
+    documentId.value.encodeUtf8().sha1().hex().take(12)
+
+/**
  * [DocumentRepositoryImpl.cachedPageWindows] 답의 신원: 어느 문서를, 어느 스타일로, 어느
  * 패널 크기로 레이아웃했는지. 키가 같은 두 호출은 캐시되거나 저장된 레이아웃 하나를
  * 공유할 수 있다; 무엇이든 다르면 — 같은 폰트라도 패널 크기가 다시 조정됐다면 — 공유할
@@ -3045,6 +3158,28 @@ private fun deleteAbandonedScratchCopies(keep: Path) {
 private const val ScratchCopyPrefix = "tedd-reader-epub-open-"
 
 /**
+ * EPUB 스크래치 컨테이너 열기 결과로, 호출자가 OPF 부재만 완료 폴백으로 취급하고
+ * 무효화나 I/O 실패는 재시도 가능한 미완료 상태로 유지하게 한다.
+ */
+private sealed interface EpubScratchContainerResult {
+    /**
+     * 점진 임포트에 사용할 컨테이너가 정상적으로 열렸음을 나타낸다.
+     *
+     * @property container 재사용할 열린 EPUB 임포트 컨테이너.
+     */
+    data class Opened(val container: EpubImportContainer) : EpubScratchContainerResult
+
+    /** 유효한 ZIP이지만 OPF가 없어 비점진 폴백 파싱이 필요한 상태다. */
+    data object NoOpf : EpubScratchContainerResult
+
+    /** 컨테이너를 여는 동안 스크래치 슬롯이 삭제되거나 다른 문서로 교체된 상태다. */
+    data object Invalidated : EpubScratchContainerResult
+
+    /** 스크래치 파일을 ZIP으로 열지 못해 나중에 다시 시도해야 하는 상태다. */
+    data object IoFailure : EpubScratchContainerResult
+}
+
+/**
  * 이전 실행이 남긴 CBZ 스크래치 사본들을 제거하며, [keep]과 여전히 쓰이고 있는 것은 남긴다.
  *
  * [DocumentRepositoryImpl.cbzArchiveLocked]가 들고 있는 단 하나의 CBZ 스크래치 사본은
@@ -3083,8 +3218,17 @@ private fun deleteAbandonedEmbeddedFontScratchFiles(keep: Set<Path>) {
 
 /** 모든 내장 폰트 스크래치 파일이 기록될 때 붙는 파일명 접두사. */
 private const val EmbeddedFontScratchPrefix = "tedd-reader-epub-font-"
-/** 스크래치로 스트리밍하는 동안 강제되는, 내장 폰트 하나의 추출된 크기 상한. */
+/** 한 EPUB에서 추출해 유지할 수 있는 내장 폰트 파일 수 상한. */
+private const val MAX_EPUB_FONT_FILES = 32
+
+/** 한 EPUB의 내장 폰트 스크래치 파일 전체에 허용되는 누적 바이트 상한. */
+private const val MAX_EPUB_FONT_BYTES_PER_DOCUMENT = 128L * 1024 * 1024
+
+/** 스크래치로 스트리밍하는 동안 강제되는, 내장 폰트 하나의 추출된 크기 상한. 용량이 큰 CJK 폰트를 수용하며 iOS 폰트 로더의 상한과 같은 값이다. */
 private const val MAX_EPUB_FONT_BYTES = 64L * 1024 * 1024
+
+/** 같은 문서의 스크래치 사본 열기가 연속으로 이만큼 실패하면 [DocumentRepositoryImpl.importNextSections]가 재시도를 멈추고 임포트를 마무리한다. */
+private const val MaxEpubScratchIoFailures = 2
 
 /**
  * [location]을 [block]이 실행되는 동안만 쓸 새 임시 파일로 복사하고, [block]이 성공하든
@@ -3103,7 +3247,7 @@ private suspend fun <T> withTemporarySourceCopy(
 ): T {
     val fileSystem = systemFileSystem()
     val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY /
-        "tedd-reader-document-${Random.nextLong().toString(16)}-${location.displayName.substringAfterLast('/').ifBlank { "document" }}"
+        temporaryDocumentFileName(location.displayName, Random.nextLong())
     return try {
         fileSource.copyTo(location, path)
         block(path)
