@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.designsystem.TeddReaderTheme
@@ -35,11 +36,28 @@ import com.tedd.teddreader.core.ui.reader.ReaderBottomControls
 import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * 문서 전체 기준 페이지 라벨(`현재 / 전체`)을 만든다. 하단 액션 바가 챕터 라벨을 쓸 수 없을 때 대신 보여주는 표기이며,
+ * 숫자는 천 단위 구분 쉼표로 표기한다.
+ *
+ * 페이지네이션이 진행 중이면 전체 페이지 수는 더 늘어날 수 있으므로 끝에 `+`를 붙여 확정된 값이 아님을 알린다.
+ * 전체 페이지 수가 0인 경우의 라벨은 지역화 리소스가 필요해 호출부가 따로 처리한다.
+ *
+ * @param selectedPage 0부터 시작하는 현재 선택 페이지 인덱스로, 표기 시 1을 더해 사람이 세는 번호로 바꾼다.
+ * @param totalPages 지금까지 알려진 전체 페이지 수.
+ * @param isPaginationComplete false면 전체 페이지 수가 아직 늘어날 수 있다는 뜻으로 `+`를 덧붙인다.
+ * @return `1,234 / 12,345` 또는 `1,234 / 12,345+` 형태의 라벨.
+ */
+internal fun readerDocumentPageLabel(selectedPage: Int, totalPages: Int, isPaginationComplete: Boolean): String {
+    val fraction = "${(selectedPage + 1).toGroupedString()} / ${totalPages.toGroupedString()}"
+    return if (isPaginationComplete) fraction else "$fraction+"
+}
+
 internal fun readerChapterPageLabel(chapterTitle: String?, chapterPageIndex: PageIndex?): String? =
     if (chapterTitle.isNullOrBlank() || chapterPageIndex == null || chapterPageIndex.total <= 0) {
         null
     } else {
-        "$chapterTitle • ${chapterPageIndex.current + 1}/${chapterPageIndex.total}"
+        "$chapterTitle • ${(chapterPageIndex.current + 1).toGroupedString()}/${chapterPageIndex.total.toGroupedString()}"
     }
 
 /**
@@ -119,10 +137,8 @@ fun ReaderBottomActionBar(
 
     val documentPageLabel = if (pageIndex.total == 0) {
         stringResource(Res.string.page_fraction_zero)
-    } else if (isPaginationComplete) {
-        "${latestSelectedPage + 1} / ${pageIndex.total}"
     } else {
-        "${latestSelectedPage + 1} / ${pageIndex.total}+"
+        readerDocumentPageLabel(latestSelectedPage, pageIndex.total, isPaginationComplete)
     }
     val chapterPageLabel = readerChapterPageLabel(chapterTitle, chapterPageIndex)
     val pageLabel = chapterPageLabel ?: documentPageLabel

@@ -39,6 +39,9 @@ class DocumentInfoFormattingTest {
 
         assertEquals("4 of 10", formatPagePosition(PageIndex(current = 3, total = 10)))
         assertEquals("150 words/min", formatReadingPace(stats))
+        assertEquals("1,234 of 12,345", formatPagePosition(PageIndex(current = 1_233, total = 12_345)))
+        assertEquals("12,345", formatPageCount(12_345))
+        assertEquals("1,234,567", formatCount(1_234_567L))
     }
     @Test
     fun `formats localized values when optional parameters are provided`() {

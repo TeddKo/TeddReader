@@ -15,9 +15,23 @@ class ReaderBottomActionBarTest {
     }
 
     @Test
+    fun chapterPageLabelGroupsThousands() {
+        assertEquals(
+            "Chapter • 1,234/12,345",
+            readerChapterPageLabel("Chapter", PageIndex(current = 1_233, total = 12_345)),
+        )
+    }
+
+    @Test
     fun chapterPageLabelIsAbsentWithoutAUsableChapterPosition() {
         assertNull(readerChapterPageLabel(null, PageIndex(current = 0, total = 1)))
         assertNull(readerChapterPageLabel("Chapter", null))
         assertNull(readerChapterPageLabel("Chapter", PageIndex(current = 0, total = 0)))
+    }
+
+    @Test
+    fun documentPageLabelGroupsThousandsAndMarksIncompletePagination() {
+        assertEquals("1,234 / 12,345", readerDocumentPageLabel(1_233, 12_345, isPaginationComplete = true))
+        assertEquals("1,234 / 12,345+", readerDocumentPageLabel(1_233, 12_345, isPaginationComplete = false))
     }
 }

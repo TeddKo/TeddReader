@@ -92,7 +92,7 @@
     <string name="edit_note">Edit note</string>
     <string name="delete_saved_place_title">Delete saved place?</string>
     <string name="delete_saved_place_message">This removes %1$s.</string>
-    <string name="bookmark_location_pdf_page">PDF page %1$d</string>
+    <string name="bookmark_location_pdf_page">PDF page %1$s</string>
     <string name="bookmark_location_text_position">Text position %1$d</string>
     <string name="bookmark_location_epub_position">EPUB section %1$d · position %2$d</string>
     <string name="loading_document_info">Loading document info</string>
@@ -129,11 +129,11 @@
     <string name="contents">Contents</string>
     <string name="no_table_of_contents">No table of contents.</string>
     <string name="outline_section_title">Section %1$s</string>
-    <string name="reader_location_page">Page %1$d</string>
+    <string name="reader_location_page">Page %1$s</string>
     <string name="reader_location_text_position">Text position %1$d</string>
     <string name="reader_location_epub_section">EPUB section %1$d</string>
     <string name="go_to_page">Go to page</string>
-    <string name="go_to_page_description">Enter 1-%1$d.</string>
+    <string name="go_to_page_description">Enter 1-%1$s.</string>
     <string name="go">Go</string>
     <string name="brightness_description">Dims reader without changing system brightness.</string>
     <string name="keep_screen_on">Keep screen on</string>
@@ -165,7 +165,7 @@
     <string name="start_auto_scroll">Start auto-scroll</string>
     <string name="page_fraction_zero">0 / 0</string>
     <string name="pdf_renderer_not_connected">PDF page renderer is not connected yet.</string>
-    <string name="pdf_page_fraction">Page %1$d / %2$d</string>
+    <string name="pdf_page_fraction">Page %1$s / %2$s</string>
     <string name="pdf_page_content_description">PDF page %1$d</string>
     <string name="visual_zoom">Page zoom</string>
     <string name="visual_page_content_description">Image page %1$d</string>
@@ -191,7 +191,7 @@
     <string name="all">All</string>
     <string name="document_actions">Document actions</string>
     <string name="delete_from_library">Delete from library</string>
-    <string name="document_pages">%1$d pages</string>
+    <string name="document_pages">%1$s pages</string>
     <string name="unsupported_destination_title">Unknown</string>
     <string name="add_documents">Add documents</string>
     <string name="home_add_documents_description">Choose where to import documents from.</string>

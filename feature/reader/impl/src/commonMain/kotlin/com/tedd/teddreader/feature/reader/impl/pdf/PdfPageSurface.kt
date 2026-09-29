@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.PageIndex
 import com.tedd.teddreader.core.common.model.ReaderStyle
 import com.tedd.teddreader.core.common.model.ReaderThemeMode
@@ -188,7 +189,11 @@ internal fun PdfPlaceholderSurface(
             // 검은 글자가 어두운 표면에 묻히지 않는다.
             TeddText(text = "PDF", style = typography.headlineMedium, color = colors.onSurface)
             TeddText(
-                text = stringResource(Res.string.pdf_page_fraction, pageIndex.current + 1, pageIndex.total),
+                text = stringResource(
+                    Res.string.pdf_page_fraction,
+                    (pageIndex.current + 1).toGroupedString(),
+                    pageIndex.total.toGroupedString(),
+                ),
                 style = typography.bodyMedium,
                 color = colors.onSurface,
             )

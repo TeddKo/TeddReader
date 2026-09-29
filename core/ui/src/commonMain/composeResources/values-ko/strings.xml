@@ -92,7 +92,7 @@
     <string name="edit_note">메모 수정</string>
     <string name="delete_saved_place_title">저장한 위치를 삭제할까요?</string>
     <string name="delete_saved_place_message">%1$s 항목을 삭제합니다.</string>
-    <string name="bookmark_location_pdf_page">PDF %1$d페이지</string>
+    <string name="bookmark_location_pdf_page">PDF %1$s페이지</string>
     <string name="bookmark_location_text_position">텍스트 위치 %1$d</string>
     <string name="bookmark_location_epub_position">EPUB 섹션 %1$d · 위치 %2$d</string>
     <string name="loading_document_info">문서 정보를 불러오는 중</string>
@@ -129,11 +129,11 @@
     <string name="contents">목차</string>
     <string name="no_table_of_contents">목차가 없습니다.</string>
     <string name="outline_section_title">섹션 %1$s</string>
-    <string name="reader_location_page">페이지 %1$d</string>
+    <string name="reader_location_page">페이지 %1$s</string>
     <string name="reader_location_text_position">텍스트 위치 %1$d</string>
     <string name="reader_location_epub_section">EPUB 섹션 %1$d</string>
     <string name="go_to_page">페이지로 이동</string>
-    <string name="go_to_page_description">1-%1$d 사이 번호를 입력하세요.</string>
+    <string name="go_to_page_description">1-%1$s 사이 번호를 입력하세요.</string>
     <string name="go">이동</string>
     <string name="brightness_description">시스템 밝기를 바꾸지 않고 리더 화면만 어둡게 합니다.</string>
     <string name="keep_screen_on">화면 켜짐 유지</string>
@@ -165,7 +165,7 @@
     <string name="start_auto_scroll">자동 스크롤 시작</string>
     <string name="page_fraction_zero">0 / 0</string>
     <string name="pdf_renderer_not_connected">PDF 페이지 렌더러가 아직 연결되지 않았습니다.</string>
-    <string name="pdf_page_fraction">페이지 %1$d / %2$d</string>
+    <string name="pdf_page_fraction">페이지 %1$s / %2$s</string>
     <string name="pdf_page_content_description">PDF %1$d페이지</string>
     <string name="visual_zoom">페이지 확대</string>
     <string name="visual_page_content_description">이미지 %1$d페이지</string>
@@ -191,7 +191,7 @@
     <string name="all">전체</string>
     <string name="document_actions">문서 작업</string>
     <string name="delete_from_library">라이브러리에서 삭제</string>
-    <string name="document_pages">%1$d페이지</string>
+    <string name="document_pages">%1$s페이지</string>
     <string name="unsupported_destination_title">알 수 없음</string>
     <string name="add_documents">문서 추가</string>
     <string name="home_add_documents_description">문서를 가져올 위치를 선택하세요.</string>

@@ -27,3 +27,27 @@ fun Int.toDisplayCount(maxDisplayCount: Int = DefaultMaxDisplayCount): Int =
  */
 fun Int.toOneBasedPageNumber(): Int = this + 1
 
+/**
+ * 화면에 보여줄 숫자를 `#,##0` 패턴, 즉 세 자리마다 쉼표를 넣은 정수 문자열로 만든다.
+ *
+ * 페이지 슬라이더 라벨·페이지 분수·페이지 수처럼 수천 단위까지 커지는 숫자는 구분 기호 없이 쓰면 한눈에
+ * 자릿수를 읽기 어렵다. 로캘별 구분 기호 대신 항상 쉼표를 쓰는 것은 앱이 지원하는 영어·한국어가 모두
+ * 쉼표를 쓰고, `commonMain`에서 플랫폼 포매터 없이 Android와 iOS가 같은 결과를 내야 하기 때문이다.
+ * 표시 전용이며, 저장하거나 다시 파싱하는 값에는 쓰지 않는다.
+ *
+ * @receiver 표시할 정수. 음수는 앞에 `-`를 붙여 같은 규칙으로 묶는다.
+ * @return 예를 들어 `1234567`은 `"1,234,567"`, `999`는 `"999"`.
+ */
+fun Long.toGroupedString(): String {
+    val digits = toString().removePrefix("-")
+    val grouped = digits.reversed().chunked(3).joinToString(",").reversed()
+    return if (this < 0) "-$grouped" else grouped
+}
+
+/**
+ * [Long.toGroupedString]과 같은 `#,##0` 표시 문자열로, 페이지 번호처럼 `Int`로 다루는 값을 위한 진입점이다.
+ *
+ * @receiver 표시할 정수.
+ * @return 세 자리마다 쉼표를 넣은 문자열.
+ */
+fun Int.toGroupedString(): String = toLong().toGroupedString()

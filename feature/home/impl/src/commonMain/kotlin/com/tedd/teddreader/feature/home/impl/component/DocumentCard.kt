@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -353,7 +354,7 @@ internal fun BookCoverFallback(
 @Composable
 private fun buildDocumentMeta(document: DocumentMetadata): String = buildList {
     add(document.location.sizeBytes.toReadableSize())
-    document.pageCount?.let { add(stringResource(Res.string.document_pages, it)) }
+    document.pageCount?.let { add(stringResource(Res.string.document_pages, it.toGroupedString())) }
 }.joinToString(" • ")
 
 /**

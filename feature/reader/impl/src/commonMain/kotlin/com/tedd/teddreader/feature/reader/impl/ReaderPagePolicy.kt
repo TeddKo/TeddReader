@@ -1,5 +1,6 @@
 package com.tedd.teddreader.feature.reader.impl
 
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.ReaderDocument
 import com.tedd.teddreader.core.common.model.ReaderLocation
@@ -49,7 +50,7 @@ internal fun readerOutlineItems(
     if (format?.isVisualPageFormat() == true) {
         return (0 until totalPages).map { page ->
             ReaderOutlineItem(
-                title = "Page ${page + 1}",
+                title = "Page ${(page + 1).toGroupedString()}",
                 location = ReaderLocation.PdfPage(page),
             )
         }

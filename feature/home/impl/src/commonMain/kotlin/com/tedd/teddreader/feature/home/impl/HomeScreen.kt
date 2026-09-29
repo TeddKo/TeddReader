@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
+import com.tedd.teddreader.core.common.extension.toGroupedString
 import com.tedd.teddreader.core.common.model.DocumentFormat
 import com.tedd.teddreader.core.common.model.DocumentId
 import com.tedd.teddreader.core.common.model.DocumentLocation
@@ -1300,7 +1301,7 @@ private fun Set<String>.toggle(value: String): Set<String> =
  */
 @Composable
 private fun DocumentMetadata.supportingText(): String =
-    pageCount?.let { stringResource(Res.string.document_pages, it) } ?: format.name
+    pageCount?.let { stringResource(Res.string.document_pages, it.toGroupedString()) } ?: format.name
 
 /** 아직 라이브러리에 문서가 없는 [HomeScreen]의 Compose preview. */
 @Preview(widthDp = 240)
