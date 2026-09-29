@@ -221,6 +221,8 @@ fun readerReferencedFontHrefs(blocks: List<ReaderBlock>): Set<String> = buildSet
  * 파라미터가 존재하기 전과 정확히 같은 것을 계속 그리게 한다.
  * @return 그릴 수 있는 문자열, 그 오프셋 맵, 그림을 위해 예약된 박스들. 빈 [text]는 유효하지 않은
  * 것이 아니라 항목이 하나뿐인 맵을 가진 빈 문자열을 낳는다.
+ * @throws IllegalArgumentException 렌더링할 절대 오프셋 범위가 `Int` 기반 오프셋 맵으로 표현되지 않는
+ * 경우.
  */
 fun buildReaderSemanticText(
     text: String,
@@ -240,23 +242,33 @@ fun buildReaderSemanticText(
         return ReaderSemanticText(AnnotatedString(""), intArrayOf(0), emptyList())
     }
 
+    val effectiveEnd = minOf(range.end, range.start + text.length.toLong())
+    require(range.start <= Int.MAX_VALUE && effectiveEnd <= Int.MAX_VALUE.toLong()) {
+        "Reader semantic text offsets must fit in Int."
+    }
     val absoluteStart = range.start.toInt()
-    val absoluteEnd = range.end.toInt().coerceAtMost(absoluteStart + text.length)
-    val localLength = (absoluteEnd - absoluteStart).coerceAtLeast(0)
+    val absoluteEnd = effectiveEnd.toInt()
+    val localLength = absoluteEnd - absoluteStart
     val sourceToDisplay = IntArray(localLength + 1)
     val displayToSource = IntBuffer(text.length + blocks.size * 4 + 1)
     val display = StringBuilder(text.length + blocks.size * 4)
     val placeholderSpecs = mutableListOf<PlaceholderSpec>()
 
     val clampedBlocks = blocks.mapIndexedNotNull { index, block ->
-        val start = block.range.start.coerceAtLeast(range.start)
-        val end = block.range.end.coerceAtMost(range.end)
-        if (start >= end && block.kind != ReaderBlockKind.IMAGE && block.kind != ReaderBlockKind.COVER_IMAGE && block.kind != ReaderBlockKind.SEPARATOR) {
+        val start = block.range.start.coerceIn(range.start, effectiveEnd)
+        val end = block.range.end.coerceIn(start, effectiveEnd)
+        if (start >= end && !block.kind.isStandalone()) {
             null
         } else {
-            val localStart = (start - range.start).toInt().coerceAtLeast(0)
-            val localEnd = (end - range.start).toInt().coerceAtLeast(localStart)
-            ClampedBlock(index, block, localStart, localEnd, includesStart = block.range.start in range.start until range.end)
+            val localStart = (start - range.start).toInt()
+            val localEnd = (end - range.start).toInt()
+            ClampedBlock(
+                index = index,
+                block = block,
+                localStart = localStart,
+                localEnd = localEnd,
+                includesStart = block.range.start in range.start until effectiveEnd,
+            )
         }
     }
     val blockDisplayStart = HashMap<Int, Int>(clampedBlocks.size)
@@ -283,19 +295,72 @@ fun buildReaderSemanticText(
     }
     val leafStarts = leafBlocks.sortedBy { it.localStart }
     val leafEnds = leafBlocks.sortedBy { it.localEnd }
+    val gapStarts = mutableListOf<Int>()
+    val gapEnds = mutableListOf<Int>()
+    val gapBaseEm = mutableListOf<Float>()
+    var leafStartIndex = 0
+    var leafEndIndex = 0
+    var scanIndex = 0
+    while (scanIndex < localLength) {
+        if (text[scanIndex] != '\n' || covered[scanIndex]) {
+            scanIndex += 1
+            continue
+        }
+        var runEnd = scanIndex
+        while (runEnd < localLength && text[runEnd] == '\n' && !covered[runEnd]) runEnd += 1
+        while (leafEndIndex < leafEnds.size && leafEnds[leafEndIndex].localEnd <= scanIndex) leafEndIndex += 1
+        while (leafStartIndex < leafStarts.size && leafStarts[leafStartIndex].localStart < runEnd) leafStartIndex += 1
+        gapStarts += scanIndex
+        gapEnds += runEnd
+        gapBaseEm += blockGapEm(
+            before = leafEnds.getOrNull(leafEndIndex - 1)?.block,
+            after = leafStarts.getOrNull(leafStartIndex)?.block,
+        )
+        scanIndex = runEnd
+    }
+    val gapExtraEm = FloatArray(gapStarts.size)
+    clampedBlocks.forEach { block ->
+        val style = block.block.style ?: return@forEach
+        val isWrapper = block.block.kind == ReaderBlockKind.CONTAINER
+        if (isWrapper && block.block.isPageContainer) return@forEach
+        if (!isWrapper && block.block.kind.isStandalone()) return@forEach
+        val startGapIndex = gapIndexAt(block.localStart, gapStarts, gapEnds)
+        if (startGapIndex >= 0) {
+            gapExtraEm[startGapIndex] += style.boxStyle?.borderTop.widthEm(emInPx) +
+                (if (isWrapper) (style.paddingTopEm ?: 0f) + (style.marginTopEm ?: 0f) else 0f)
+        }
+        val endGapIndex = gapIndexAt(block.localEnd, gapStarts, gapEnds)
+        if (endGapIndex >= 0) {
+            gapExtraEm[endGapIndex] += style.boxStyle?.borderBottom.widthEm(emInPx) +
+                (if (isWrapper) (style.paddingBottomEm ?: 0f) + (style.marginBottomEm ?: 0f) else 0f)
+        }
+    }
     val gapRanges = mutableListOf<Pair<Int, Float>>()
 
+    var gapIndex = 0
     var localIndex = 0
     while (localIndex < localLength) {
         val sourceAbsolute = absoluteStart + localIndex
         val sourceChar = text[localIndex]
-        if (sourceChar == '\n' && !covered[localIndex]) {
-            var runEnd = localIndex
-            while (runEnd < localLength && text[runEnd] == '\n' && !covered[runEnd]) runEnd += 1
-            val gapEm = blockGapEm(
-                before = leafEnds.lastOrNull { it.localEnd <= localIndex }?.block,
-                after = leafStarts.firstOrNull { it.localStart >= runEnd }?.block,
-            ) + containerEdgeEm(clampedBlocks, localIndex, runEnd, emInPx)
+        while (gapIndex < gapStarts.size && gapStarts[gapIndex] < localIndex) gapIndex += 1
+        val isGapStart = gapIndex < gapStarts.size && localIndex == gapStarts[gapIndex]
+        val isGapRemainder = !isGapStart && sourceChar == '\n' && !covered[localIndex]
+        if (isGapStart || isGapRemainder) {
+            val runEnd = if (isGapStart) {
+                gapEnds[gapIndex]
+            } else {
+                var end = localIndex
+                while (end < localLength && text[end] == '\n' && !covered[end]) end += 1
+                end
+            }
+            val gapEm = if (isGapStart) {
+                gapBaseEm[gapIndex] + gapExtraEm[gapIndex]
+            } else {
+                blockGapEm(
+                    before = leafEnds.lastOrNull { it.localEnd <= localIndex }?.block,
+                    after = leafStarts.firstOrNull { it.localStart >= runEnd }?.block,
+                ) + containerEdgeEm(clampedBlocks, localIndex, runEnd, emInPx)
+            }
             for (skippedIndex in localIndex until runEnd) sourceToDisplay[skippedIndex] = display.length
             if (gapEm > 0f) {
                 gapRanges += display.length to gapEm
@@ -435,14 +500,9 @@ fun buildReaderSemanticText(
         if (floatStart + 1 <= rangeValue.last) paragraphs += (floatStart + 1..rangeValue.last) to style
     }
 
-    val placeholders = placeholderSpecs.map { spec ->
-        val inheritedForeground = clampedBlocks
-            .filter { it.block.kind != ReaderBlockKind.IMAGE && it.block.kind != ReaderBlockKind.COVER_IMAGE && it.block.kind != ReaderBlockKind.SEPARATOR }
-            .filter { it.block.range.start <= spec.block.range.start && it.block.range.end >= spec.block.range.end }
-            .minByOrNull { it.block.range.end - it.block.range.start }
-            ?.block
-            ?.style
-            ?.foregroundColor
+    val inheritedForegroundColors = inheritedForegroundColors(clampedBlocks, placeholderSpecs)
+    val placeholders = placeholderSpecs.mapIndexed { index, spec ->
+        val inheritedForeground = inheritedForegroundColors[index]
         ReaderPlaceholder(
             id = spec.id,
             kind = spec.kind,
@@ -480,7 +540,7 @@ fun buildReaderSemanticText(
         // 적용 중인 글자 크기를 기준으로 해석한다 — 그래서 0.85em 블록 span 안의 placeholder는 이미지
         // 크기 조정, float 맞춤, 페이지 분할 연산 등 모든 소비자가 기준 em으로 계산한 것보다 15% 더
         // 작게 예약되었다. 각 placeholder 주위로 span을 나누면 그 em이 기준 em으로 유지된다.
-        val placeholderStarts = placeholderSpecs.map(PlaceholderSpec::start).toSet()
+        val placeholderStarts = placeholderSpecs.map(PlaceholderSpec::start).distinct().sorted()
         spans.flatMap { (rangeValue, style) -> rangeValue.splitAround(placeholderStarts).map { it to style } }
             .forEach { (rangeValue, style) -> addStyle(style, rangeValue.first, rangeValue.last + 1) }
         paragraphs.withoutOverlaps().forEach { (rangeValue, style) -> addStyle(style, rangeValue.first, rangeValue.last + 1) }
@@ -572,16 +632,155 @@ private fun buildFloatContent(
     )
 }
 
-/** [holes]의 모든 위치를 제외한 하위 범위들로 잘린 이 범위; 빈 조각은 버려진다. */
-private fun IntRange.splitAround(holes: Set<Int>): List<IntRange> {
-    if (holes.none { it in this }) return listOf(this)
+/**
+ * 정렬된 gap 범위 중 [position]을 포함하는 범위의 인덱스를 찾는다.
+ *
+ * gap 끝은 기존 컨테이너 가장자리 판정처럼 포함되므로, 실제 개행 다음 위치에서 끝나는 블록도 해당
+ * gap의 아래쪽 가장자리 공간에 기여한다.
+ *
+ * @param position 렌더링 구간 기준으로 찾을 블록 가장자리 위치.
+ * @param starts 오름차순 gap 시작 위치들.
+ * @param ends [starts]와 같은 순서의 포함되는 gap 끝 위치들.
+ * @return 포함하는 gap의 인덱스이며 없으면 -1.
+ */
+private fun gapIndexAt(position: Int, starts: List<Int>, ends: List<Int>): Int {
+    val found = starts.binarySearch(position)
+    val candidate = if (found >= 0) found else -found - 2
+    return if (candidate >= 0 && position <= ends[candidate]) candidate else -1
+}
+
+/**
+ * float 그림이 건너뛰어 미리 계산한 간격 시작점에 정확히 착지하지 못한 간격의 가장자리 공간을 em
+ * 단위로 직접 계산한다.
+ *
+ * 미리 계산된 gap 색인은 간격 시작점에 정확히 도달한 경우만 쓸 수 있으므로, 간격 중간에서 재개하는
+ * 드문 경로는 착지 위치를 기준으로 블록 가장자리를 다시 훑어 이전 렌더링과 같은 결과를 낸다.
+ *
+ * @param blocks 컨테이너를 포함해, 렌더링되는 구간의 모든 블록.
+ * @param gapStart 렌더링되는 구간을 기준으로 한, 간격의 착지 오프셋.
+ * @param gapEnd 그 마지막 오프셋 바로 다음.
+ * @param emInPx 테두리 너비를 em으로 바꾸는, em당 CSS 픽셀; 0이면 테두리를 뺀다.
+ * @return 여기서 열리고 닫히는 박스들이 필요로 하는 공간, em 단위.
+ */
+private fun containerEdgeEm(
+    blocks: List<ClampedBlock>,
+    gapStart: Int,
+    gapEnd: Int,
+    emInPx: Float,
+): Float {
+    var extra = 0f
+    blocks.forEach { block ->
+        val style = block.block.style ?: return@forEach
+        val isWrapper = block.block.kind == ReaderBlockKind.CONTAINER
+        if (isWrapper && block.block.isPageContainer) return@forEach
+        if (!isWrapper && block.block.kind.isStandalone()) return@forEach
+        if (block.localStart in gapStart..gapEnd) {
+            extra += style.boxStyle?.borderTop.widthEm(emInPx) +
+                (if (isWrapper) (style.paddingTopEm ?: 0f) + (style.marginTopEm ?: 0f) else 0f)
+        }
+        if (block.localEnd in gapStart..gapEnd) {
+            extra += style.boxStyle?.borderBottom.widthEm(emInPx) +
+                (if (isWrapper) (style.paddingBottomEm ?: 0f) + (style.marginBottomEm ?: 0f) else 0f)
+        }
+    }
+    return extra
+}
+
+/**
+ * placeholder마다 가장 좁게 감싸는 텍스트 블록의 전경색을 구간 인덱스로 찾는다.
+ *
+ * 후보를 끝 오프셋 내림차순으로 추가하면서 시작 오프셋 Fenwick tree의 prefix 최소를 조회하므로,
+ * 각 placeholder마다 전체 블록을 다시 훑지 않는다. 같은 너비의 후보는 원래 블록 순서에서 먼저 온
+ * 것이 선택되어 기존 `minByOrNull` 계약을 유지한다.
+ *
+ * @param blocks 렌더링 범위에 맞춰 잘린 원래 순서의 블록들.
+ * @param placeholders 전경색을 상속할 placeholder들.
+ * @return [placeholders]와 같은 순서의 상속 전경색들.
+ */
+private fun inheritedForegroundColors(
+    blocks: List<ClampedBlock>,
+    placeholders: List<PlaceholderSpec>,
+): List<ReaderColor?> {
+    if (placeholders.isEmpty()) return emptyList()
+    val candidateIndices = blocks.indices.filter { !blocks[it].block.kind.isStandalone() }
+    if (candidateIndices.isEmpty()) return List(placeholders.size) { null }
+    val starts = candidateIndices.map { blocks[it].block.range.start }.distinct().sorted()
+    val candidatesByEnd = candidateIndices.sortedWith(
+        compareByDescending<Int> { blocks[it].block.range.end }.thenBy { it },
+    )
+    val placeholdersByEnd = placeholders.indices.sortedWith(
+        compareByDescending<Int> { placeholders[it].block.range.end }.thenBy { it },
+    )
+    val tree = IntArray(starts.size + 1) { -1 }
+    val colors = arrayOfNulls<ReaderColor>(placeholders.size)
+    var candidateCursor = 0
+    placeholdersByEnd.forEach { placeholderIndex ->
+        val placeholder = placeholders[placeholderIndex]
+        while (
+            candidateCursor < candidatesByEnd.size &&
+            blocks[candidatesByEnd[candidateCursor]].block.range.end >= placeholder.block.range.end
+        ) {
+            val candidateIndex = candidatesByEnd[candidateCursor]
+            var treeIndex = starts.binarySearch(blocks[candidateIndex].block.range.start) + 1
+            while (treeIndex < tree.size) {
+                tree[treeIndex] = narrowerBlockIndex(blocks, tree[treeIndex], candidateIndex)
+                treeIndex += treeIndex and -treeIndex
+            }
+            candidateCursor += 1
+        }
+        val foundStart = starts.binarySearch(placeholder.block.range.start)
+        var treeIndex = if (foundStart >= 0) foundStart + 1 else -foundStart - 1
+        var enclosingIndex = -1
+        while (treeIndex > 0) {
+            enclosingIndex = narrowerBlockIndex(blocks, enclosingIndex, tree[treeIndex])
+            treeIndex -= treeIndex and -treeIndex
+        }
+        colors[placeholderIndex] = blocks.getOrNull(enclosingIndex)?.block?.style?.foregroundColor
+    }
+    return colors.toList()
+}
+
+/**
+ * 두 후보 중 범위가 더 좁거나 같은 너비에서 원래 순서가 앞선 블록 인덱스를 고른다.
+ *
+ * @param blocks 후보 인덱스가 가리키는 원래 블록들.
+ * @param current 현재 선택된 인덱스이며 후보가 없으면 -1.
+ * @param candidate 새로 비교할 인덱스이며 후보가 없으면 -1.
+ * @return 기존 `minByOrNull` 선택 순서와 같은 우선순위의 인덱스.
+ */
+private fun narrowerBlockIndex(blocks: List<ClampedBlock>, current: Int, candidate: Int): Int {
+    if (current < 0) return candidate
+    if (candidate < 0) return current
+    val currentRange = blocks[current].block.range
+    val candidateRange = blocks[candidate].block.range
+    val currentWidth = currentRange.end - currentRange.start
+    val candidateWidth = candidateRange.end - candidateRange.start
+    return if (candidateWidth < currentWidth || candidateWidth == currentWidth && candidate < current) {
+        candidate
+    } else {
+        current
+    }
+}
+
+/**
+ * 정렬된 제외 위치만 순회해 이 범위를 placeholder를 덮지 않는 하위 범위들로 나눈다.
+ *
+ * @receiver 나눌 닫힌 범위.
+ * @param holes 오름차순이며 중복이 없는 제외 위치들.
+ * @return [holes]의 위치를 제외한 비어 있지 않은 하위 범위들.
+ */
+private fun IntRange.splitAround(holes: List<Int>): List<IntRange> {
+    val found = holes.binarySearch(first)
+    var holeIndex = if (found >= 0) found else -found - 1
+    if (holeIndex >= holes.size || holes[holeIndex] > last) return listOf(this)
     val pieces = mutableListOf<IntRange>()
     var pieceStart = first
-    for (position in this) {
-        if (position in holes) {
-            if (position > pieceStart) pieces += pieceStart until position
-            pieceStart = position + 1
-        }
+    while (holeIndex < holes.size) {
+        val position = holes[holeIndex]
+        if (position > last) break
+        if (position > pieceStart) pieces += pieceStart until position
+        pieceStart = position + 1
+        holeIndex += 1
     }
     if (pieceStart <= last) pieces += pieceStart..last
     return pieces
@@ -679,49 +878,6 @@ private fun List<Pair<IntRange, ParagraphStyle>>.withoutOverlaps(): List<Pair<In
         }
     }
     return kept
-}
-
-/**
- * 박스 자체의 가장자리가 이 간격 안에 떨어질 때 필요로 하는 공간, em 단위.
- *
- * 테두리와 `padding: 1em 0`을 가진 `<div>` — 책이 목차나 저자 노트를 두르는 모양 — 는 그 안 첫
- * 줄 위와 마지막 줄 아래에 룰을 그린다. 그 룰과 그것이 떨어져 있는 만큼의 padding을 위한 공간이
- * 예약되지 않으면, 룰은 단어들을 그대로 관통해 그려진다: 박스는 자기 공간이 없어서 텍스트의
- * 공간을 빌리게 된다.
- *
- * @param blocks 컨테이너를 포함해, 렌더링되는 구간의 모든 블록.
- * @param gapStart 렌더링되는 구간을 기준으로 한, 간격의 첫 오프셋.
- * @param gapEnd 그 마지막 오프셋 바로 다음.
- * @param emInPx 테두리 너비를 em으로 바꾸는, em당 CSS 픽셀; 0이면 테두리를 빼놓는다.
- * @return 여기서 열리고 닫히는 박스들이 필요로 하는 공간, em 단위.
- */
-private fun containerEdgeEm(
-    blocks: List<ClampedBlock>,
-    gapStart: Int,
-    gapEnd: Int,
-    emInPx: Float,
-): Float {
-    // CONTAINER는 항상 진짜 래퍼다(파서가 소스 단계에서 같은 범위·같은 스타일의 쌍둥이를 억제한다),
-    // 그래서 그 margin, padding, 테두리는 모두 여기서 자기만의 공간을 필요로 한다 — 어떤 리프도
-    // 그것들을 대신 계산하지 않는다. 리프 블록 자체의 padding과 margin은 이미 blockGapEm을 통해
-    // 간격에 반영되므로, 스타일이 적용된 리프는 blockGapEm이 알 수 없는 단 하나 — 그 테두리 획 —
-    // 만을 예약한다.
-    var extra = 0f
-    blocks.forEach { block ->
-        val style = block.block.style ?: return@forEach
-        val isWrapper = block.block.kind == ReaderBlockKind.CONTAINER
-        if (isWrapper && block.block.isPageContainer) return@forEach
-        if (!isWrapper && block.block.kind.isStandalone()) return@forEach
-        if (block.localStart in gapStart..gapEnd) {
-            extra += style.boxStyle?.borderTop.widthEm(emInPx) +
-                (if (isWrapper) (style.paddingTopEm ?: 0f) + (style.marginTopEm ?: 0f) else 0f)
-        }
-        if (block.localEnd in gapStart..gapEnd) {
-            extra += style.boxStyle?.borderBottom.widthEm(emInPx) +
-                (if (isWrapper) (style.paddingBottomEm ?: 0f) + (style.marginBottomEm ?: 0f) else 0f)
-        }
-    }
-    return extra
 }
 
 /** 이 테두리의 em 단위 너비. 테두리가 없거나 1em의 픽셀 너비를 알 수 없으면 0. */
