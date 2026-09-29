@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.room.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
 /**
@@ -38,7 +39,10 @@ import androidx.room3.PrimaryKey
  * 응답할 수 있습니다.
  * @throws IllegalArgumentException 폴더 쌍 중 하나만 채웠거나 어느 한쪽이 비어 있을 때 발생합니다.
  */
-@Entity(tableName = "documents")
+@Entity(
+    tableName = "documents",
+    indices = [Index("folderId")],
+)
 data class DocumentEntity(
     @PrimaryKey val id: String,
     val name: String,

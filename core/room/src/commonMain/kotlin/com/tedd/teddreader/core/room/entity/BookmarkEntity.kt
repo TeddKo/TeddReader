@@ -29,7 +29,7 @@ import androidx.room3.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("documentId")],
+    indices = [Index(value = ["documentId", "createdAtEpochMillis"])],
 )
 data class BookmarkEntity(
     @PrimaryKey val id: String,

@@ -2,6 +2,7 @@ package com.tedd.teddreader.core.datastore
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.core.okio.OkioStorage
 import com.tedd.teddreader.core.common.model.AppLanguage
 import com.tedd.teddreader.core.common.model.AutoScrollConfig
@@ -69,6 +70,9 @@ fun createReaderPreferencesDataStore(
     fileSystem: FileSystem,
     producePath: () -> Path,
 ): DataStore<ReaderPreferences> = DataStoreFactory.create(
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        ReaderPreferencesSerializer.defaultValue
+    },
     storage = OkioStorage(
         fileSystem = fileSystem,
         serializer = ReaderPreferencesSerializer,

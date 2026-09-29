@@ -21,7 +21,8 @@ class SearchRepositoryImpl(
     /**
      * [documentId]에 저장된 텍스트에서 [query]의 모든 발생 위치를 읽는 순서대로 찾는다.
      *
-     * [query]는 다른 무엇보다 먼저 트리밍되며, 트리밍 후 빈 문자열이 된 쿼리는 "필터 없음"으로
+     * [query]는 다른 무엇보다 먼저 트리밍되며, `%`, `_`, `\\`는 SQL `LIKE` 패턴에서 리터럴로
+     * 취급되도록 이스케이프한다. 트리밍 후 빈 문자열이 된 쿼리는 "필터 없음"으로
      * 취급되어 모든 것과 매칭되는 대신 아무것도 매칭하지 않는다 — [searchIndexDao]에 아예
      * 도달하지도 않는다. [searchIndexDao]에는 최대 `limit`개의 매칭되는 *섹션*을 요청하며,
      * 각 섹션은 여러 발생 위치를 담을 수 있다. 각 섹션은 아직 채워지지 않은 문서 전체의 결과
@@ -46,12 +47,25 @@ class SearchRepositoryImpl(
         if (trimmedQuery.isBlank()) return emptyList()
 
         val effectiveLimit = limit.coerceAtLeast(1)
-        val entries = searchIndexDao.search(documentId.value, trimmedQuery, effectiveLimit)
+        val entries = searchIndexDao.search(documentId.value, trimmedQuery.escapeLikePattern(), effectiveLimit)
         return buildList(capacity = minOf(effectiveLimit, 16)) {
             for (entry in entries) {
                 addAll(entry.toSearchResults(trimmedQuery, limit = effectiveLimit - size))
                 if (size >= effectiveLimit) break
             }
         }
+    }
+}
+
+/**
+ * 사용자 검색어를 SQLite `LIKE` 패턴 안의 리터럴 문자열로 바꾼다.
+ *
+ * @receiver 사용자가 입력하고 앞뒤 공백을 제거한 검색어.
+ * @return `%`, `_`, `\\` 앞에 escape 문자를 붙인 SQL 바인딩 값.
+ */
+private fun String.escapeLikePattern(): String = buildString(length) {
+    for (character in this@escapeLikePattern) {
+        if (character == '%' || character == '_' || character == '\\') append('\\')
+        append(character)
     }
 }
