@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitView
 import com.tedd.teddreader.core.common.model.PageIndex
+import platform.Foundation.NSFileManager
 import platform.Foundation.NSURL
 import platform.PDFKit.PDFDocument
 import platform.PDFKit.PDFView
@@ -41,7 +42,10 @@ internal actual fun PlatformPdfPageSurface(
     contentPadding: PaddingValues,
     placeholderContentPadding: PaddingValues,
 ) {
-    if (documentUri.isNullOrBlank()) {
+    val path = documentUri
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::readerPdfFilePath)
+    if (path == null) {
         PdfPlaceholderSurface(
             pageIndex = pageIndex,
             modifier = modifier,
@@ -51,7 +55,6 @@ internal actual fun PlatformPdfPageSurface(
         return
     }
 
-    val path = documentUri.removePrefix("file://")
     val document = remember(path) { PDFDocument(NSURL.fileURLWithPath(path)) }
     UIKitView(
         modifier = modifier.padding(contentPadding),
@@ -71,5 +74,32 @@ internal actual fun PlatformPdfPageSurface(
     )
 }
 
+/**
+ * PDFKit이 열 수 있는 로컬 `file://` URI만 받아 파일 시스템 경로를 반환한다. 이전 버전의 iOS 가져오기가 파일 이름을
+ * percent-encoding 없이 `file://` 뒤에 그대로 이어 붙여 저장했으므로, `#`, `?`, 리터럴 `%XX`가 든 이름은
+ * NSURL 파싱 시 fragment·query·디코딩으로 잘못 해석된다. 그래서 접두사를 제거한 원본 경로가 디스크에 있으면 그것을
+ * 우선하고, 없을 때만 percent-encoding을 해제한 NSURL 경로로 대체한다.
+ *
+ * @param documentUri 검사할 PDF 문서 URI.
+ * @return 열 수 있는 파일 경로, `file://` URI가 아니거나 경로를 해석할 수 없으면 null.
+ */
+internal fun readerPdfFilePath(documentUri: String): String? {
+    if (!documentUri.startsWith(FileUriPrefix)) return null
+    val rawPath = documentUri.removePrefix(FileUriPrefix)
+    if (rawPath.isNotEmpty() && NSFileManager.defaultManager.fileExistsAtPath(rawPath)) return rawPath
+    val url = NSURL.URLWithString(documentUri) ?: return null
+    return url.takeIf { it.isFileURL() }?.path
+}
+
+/** [readerPdfFilePath]가 로컬 파일 URI로 인정하는 접두사다. */
+private const val FileUriPrefix = "file://"
+
+/**
+ * PDFKit view가 이미 같은 네이티브 페이지를 표시 중인지 비교해 불필요한 페이지 이동을 막는다.
+ *
+ * @param currentPage 현재 표시 중인 PDFKit 페이지.
+ * @param targetPage 이동하려는 PDFKit 페이지.
+ * @return 대상이 존재하고 현재 페이지와 identity가 다르면 true.
+ */
 internal fun readerPdfShouldNavigate(currentPage: Any?, targetPage: Any?): Boolean =
     targetPage != null && currentPage !== targetPage
